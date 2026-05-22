@@ -2,7 +2,8 @@
 会话覆盖层：管理单个会话对模板数据的修改。
 
 设计：
-- 每个会话在 data/memory/sessions/{session_id}/overrides.json 维护一份覆盖数据
+- 每个会话在 data/memory/sessions/{mode}/{session_id}/overrides.json 维护一份覆盖数据
+- 自由模式和剧情模式的会话分目录存储
 - 加载角色/物品/环境时，先读模板，再合并会话覆盖
 - 只存储与模板不同的字段，未覆盖的字段跟随模板更新
 
@@ -22,22 +23,23 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _SESSIONS_DIR = _PROJECT_ROOT / "data" / "memory" / "sessions"
 
 
-def _get_overlay_path(session_id: str) -> Path:
-    return _SESSIONS_DIR / session_id / "overrides.json"
+def _get_overlay_path(mode: str, session_id: str) -> Path:
+    return _SESSIONS_DIR / mode / session_id / "overrides.json"
 
 
 class SessionOverlay:
     """单个会话的覆盖数据管理器。"""
 
-    def __init__(self, session_id: str):
+    def __init__(self, session_id: str, mode: str = "free"):
         self.session_id = session_id
+        self.mode = mode
         self._data: dict = {}
         self._load()
 
     # ── 持久化 ──
 
     def _load(self):
-        path = _get_overlay_path(self.session_id)
+        path = _get_overlay_path(self.mode, self.session_id)
         if path.exists():
             try:
                 with open(path, "r", encoding="utf-8") as f:
@@ -53,7 +55,7 @@ class SessionOverlay:
             self._data = {}
 
     def _save(self):
-        path = _get_overlay_path(self.session_id)
+        path = _get_overlay_path(self.mode, self.session_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         import time
         self._data["updated_at"] = time.time()
@@ -171,13 +173,13 @@ class SessionOverlay:
         }
 
     @staticmethod
-    def delete_session_overlays(session_id: str):
+    def delete_session_overlays(session_id: str, mode: str = "free"):
         """删除整个会话的覆盖目录。"""
         import shutil
-        session_dir = _SESSIONS_DIR / session_id
+        session_dir = _SESSIONS_DIR / mode / session_id
         if session_dir.exists():
             shutil.rmtree(session_dir)
-            logger.info("已删除会话覆盖数据: %s", session_id)
+            logger.info("已删除会话覆盖数据: %s/%s", mode, session_id)
 
 
 def _deep_merge(base: dict, override: dict) -> dict:

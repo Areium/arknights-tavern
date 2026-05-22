@@ -35,7 +35,7 @@ class Session:
         self._llm_backend = llm_backend_manager
 
         # 会话覆盖层
-        self.overlay = SessionOverlay(session_id)
+        self.overlay = SessionOverlay(session_id, mode)
 
         # 共享组件
         self.registry = RegistryManager()
@@ -138,9 +138,11 @@ class SessionManager:
         """销毁会话（含覆盖数据）。"""
         with self._lock:
             if session_id in self._sessions:
+                session = self._sessions[session_id]
+                mode = session.mode
                 del self._sessions[session_id]
-                SessionOverlay.delete_session_overlays(session_id)
-                logger.info("删除会话: %s", session_id)
+                SessionOverlay.delete_session_overlays(session_id, mode)
+                logger.info("删除会话: %s (mode=%s)", session_id, mode)
                 return True
             return False
 

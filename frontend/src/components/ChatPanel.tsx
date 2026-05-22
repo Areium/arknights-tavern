@@ -19,7 +19,8 @@ function filterSceneLog(log: string[]): string[] {
 }
 
 export default function ChatPanel() {
-  const { activeSessionId, chatMode } = useAppStore();
+  const { activeSessionId, chatMode, sessions } = useAppStore();
+  const activeMode = sessions.find((s) => s.id === activeSessionId)?.mode || "free";
   const api = useApi();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -33,7 +34,7 @@ export default function ChatPanel() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streaming]);
 
-  const storageKey = activeSessionId ? `ark_chat_${activeSessionId}` : null;
+  const storageKey = activeSessionId ? `ark_chat_${activeMode}_${activeSessionId}` : null;
 
   // On session/mode change: load from localStorage or backend, then optionally auto-narrate
   useEffect(() => {
@@ -45,7 +46,7 @@ export default function ChatPanel() {
 
     if (!activeSessionId) return;
     const sid: string = activeSessionId;
-    const key = `ark_chat_${sid}`;
+    const key = `ark_chat_${activeMode}_${sid}`;
 
     let cancelled = false;
 
