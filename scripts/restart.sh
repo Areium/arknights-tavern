@@ -1,68 +1,110 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ═══════════════════════════════════════════════════════════
+#  Arknights Txt — macOS 一键重启脚本
+#  1. 停止旧进程（Flask + Vite + Electron）
+#  2. 启动 Flask 后端
+#  3. 启动 Vite 前端开发服务器
+# ═══════════════════════════════════════════════════════════
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PYTHON="$PROJECT_DIR/.venv/bin/python3"
+PID_FILE="$PROJECT_DIR/.dev-pids"
 
-echo "============================================"
-echo "  Arknights Txt — 重启前后端"
-echo "============================================"
+cleanup() {
+  echo ""
+  echo "⏹  正在停止..."
+  if [ -f "$PID_FILE" ]; then
+    while IFS= read -r pid; do
+      kill "$pid" 2>/dev/null || true
+    done < "$PID_FILE"
+    rm -f "$PID_FILE"
+  fi
+  # 确保端口释放
+  lsof -ti tcp:5000 2>/dev/null | xargs kill -9 2>/dev/null || true
+  lsof -ti tcp:5173 2>/dev/null | xargs kill -9 2>/dev/null || true
+  echo "  ✓ 已停止"
+  exit 0
+}
+
+trap cleanup SIGINT SIGTERM
+
+echo ""
+echo "  ═══════════════════════════════════════"
+echo "    Arknights Txt — 重启前后端"
+echo "  ═══════════════════════════════════════"
 echo ""
 
 # ── 1. 停止旧进程 ──
-echo "[1/3] 正在停止旧进程..."
-
-kill_port() {
-    local port=$1 name=$2
-    local pid=""
-    if command -v lsof &>/dev/null; then
-        pid=$(lsof -ti:"$port" 2>/dev/null || true)
-    elif command -v netstat &>/dev/null; then
-        pid=$(netstat -ano 2>/dev/null | grep ":$port" | grep LISTENING | awk '{print $5}' | head -1)
-    fi
-    if [ -n "$pid" ]; then
-        if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
-            taskkill //F //PID "$pid" 2>/dev/null || true
-        else
-            kill -9 "$pid" 2>/dev/null || true
-        fi
-        echo "  已停止 PID $pid ($name :$port)"
-    fi
-}
-
-kill_port 5000 "Flask"
-kill_port 5173 "Vite"
-
-# Windows 下额外清理
-if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
-    taskkill //F //IM python.exe 2>/dev/null || true
-fi
-
-echo "  旧进程已清理"
+echo "  ● 停止旧进程..."
+lsof -ti tcp:5000 2>/dev/null | xargs kill -9 2>/dev/null || true
+lsof -ti tcp:5173 2>/dev/null | xargs kill -9 2>/dev/null || true
+# Electron 进程（保留窗口，只清理旧的后端子进程）
+pkill -f "python.*app.py" 2>/dev/null || true
+sleep 1
+echo "  ✓ 端口 5000/5173 已释放"
 echo ""
 
 # ── 2. 启动 Flask ──
-echo "[2/3] 启动 Flask 后端..."
-if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
-    # Git Bash on Windows
-    start "Flask Backend" cmd //k "cd /d "$PROJECT_DIR" && python src/app.py"
+echo "  ● 启动 Flask 后端..."
+export FLASK_DEBUG=false
+if [ -f "$PYTHON" ]; then
+  nohup "$PYTHON" "$PROJECT_DIR/src/app.py" > /tmp/arknights-flask.log 2>&1 &
 else
-    python "$PROJECT_DIR/src/app.py" &
+  nohup python3 "$PROJECT_DIR/src/app.py" > /tmp/arknights-flask.log 2>&1 &
 fi
-echo "  Flask 已启动 (http://127.0.0.1:5000)"
+FLASK_PID=$!
+echo "$FLASK_PID" > "$PID_FILE"
+
+# 等待就绪
+for i in $(seq 1 10); do
+  if curl -s http://127.0.0.1:5000/api/status > /dev/null 2>&1; then
+    echo "  ✓ Flask 已就绪 (PID $FLASK_PID, http://127.0.0.1:5000)"
+    break
+  fi
+  if [ "$i" -eq 10 ]; then
+    echo "  ✗ Flask 启动超时，查看日志: /tmp/arknights-flask.log"
+    exit 1
+  fi
+  sleep 1
+done
 echo ""
 
 # ── 3. 启动 Vite ──
-echo "[3/3] 启动 Vite 前端..."
-if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
-    start "Vite Frontend" cmd //k "cd /d "$PROJECT_DIR\\frontend" && npm run dev"
-else
-    (cd "$PROJECT_DIR/frontend" && npm run dev) &
-fi
-echo "  Vite 已启动 (http://localhost:5173)"
+echo "  ● 启动 Vite 前端..."
+cd "$PROJECT_DIR/frontend"
+nohup npx vite --port 5173 > /tmp/arknights-vite.log 2>&1 &
+VITE_PID=$!
+echo "$VITE_PID" >> "$PID_FILE"
+
+# 等待就绪
+for i in $(seq 1 15); do
+  if curl -s http://localhost:5173 > /dev/null 2>&1; then
+    echo "  ✓ Vite 已就绪 (PID $VITE_PID, http://localhost:5173)"
+    break
+  fi
+  if [ "$i" -eq 15 ]; then
+    echo "  ✗ Vite 启动超时，查看日志: /tmp/arknights-vite.log"
+    exit 1
+  fi
+  sleep 1
+done
+cd "$PROJECT_DIR"
 echo ""
 
-echo "============================================"
-echo "  启动完成！等待窗口加载后访问："
-echo "    http://localhost:5173"
-echo "============================================"
+echo "  ═══════════════════════════════════════"
+echo "   启动完成！"
+echo "     Flask  : http://127.0.0.1:5000"
+echo "     Vite   : http://localhost:5173"
+echo "    日志    : /tmp/arknights-flask.log"
+echo "              /tmp/arknights-vite.log"
+echo "  ═══════════════════════════════════════"
+echo ""
+
+# 提示打开浏览器
+open http://localhost:5173 2>/dev/null || true
+
+# 等待子进程（Ctrl+C 触发 cleanup）
+wait
