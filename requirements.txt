@@ -2,3 +2,5 @@ Flask
 Flask-Cors
 python-frontmatter
 PyYAML
+chromadb
+readchar

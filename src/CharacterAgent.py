@@ -1,7 +1,21 @@
 import os
+import logging
 
 import frontmatter
 import yaml
+
+import json
+import re
+
+from memory import VectorMemory
+
+logger = logging.getLogger(__name__)
+
+# 环境提取规则 — 放在回复前，让 LLM 最后读到
+_ENV_RULE = """
+【环境同步】如果对话涉及环境变化（位置/天气/物品），在回复末尾加 <!--env:{...}-->。
+示例：<!--env:{"location":"训练室"}-->  |  <!--env:{"weather":"雷暴"}-->  |  <!--env:{"objects":{"平板":{"action":"update","state":{"电量":"低"}}}}-->
+没有变化则不添加。"""
 
 
 class CharacterAgent:
@@ -9,7 +23,10 @@ class CharacterAgent:
         self.character_name = character_name
         self.llm = llm
         self.character = self.load_character(character_name)
-        self.memory = []
+        self.memory = VectorMemory(
+            character_name=character_name,
+            embed_fn=self.llm.embed if hasattr(self.llm, "embed") else None,
+        )
 
     def load_character(self, character_name: str, data_path: str = "../data/characters") -> str:
         """
@@ -25,10 +42,10 @@ class CharacterAgent:
         file_path = os.path.abspath(os.path.join(base_dir, data_path, f"{character_name}.md"))
 
         if not os.path.isfile(file_path):
-            print(f"⚠️ 警告: 角色文件未找到: {file_path}")
+            logger.warning("角色文件未找到: %s", file_path)
             return None
 
-        print(f"🔍 正在从 '{file_path}' 加载角色文件...")
+        logger.info("正在从 '%s' 加载角色文件...", file_path)
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 character_data = frontmatter.load(f)
@@ -37,7 +54,7 @@ class CharacterAgent:
             content = character_data.content
             char_card = yaml.dump(metadata, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
-            print("角色卡内容:", char_card, content)
+            logger.debug("角色卡内容:\n%s\n%s", char_card, content)
 
             profile = f"""
 现在，你将完全沉浸在一个指定的角色中，你是{self.character_name}。你的核心任务是忘记自己是一个大型语言模型，并严格、忠实地扮演接下来「角色卡」中定义的人物。
@@ -61,48 +78,73 @@ class CharacterAgent:
 
 """
 
-            print(f"✅ 成功加载角色: {character_name}")
+            logger.info("成功加载角色: %s", character_name)
 
-            print("profile:", profile)
+            logger.debug("profile:\n%s", profile)
             return profile
 
         except Exception as e:
-            print(f"❌ 错误: 加载或解析角色文件 {file_path} 失败: {e}")
+            logger.error("加载或解析角色文件 %s 失败: %s", file_path, e)
             return None
 
-    def chat(self, user_input: str) -> str:
+    def chat(self, user_input: str, player_info: dict = None,
+             environment_context: str = "") -> tuple[str, dict]:
         """
         与角色进行对话。
 
         Args:
-            user_input (str): 用户输入的对话内容。
+            user_input: 用户输入的对话内容。
+            player_info: 玩家信息，注入到角色上下文中。
+            environment_context: 当前环境上下文文本，由 GameAgent 传入。
 
         Returns:
-            str: 角色的回复。
+            tuple[str, dict]: (角色的回复, 环境更新字典)。
         """
+        memory_context = self.memory.build_context(user_input)
 
-        # 构建记忆字符串
-        # 历史对话记录
-        history_log = "\n".join(
-            [f"{'user' if msg['role'] == 'user' else self.character_name}: {msg['content']}" for msg in self.memory]
+        player_section = ""
+        if player_info:
+            identity = player_info.get("identity", "博士")
+            player_section = f"\n当前玩家身份: {identity}\n"
+
+        system_content = (
+            self.character
+            + player_section
+            + ("\n" + environment_context if environment_context else "")
+            + "\n" + memory_context
+            + _ENV_RULE  # 放在最后，让 LLM 回复前读到
         )
 
-        memory = f"""
+        messages = [
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": user_input},
+        ]
 
-【历史对话记录】:
-{history_log}
-"""
-
-        # 构建发送给 LLM 的消息列表
-        messages = [{"role": "system", "content": self.character + memory},
-                    {"role": "user", "content": user_input}]
-
-        # 调用 LLM 生成回复
         response = self.llm.chat(messages)
 
-        # 将当前用户输入添加到记忆中
-        self.memory.append({"role": "user", "content": user_input})
-        # 将 LLM 的回复添加到记忆中
-        self.memory.append({"role": "character", "content": response})
+        # 解析环境标记
+        env_updates = self._parse_env_markers(response)
+        clean_response = self._strip_env_markers(response)
 
-        return response
+        self.memory.add(user_input, clean_response)
+        return clean_response, env_updates
+
+    # ── 环境标记解析 ──
+
+    @staticmethod
+    def _parse_env_markers(text: str) -> dict:
+        """从回复中提取 <!--env:...--> JSON 标记。"""
+        markers = re.findall(r"<!--env:(.*?)-->", text, re.DOTALL)
+        if not markers:
+            return {}
+        for raw in markers:
+            try:
+                return json.loads(raw.strip())
+            except json.JSONDecodeError:
+                continue
+        return {}
+
+    @staticmethod
+    def _strip_env_markers(text: str) -> str:
+        """从回复中移除 <!--env:...--> 标记。"""
+        return re.sub(r"<!--env:.*?-->", "", text, flags=re.DOTALL).strip()

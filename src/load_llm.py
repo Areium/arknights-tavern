@@ -1,9 +1,12 @@
 import httpx
 import json
+import logging
 from dotenv import load_dotenv
 import os
 
 load_dotenv()  # 加载 .env 文件
+
+logger = logging.getLogger(__name__)
 
 class ModelConfig:
     """模型配置"""
@@ -63,10 +66,10 @@ class LocalLLM:
                 return result.get("message", {}).get("content", "")
 
         except httpx.RequestError as e:
-            print(f"请求本地大模型时出错: {e}")
+            logger.error("请求本地大模型时出错: %s", e)
             return f"错误: 无法连接到模型服务于 {self.config.base_url}。"
         except Exception as e:
-            print(f"发生未知错误: {e}")
+            logger.error("发生未知错误: %s", e)
             return f"错误: 处理请求时发生未知错误。"
 
 
@@ -75,7 +78,7 @@ class ApiModelConfig:
 
     api_key: str = os.getenv("API_KEY")
     base_url: str = os.getenv("API_URL")  
-    model: str = "Gemini-1.5-Flash"
+    model: str = "deepseek-v4-flash"
     max_tokens: int = 4096
     temperature: float = 0.5
     timeout: int = 30
@@ -92,6 +95,32 @@ class ApiLLM:
             timeout=config.timeout,
             headers={"Authorization": f"Bearer {self.config.api_key}"},
         )
+
+    def embed(self, texts: list[str]) -> list[list[float]] | None:
+        """
+        调用 embedding API 获取文本向量。
+
+        Args:
+            texts (list[str]): 需要编码的文本列表。
+
+        Returns:
+            list[list[float]] | None: 向量列表，不支持时返回 None。
+        """
+        try:
+            payload = {
+                "model": "text-embedding-3-small",
+                "input": texts,
+            }
+            response = self.client.post("/embeddings", json=payload)
+            response.raise_for_status()
+            result = response.json()
+            data = sorted(result["data"], key=lambda x: x["index"])
+            return [item["embedding"] for item in data]
+        except Exception:
+            if not getattr(self, "_embed_warned", False):
+                logger.warning("Embedding API 不可用 (将回退到滑动窗口模式)")
+                self._embed_warned = True
+            return None
 
     def chat(self, messages: list, stream: bool = False) -> str:
         """
@@ -129,7 +158,7 @@ class ApiLLM:
                             )
                             full_response += content_part
                         except json.JSONDecodeError:
-                            print(f"无法解码JSON行: {line}")
+                            logger.warning("无法解码JSON行: %s", line)
                             continue
                 return full_response
             else:
@@ -141,10 +170,10 @@ class ApiLLM:
                 )
 
         except httpx.RequestError as e:
-            print(f"请求API模型时出错: {e}")
+            logger.error("请求API模型时出错: %s", e)
             return f"错误: 无法连接到模型服务于 {self.config.base_url}。"
         except Exception as e:
-            print(f"发生未知错误: {e}")
+            logger.error("发生未知错误: %s", e)
             return f"错误: 处理请求时发生未知错误。"
 
 
