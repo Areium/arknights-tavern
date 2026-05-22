@@ -11,6 +11,7 @@
 import { spawn, ChildProcess } from "child_process";
 import path from "path";
 import http from "http";
+import net from "net";
 
 export interface ProcessManagerOptions {
   projectRoot: string; // Python 项目根目录
@@ -19,6 +20,21 @@ export interface ProcessManagerOptions {
   onCrash?: () => void;
   onHealthChange?: (healthy: boolean) => void;
   pythonPath?: string; // 自定义 Python 路径，默认使用项目 .venv
+}
+
+/**
+ * 检测端口是否已被占用。
+ */
+function isPortInUse(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once("error", () => resolve(true));
+    server.once("listening", () => {
+      server.close();
+      resolve(false);
+    });
+    server.listen(port, "127.0.0.1");
+  });
 }
 
 export class PythonProcessManager {
@@ -33,8 +49,16 @@ export class PythonProcessManager {
     this.options = options;
   }
 
-  start(): void {
-    this.spawnProcess();
+  async start(): Promise<void> {
+    // 先检测端口是否已被占用（如手动启动的 Flask）
+    const inUse = await isPortInUse(this.options.port);
+    if (inUse) {
+      console.log(
+        `[Backend] Port ${this.options.port} already in use — monitoring existing backend`
+      );
+    } else {
+      this.spawnProcess();
+    }
     this.startHealthCheck();
   }
 
@@ -49,7 +73,15 @@ export class PythonProcessManager {
     this.crashCount = 0;
     // 等待端口释放
     await new Promise((r) => setTimeout(r, 1000));
-    this.spawnProcess();
+
+    const inUse = await isPortInUse(this.options.port);
+    if (inUse) {
+      console.log(
+        `[Backend] Port ${this.options.port} still in use — monitoring existing backend`
+      );
+    } else {
+      this.spawnProcess();
+    }
     this.startHealthCheck();
   }
 
@@ -195,6 +227,12 @@ export class PythonProcessManager {
       this.healthy = false;
       console.log("[Backend] Health check failed");
       this.options.onHealthChange?.(false);
+    }
+
+    // 没有托管子进程但后端不可用 → 尝试启动
+    if (!this.process && this.crashCount < this.maxRestarts) {
+      console.log("[Backend] No managed process — attempting to start backend");
+      this.spawnProcess();
     }
   }
 }
