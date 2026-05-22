@@ -138,6 +138,21 @@ export function useApi() {
         method: "POST",
         body: JSON.stringify({ endpoint: endpointId }),
       }),
+
+    // ── 角色库 ──
+    getCharacters: () => request<any[]>("/api/characters"),
+
+    // ── 文档创建 ──
+    createDocument: (
+      category: string,
+      id: string,
+      content: string = "",
+      metadata?: Record<string, any>
+    ) =>
+      request<any>(`/api/documents/${category}`, {
+        method: "POST",
+        body: JSON.stringify({ id, content, metadata }),
+      }),
   };
 }
 

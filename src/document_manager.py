@@ -174,7 +174,6 @@ class DocumentManager:
                     continue
 
                 filepath = os.path.join(root, f)
-                rel_path = os.path.relpath(filepath, self._root)
                 stat = os.stat(filepath)
                 file_hash = self._hash_file(filepath)
 
@@ -192,11 +191,13 @@ class DocumentManager:
                     except Exception:
                         pass
 
+                # doc_id 相对于类别目录（如 "characters" → "银灰"）
+                cat_rel = os.path.relpath(filepath, cat.directory)
                 docs.append(DocumentInfo(
                     category_id=category_id,
-                    doc_id=os.path.splitext(rel_path)[0],
+                    doc_id=os.path.splitext(cat_rel)[0],
                     title=title,
-                    path=rel_path,
+                    path=cat_rel,
                     hash_str=file_hash,
                     mtime=stat.st_mtime,
                     summary=summary,

@@ -10,7 +10,11 @@ interface CharacterInfo {
   active: boolean;
 }
 
-export default function CharacterPanel() {
+export default function CharacterPanel({
+  onAddClick,
+}: {
+  onAddClick?: () => void;
+}) {
   const { activeSessionId } = useAppStore();
   const api = useApi();
   const [characters, setCharacters] = useState<CharacterInfo[]>([]);
@@ -18,12 +22,30 @@ export default function CharacterPanel() {
   const [error, setError] = useState("");
 
   const loadCharacters = useCallback(async () => {
-    if (!activeSessionId) return;
+    if (!activeSessionId) {
+      setCharacters([]);
+      return;
+    }
     setLoading(true);
     setError("");
     try {
       const data = await api.getSceneCharacters(activeSessionId);
-      setCharacters(data);
+      // data = { characters: ["霜星", "阿米娅"], active: "霜星" }
+      const rawList: any[] = data.characters || data;
+      const list: CharacterInfo[] = rawList.map((c: any) => {
+        const name = typeof c === "string" ? c : c.name || c.id || "";
+        return {
+          id: name,
+          name,
+          title: typeof c === "string" ? "" : c.title || "",
+          loaded: typeof c === "string" ? true : c.loaded ?? true,
+          active:
+            typeof c === "string"
+              ? data.active === name
+              : c.active ?? (data.active === name),
+        };
+      });
+      setCharacters(list);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -76,17 +98,35 @@ export default function CharacterPanel() {
     );
   }
 
+  const loadedCount = characters.filter((c) => c.loaded).length;
+
   return (
     <div className="card">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="panel-title mb-0">场景角色</h2>
-        <button
-          onClick={loadCharacters}
-          className="text-xs text-gray-500 hover:text-gray-300"
-          disabled={loading}
-        >
-          {loading ? "刷新中..." : "刷新"}
-        </button>
+        <h2 className="panel-title mb-0">
+          场景角色
+          {loadedCount > 0 && (
+            <span className="ml-1.5 text-xs text-gray-500 font-normal">
+              ({loadedCount})
+            </span>
+          )}
+        </h2>
+        <div className="flex gap-1">
+          <button
+            onClick={onAddClick}
+            className="text-xs px-2 py-1 rounded bg-green-700/30 text-green-300 hover:bg-green-700/50"
+            title="浏览全部角色"
+          >
+            + 添加
+          </button>
+          <button
+            onClick={loadCharacters}
+            className="text-xs text-gray-500 hover:text-gray-300"
+            disabled={loading}
+          >
+            {loading ? "..." : "刷新"}
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -94,9 +134,9 @@ export default function CharacterPanel() {
       )}
 
       <div className="space-y-1.5 max-h-48 overflow-y-auto">
-        {characters.length === 0 && (
+        {!loading && characters.length === 0 && (
           <p className="text-gray-500 text-sm text-center py-4">
-            暂无角色，点击下方加载
+            暂无角色 — 点击"+ 添加"浏览
           </p>
         )}
         {characters.map((c) => (

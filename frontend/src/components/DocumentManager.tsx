@@ -26,8 +26,18 @@ export default function DocumentManager() {
 
   const loadTree = useCallback(async () => {
     try {
-      const data = await api.getDocumentTree();
-      setTree(data);
+      const data: any[] = await api.getDocumentTree();
+      // Transform backend response to TreeNode format
+      const nodes: TreeNode[] = data.map((cat: any) => ({
+        name: cat.category || cat.category_info?.id || "unknown",
+        type: "category" as const,
+        children: (cat.documents || []).map((doc: any) => ({
+          name: doc.title || doc.id,
+          type: "document" as const,
+          path: `${cat.category || cat.category_info?.id}/${doc.id}`,
+        })),
+      }));
+      setTree(nodes);
     } catch (err: any) {
       setError("加载文档树失败: " + err.message);
     }
@@ -74,7 +84,10 @@ export default function DocumentManager() {
         docContent.metadata,
         docContent.hash
       );
-      setDocContent(updated);
+      // Re-read to get full content (save endpoint only returns {hash, path})
+      const fresh = await api.readDocument(category, id);
+      setDocContent(fresh);
+      setEditContent(fresh.content);
       setEditing(false);
     } catch (err: any) {
       if (err.message.includes("hash") || err.message.includes("conflict")) {
