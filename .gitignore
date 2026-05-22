@@ -4,3 +4,5 @@ logs/
 .history/
 data/memory/
 venv/
+.venv/
+CLAUDE.md

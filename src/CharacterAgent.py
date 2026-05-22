@@ -19,27 +19,21 @@ _ENV_RULE = """
 
 
 class CharacterAgent:
-    def __init__(self, character_name, llm):
+    def __init__(self, character_name, llm, registry=None):
         self.character_name = character_name
         self.llm = llm
+        self.registry = registry
+        self.metadata = {}
         self.character = self.load_character(character_name)
         self.memory = VectorMemory(
             character_name=character_name,
             embed_fn=self.llm.embed if hasattr(self.llm, "embed") else None,
         )
 
-    def load_character(self, character_name: str, data_path: str = "../data/characters") -> str:
-        """
-        从文件加载角色设置并构建提示。
-
-        Args:
-            character_name (str): 角色名称，对应的文件名（不含扩展名）。
-
-        Returns:
-            str: 角色的提示prompt，如果加载失败则返回 None。
-        """
+    def load_character(self, character_name: str) -> str:
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        file_path = os.path.abspath(os.path.join(base_dir, data_path, f"{character_name}.md"))
+        project_root = os.path.dirname(base_dir)
+        file_path = os.path.join(project_root, "data", "characters", f"{character_name}.md")
 
         if not os.path.isfile(file_path):
             logger.warning("角色文件未找到: %s", file_path)
@@ -52,6 +46,7 @@ class CharacterAgent:
 
             metadata = character_data.metadata
             content = character_data.content
+            self.metadata = metadata
             char_card = yaml.dump(metadata, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
             logger.debug("角色卡内容:\n%s\n%s", char_card, content)
@@ -88,7 +83,8 @@ class CharacterAgent:
             return None
 
     def chat(self, user_input: str, player_info: dict = None,
-             environment_context: str = "", stream_callback=None) -> tuple[str, dict]:
+             environment_context: str = "", scene_context: str = "",
+             stream_callback=None) -> tuple[str, dict]:
         """
         与角色进行对话。
 
@@ -96,6 +92,7 @@ class CharacterAgent:
             user_input: 用户输入的对话内容。
             player_info: 玩家信息，注入到角色上下文中。
             environment_context: 当前环境上下文文本，由 GameAgent 传入。
+            scene_context: 场景上下文（同场角色、场景动态），由 SceneManager 传入。
 
         Returns:
             tuple[str, dict]: (角色的回复, 环境更新字典)。
@@ -107,12 +104,19 @@ class CharacterAgent:
             identity = player_info.get("identity", "博士")
             player_section = f"\n当前玩家身份: {identity}\n"
 
+        # 通过 RegistryManager 注入种族/职业/势力/物品的层级引用
+        registry_context = ""
+        if self.registry and self.metadata:
+            registry_context = self.registry.build_character_context(self.metadata)
+
         system_content = (
             self.character
+            + ("\n\n" + registry_context if registry_context else "")
             + player_section
             + ("\n" + environment_context if environment_context else "")
+            + ("\n\n" + scene_context if scene_context else "")
             + "\n" + memory_context
-            + _ENV_RULE  # 放在最后，让 LLM 回复前读到
+            + _ENV_RULE
         )
 
         messages = [

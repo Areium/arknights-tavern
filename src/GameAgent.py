@@ -5,9 +5,11 @@ import logging
 
 import frontmatter
 
-from load_llm import LocalLLM, ModelConfig, ApiLLM
+from load_llm import ApiLLM
 from CharacterAgent import CharacterAgent
 from environment_state import EnvironmentState
+from registry_manager import RegistryManager
+from SceneManager import SceneManager
 
 logger = logging.getLogger(__name__)
 
@@ -15,24 +17,31 @@ logger = logging.getLogger(__name__)
 class GameAgent:
     """游戏代理，实现角色扮演和环境加载"""
 
+    # 路径常量（基于 __file__ 绝对路径，不依赖 CWD）
+    _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _CHARACTERS_DIR = os.path.join(_ROOT, "data", "characters")
+    _ENV_DIR = os.path.join(_ROOT, "environment")
+
     def __init__(self):
-        """
-        初始化游戏代理。
-        """
         self.llm = ApiLLM()
 
-        # 角色管理
-        self.character_agents = {}  # 缓存已创建的角色代理
-        self.current_character_agent = None  # 当前活跃的角色代理
-        self.current_character_name = None  # 当前角色名称
+        # 层级索引管理器：解析种族/职业/势力/物品引用
+        self.registry = RegistryManager()
+        self.registry.validate()  # 启动时报告引用断裂
+
+        # 场景角色管理器：支持多角色同场
+        self.scene_manager = SceneManager(self.llm, self.registry)
 
         # 玩家信息管理
-        self.player_info = {}  # 存储玩家信息
-        self.player_loaded = False  # 玩家信息是否已加载
+        self.player_info = {}
+        self.player_loaded = False
 
         # 环境状态管理
         self.environment = EnvironmentState()
         self.environment.load_default()
+
+        # 对话模式: "system" = 系统操作, "story" = 剧情模式
+        self.dialogue_mode = "system"
 
         available_tools = {
             "load_character": self.load_character,
@@ -43,8 +52,42 @@ class GameAgent:
         }
 
         self.tools = available_tools
+
+        # 缓存：字符列表 + 已知地点（避免每次调用都扫描文件系统）
+        self._character_list = [
+            name.replace(".md", "")
+            for name in os.listdir(self._CHARACTERS_DIR)
+            if name.endswith(".md")
+        ]
+        self._known_locations = self._scan_locations()
+
         self.system_prompt = self._build_system_prompt()
         self.history = []
+
+    # ── 属性（兼容旧接口，实际委托给 scene_manager）──
+
+    @property
+    def current_character_name(self) -> str | None:
+        """当前活跃角色名，委托给 SceneManager。"""
+        return self.scene_manager.active if self.scene_manager else None
+
+    @current_character_name.setter
+    def current_character_name(self, value: str | None):
+        """兼容旧代码中直接设值的写法。"""
+        if self.scene_manager and value:
+            self.scene_manager.active = value
+
+    @property
+    def current_character_agent(self) -> CharacterAgent | None:
+        """当前活跃角色的 CharacterAgent，委托给 SceneManager。"""
+        return self.scene_manager.get_active_agent() if self.scene_manager else None
+
+    @current_character_agent.setter
+    def current_character_agent(self, value: CharacterAgent | None):
+        """兼容旧代码（SceneManager 接管后此 setter 极少使用）。"""
+        pass
+
+    # ── 系统 prompt 构建 ──
 
     def _build_system_prompt(self) -> str:
         """构建游戏代理的系统提示"""
@@ -66,15 +109,14 @@ class GameAgent:
                 }
             )
 
-        character_list = [
-            name.replace(".md", "")
-            for name in os.listdir("data/characters")
-            if name.endswith(".md")
-        ]
-
         current_status = ""
-        if self.current_character_name:
-            current_status = f"当前活跃角色: {self.current_character_name}"
+        scene_chars = self.scene_manager.get_scene_characters() if self.scene_manager else []
+        if scene_chars:
+            active = self.scene_manager.active
+            chars_str = "、".join(scene_chars)
+            current_status = f"当前场景角色: {chars_str}"
+            if active:
+                current_status += f"\n对话中: {active}"
         else:
             current_status = "当前无活跃角色"
 
@@ -95,9 +137,10 @@ class GameAgent:
 ## 🎯 核心职责
 
 ### 角色管理
-1. **角色切换**: 当用户想要与特定角色对话时，调用相应工具,并且请用中文名称
-2. **角色列表**: 当用户想了解可用角色时，提供角色信息
-3. **退出对话**: 当用户想要退出当前角色对话时，处理退出逻辑
+1. **角色加载**: 当用户说"把XX加入对话"/"让XX来"/"叫XX过来"/"我想和XX聊聊"时，调用 load_character 工具
+2. **角色切换**: 当用户想要切换对话目标时，调用 switch_character 工具
+3. **角色列表**: 当用户想了解可用角色时，提供角色信息
+4. **退出对话**: 当用户想要退出当前角色对话时，处理退出逻辑
 
 ### 玩家管理
 1. **玩家信息**: 当用户想要设置或查看玩家信息时，调用load_player工具
@@ -114,12 +157,12 @@ class GameAgent:
 
 ## 📋 交互规则
 
-1. **角色对话模式**: 当用户选择角色后，后续对话将直接路由给角色代理
+1. **角色加载**: 当用户说"我想和XX聊聊"时，调用 load_character 将该角色加入场景
 2. **系统命令优先**: 识别并处理系统级命令（如切换角色、退出等）
 3. **游戏引导**: 在无角色状态下，引导用户选择角色或使用游戏功能
 
 ## 🎮 可用角色
-{', '.join(character_list)}
+{', '.join(self._character_list)}
 
 ## 📊 当前状态
 {current_status}
@@ -140,9 +183,11 @@ class GameAgent:
 请开始你的游戏代理工作！"""
         return prompt
 
+    # ── 角色管理工具 ──
+
     def load_character(self, character_name: str) -> str:
         """
-        加载角色并创建角色代理。
+        加载角色并加入当前场景。
 
         Args:
             character_name (str): 角色名称，对应的文件名（不含扩展名）。
@@ -150,36 +195,15 @@ class GameAgent:
         Returns:
             str: 加载结果信息。
         """
-        try:
-            # 检查角色是否已经缓存
-            if character_name in self.character_agents:
-                logger.info("从缓存切换到角色: %s", character_name)
-                self.current_character_agent = self.character_agents[character_name]
-                self.current_character_name = character_name
-                return f"成功切换到已缓存的角色: {character_name}"
-
-            # 创建新的角色代理
-            logger.info("正在创建角色代理: %s", character_name)
-            character_agent = CharacterAgent(character_name, self.llm)
-
-            if character_agent.character is None:
-                return f"错误: 无法加载角色 {character_name}"
-
-            # 缓存角色代理
-            self.character_agents[character_name] = character_agent
-            self.current_character_agent = character_agent
-            self.current_character_name = character_name
-
-            logger.info("成功加载并缓存角色: %s", character_name)
+        ok = self.scene_manager.load_character(character_name)
+        if ok:
+            self.dialogue_mode = "story"
             return f"成功加载角色: {character_name}"
-
-        except Exception as e:
-            logger.error("加载角色 %s 失败: %s", character_name, e)
-            return f"错误: 加载角色 {character_name} 失败: {str(e)}"
+        return f"错误: 无法加载角色 {character_name}"
 
     def switch_character(self, character_name: str) -> str:
         """
-        快速切换到已缓存的角色，如果角色未缓存则自动加载。
+        快速切换到场景中的另一个角色。
 
         Args:
             character_name (str): 要切换到的角色名称
@@ -187,16 +211,15 @@ class GameAgent:
         Returns:
             str: 切换结果信息
         """
-        if character_name == self.current_character_name:
-            return f"当前已经是角色 {character_name}，无需切换"
+        if character_name == self.scene_manager.active:
+            return f"当前已经在与 {character_name} 对话"
 
-        if character_name in self.character_agents:
-            logger.info("快速切换到角色: %s", character_name)
-            self.current_character_agent = self.character_agents[character_name]
-            self.current_character_name = character_name
+        ok = self.scene_manager.switch_active(character_name)
+        if ok:
+            self.dialogue_mode = "story"
             return f"已切换到角色: {character_name}"
         else:
-            logger.info("角色 %s 未缓存，正在加载...", character_name)
+            # 不在场景中时，尝试加载
             return self.load_character(character_name)
 
     def exit_conversation(self) -> str:
@@ -207,6 +230,20 @@ class GameAgent:
             str: 退出信息
         """
         return "conversation_ended"
+
+    def toggle_mode(self) -> str:
+        """切换对话模式：系统模式 ↔ 剧情模式。"""
+        if self.dialogue_mode == "system":
+            if not self.scene_manager.get_active_agent():
+                return "当前没有活跃角色，无法切换到剧情模式"
+            self.dialogue_mode = "story"
+            chars = "、".join(self.scene_manager.get_scene_characters())
+            return f"已切换到剧情模式，当前场景角色：{chars}。按 Tab 返回系统模式。"
+        else:
+            self.dialogue_mode = "system"
+            return "已切换到系统模式。按 Tab 进入剧情模式。"
+
+    # ── 玩家管理工具 ──
 
     def load_player(self, identity: str = "博士") -> str:
         """
@@ -247,61 +284,98 @@ class GameAgent:
             return f"环境已更新: {'、'.join(changes)}"
         return "未指定任何环境参数"
 
-    def generate_options(self) -> list[str] | None:
-        """基于当前上下文生成 3 个对话选项。
+    # ── 选项生成 ──
 
-        支持两种模式：
-        - 有活跃角色 → 从玩家视角生成角色对话选项
-        - 无活跃角色 → 从 GameAgent 系统命令视角生成菜单操作选项
+    def generate_options(self) -> list[str] | None:
+        """基于当前模式和上下文生成选项。
+
+        剧情模式 → 继续推进剧情 + 对话选项
+        系统模式 → 系统操作选项（角色管理、环境设置等）
+        """
+        if self.dialogue_mode == "story" and self.scene_manager.get_active_agent():
+            return self._generate_story_options()
+        return self._generate_system_options()
+
+    def _generate_story_options(self) -> list[str] | None:
+        """生成剧情模式选项：【继续推进剧情】+ 对话选项。
+
+        对话选项最多 2 条，由 LLM 根据当前场景生成。
+        无近期对话时只返回【继续推进剧情】。
         """
         env_context = self.environment.build_context()
         player_identity = self.player_info.get("identity", "博士") if self.player_loaded else "博士"
+        active = self.scene_manager.active or ""
 
-        if self.current_character_agent:
-            recent = self.current_character_agent.memory.recent_buffer
-            dialogue_lines = []
-            for msg in recent[-6:]:
-                speaker = "用户" if msg["role"] == "user" else self.current_character_name
-                dialogue_lines.append(f"{speaker}: {msg['content']}")
-            dialogue = "\n".join(dialogue_lines)
+        scene_chars = self.scene_manager.get_scene_characters()
+        chars_context = f"当前场景角色：{'、'.join(scene_chars)}"
 
-            prompt = f"""根据以下明日方舟角色扮演上下文，从玩家「{player_identity}」的视角，
-生成 3 句可以向角色「{self.current_character_name}」说的话。
+        agent = self.scene_manager.get_active_agent()
+        recent = agent.memory.recent_buffer if agent else []
+        dialogue_lines = []
+        for msg in recent[-4:]:
+            speaker = "用户" if msg["role"] == "user" else active
+            dialogue_lines.append(f"{speaker}: {msg['content']}")
+        dialogue = "\n".join(dialogue_lines)
+
+        # 无近期对话 → 只有继续推进剧情
+        if not dialogue_lines:
+            return ["继续推进剧情"]
+
+        prompt = f"""根据以下明日方舟角色扮演上下文，从玩家「{player_identity}」的视角，
+生成 2 句可以向角色「{active}」说的话。
 
 【当前场景】
 {env_context}
 
+{chars_context}
+对话中：{active}
+
 {'【近期对话】\n' + dialogue if dialogue else ''}
 
 要求：
-1. 选项以「{player_identity}」对「{self.current_character_name}」说话的口吻
+1. 选项以「{player_identity}」对「{active}」说话的口吻
 2. 自然衔接近期对话
-3. 三个选项展现不同的意图（问候、追问、转移话题、行动请求等）
+3. 展现不同的意图（问候、追问、转移话题、行动请求等）
 4. 口语化、自然
 
-直接输出 JSON 数组，例如：["选项 1", "选项 2", "选项 3"]
+直接输出 JSON 数组，例如：["选项 1", "选项 2"]
 不要包含其他文字。"""
-        else:
-            character_list = [
-                name.replace(".md", "")
-                for name in os.listdir("data/characters")
-                if name.endswith(".md")
-            ]
-            status_parts = []
-            if self.player_loaded:
-                status_parts.append(f"玩家: {self.player_info.get('identity', '博士')}")
-            else:
-                status_parts.append("玩家未加载")
-            status_parts.append(env_context)
 
-            prompt = f"""你正在协助用户进行明日方舟文字冒险游戏。
-当前没有活跃角色，用户处于游戏主菜单。
+        try:
+            messages = [{"role": "user", "content": prompt}]
+            response = self.llm.chat(messages).strip()
+            opts = self._parse_options(response)
+            if opts and len(opts) >= 2:
+                return ["继续推进剧情"] + opts[:2]
+            return ["继续推进剧情"]
+        except Exception as e:
+            logger.error("选项生成失败: %s", e)
+            return ["继续推进剧情"]
+
+    def _generate_system_options(self) -> list[str] | None:
+        """生成系统操作选项（系统模式）。"""
+        env_context = self.environment.build_context()
+        player_identity = self.player_info.get("identity", "博士") if self.player_loaded else "博士"
+
+        status_parts = []
+        if self.player_loaded:
+            status_parts.append(f"玩家: {self.player_info.get('identity', '博士')}")
+        else:
+            status_parts.append("玩家未加载")
+        status_parts.append(env_context)
+
+        scene_chars = self.scene_manager.get_scene_characters()
+        if scene_chars:
+            status_parts.append(f"场景中: {'、'.join(scene_chars)}")
+
+        prompt = f"""你正在协助用户进行明日方舟文字冒险游戏。
+用户当前处于系统主菜单。
 
 【当前状态】
 {' | '.join(p for p in status_parts if p)}
 
 【可用操作】
-- 加载角色开始对话（可选角色：{'、'.join(character_list)}）
+- 加载角色开始对话（可选角色：{'、'.join(self._character_list)}）
 - 设置玩家身份
 - 查看环境信息
 - 查看可用角色列表
@@ -351,49 +425,83 @@ class GameAgent:
 
         return None
 
+    def _scan_locations(self) -> dict[str, str]:
+        """扫描 environment/Location/ 目录，构建 {关键词 → 文件名} 映射（仅在 __init__ 调用一次）。"""
+        known = {}
+        base = os.path.join(self._ENV_DIR, "Location")
+        if not os.path.isdir(base):
+            return known
+        for root, _dirs, files in os.walk(base):
+            for f in files:
+                if not f.endswith(".md"):
+                    continue
+                stem = os.path.splitext(f)[0]
+                known[stem] = stem
+                try:
+                    with open(os.path.join(root, f), "r", encoding="utf-8") as fh:
+                        meta = frontmatter.load(fh).metadata
+                    if meta.get("name"):
+                        known[meta["name"]] = stem
+                    if meta.get("alias"):
+                        known[meta["alias"]] = stem
+                except Exception:
+                    continue
+        return known
+
     def _check_env_keywords(self, text: str) -> bool:
         """从用户输入中检测环境关键词，自动更新环境状态。"""
-        changed = False
-
-        # 位置检测：定向动词 + 已知地点
-        base = os.path.join("environment", "Location")
-        known_locations = {}
-        if os.path.isdir(base):
-            for root, _dirs, files in os.walk(base):
-                for f in files:
-                    if f.endswith(".md"):
-                        name = os.path.splitext(f)[0]
-                        known_locations[name] = name
-                        try:
-                            with open(os.path.join(root, f), "r", encoding="utf-8") as fh:
-                                meta = frontmatter.load(fh).metadata
-                            known_locations[meta.get("name")] = name
-                            if meta.get("alias"):
-                                known_locations[meta["alias"]] = name
-                        except Exception:
-                            continue
-
         move_verbs = ["去", "到", "回", "进入", "来", "前往", "返回"]
-        for loc_key, loc_file in known_locations.items():
+        for loc_key, loc_file in self._known_locations.items():
             if loc_key in text:
                 for verb in move_verbs:
                     idx = text.find(loc_key)
-                    # 检查地点名前是否有关键词（前后5字符内）
                     start = max(0, idx - 5)
-                    context = text[start:idx + len(loc_key)]
-                    if verb in context:
+                    if verb in text[start:idx + len(loc_key)]:
                         self.environment.set_location(loc_file)
-                        changed = True
                         logger.info("检测到位置变化: →%s", loc_key)
-                        break
-                if changed:
+                        return True
                     break
+        return False
 
-        return changed
+    def _check_character_load_intent(self, text: str) -> str | None:
+        """检测用户输入中的角色加入意图，匹配成功则加载角色并返回提示。
+
+        触发句式：让/叫/把/请/找 [角色名] 来/过来/加入/进来/加入对话
+        """
+        # 构建角色名查找表：原名 + 中文名（通过 metadata 中的 name 字段）
+        name_map = {}
+        for cn in self._character_list:
+            name_map[cn] = cn
+        for cn in self.scene_manager.get_scene_characters():
+            agent = self.scene_manager.get_active_agent()
+            if agent:
+                meta = getattr(agent, 'metadata', {})
+                if meta.get('name'):
+                    name_map[meta['name']] = cn
+
+        load_patterns = [
+            r"(?:让|叫|把|请|找)(.{2,4})(?:来|过来|加入|进来|加入对话)",
+            r"(?:将|把)(.{2,4})(?:加入对话|加入场景|叫过来|请过来)",
+            r"(.{2,4})(?:加入对话|加入场景|来一下|在吗)",
+        ]
+        for pattern in load_patterns:
+            m = re.search(pattern, text)
+            if m:
+                target = m.group(1).strip()
+                for key, filename in name_map.items():
+                    if target in key or key in target:
+                        scene_chars = self.scene_manager.get_scene_characters()
+                        if filename in scene_chars:
+                            return f"{filename} 已经在场景中了。"
+                        ok = self.scene_manager.load_character(filename)
+                        if ok:
+                            self.dialogue_mode = "story"
+                            return f"{filename} 来到了场景中。"
+        return None
 
     def run(self, user_input: str, max_turns: int = 10, stream: bool = False) -> str:
         """
-        运行游戏代理，处理用户输入，支持工具调用和角色对话。
+        运行游戏代理，处理用户输入。
 
         Args:
             user_input (str): 用户输入
@@ -402,37 +510,50 @@ class GameAgent:
         Returns:
             str: 最终的回复内容
         """
-        # 环境关键词预检测（在路由到角色前更新环境）
+        # 环境关键词预检测（所有模式下都更新环境）
         self._check_env_keywords(user_input)
 
-        # 如果有活跃角色，让大模型判断是否路由
-        if self.current_character_agent:
-            should_route = self._should_route_to_character(user_input)
-            if should_route:
-                logger.info("路由对话给角色: %s", self.current_character_name)
-                try:
-                    # 传递玩家信息和环境上下文给角色代理
-                    player_info = self.player_info if self.player_loaded else None
-                    env_context = self.environment.build_context()
+        # 角色加载意图检测（所有模式下）
+        load_msg = self._check_character_load_intent(user_input)
+        if load_msg:
+            return load_msg
+
+        # ── 剧情模式：通过 SceneManager 路由 ──
+        if self.dialogue_mode == "story" and self.scene_manager.get_active_agent():
+            logger.info("剧情模式 → 场景角色: %s", self.scene_manager.get_scene_characters())
+            try:
+                player_info = self.player_info if self.player_loaded else None
+                env_context = self.environment.build_context()
+
+                if user_input == "__CONTINUE__":
+                    narrative, env_updates = self.scene_manager.narrate(
+                        player_info, env_context
+                    )
+                    self.environment.apply_update(env_updates)
+                    result = self._refine_response(narrative)
+                    if stream:
+                        for ch in result:
+                            print(ch, end="", flush=True)
+                        print()
+                    return result
+                else:
+                    # 用户主动对话 → 路由到角色
                     stream_cb = (lambda t: print(t, end="", flush=True)) if stream else None
-                    character_response, env_updates = self.current_character_agent.chat(
+                    character_response, env_updates = self.scene_manager.chat(
                         user_input, player_info, env_context, stream_callback=stream_cb
                     )
                     if stream:
-                        print()  # 流式结束后换行
-                    # 应用环境更新
+                        print()
                     self.environment.apply_update(env_updates)
                     return self._refine_response(character_response)
-                except Exception as e:
-                    logger.error("角色对话出错: %s", e)
-                    return "抱歉，角色遇到了一些问题，请稍后再试。"
-            else:
-                logger.info("模型判断: 作为系统命令处理")
 
-        # 将用户输入添加到历史记录
+            except Exception as e:
+                logger.error("剧情模式出错: %s", e)
+                return "抱歉，剧情处理遇到了一些问题，请稍后再试。"
+
+        # ── 系统模式：完整 GameAgent 系统 prompt + 工具循环 ──
         self.history.append({"role": "user", "content": user_input})
 
-        # 构建消息列表：系统提示 + 历史对话
         messages = [
             {"role": "system", "content": self.system_prompt},
         ] + self.history
@@ -461,13 +582,10 @@ class GameAgent:
                         messages.append({"role": "assistant", "content": tool_result})
                         logger.debug("工具结果: %s", tool_result)
 
-
                         # 处理特殊工具调用
                         if tool_name == "exit_conversation":
-                            # 退出对话工具被调用，结束游戏
                             final_response = response_text.replace(tool_call_match.group(0), "").strip()
                             return final_response or "再见！感谢你的陪伴。"
-
 
                     else:
                         error_message = f"错误: 尝试调用未知工具 '{tool_name}'"
@@ -478,30 +596,11 @@ class GameAgent:
                     logger.error(error_message)
 
             else:
-                # 没有工具调用，直接返回回复
                 logger.debug("游戏代理直接回复")
                 return self._refine_response(response_text)
 
-        # 如果达到最大轮次，也进行内容整理
         error_msg = "系统提示: 处理过程过于复杂，请重新尝试。"
         return self._refine_response(error_msg)
-
-    _SYSTEM_KEYWORDS = [
-        "切换角色", "换个角色", "换角色", "退出对话", "返回菜单", "退出游戏",
-    ]
-
-    def _should_route_to_character(self, user_input: str) -> bool:
-        """快速判断用户输入是否应路由给角色（基于关键词）。"""
-        text = user_input.strip()
-        # 短命令仅在用户单独输入时识别为系统命令
-        if text in ("退出", "返回", "切换", "help", "帮助"):
-            logger.info("路由决策: 独立系统命令 '%s'", text)
-            return False
-        for kw in self._SYSTEM_KEYWORDS:
-            if kw in text:
-                logger.info("路由决策: 命中系统关键词 '%s'，作为系统命令处理", kw)
-                return False
-        return True
 
     def _refine_response(self, raw_response: str) -> str:
         """清理响应中的工具调用标签。"""

@@ -1,4 +1,3 @@
-import json
 import os
 import re
 import logging
@@ -42,6 +41,13 @@ class SceneObject:
 
 class EnvironmentState:
     """环境状态管理器：位置、天气、时段、氛围、场景物品。"""
+
+    _ABSTRACT_WORDS = {
+        "流逝", "痕迹", "感觉", "氛围", "气息", "样子", "存在",
+        "过程", "结果", "活动", "状态", "方式", "时刻", "瞬间",
+        "色彩", "亮度", "训练", "动作", "性能", "数据",
+        "记录", "信息", "情况", "程度", "水平",
+    }
 
     def __init__(self, data_dir: str = "environment"):
         self.data_dir = data_dir
@@ -305,13 +311,7 @@ class EnvironmentState:
                 name = clean if clean and len(clean) >= 2 else raw
 
                 # 如果最后一段是抽象概念而非具体物品，尝试往前找
-                abstract_words = {
-                    "流逝", "痕迹", "感觉", "氛围", "气息", "样子", "存在",
-                    "过程", "结果", "活动", "状态", "方式", "时刻", "瞬间",
-                    "色彩", "亮度", "训练", "动作", "性能", "数据",
-                    "记录", "信息", "情况", "程度", "水平",
-                }
-                if name in abstract_words and len(parts) >= 3:
+                if name in self._ABSTRACT_WORDS and len(parts) >= 3:
                     # 取倒数第二段
                     raw2 = parts[-2].strip()
                     clean2 = re.split(r"[，。；,;]", raw2, maxsplit=1)[0].strip()
@@ -352,13 +352,7 @@ class EnvironmentState:
         if len(name) > 8 or len(name) < 2:
             return
         # 跳过抽象概念
-        abstract_words = {
-            "流逝", "痕迹", "感觉", "氛围", "气息", "样子", "存在",
-            "过程", "结果", "活动", "状态", "方式", "时刻", "瞬间",
-            "色彩", "亮度", "训练", "动作", "性能", "数据",
-            "记录", "信息", "情况", "程度", "水平",
-        }
-        if any(ab in name for ab in abstract_words):
+        if any(ab in name for ab in self._ABSTRACT_WORDS):
             return
         portable = not any(
             kw in line for kw in ["固定", "嵌入式", "墙壁", "墙上", "挂着", "悬挂"]
@@ -368,15 +362,19 @@ class EnvironmentState:
         )
 
     def _list_locations(self) -> list[str]:
-        """递归扫描 environmnt/Location/ 下的地点文件。"""
+        """递归扫描 environmnt/Location/ 下的地点文件（排除模板和索引）。"""
         base = os.path.join(self.data_dir, "Location")
         if not os.path.isdir(base):
             return []
+        _EXCLUDED = {"TEMPLATE", "_index"}
         locs = []
         for root, _dirs, files in os.walk(base):
             for f in files:
-                if f.endswith(".md"):
-                    locs.append(os.path.splitext(f)[0])
+                if not f.endswith(".md"):
+                    continue
+                stem = os.path.splitext(f)[0]
+                if stem not in _EXCLUDED:
+                    locs.append(stem)
         return locs
 
     def _apply_object_updates(self, objects: dict):
@@ -385,9 +383,6 @@ class EnvironmentState:
             action = obj_data.get("action", "update")
             if action == "remove":
                 self.remove_object(obj_name)
-            elif action == "add":
-                kwargs = {k: v for k, v in obj_data.items() if k != "action"}
-                self.add_object(obj_name, **kwargs)
-            else:  # update / move
+            else:  # add / update / move
                 kwargs = {k: v for k, v in obj_data.items() if k != "action"}
                 self.add_object(obj_name, **kwargs)
