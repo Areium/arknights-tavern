@@ -1,19 +1,36 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useAppStore } from "../stores/appStore";
 import { useApi } from "../hooks/useApi";
 
 export default function SessionList() {
-  const { sessions, activeSessionId, setSessions, setActiveSession } =
+  const { sessions, activeSessionId, chatMode, setSessions, setActiveSession } =
     useAppStore();
   const api = useApi();
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
 
+  // 按当前模式过滤会话
+  const filteredSessions = useMemo(
+    () => sessions.filter((s) => s.mode === chatMode),
+    [sessions, chatMode]
+  );
+
+  // 模式切换时自动切换到该模式下的第一个会话
+  useEffect(() => {
+    if (filteredSessions.length === 0) {
+      setActiveSession(null);
+      return;
+    }
+    const activeInMode = filteredSessions.find((s) => s.id === activeSessionId);
+    if (!activeInMode) {
+      setActiveSession(filteredSessions[0].id);
+    }
+  }, [chatMode, filteredSessions, activeSessionId, setActiveSession]);
+
   const handleCreate = async () => {
     setCreating(true);
     try {
-      const { chatMode } = useAppStore.getState();
       const session = await api.createSession(chatMode);
       setSessions([...sessions, session]);
       setActiveSession(session.id);
@@ -31,7 +48,8 @@ export default function SessionList() {
       await api.deleteSession(id);
       setSessions(sessions.filter((s) => s.id !== id));
       if (activeSessionId === id) setActiveSession(null);
-      try { localStorage.removeItem(`ark_chat_${id}`); } catch {}
+      const mode = sessions.find((s) => s.id === id)?.mode || "free";
+      try { localStorage.removeItem(`ark_chat_${mode}_${id}`); } catch {}
     } catch (err: any) {
       alert("删除失败: " + err.message);
     }
@@ -74,7 +92,9 @@ export default function SessionList() {
   return (
     <div className="card">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="panel-title mb-0">会话列表</h2>
+        <h2 className="panel-title mb-0">
+          {chatMode === "story" ? "剧情会话" : "自由会话"}
+        </h2>
         <button
           onClick={handleCreate}
           disabled={creating}
@@ -85,10 +105,12 @@ export default function SessionList() {
       </div>
 
       <div className="space-y-1 max-h-60 overflow-y-auto">
-        {sessions.length === 0 && (
-          <p className="text-gray-500 text-sm text-center py-4">暂无会话</p>
+        {filteredSessions.length === 0 && (
+          <p className="text-gray-500 text-sm text-center py-4">
+            {chatMode === "story" ? "暂无剧情会话" : "暂无自由会话"}
+          </p>
         )}
-        {sessions.map((s) => (
+        {filteredSessions.map((s) => (
           <div
             key={s.id}
             onClick={() => setActiveSession(s.id)}
