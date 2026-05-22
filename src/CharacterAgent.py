@@ -88,7 +88,7 @@ class CharacterAgent:
             return None
 
     def chat(self, user_input: str, player_info: dict = None,
-             environment_context: str = "") -> tuple[str, dict]:
+             environment_context: str = "", stream_callback=None) -> tuple[str, dict]:
         """
         与角色进行对话。
 
@@ -120,7 +120,11 @@ class CharacterAgent:
             {"role": "user", "content": user_input},
         ]
 
-        response = self.llm.chat(messages)
+        response = self.llm.chat(
+            messages,
+            stream=stream_callback is not None,
+            on_token=stream_callback,
+        )
 
         # 解析环境标记
         env_updates = self._parse_env_markers(response)

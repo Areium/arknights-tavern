@@ -391,7 +391,7 @@ class GameAgent:
 
         return changed
 
-    def run(self, user_input: str, max_turns: int = 10) -> str:
+    def run(self, user_input: str, max_turns: int = 10, stream: bool = False) -> str:
         """
         运行游戏代理，处理用户输入，支持工具调用和角色对话。
 
@@ -414,9 +414,12 @@ class GameAgent:
                     # 传递玩家信息和环境上下文给角色代理
                     player_info = self.player_info if self.player_loaded else None
                     env_context = self.environment.build_context()
+                    stream_cb = (lambda t: print(t, end="", flush=True)) if stream else None
                     character_response, env_updates = self.current_character_agent.chat(
-                        user_input, player_info, env_context
+                        user_input, player_info, env_context, stream_callback=stream_cb
                     )
+                    if stream:
+                        print()  # 流式结束后换行
                     # 应用环境更新
                     self.environment.apply_update(env_updates)
                     return self._refine_response(character_response)
@@ -483,83 +486,25 @@ class GameAgent:
         error_msg = "系统提示: 处理过程过于复杂，请重新尝试。"
         return self._refine_response(error_msg)
 
+    _SYSTEM_KEYWORDS = [
+        "切换角色", "换个角色", "换角色", "退出对话", "返回菜单", "退出游戏",
+    ]
+
     def _should_route_to_character(self, user_input: str) -> bool:
-        """
-        使用大模型判断用户输入是否应路由给角色。
-
-        Args:
-            user_input (str): 用户输入
-
-        Returns:
-            bool: 如果应路由给角色，返回 True，否则返回 False。
-        """
-        prompt = f"""# 路由决策
-
-当前有一个活跃的角色扮演对话正在进行中，角色是 {self.current_character_name}。
-你需要判断用户的最新输入是针对该角色的，还是一个希望与游戏代理交互的系统命令。
-
-## 用户输入
-"{user_input}"
-
-## 你的判断
-- 如果输入是针对 **{self.current_character_name}** 的对话内容（例如：打招呼、提问、互动），请只回答 "CHARACTER"。
-- 如果输入是希望与 **游戏代理** 交互的系统命令（例如：切换角色、退出游戏、询问游戏规则等），请只回答 "AGENT"。
-
-请严格按照要求，直接给出你的判断，不要包含任何其他文字。"""
-
-        try:
-            messages = [{"role": "system", "content": prompt}]
-            response = self.llm.chat(messages, stream=False).strip().upper()
-            logger.debug("路由决策模型响应: '%s'", response)
-            return "CHARACTER" in response
-        except Exception as e:
-            logger.warning("路由决策失败: %s", e)
-            # 失败时，默认为非系统命令，继续与角色对话
-            return True
+        """快速判断用户输入是否应路由给角色（基于关键词）。"""
+        text = user_input.strip()
+        # 短命令仅在用户单独输入时识别为系统命令
+        if text in ("退出", "返回", "切换", "help", "帮助"):
+            logger.info("路由决策: 独立系统命令 '%s'", text)
+            return False
+        for kw in self._SYSTEM_KEYWORDS:
+            if kw in text:
+                logger.info("路由决策: 命中系统关键词 '%s'，作为系统命令处理", kw)
+                return False
+        return True
 
     def _refine_response(self, raw_response: str) -> str:
-        """
-        使用大模型整理和优化响应内容
-
-        Args:
-            raw_response (str): 原始响应内容
-
-        Returns:
-            str: 整理后的响应内容
-        """
-        refine_system_prompt = f"""你是一个内容整理专家，请优化以下角色扮演游戏中的回复内容。
-
-## 🎯 优化目标
-1. **移除技术痕迹**: 删除任何工具调用标签、系统提示或元信息
-2. **保持角色一致性**: 确保回复完全符合角色的性格和说话风格
-3. **提升自然度**: 让对话更自然流畅，增强沉浸感
-4. **优化表达**: 改善语言表达，但保持原意不变
-
-## 📋 处理规则
-- 如果内容包含工具调用标签，完全移除它们
-- 保持角色的第一人称视角
-- 确保语言风格与角色设定一致
-- 如果内容过于简短，可适当丰富表达
-- 如果内容有语法错误，进行修正
-- 保持原始情感和语气
-
-## 整理后的内容
-请直接输出整理后的内容，不要添加任何说明或注释。"""
-
-        try:
-            # 构建整理消息，包含 system 和 user 角色
-            refine_messages = [
-                {"role": "system", "content": refine_system_prompt},
-                {"role": "user", "content": raw_response},
-            ]
-
-            # 调用大模型进行内容整理
-            refined_response = self.llm.chat(refine_messages)
-
-            return refined_response.strip()
-
-        except Exception as e:
-            logger.warning("内容整理失败: %s", e)
-            # 如果整理失败，返回原始内容（但移除工具调用标签）
-            cleaned_response = re.sub(r"<tool_call>.*?</tool_call>", "", raw_response, flags=re.DOTALL)
-            return cleaned_response.strip()
+        """清理响应中的工具调用标签。"""
+        return re.sub(
+            r"<tool_call>.*?</tool_call>", "", raw_response, flags=re.DOTALL
+        ).strip()

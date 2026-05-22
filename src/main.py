@@ -1,5 +1,5 @@
 from GameAgent import GameAgent
-from ui import OptionsMenu
+from ui import OptionsMenu, stream_print
 from logging_setup import setup_logging, run_with_timer, get_log_path
 
 
@@ -26,9 +26,18 @@ def main():
             print("结束对话。")
             break
 
-        # 运行代理并获取响应（带实时计时）
-        response = run_with_timer(agent.run, user_input, 10)
-        print(f"\n{response}\n")
+        # 运行代理并获取响应
+        if agent.current_character_agent:
+            # 角色对话模式：LLM 直接流式输出，感知延迟最低
+            print()
+            response = agent.run(user_input, max_turns=10, stream=True)
+            print()
+        else:
+            # 游戏代理模式：带实时计时，完整响应后打字机输出
+            response = run_with_timer(agent.run, user_input, max_turns=10)
+            print()
+            stream_print(response, delay=0.02)
+            print()
 
 
 if __name__ == "__main__":

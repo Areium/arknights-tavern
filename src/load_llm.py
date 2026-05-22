@@ -77,7 +77,7 @@ class ApiModelConfig:
     """API模型配置"""
 
     api_key: str = os.getenv("API_KEY")
-    base_url: str = os.getenv("API_URL")  
+    base_url: str = os.getenv("BASE_URL")  
     model: str = "deepseek-v4-flash"
     max_tokens: int = 4096
     temperature: float = 0.5
@@ -122,21 +122,23 @@ class ApiLLM:
                 self._embed_warned = True
             return None
 
-    def chat(self, messages: list, stream: bool = False) -> str:
+    def chat(self, messages: list, stream: bool = False, on_token=None) -> str:
         """
         使用API模型进行聊天。
 
         Args:
-            messages (list): 对话消息列表，格式为 [{"role": "user", "content": "..."}]。
+            messages (list): 对话消息列表。
             stream (bool): 是否使用流式响应。
+            on_token (callable | None): 流式模式下每收到一个 token 时回调。
 
         Returns:
-            str: 模型生成的文本。
+            str: 模型生成的完整文本。
         """
         try:
             payload = {
                 "model": self.config.model,
                 "messages": messages,
+                "stream": stream,
             }
             response = self.client.post("/chat/completions", json=payload)
             response.raise_for_status()
@@ -156,7 +158,10 @@ class ApiLLM:
                                 .get("delta", {})
                                 .get("content", "")
                             )
-                            full_response += content_part
+                            if content_part:
+                                full_response += content_part
+                                if on_token:
+                                    on_token(content_part)
                         except json.JSONDecodeError:
                             logger.warning("无法解码JSON行: %s", line)
                             continue

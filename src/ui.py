@@ -1,3 +1,6 @@
+import sys
+import time
+
 import readchar
 from readchar import key as kbd
 
@@ -43,8 +46,9 @@ class OptionsMenu:
     def _render(self):
         """渲染选项列表，高亮当前选中项。"""
         if hasattr(self, "_line_count"):
-            # 回移光标覆盖之前输出
-            print(f"\033[{self._line_count}A", end="")
+            for _ in range(self._line_count):
+                sys.stdout.write("\033[A\033[K")
+            sys.stdout.flush()
 
         lines = [
             "请选择对话选项 (↑↓ 切换, Enter 确认, Tab 自行输入, 1/2/3 快捷键):",
@@ -59,9 +63,21 @@ class OptionsMenu:
 
         output = "\n".join(lines)
         self._line_count = len(lines)
-        print(output, end="\r\n")
+        print(output, flush=True)
 
     def _custom_input(self) -> str:
         """清除菜单并切换到自定义输入模式。"""
-        print(f"\033[{self._line_count}A\033[J", end="")
+        if hasattr(self, "_line_count"):
+            for _ in range(self._line_count):
+                sys.stdout.write("\033[A\033[K")
+            sys.stdout.flush()
+            del self._line_count
         return input("请输入: ")
+
+
+def stream_print(text: str, delay: float = 0.03):
+    """逐字符流式输出文本（打字机效果），末尾自动换行。"""
+    for ch in text:
+        print(ch, end="", flush=True)
+        time.sleep(delay)
+    print()
