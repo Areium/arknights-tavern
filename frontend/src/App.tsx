@@ -8,7 +8,7 @@ import DocumentManager from "./components/DocumentManager";
 import SettingsPanel from "./components/SettingsPanel";
 
 export default function App() {
-  const { currentView, setBackendStatus, setLLMStatus, setSessions, theme, setTheme } =
+  const { currentView, setBackendStatus, setLLMStatus, setSessions, theme, setTheme, setEditBeforeSend } =
     useAppStore();
   const api = useApi();
 
@@ -19,6 +19,9 @@ export default function App() {
         const config = await api.getLLMConfig();
         if (config.theme === "light" || config.theme === "dark") {
           setTheme(config.theme);
+        }
+        if (typeof config.edit_before_send === "boolean") {
+          setEditBeforeSend(config.edit_before_send);
         }
       } catch {
         // 后端不可用时使用默认深色主题

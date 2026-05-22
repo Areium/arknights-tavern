@@ -42,16 +42,6 @@ export default function Sidebar() {
           <p className="panel-title">对话模式</p>
           <div className="flex gap-2">
             <button
-              onClick={() => setChatMode("free")}
-              className={`flex-1 px-2 py-1.5 text-xs rounded-md transition-colors ${
-                chatMode === "free"
-                  ? "bg-purple-600 text-white"
-                  : "bg-gray-700 text-gray-400 hover:text-gray-200"
-              }`}
-            >
-              自由
-            </button>
-            <button
               onClick={() => setChatMode("story")}
               className={`flex-1 px-2 py-1.5 text-xs rounded-md transition-colors ${
                 chatMode === "story"
@@ -60,6 +50,16 @@ export default function Sidebar() {
               }`}
             >
               剧情
+            </button>
+            <button
+              onClick={() => setChatMode("free")}
+              className={`flex-1 px-2 py-1.5 text-xs rounded-md transition-colors ${
+                chatMode === "free"
+                  ? "bg-purple-600 text-white"
+                  : "bg-gray-700 text-gray-400 hover:text-gray-200"
+              }`}
+            >
+              自由
             </button>
           </div>
         </div>

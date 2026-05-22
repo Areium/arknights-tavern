@@ -18,7 +18,7 @@ export default function ItemPanel({
   onAddClick?: () => void;
   refreshKey?: number;
 }) {
-  const { activeSessionId } = useAppStore();
+  const { activeSessionId, chatMode } = useAppStore();
   const api = useApi();
   const [items, setItems] = useState<SceneItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -164,13 +164,15 @@ export default function ItemPanel({
           )}
         </h2>
         <div className="flex gap-1">
-          <button
-            onClick={onAddClick}
-            className="text-xs px-2 py-1 rounded bg-green-700/30 text-green-300 hover:bg-green-700/50"
-            title="浏览全部物品"
-          >
-            + 添加
-          </button>
+          {chatMode !== "story" && (
+            <button
+              onClick={onAddClick}
+              className="text-xs px-2 py-1 rounded bg-green-700/30 text-green-300 hover:bg-green-700/50"
+              title="浏览全部物品"
+            >
+              + 添加
+            </button>
+          )}
           <button
             onClick={loadItems}
             className="text-xs text-gray-500 hover:text-gray-300"
@@ -188,7 +190,9 @@ export default function ItemPanel({
       <div className="space-y-1.5 max-h-40 overflow-y-auto">
         {!loading && items.length === 0 && (
           <p className="text-gray-500 text-sm text-center py-4">
-            暂无物品 — 点击"+ 添加"浏览
+            {chatMode === "story"
+              ? "场景暂无物品"
+              : '暂无物品 — 点击"+ 添加"浏览'}
           </p>
         )}
         {items.map((item) => (
@@ -226,12 +230,14 @@ export default function ItemPanel({
               >
                 📌
               </button>
-              <button
-                onClick={() => handleRemove(item.id)}
-                className="text-xs px-2 py-1 rounded bg-gray-700 text-gray-400 hover:text-red-400"
-              >
-                移除
-              </button>
+              {chatMode !== "story" && (
+                <button
+                  onClick={() => handleRemove(item.id)}
+                  className="text-xs px-2 py-1 rounded bg-gray-700 text-gray-400 hover:text-red-400"
+                >
+                  移除
+                </button>
+              )}
             </div>
           </div>
         ))}

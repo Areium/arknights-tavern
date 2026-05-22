@@ -18,6 +18,9 @@ import uuid
 import logging
 from typing import Optional
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import yaml
 from flask import Flask, jsonify, request, Response, stream_with_context
 from flask_cors import CORS
@@ -270,6 +273,7 @@ def session_group_chat(session_id: str):
 def _build_choices(session, narrative: str) -> list[str]:
     """根据配置生成选项：LLM 自动生成或内置默认（不再包含"自行输入..."）。"""
     config = llm_backend.get_config()
+    llm_choices = []
     if config.get("auto_generate_choices"):
         count = config.get("choice_count", 3)
         llm = session.get_llm()
@@ -290,18 +294,19 @@ def _build_choices(session, narrative: str) -> list[str]:
                     {"role": "user", "content": prompt},
                 ], stream=False)
                 lines = [l.strip() for l in response.strip().split("\n") if l.strip()]
-                # 过滤明显的垃圾行
                 lines = [l for l in lines if len(l) <= 30 and not l.startswith("#")]
                 if lines:
-                    return lines[:count]
+                    llm_choices = lines[:count]
             except Exception:
                 pass
 
-    # 内置默认（无"自行输入..."）
+    # 始终将"继续推进剧情"放在第一位
     options = ["继续推进剧情"]
-    active = session.scene_manager.active
-    if active:
-        options.append(f"对{active}说话")
+    options.extend(llm_choices)
+    if len(options) == 1:
+        active = session.scene_manager.active
+        if active:
+            options.append(f"对{active}说话")
     return options
 
 
@@ -324,7 +329,16 @@ def session_narrate(session_id: str):
 
     stream_id = f"narr_{uuid.uuid4().hex[:12]}"
     player_info = {"identity": request.args.get("identity", "博士")}
+    user_action = request.args.get("action", "").strip()
     env_context = session.environment.build_context()
+
+    # 注入最近回忆上下文，帮助 LLM 保持剧情连贯
+    recent_memories = session.get_memories()[-3:]
+    if recent_memories:
+        mem_lines = ["\n【剧情回顾】"]
+        for m in recent_memories:
+            mem_lines.append(f"- 第{m['round_start']}-{m['round_end']}轮：{m['summary']}")
+        env_context += "\n".join(mem_lines)
 
     def generate():
         yield f"data: {json.dumps({'type': 'meta', 'data': {'stream_id': stream_id}})}\n\n"
@@ -334,6 +348,31 @@ def session_narrate(session_id: str):
                 player_info, env_context
             )
             session.environment.apply_update(env_updates)
+
+            # 环境变化时发出 scene_event
+            if env_updates:
+                yield f"data: {json.dumps({'type': 'scene_event', 'data': {
+                    'event': 'environment_changed',
+                    'env': {
+                        'location': session.environment.location,
+                        'weather': session.environment.weather,
+                        'time': session.environment.time_of_day,
+                    },
+                    'stream_id': stream_id
+                }})}\n\n"
+
+            # 回忆系统：记录叙述并检查是否需要生成回忆
+            if session.mode == "story":
+                session.add_narration(narrative, user_action)
+                config = llm_backend.get_config()
+                interval = config.get("memory_interval", 5)
+                if session.should_generate_memory(interval):
+                    memory = session.generate_memory()
+                    if memory:
+                        yield f"data: {json.dumps({'type': 'memory_event', 'data': {
+                            'memory': memory,
+                            'stream_id': stream_id
+                        }})}\n\n"
 
             # 流式输出叙述文本
             for ch in narrative:
@@ -373,21 +412,89 @@ def session_narrate_continue(session_id: str):
     player_info = {"identity": data.get("identity", "博士")}
     env_context = session.environment.build_context()
 
+    # 注入最近回忆上下文
+    recent_memories = session.get_memories()[-3:]
+    if recent_memories:
+        mem_lines = ["\n【剧情回顾】"]
+        for m in recent_memories:
+            mem_lines.append(f"- 第{m['round_start']}-{m['round_end']}轮：{m['summary']}")
+        env_context += "\n".join(mem_lines)
+
     try:
         narrative, env_updates = session.scene_manager.narrate(
             player_info, env_context,
             user_action=data.get("action", ""),
         )
         session.environment.apply_update(env_updates)
+
+        # 回忆系统
+        response_extra = {}
+        if session.mode == "story":
+            session.add_narration(narrative, data.get("action", ""))
+            config = llm_backend.get_config()
+            interval = config.get("memory_interval", 5)
+            if session.should_generate_memory(interval):
+                memory = session.generate_memory()
+                if memory:
+                    response_extra["memory"] = memory
+
         options = _build_choices(session, narrative)
         return jsonify({
             "narrative": narrative,
             "env_updates": env_updates,
             "choices": options,
+            **response_extra,
         })
     except Exception as e:
         logger.error("叙述出错: %s", e)
         return _json_error(f"叙述失败: {e!s}", 500)
+
+
+@app.route("/api/sessions/<session_id>/narrate-variant", methods=["POST"])
+def session_narrate_variant(session_id: str):
+    """生成叙述变体（不记录到历史，由前端管理变体列表）。"""
+    session = _get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+    err = _require_usable(session)
+    if err:
+        return err
+    data = request.json or {}
+    player_info = {"identity": data.get("identity", "博士")}
+    prompt = data.get("prompt", "").strip()
+    env_context = session.environment.build_context()
+
+    recent_memories = session.get_memories()[-3:]
+    if recent_memories:
+        mem_lines = ["\n【剧情回顾】"]
+        for m in recent_memories:
+            mem_lines.append(f"- 第{m['round_start']}-{m['round_end']}轮：{m['summary']}")
+        env_context += "\n".join(mem_lines)
+
+    try:
+        narrative, env_updates = session.scene_manager.narrate(
+            player_info, env_context,
+            user_action=prompt,
+        )
+        return jsonify({"narrative": narrative})
+    except Exception as e:
+        logger.error("生成叙述变体出错: %s", e)
+        return _json_error(f"生成失败: {e!s}", 500)
+
+
+@app.route("/api/sessions/<session_id>/narrate-update", methods=["POST"])
+def session_narrate_update(session_id: str):
+    """更新指定轮次的叙述文本（前端切换变体时同步）。"""
+    session = _get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+    data = request.json or {}
+    round_num = data.get("round")
+    narrative = data.get("narrative", "")
+    if round_num is None:
+        return _json_error("需要 round 参数")
+    session.update_narration(int(round_num), narrative)
+    return jsonify({"ok": True})
 
 
 # ══════════════════════════════════════════════════════
@@ -429,6 +536,108 @@ def update_environment(session_id: str):
         "weather": session.environment.weather,
         "time": session.environment.time_of_day,
     })
+
+
+@app.route("/api/environment/presets", methods=["GET"])
+def get_environment_presets():
+    """返回可用的环境预设（地点、天气、时间）。"""
+    import frontmatter
+
+    # 解析地点索引
+    locations = []
+    index_path = os.path.join(os.path.dirname(__file__), "..", "environment", "Location", "_index.md")
+    try:
+        with open(index_path, "r", encoding="utf-8") as f:
+            index_data = frontmatter.load(f)
+        for name, info in index_data.metadata.get("index", {}).items():
+            locations.append({
+                "name": name,
+                "region": info.get("region", ""),
+                "summary": info.get("summary", ""),
+                "tags": info.get("tags", []),
+            })
+    except Exception as e:
+        logger.warning("解析地点索引失败: %s", e)
+
+    # 解析天气预设
+    weathers = []
+    weather_dir = os.path.join(os.path.dirname(__file__), "..", "environment", "weather")
+    try:
+        for fname in sorted(os.listdir(weather_dir)):
+            if not fname.endswith(".md") or fname.startswith("_") or fname == "TEMPLATE.md":
+                continue
+            fpath = os.path.join(weather_dir, fname)
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    data = frontmatter.load(f)
+                wt = data.metadata.get("weather_type", {})
+                if wt.get("name"):
+                    weathers.append({
+                        "name": wt["name"],
+                        "id": wt.get("id", ""),
+                        "icon": wt.get("icon", ""),
+                        "category": wt.get("category", ""),
+                    })
+            except Exception:
+                continue
+    except Exception as e:
+        logger.warning("解析天气预设失败: %s", e)
+
+    # 时间预设
+    times = ["清晨", "上午", "中午", "下午", "傍晚", "夜晚", "深夜"]
+
+    return jsonify({
+        "locations": locations,
+        "weathers": weathers,
+        "times": times,
+    })
+
+
+# ══════════════════════════════════════════════════════
+# 5.5  回忆系统
+# ══════════════════════════════════════════════════════
+
+
+@app.route("/api/sessions/<session_id>/memories", methods=["GET"])
+def get_memories(session_id: str):
+    """获取会话的回忆列表。"""
+    session = _get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+    return jsonify({
+        "memories": session.get_memories(),
+        "narration_count": session.narration_count,
+        "last_memory_end": session._last_memory_end,
+    })
+
+
+@app.route("/api/sessions/<session_id>/memories/regenerate", methods=["POST"])
+def regenerate_memories(session_id: str):
+    """清除已有回忆，用当前间隔重新从完整历史生成。"""
+    session = _get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+    config = llm_backend.get_config()
+    interval = config.get("memory_interval", 5)
+    memories = session.regenerate_memories(interval)
+    return jsonify({
+        "memories": memories,
+        "narration_count": session.narration_count,
+    })
+
+
+@app.route("/api/sessions/<session_id>/rollback", methods=["POST"])
+def rollback_session(session_id: str):
+    """回退会话到指定轮次，删除之后的叙述历史和回忆。"""
+    session = _get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+    data = request.json or {}
+    target = data.get("round", 0)
+    if not isinstance(target, int) or target < 0:
+        return _json_error("round 必须是非负整数", 400)
+    result = session.rollback_to_round(target)
+    return jsonify(result)
 
 
 # ══════════════════════════════════════════════════════
@@ -724,6 +933,8 @@ def llm_switch():
     if not endpoint_id:
         return _json_error("需要 endpoint 参数")
 
+    llm_backend._ensure_detected()
+
     # 重新排序优先级
     found = None
     for ep in llm_backend._all_endpoints:
@@ -756,7 +967,7 @@ def llm_update_config():
     """更新 LLM 配置。"""
     data = request.json or {}
     allowed = {"api_key", "base_url", "cloud_model", "ollama_url", "ollama_model", "theme",
-               "auto_generate_choices", "choice_count"}
+               "auto_generate_choices", "choice_count", "memory_interval"}
     updates = {k: v for k, v in data.items() if k in allowed and v is not None}
     if not updates:
         return _json_error("没有可更新的字段")

@@ -6,6 +6,7 @@ import EnvironmentPanel from "./EnvironmentPanel";
 import ChatPanel from "./ChatPanel";
 import CharacterBrowser from "./CharacterBrowser";
 import ItemBrowser from "./ItemBrowser";
+import MemoryPanel from "./MemoryPanel";
 
 export default function ChatView() {
   const [charBrowserOpen, setCharBrowserOpen] = useState(false);
@@ -26,6 +27,7 @@ export default function ChatView() {
           onAddClick={() => setItemBrowserOpen(true)}
         />
         <EnvironmentPanel />
+        <MemoryPanel />
       </div>
 
       {/* Right: chat */}

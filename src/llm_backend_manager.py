@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Optional
 
 import httpx
-from dotenv import load_dotenv
 
 from load_llm import ApiLLM, ApiModelConfig, LocalLLM, ModelConfig
 
@@ -38,6 +37,8 @@ _DEFAULT_CONFIG = {
     "theme": "dark",
     "auto_generate_choices": False,
     "choice_count": 3,
+    "memory_interval": 5,
+    "edit_before_send": False,
 }
 
 
@@ -105,8 +106,8 @@ class LLMBackendManager:
         self._all_endpoints: list[LLMEndpoint] = []
         self._lock = threading.Lock()
         self._last_fail_time: float = 0.0
+        self._detected = False
         self._load_config()
-        self._detect()
 
     def _load_config(self):
         """从 JSON 配置文件加载配置并同步到运行时。
@@ -117,7 +118,6 @@ class LLMBackendManager:
 
         # 首次启动：从 .env 迁移已有配置
         if not stored:
-            load_dotenv()
             env_config = {
                 "api_key": os.getenv("API_KEY", ""),
                 "base_url": os.getenv("BASE_URL") or os.getenv("API_URL", ""),
@@ -154,8 +154,14 @@ class LLMBackendManager:
 
     # ── 检测 ──
 
+    def _ensure_detected(self):
+        """延迟检测：仅在首次需要检测结果时执行。"""
+        if not self._detected:
+            self._detect()
+            self._detected = True
+
     def _detect(self):
-        """启动时检测所有可用后端。"""
+        """检测所有可用后端。"""
         cloud = self._check_cloud()
         local = self._check_ollama()
 
@@ -170,6 +176,7 @@ class LLMBackendManager:
             self._primary = None
             self._fallback = None
 
+        self._detected = True
         logger.info(
             "LLM 后端检测完成: primary=%s, fallback=%s",
             self._primary.name if self._primary else "无",
@@ -178,7 +185,6 @@ class LLMBackendManager:
 
     def _check_cloud(self) -> Optional[LLMEndpoint]:
         """检测云端 API 连通性。"""
-        load_dotenv()
         api_key = os.getenv("API_KEY")
         if not api_key:
             return LLMEndpoint("cloud", "云端 API", "cloud", "", False, detail="未配置 API_KEY")
@@ -277,6 +283,7 @@ class LLMBackendManager:
             tuple[ApiLLM | LocalLLM | None, str]: (llm 实例, 使用中的后端 id)
             均不可用时返回 (None, "")。
         """
+        self._ensure_detected()
         # 如果上次失败在 30 秒内，跳过主后端直接试备用
         skip_primary = (time.time() - self._last_fail_time) < 30.0
 
@@ -311,6 +318,7 @@ class LLMBackendManager:
 
     def get_llm_for_endpoint(self, endpoint_id: str) -> ApiLLM | LocalLLM | None:
         """为指定端点创建 LLM 实例（前端手动选择时用）。"""
+        self._ensure_detected()
         for ep in self._all_endpoints:
             if ep.id == endpoint_id and ep.available:
                 return self._instantiate(ep)
@@ -331,6 +339,7 @@ class LLMBackendManager:
 
     def get_status(self) -> dict:
         """返回前端状态栏所需信息。"""
+        self._ensure_detected()
         return {
             "primary": self._primary.to_dict() if self._primary else None,
             "fallback": self._fallback.to_dict() if self._fallback else None,
@@ -340,6 +349,7 @@ class LLMBackendManager:
 
     def is_available(self) -> bool:
         """是否有至少一个可用后端。"""
+        self._ensure_detected()
         return any(ep.available for ep in self._all_endpoints)
 
     # ── 配置管理 ──
@@ -357,6 +367,8 @@ class LLMBackendManager:
             "theme": merged.get("theme", "dark"),
             "auto_generate_choices": merged.get("auto_generate_choices", False),
             "choice_count": merged.get("choice_count", 3),
+            "memory_interval": merged.get("memory_interval", 5),
+            "edit_before_send": merged.get("edit_before_send", False),
         }
 
     def update_config(self, data: dict) -> dict:
@@ -384,6 +396,10 @@ class LLMBackendManager:
             merged["auto_generate_choices"] = bool(data["auto_generate_choices"])
         if "choice_count" in data:
             merged["choice_count"] = max(1, min(5, int(data["choice_count"])))
+        if "memory_interval" in data:
+            merged["memory_interval"] = max(1, min(20, int(data["memory_interval"])))
+        if "edit_before_send" in data:
+            merged["edit_before_send"] = bool(data["edit_before_send"])
 
         # 持久化到 JSON 文件
         _write_config_file(merged)
@@ -398,10 +414,6 @@ class LLMBackendManager:
         ApiModelConfig.model = merged["cloud_model"]
         self.OLLAMA_URL = merged["ollama_url"]
         ModelConfig.model = merged["ollama_model"]
-
-        # LLM 相关字段变更时重新检测端点
-        if any(k in data for k in ("api_key", "base_url", "cloud_model", "ollama_url", "ollama_model")):
-            self._detect()
 
         return self.get_config()
 

@@ -1,5 +1,8 @@
 import sys
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from GameAgent import GameAgent
 from ui import OptionsMenu, stream_print, _TOGGLE_MODE, _CONTINUE
 from logging_setup import setup_logging, run_with_timer, get_log_path

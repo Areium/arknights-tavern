@@ -1,10 +1,7 @@
 import httpx
 import json
 import logging
-from dotenv import load_dotenv
 import os
-
-load_dotenv()  # 加载 .env 文件
 
 logger = logging.getLogger(__name__)
 

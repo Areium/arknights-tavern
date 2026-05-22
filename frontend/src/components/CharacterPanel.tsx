@@ -18,7 +18,7 @@ export default function CharacterPanel({
   onAddClick?: () => void;
   refreshKey?: number;
 }) {
-  const { activeSessionId } = useAppStore();
+  const { activeSessionId, chatMode } = useAppStore();
   const api = useApi();
   const [characters, setCharacters] = useState<CharacterInfo[]>([]);
   const [loading, setLoading] = useState(false);
@@ -194,13 +194,15 @@ export default function CharacterPanel({
           )}
         </h2>
         <div className="flex gap-1">
-          <button
-            onClick={onAddClick}
-            className="text-xs px-2 py-1 rounded bg-green-700/30 text-green-300 hover:bg-green-700/50"
-            title="浏览全部角色"
-          >
-            + 添加
-          </button>
+          {chatMode !== "story" && (
+            <button
+              onClick={onAddClick}
+              className="text-xs px-2 py-1 rounded bg-green-700/30 text-green-300 hover:bg-green-700/50"
+              title="浏览全部角色"
+            >
+              + 添加
+            </button>
+          )}
           <button
             onClick={loadCharacters}
             className="text-xs text-gray-500 hover:text-gray-300"
@@ -218,7 +220,9 @@ export default function CharacterPanel({
       <div className="space-y-1.5 max-h-48 overflow-y-auto">
         {!loading && characters.length === 0 && (
           <p className="text-gray-500 text-sm text-center py-4">
-            暂无角色 — 点击"+ 添加"浏览
+            {chatMode === "story"
+              ? "场景尚未加载角色"
+              : '暂无角色 — 点击“+ 添加”浏览'}
           </p>
         )}
         {characters.map((c) => (
@@ -269,20 +273,24 @@ export default function CharacterPanel({
                       对话
                     </button>
                   )}
-                  <button
-                    onClick={() => handleUnload(c.name)}
-                    className="text-xs px-2 py-1 rounded bg-gray-700 text-gray-400 hover:text-red-400"
-                  >
-                    移除
-                  </button>
+                  {chatMode !== "story" && (
+                    <button
+                      onClick={() => handleUnload(c.name)}
+                      className="text-xs px-2 py-1 rounded bg-gray-700 text-gray-400 hover:text-red-400"
+                    >
+                      移除
+                    </button>
+                  )}
                 </>
               ) : (
-                <button
-                  onClick={() => handleLoad(c.name)}
-                  className="text-xs px-2 py-1 rounded bg-green-700/30 text-green-300 hover:bg-green-700/50"
-                >
-                  加入
-                </button>
+                chatMode !== "story" && (
+                  <button
+                    onClick={() => handleLoad(c.name)}
+                    className="text-xs px-2 py-1 rounded bg-green-700/30 text-green-300 hover:bg-green-700/50"
+                  >
+                    加入
+                  </button>
+                )
               )}
             </div>
           </div>

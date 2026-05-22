@@ -3,7 +3,7 @@ import { useAppStore } from "../stores/appStore";
 import { useApi } from "../hooks/useApi";
 
 export default function SettingsPanel() {
-  const { llmStatus, theme, toggleTheme } = useAppStore();
+  const { llmStatus, theme, toggleTheme, setEditBeforeSend } = useAppStore();
   const api = useApi();
   const [switching, setSwitching] = useState<string | null>(null);
 
@@ -16,6 +16,8 @@ export default function SettingsPanel() {
     ollama_model: "",
     auto_generate_choices: false,
     choice_count: 3,
+    memory_interval: 5,
+    edit_before_send: false,
   });
   const [configLoaded, setConfigLoaded] = useState(false);
   const [configError, setConfigError] = useState("");
@@ -76,6 +78,8 @@ export default function SettingsPanel() {
         ollama_model: data.ollama_model || "",
         auto_generate_choices: data.auto_generate_choices || false,
         choice_count: data.choice_count || 3,
+        memory_interval: data.memory_interval || 5,
+        edit_before_send: data.edit_before_send ?? false,
       });
       setConfigLoaded(true);
     } catch (err: any) {
@@ -99,8 +103,11 @@ export default function SettingsPanel() {
         ollama_model: config.ollama_model,
         auto_generate_choices: config.auto_generate_choices,
         choice_count: config.choice_count,
+        memory_interval: config.memory_interval,
+        edit_before_send: config.edit_before_send,
       });
-      setConfigMsg({ type: "ok", text: "配置已保存，端点已重新检测" });
+      setEditBeforeSend(config.edit_before_send);
+      setConfigMsg({ type: "ok", text: "配置已保存" });
     } catch (err: any) {
       setConfigMsg({ type: "err", text: "保存失败: " + err.message });
     } finally {
@@ -406,6 +413,42 @@ export default function SettingsPanel() {
                   <span className="text-xs text-gray-500">（1-5）</span>
                 </div>
               )}
+              <div className="flex items-center gap-2 mt-2">
+                <label className="text-xs text-gray-500 shrink-0">回忆间隔</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={config.memory_interval}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      memory_interval: Math.max(1, Math.min(20, parseInt(e.target.value) || 5)),
+                    })
+                  }
+                  className="input text-sm w-20 text-center"
+                />
+                <span className="text-xs text-gray-500">轮（1-20）</span>
+              </div>
+              <p className="text-xs text-gray-600 mt-1">
+                每隔这么多轮对话自动生成一次剧情回忆
+              </p>
+              <div className="border-t border-gray-700/50 pt-2 mt-2">
+                <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={config.edit_before_send}
+                    onChange={(e) =>
+                      setConfig({ ...config, edit_before_send: e.target.checked })
+                    }
+                    className="rounded"
+                  />
+                  选项填充到输入框（可编辑后再发送）
+                </label>
+                <p className="text-xs text-gray-600 mt-0.5 ml-6">
+                  开启后点击选项将填入输入框而非直接发送，关闭则立即发送
+                </p>
+              </div>
             </div>
           </fieldset>
 
@@ -425,7 +468,7 @@ export default function SettingsPanel() {
             disabled={saving || !configLoaded}
             className="btn-primary text-sm w-full"
           >
-            {saving ? "保存中..." : "保存并重新检测"}
+            {saving ? "保存中..." : "保存配置"}
           </button>
         </div>
       </section>

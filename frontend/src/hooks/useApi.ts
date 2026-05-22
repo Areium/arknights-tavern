@@ -110,6 +110,16 @@ export function useApi() {
         method: "POST",
         body: JSON.stringify({ identity, action }),
       }),
+    narrateVariant: (sessionId: string, prompt: string, identity = "博士") =>
+      request<any>(`/api/sessions/${sessionId}/narrate-variant`, {
+        method: "POST",
+        body: JSON.stringify({ identity, prompt }),
+      }),
+    narrateUpdate: (sessionId: string, round: number, narrative: string) =>
+      request<any>(`/api/sessions/${sessionId}/narrate-update`, {
+        method: "POST",
+        body: JSON.stringify({ round, narrative }),
+      }),
 
     // ── 环境 ──
     getEnvironment: (sessionId: string) =>
@@ -121,6 +131,35 @@ export function useApi() {
       request<any>(`/api/sessions/${sessionId}/environment`, {
         method: "PUT",
         body: JSON.stringify(data),
+      }),
+    getEnvironmentPresets: () =>
+      request<{
+        locations: { name: string; region: string; summary: string; tags: string[] }[];
+        weathers: { name: string; id: string; icon: string; category: string }[];
+        times: string[];
+      }>("/api/environment/presets"),
+
+    getMemories: (sessionId: string) =>
+      request<{
+        memories: { id: string; title: string; summary: string; round_start: number; round_end: number; created_at: number }[];
+        narration_count: number;
+        last_memory_end: number;
+      }>(`/api/sessions/${sessionId}/memories`),
+    regenerateMemories: (sessionId: string) =>
+      request<{
+        memories: { id: string; title: string; summary: string; round_start: number; round_end: number; created_at: number }[];
+        narration_count: number;
+      }>(`/api/sessions/${sessionId}/memories/regenerate`, { method: "POST" }),
+    rollbackSession: (sessionId: string, round: number) =>
+      request<{
+        target_round: number;
+        narration_count: number;
+        deleted_rounds: number;
+        deleted_memories: number;
+        memories: any[];
+      }>(`/api/sessions/${sessionId}/rollback`, {
+        method: "POST",
+        body: JSON.stringify({ round }),
       }),
 
     // ── 文档 ──
@@ -235,6 +274,7 @@ export function createSSE(
   handlers: {
     onText?: (token: string) => void;
     onSceneEvent?: (event: any) => void;
+    onMemoryEvent?: (event: any) => void;
     onChoice?: (options: string[]) => void;
     onError?: (message: string) => void;
     onDone?: () => void;
@@ -252,6 +292,7 @@ export function createPostSSE(
   handlers: {
     onText?: (token: string) => void;
     onSceneEvent?: (event: any) => void;
+    onMemoryEvent?: (event: any) => void;
     onChoice?: (options: string[]) => void;
     onError?: (message: string) => void;
     onDone?: () => void;
@@ -267,6 +308,7 @@ function connectSSE(
   handlers: {
     onText?: (token: string) => void;
     onSceneEvent?: (event: any) => void;
+    onMemoryEvent?: (event: any) => void;
     onChoice?: (options: string[]) => void;
     onError?: (message: string) => void;
     onDone?: () => void;
@@ -330,6 +372,9 @@ function connectSSE(
                 break;
               case "scene_event":
                 handlers.onSceneEvent?.(event.data);
+                break;
+              case "memory_event":
+                handlers.onMemoryEvent?.(event.data);
                 break;
               case "choice":
                 handlers.onChoice?.(event.data.options);

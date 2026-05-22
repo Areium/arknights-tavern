@@ -54,6 +54,10 @@
     @apply w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg
       text-gray-100 placeholder-gray-500 focus:border-blue-500;
   }
+  .checkbox {
+    @apply w-3.5 h-3.5 rounded border-gray-600 bg-gray-700
+      text-blue-500 focus:ring-blue-500 cursor-pointer shrink-0;
+  }
 
   .card {
     @apply bg-gray-800 border border-gray-700 rounded-xl p-4;
