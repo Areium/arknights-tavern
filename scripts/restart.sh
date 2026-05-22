@@ -2,61 +2,62 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 echo "============================================"
 echo "  Arknights Txt — 重启前后端"
 echo "============================================"
 echo ""
 
-cd "$PROJECT_DIR"
-
+# ── 1. 停止旧进程 ──
 echo "[1/3] 正在停止旧进程..."
 
-# 杀掉占用 5000 端口的进程
-if command -v lsof &>/dev/null; then
-    PID_5000=$(lsof -ti:5000 2>/dev/null || true)
-    if [ -n "$PID_5000" ]; then
-        kill -9 $PID_5000 2>/dev/null || true
-        echo "  已停止 PID $PID_5000 (Flask :5000)"
+kill_port() {
+    local port=$1 name=$2
+    local pid=""
+    if command -v lsof &>/dev/null; then
+        pid=$(lsof -ti:"$port" 2>/dev/null || true)
+    elif command -v netstat &>/dev/null; then
+        pid=$(netstat -ano 2>/dev/null | grep ":$port" | grep LISTENING | awk '{print $5}' | head -1)
     fi
-    PID_5173=$(lsof -ti:5173 2>/dev/null || true)
-    if [ -n "$PID_5173" ]; then
-        kill -9 $PID_5173 2>/dev/null || true
-        echo "  已停止 PID $PID_5173 (Vite :5173)"
+    if [ -n "$pid" ]; then
+        if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
+            taskkill //F //PID "$pid" 2>/dev/null || true
+        else
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+        echo "  已停止 PID $pid ($name :$port)"
     fi
-elif command -v netstat &>/dev/null; then
-    # Windows Git Bash fallback
-    for pid in $(netstat -ano 2>/dev/null | grep -E ':5000.*LISTENING' | awk '{print $5}'); do
-        taskkill //F //PID "$pid" 2>/dev/null && echo "  已停止 PID $pid (Flask :5000)"
-    done
-    for pid in $(netstat -ano 2>/dev/null | grep -E ':5173.*LISTENING' | awk '{print $5}'); do
-        taskkill //F //PID "$pid" 2>/dev/null && echo "  已停止 PID $pid (Vite :5173)"
-    done
+}
+
+kill_port 5000 "Flask"
+kill_port 5173 "Vite"
+
+# Windows 下额外清理
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
+    taskkill //F //IM python.exe 2>/dev/null || true
 fi
 
 echo "  旧进程已清理"
 echo ""
 
+# ── 2. 启动 Flask ──
 echo "[2/3] 启动 Flask 后端..."
-if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
-    start "Flask Backend" cmd //c "cd /d $(cygpath -w "$PROJECT_DIR") && python src/app.py"
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
+    # Git Bash on Windows
+    start "Flask Backend" cmd //k "cd /d "$PROJECT_DIR" && python src/app.py"
 else
-    osascript -e 'tell app "Terminal" to do script "cd '"$PROJECT_DIR"' && python src/app.py"' 2>/dev/null || \
-    gnome-terminal -- bash -c "cd '$PROJECT_DIR' && python src/app.py; exec bash" 2>/dev/null || \
-    xterm -e "cd '$PROJECT_DIR' && python src/app.py; exec bash" 2>/dev/null || \
-    (python src/app.py &)
+    python "$PROJECT_DIR/src/app.py" &
 fi
 echo "  Flask 已启动 (http://127.0.0.1:5000)"
 echo ""
 
+# ── 3. 启动 Vite ──
 echo "[3/3] 启动 Vite 前端..."
-if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
-    start "Vite Frontend" cmd //c "cd /d $(cygpath -w "$PROJECT_DIR")\\frontend && npm run dev"
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
+    start "Vite Frontend" cmd //k "cd /d "$PROJECT_DIR\\frontend" && npm run dev"
 else
-    osascript -e 'tell app "Terminal" to do script "cd '"$PROJECT_DIR"'/frontend && npm run dev"' 2>/dev/null || \
-    gnome-terminal -- bash -c "cd '$PROJECT_DIR/frontend' && npm run dev; exec bash" 2>/dev/null || \
-    (cd frontend && npm run dev &)
+    (cd "$PROJECT_DIR/frontend" && npm run dev) &
 fi
 echo "  Vite 已启动 (http://localhost:5173)"
 echo ""
