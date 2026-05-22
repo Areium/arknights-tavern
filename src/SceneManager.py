@@ -167,6 +167,51 @@ class SceneManager:
 
         return response, env_updates
 
+    def group_chat(self, user_input: str, player_info: dict | None = None,
+                   env_context: str = "", stream_callback=None) -> list[dict]:
+        """群聊模式：将用户输入发送给场景中所有角色。
+
+        每个角色独立调用 chat()，收集所有回复。
+
+        Returns:
+            list[dict]: [
+                {"character": "阿米娅", "response": "...", "env_updates": {}},
+                {"character": "银灰", "response": "...", "env_updates": {}},
+            ]
+        """
+        if not self._agents:
+            return [{"character": "", "response": "场景中没有角色。", "env_updates": {}}]
+
+        identity = (player_info or {}).get("identity", "博士")
+        scene_context = self._build_scene_context()
+        results = []
+
+        for name, agent in self._agents.items():
+            try:
+                response, env_updates = agent.chat(
+                    user_input,
+                    player_info,
+                    env_context,
+                    scene_context=scene_context,
+                    stream_callback=stream_callback,
+                )
+                results.append({
+                    "character": name,
+                    "response": response,
+                    "env_updates": env_updates,
+                })
+                self._log_event(f"{identity} → {name}: {user_input[:60]}")
+                self._log_event(f"{name}: {response[:80].replace(chr(10), ' ')}")
+            except Exception as e:
+                logger.error("群聊中角色 %s 出错: %s", name, e)
+                results.append({
+                    "character": name,
+                    "response": f"（{name} 暂时无法回应）",
+                    "env_updates": {},
+                })
+
+        return results
+
     # ── 叙述模式 ──
 
     def build_status(self, env_context: str, player_info: dict | None = None) -> str:

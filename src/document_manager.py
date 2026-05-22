@@ -1,0 +1,427 @@
+"""
+文档管理器：对所有 Markdown 数据文件的 CRUD 操作 + 哈希冲突检测。
+
+设计：
+- 从 data/_INDEX.md 自动发现文档类别和路径
+- 读文件时返回 SHA256 哈希，写文件时校验哈希以检测冲突
+- 支持类别子目录（如 Location/Rhode_Island/）
+- 可选集成 Git 自动提交
+"""
+
+import os
+import re
+import json
+import hashlib
+import logging
+from typing import Optional
+
+import frontmatter
+import yaml
+
+logger = logging.getLogger(__name__)
+
+# ── 异常类 ──
+
+
+class DocumentNotFoundError(Exception):
+    pass
+
+
+class ConflictError(Exception):
+    """保存冲突：文件已被其他进程修改。"""
+
+    def __init__(self, path: str, current_hash: str, expected_hash: str,
+                 current_content: str):
+        self.path = path
+        self.current_hash = current_hash
+        self.expected_hash = expected_hash
+        self.current_content = current_content
+        super().__init__(f"文件已被修改: {path}")
+
+
+# ── 类别描述 ──
+
+
+class DocumentCategory:
+    """一个文档类别（对应 _INDEX.md 中的一个条目）。"""
+
+    def __init__(self, category_id: str, index_path: str, directory: str,
+                 ref_by: list[str], refs: list[str]):
+        self.id = category_id
+        self.index_path = index_path
+        self.directory = directory
+        self.ref_by = ref_by
+        self.refs = refs
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "index_path": self.index_path,
+            "directory": self.directory,
+            "ref_by": self.ref_by,
+            "refs": self.refs,
+        }
+
+
+class DocumentInfo:
+    """单个文档的信息。"""
+
+    def __init__(self, category_id: str, doc_id: str, title: str, path: str,
+                 hash_str: str, mtime: float, summary: str = ""):
+        self.category_id = category_id
+        self.id = doc_id
+        self.title = title
+        self.path = path
+        self.hash = hash_str
+        self.mtime = mtime
+        self.summary = summary
+
+    def to_dict(self) -> dict:
+        return {
+            "category_id": self.category_id,
+            "id": self.id,
+            "title": self.title,
+            "hash": self.hash,
+            "mtime": self.mtime,
+            "summary": self.summary,
+        }
+
+
+# ── 文档内容 ──
+
+
+# ── 主类 ──
+
+
+class DocumentManager:
+    """文档管理器：读取/写入/列举所有数据文件。"""
+
+    # 文件名白名单（不视为数据文档）
+    _EXCLUDED_FILES = {"TEMPLATE", "_index", "_INDEX", "README"}
+
+    def __init__(self, root_dir: str = None):
+        if root_dir is None:
+            # 从 __file__ 定位项目根目录
+            self._root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        else:
+            self._root = root_dir
+
+        self._categories: dict[str, DocumentCategory] = {}
+        self._load_index()
+
+    # ── 索引加载 ──
+
+    def _load_index(self):
+        """加载 data/_INDEX.md 注册表。"""
+        index_path = os.path.join(self._root, "data", "_INDEX.md")
+        if not os.path.isfile(index_path):
+            logger.warning("主索引文件不存在: %s", index_path)
+            return
+
+        try:
+            with open(index_path, "r", encoding="utf-8") as f:
+                meta = frontmatter.load(f).metadata
+            index_data = meta.get("index", {})
+            for cat_id, cat_info in index_data.items():
+                self._categories[cat_id] = DocumentCategory(
+                    category_id=cat_id,
+                    index_path=os.path.join(self._root, cat_info["index"]),
+                    directory=os.path.join(self._root, cat_info["dir"]),
+                    ref_by=cat_info.get("ref_by", []),
+                    refs=cat_info.get("refs", []),
+                )
+            logger.info("加载了 %d 个文档类别", len(self._categories))
+        except Exception as e:
+            logger.error("加载主索引失败: %s", e)
+
+    # ── 类别查询 ──
+
+    def list_categories(self) -> list[dict]:
+        """返回所有文档类别。"""
+        return [cat.to_dict() for cat in self._categories.values()]
+
+    def get_category(self, category_id: str) -> Optional[DocumentCategory]:
+        return self._categories.get(category_id)
+
+    # ── 文档列举 ──
+
+    def list_documents(self, category_id: str,
+                       include_content: bool = False) -> list[dict]:
+        """列出指定类别下的所有文档。
+
+        Args:
+            category_id: 类别 ID（如 "characters"）
+            include_content: 是否同时返回内容摘要
+
+        Returns:
+            文档信息列表
+        """
+        cat = self._categories.get(category_id)
+        if not cat:
+            raise ValueError(f"未知文档类别: {category_id}")
+
+        docs = []
+        base = cat.directory
+        if not os.path.isdir(base):
+            return docs
+
+        for root, _dirs, files in os.walk(base):
+            for f in sorted(files):
+                if not f.endswith(".md"):
+                    continue
+                stem = os.path.splitext(f)[0]
+                if stem in self._EXCLUDED_FILES:
+                    continue
+
+                filepath = os.path.join(root, f)
+                rel_path = os.path.relpath(filepath, self._root)
+                stat = os.stat(filepath)
+                file_hash = self._hash_file(filepath)
+
+                title = stem
+                summary = ""
+                if include_content:
+                    try:
+                        with open(filepath, "r", encoding="utf-8") as fh:
+                            data = frontmatter.load(fh)
+                        title = data.metadata.get("name", stem)
+                        summary = data.metadata.get("summary", "")
+                        if not summary:
+                            first_line = data.content.strip().split("\n")[0]
+                            summary = first_line[:80] if first_line else ""
+                    except Exception:
+                        pass
+
+                docs.append(DocumentInfo(
+                    category_id=category_id,
+                    doc_id=os.path.splitext(rel_path)[0],
+                    title=title,
+                    path=rel_path,
+                    hash_str=file_hash,
+                    mtime=stat.st_mtime,
+                    summary=summary,
+                ).to_dict())
+
+        return docs
+
+    def list_all_documents(self) -> list[dict]:
+        """递归列举所有类别的所有文档（供前端文档树使用）。"""
+        result = []
+        for cat_id in self._categories:
+            try:
+                docs = self.list_documents(cat_id, include_content=True)
+                result.append({
+                    "category": cat_id,
+                    "category_info": self._categories[cat_id].to_dict(),
+                    "documents": docs,
+                })
+            except Exception as e:
+                logger.error("列举类别 %s 失败: %s", cat_id, e)
+        return self._build_tree(result)
+
+    def _build_tree(self, flat: list[dict]) -> list[dict]:
+        """将平铺列表按目录层级组织成树结构。"""
+        return flat
+
+    # ── 文档读写 ──
+
+    def read_document(self, category_id: str, doc_path: str) -> dict:
+        """读取文档内容。
+
+        Args:
+            category_id: 类别 ID
+            doc_path: 文档相对路径（相对于类别目录，不含 .md 后缀）
+
+        Returns:
+            {"metadata": {...}, "content": "...", "hash": "...", "path": "...",
+             "frontmatter_raw": "..."}
+        """
+        filepath = self._resolve_path(category_id, doc_path)
+        if not filepath or not os.path.isfile(filepath):
+            raise DocumentNotFoundError(
+                f"文档不存在: {category_id}/{doc_path}"
+            )
+
+        with open(filepath, "r", encoding="utf-8") as f:
+            raw = f.read()
+
+        try:
+            data = frontmatter.loads(raw)
+            fm_raw = raw.split("---", 2)[1] if raw.startswith("---") else ""
+        except Exception:
+            data = type("obj", (object,), {"metadata": {}, "content": raw})()
+            fm_raw = ""
+
+        file_hash = self._hash_file(filepath)
+        rel_path = os.path.relpath(filepath, self._root)
+
+        return {
+            "metadata": data.metadata,
+            "content": data.content,
+            "frontmatter_raw": fm_raw,
+            "hash": file_hash,
+            "path": rel_path,
+            "filepath": filepath,
+        }
+
+    def save_document(self, category_id: str, doc_path: str,
+                      content: str, metadata: dict = None,
+                      expected_hash: str = None) -> dict:
+        """保存文档。
+
+        如果提供了 expected_hash，写入前会校验文件当前哈希，
+        不匹配则抛出 ConflictError。
+
+        Args:
+            category_id: 类别 ID
+            doc_path: 文档相对路径（相对于类别目录，不含 .md）
+            content: 正文内容（不含 frontmatter）
+            metadata: frontmatter 字典（None 表示保留原值）
+            expected_hash: 预期的文件哈希（用于冲突检测）
+
+        Returns:
+            {"hash": "...", "path": "..."}
+        """
+        filepath = self._resolve_path(category_id, doc_path)
+        if not filepath:
+            raise DocumentNotFoundError(
+                f"文档不存在: {category_id}/{doc_path}"
+            )
+
+        # 冲突检测
+        if expected_hash:
+            current_hash = self._hash_file(filepath)
+            if current_hash != expected_hash:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    current_content = f.read()
+                raise ConflictError(
+                    path=filepath,
+                    current_hash=current_hash,
+                    expected_hash=expected_hash,
+                    current_content=current_content,
+                )
+
+        # 读取已有 frontmatter（如果 metadata 未提供则保留）
+        if metadata is None:
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    existing = frontmatter.load(f)
+                metadata = existing.metadata
+            except Exception:
+                metadata = {}
+
+        # 写回文件
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        with open(filepath, "w", encoding="utf-8") as f:
+            if metadata:
+                f.write("---\n")
+                f.write(yaml.dump(metadata, allow_unicode=True,
+                                  default_flow_style=False, sort_keys=False))
+                f.write("---\n")
+            f.write(content.lstrip("\n"))
+
+        new_hash = self._hash_file(filepath)
+        rel_path = os.path.relpath(filepath, self._root)
+        logger.info("文档已保存: %s (%s)", rel_path, new_hash[:12])
+        return {"hash": new_hash, "path": rel_path}
+
+    def create_document(self, category_id: str, doc_id: str,
+                        content: str = "", metadata: dict = None) -> dict:
+        """创建新文档。
+
+        Args:
+            category_id: 类别 ID
+            doc_id: 文档 ID（不含 .md 后缀，可包含子目录路径）
+            content: 正文内容
+            metadata: frontmatter 字典
+
+        Returns:
+            {"hash": "...", "path": "..."}
+        """
+        cat = self._categories.get(category_id)
+        if not cat:
+            raise ValueError(f"未知文档类别: {category_id}")
+
+        filepath = os.path.join(cat.directory, f"{doc_id}.md")
+        if os.path.isfile(filepath):
+            raise FileExistsError(f"文档已存在: {doc_id}")
+
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        with open(filepath, "w", encoding="utf-8") as f:
+            if metadata:
+                f.write("---\n")
+                f.write(yaml.dump(metadata, allow_unicode=True,
+                                  default_flow_style=False, sort_keys=False))
+                f.write("---\n")
+            if content:
+                f.write("\n")
+                f.write(content)
+
+        new_hash = self._hash_file(filepath)
+        rel_path = os.path.relpath(filepath, self._root)
+        logger.info("文档已创建: %s", rel_path)
+        return {"hash": new_hash, "path": rel_path}
+
+    def delete_document(self, category_id: str, doc_path: str):
+        """删除文档。"""
+        filepath = self._resolve_path(category_id, doc_path)
+        if not filepath or not os.path.isfile(filepath):
+            raise DocumentNotFoundError(
+                f"文档不存在: {category_id}/{doc_path}"
+            )
+        os.remove(filepath)
+        logger.info("文档已删除: %s", filepath)
+
+    # ── Git 集成 ──
+
+    def git_commit(self, filepath: str, message: str = None):
+        """为单个文件变更创建 Git 提交。"""
+        try:
+            import subprocess
+            rel = os.path.relpath(filepath, self._root)
+            msg = message or f"docs: update {rel}"
+            subprocess.run(
+                ["git", "add", rel],
+                cwd=self._root, capture_output=True, timeout=10,
+            )
+            subprocess.run(
+                ["git", "commit", "-m", msg, "--no-gpg-sign"],
+                cwd=self._root, capture_output=True, timeout=10,
+            )
+        except Exception as e:
+            logger.warning("Git 自动提交失败: %s", e)
+
+    # ── 内部方法 ──
+
+    def _resolve_path(self, category_id: str, doc_path: str) -> Optional[str]:
+        """将 category_id + doc_path 解析为绝对文件路径。"""
+        cat = self._categories.get(category_id)
+        if not cat:
+            return None
+
+        # doc_path 可能包含子目录（如 "Rhode_Island/Dormitories"）
+        # 也可能已经是完整相对路径
+        candidate = os.path.join(cat.directory, f"{doc_path}.md")
+        if os.path.isfile(candidate):
+            return candidate
+
+        # 尝试 doc_path 本身不含子目录时直接在目录下找
+        base = os.path.join(cat.directory, f"{os.path.basename(doc_path)}.md")
+        if base != candidate and os.path.isfile(base):
+            return base
+
+        return candidate
+
+    @staticmethod
+    def _hash_file(filepath: str) -> str:
+        """计算文件的 SHA256 哈希。"""
+        h = hashlib.sha256()
+        with open(filepath, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                h.update(chunk)
+        return h.hexdigest()
+
+    @staticmethod
+    def hash_content(content: str) -> str:
+        """计算文本内容的 SHA256 哈希。"""
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()

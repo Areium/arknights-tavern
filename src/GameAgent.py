@@ -43,16 +43,6 @@ class GameAgent:
         # 对话模式: "system" = 系统操作, "story" = 剧情模式
         self.dialogue_mode = "system"
 
-        available_tools = {
-            "load_character": self.load_character,
-            "switch_character": self.switch_character,
-            "load_player": self.load_player,
-            "exit_conversation": self.exit_conversation,
-            "set_environment": self.set_environment,
-        }
-
-        self.tools = available_tools
-
         # 缓存：字符列表 + 已知地点（避免每次调用都扫描文件系统）
         self._character_list = [
             name.replace(".md", "")
@@ -62,7 +52,6 @@ class GameAgent:
         self._known_locations = self._scan_locations()
 
         self.system_prompt = self._build_system_prompt()
-        self.history = []
 
     # ── 属性（兼容旧接口，实际委托给 scene_manager）──
 
@@ -90,39 +79,19 @@ class GameAgent:
     # ── 系统 prompt 构建 ──
 
     def _build_system_prompt(self) -> str:
-        """构建游戏代理的系统提示"""
-        tool_definitions = []
-        for name, func in self.tools.items():
-            if not func.__doc__:
-                logger.warning("工具 '%s' 缺少文档字符串 (docstring)，模型可能无法理解其功能。", name)
-            tool_definitions.append(
-                {
-                    "name": name,
-                    "description": func.__doc__.strip() if func.__doc__ else "无可用描述",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            param: {"type": "string"} for param in func.__annotations__ if param != "return"
-                        },
-                        "required": list(func.__annotations__.keys() - {"return"}),
-                    },
-                }
-            )
-
+        """构建系统提示（不含工具定义，工具操作由前端/API 直调）。"""
         current_status = ""
         scene_chars = self.scene_manager.get_scene_characters() if self.scene_manager else []
         if scene_chars:
-            active = self.scene_manager.active
             chars_str = "、".join(scene_chars)
             current_status = f"当前场景角色: {chars_str}"
-            if active:
-                current_status += f"\n对话中: {active}"
+            if self.scene_manager.active:
+                current_status += f"\n对话中: {self.scene_manager.active}"
         else:
             current_status = "当前无活跃角色"
 
         if self.player_loaded:
-            player_identity = self.player_info.get('identity', '博士')
-            current_status += f"\n当前玩家: {player_identity}"
+            current_status += f"\n当前玩家: {self.player_info.get('identity', '博士')}"
         else:
             current_status += "\n玩家信息: 未加载"
 
@@ -130,49 +99,21 @@ class GameAgent:
         if env_info:
             current_status += f"\n{env_info}"
 
-        prompt = f"""# 明日方舟 游戏代理 (Game Agent)
+        return f"""# 明日方舟 游戏代理 (Game Agent)
 
-你是明日方舟文字冒险游戏的**游戏代理**，负责协调游戏中的各种系统，包括角色管理、故事推进等。
+你是明日方舟文字冒险游戏的**游戏代理**，负责协调游戏中的各种系统。
 
 ## 🎯 核心职责
 
-### 角色管理
-1. **角色加载**: 当用户说"把XX加入对话"/"让XX来"/"叫XX过来"/"我想和XX聊聊"时，调用 load_character 工具
-2. **角色切换**: 当用户想要切换对话目标时，调用 switch_character 工具
-3. **角色列表**: 当用户想了解可用角色时，提供角色信息
-4. **退出对话**: 当用户想要退出当前角色对话时，处理退出逻辑
-
-### 玩家管理
-1. **玩家信息**: 当用户想要设置或查看玩家信息时，调用load_player工具
-2. **身份设定**: 玩家默认身份为博士
-3. **信息整合**: 将玩家信息整合到游戏体验中
-
-### 游戏协调
-1. **系统命令识别**: 识别用户的系统级命令（如切换角色、退出等）
-2. **游戏引导**: 在游戏代理模式下，引导用户选择角色或使用游戏功能
-3. **流程管理**: 管理游戏的开始、进行和结束
-
-## 🛠️ 可用工具
-{json.dumps(tool_definitions, indent=2, ensure_ascii=False)}
-
-## 📋 交互规则
-
-1. **角色加载**: 当用户说"我想和XX聊聊"时，调用 load_character 将该角色加入场景
-2. **系统命令优先**: 识别并处理系统级命令（如切换角色、退出等）
-3. **游戏引导**: 在无角色状态下，引导用户选择角色或使用游戏功能
+1. **角色管理**: 引导用户选择角色、告知可用角色
+2. **玩家管理**: 引导用户设置玩家身份
+3. **游戏引导**: 在无角色状态下引导用户开始游戏
 
 ## 🎮 可用角色
 {', '.join(self._character_list)}
 
 ## 📊 当前状态
 {current_status}
-
-## 🔧 工具调用格式
-当你需要调用工具时，请在前后加上<tool_call>，严格按照以下格式回复，不要有任何多余的文字：
-<tool_call>
-{{"name": "工具名称", "arguments": {{"参数名": "参数值"}}}}
-</tool_call>
-```
 
 ## 🎭 行为准则
 - 以友好、专业的游戏代理身份与用户交互
@@ -181,9 +122,6 @@ class GameAgent:
 - 保持游戏世界的沉浸感和连贯性
 
 请开始你的游戏代理工作！"""
-        return prompt
-
-    # ── 角色管理工具 ──
 
     def load_character(self, character_name: str) -> str:
         """
@@ -551,56 +489,14 @@ class GameAgent:
                 logger.error("剧情模式出错: %s", e)
                 return "抱歉，剧情处理遇到了一些问题，请稍后再试。"
 
-        # ── 系统模式：完整 GameAgent 系统 prompt + 工具循环 ──
-        self.history.append({"role": "user", "content": user_input})
-
+        # ── 系统模式：单轮 LLM 调用（无需工具循环，工具操作由前端/API 直调）──
         messages = [
             {"role": "system", "content": self.system_prompt},
-        ] + self.history
+            {"role": "user", "content": user_input},
+        ]
+        response_text = self.llm.chat(messages, stream=False)
+        return self._refine_response(response_text)
 
-        for i in range(max_turns):
-            logger.debug("--- [游戏代理 - 第 %d 轮] ---", i + 1)
-
-            response_text = self.llm.chat(messages, stream=False)
-            logger.debug("模型响应: %s", response_text)
-
-            tool_call_match = re.search(r"<tool_call>(.*?)</tool_call>", response_text, re.DOTALL)
-
-            if tool_call_match:
-                logger.debug("检测到工具调用")
-                tool_call_str = tool_call_match.group(1).strip()
-
-                try:
-                    tool_call = json.loads(tool_call_str)
-                    tool_name = tool_call.get("name")
-                    tool_args = tool_call.get("arguments", {})
-
-                    if tool_name in self.tools:
-                        logger.debug("执行工具: %s，参数: %s", tool_name, tool_args)
-                        tool_func = self.tools[tool_name]
-                        tool_result = tool_func(**tool_args)
-                        messages.append({"role": "assistant", "content": tool_result})
-                        logger.debug("工具结果: %s", tool_result)
-
-                        # 处理特殊工具调用
-                        if tool_name == "exit_conversation":
-                            final_response = response_text.replace(tool_call_match.group(0), "").strip()
-                            return final_response or "再见！感谢你的陪伴。"
-
-                    else:
-                        error_message = f"错误: 尝试调用未知工具 '{tool_name}'"
-                        logger.error(error_message)
-
-                except (json.JSONDecodeError, TypeError) as e:
-                    error_message = f"错误: 解析工具调用失败: {e}\n原始字符串: {tool_call_str}"
-                    logger.error(error_message)
-
-            else:
-                logger.debug("游戏代理直接回复")
-                return self._refine_response(response_text)
-
-        error_msg = "系统提示: 处理过程过于复杂，请重新尝试。"
-        return self._refine_response(error_msg)
 
     def _refine_response(self, raw_response: str) -> str:
         """清理响应中的工具调用标签。"""
