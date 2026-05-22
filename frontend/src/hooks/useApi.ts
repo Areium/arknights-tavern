@@ -263,6 +263,41 @@ export function useApi() {
         method: "POST",
         body: JSON.stringify({ id, content, metadata }),
       }),
+
+    // ── 文档删除 ──
+    deleteDocument: (category: string, id: string) =>
+      request<any>(`/api/documents/${category}/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      }),
+
+    // ── 文件夹操作 ──
+    createFolder: (category: string, path: string) =>
+      request<any>(`/api/documents/${category}/folders`, {
+        method: "POST",
+        body: JSON.stringify({ path }),
+      }),
+
+    deleteFolder: (category: string, path: string) =>
+      request<any>(
+        `/api/documents/${category}/folders/${encodeURIComponent(path)}`,
+        { method: "DELETE" }
+      ),
+
+    // ── 移动/重命名 ──
+    moveDocument: (category: string, id: string, newPath: string) =>
+      request<any>(`/api/documents/${category}/${encodeURIComponent(id)}/move`, {
+        method: "POST",
+        body: JSON.stringify({ new_path: newPath }),
+      }),
+
+    moveFolder: (category: string, path: string, newPath: string) =>
+      request<any>(
+        `/api/documents/${category}/folders/${encodeURIComponent(path)}/move`,
+        {
+          method: "POST",
+          body: JSON.stringify({ new_path: newPath }),
+        }
+      ),
   }), []);
 }
 

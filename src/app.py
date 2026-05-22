@@ -758,6 +758,70 @@ def delete_document(category: str, doc_id: str):
         return _json_error(str(e), 500)
 
 
+@app.route("/api/documents/<category>/folders", methods=["POST"])
+def create_folder(category: str):
+    """在类别中创建文件夹。"""
+    data = request.json or {}
+    folder_path = data.get("path", "").strip()
+    if not folder_path:
+        return _json_error("需要 path 参数")
+    try:
+        result = doc_manager.create_folder(category, folder_path)
+        return jsonify(result), 201
+    except FileExistsError as e:
+        return _json_error(str(e), 409)
+    except ValueError as e:
+        return _json_error(str(e), 400)
+
+
+@app.route("/api/documents/<category>/folders/<path:folder_path>", methods=["DELETE"])
+def delete_folder(category: str, folder_path: str):
+    """删除空文件夹。"""
+    try:
+        result = doc_manager.delete_folder(category, folder_path)
+        return jsonify(result)
+    except DocumentNotFoundError:
+        return _json_error("文件夹不存在", 404)
+    except ValueError as e:
+        return _json_error(str(e), 400)
+
+
+@app.route("/api/documents/<category>/<path:doc_id>/move", methods=["POST"])
+def move_document(category: str, doc_id: str):
+    """移动/重命名文档。"""
+    data = request.json or {}
+    new_path = data.get("new_path", "").strip() or None
+    if not new_path:
+        return _json_error("需要 new_path 参数")
+    try:
+        result = doc_manager.move_document(category, doc_id, new_path)
+        return jsonify(result)
+    except DocumentNotFoundError:
+        return _json_error("文档不存在", 404)
+    except FileExistsError as e:
+        return _json_error(str(e), 409)
+    except ValueError as e:
+        return _json_error(str(e), 400)
+
+
+@app.route("/api/documents/<category>/folders/<path:folder_path>/move", methods=["POST"])
+def move_folder(category: str, folder_path: str):
+    """移动/重命名文件夹。"""
+    data = request.json or {}
+    new_path = data.get("new_path", "").strip() or None
+    if not new_path:
+        return _json_error("需要 new_path 参数")
+    try:
+        result = doc_manager.move_folder(category, folder_path, new_path)
+        return jsonify(result)
+    except DocumentNotFoundError:
+        return _json_error("文件夹不存在", 404)
+    except FileExistsError as e:
+        return _json_error(str(e), 409)
+    except ValueError as e:
+        return _json_error(str(e), 400)
+
+
 # ══════════════════════════════════════════════════════
 # 10. 会话覆盖（角色/物品/环境的会话级修改）
 # ══════════════════════════════════════════════════════

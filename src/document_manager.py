@@ -191,8 +191,8 @@ class DocumentManager:
                     except Exception:
                         pass
 
-                # doc_id 相对于类别目录（如 "characters" → "银灰"）
-                cat_rel = os.path.relpath(filepath, cat.directory)
+                # doc_id 相对于类别目录（如 "characters" → "银灰"），统一使用 /
+                cat_rel = os.path.relpath(filepath, cat.directory).replace("\\", "/")
                 docs.append(DocumentInfo(
                     category_id=category_id,
                     doc_id=os.path.splitext(cat_rel)[0],
@@ -222,7 +222,47 @@ class DocumentManager:
 
     def _build_tree(self, flat: list[dict]) -> list[dict]:
         """将平铺列表按目录层级组织成树结构。"""
+        for cat_group in flat:
+            cat_group["children"] = self._docs_to_tree(
+                cat_group.pop("documents", []), cat_group["category"]
+            )
         return flat
+
+    def _docs_to_tree(self, documents: list[dict], category_id: str) -> list[dict]:
+        """Build nested tree from flat document list by splitting doc id on '/' or '\\'."""
+        root: dict[str, dict] = {}
+        for doc in documents:
+            parts = doc["id"].replace("\\", "/").split("/")
+            current = root
+            for i, part in enumerate(parts):
+                if i == len(parts) - 1:
+                    current[part] = {
+                        "name": doc["title"],
+                        "type": "document",
+                        "id": doc["id"],
+                        "hash": doc["hash"],
+                        "mtime": doc["mtime"],
+                        "summary": doc["summary"],
+                        "category_id": doc["category_id"],
+                    }
+                else:
+                    if part not in current:
+                        current[part] = {"name": part, "type": "folder", "children": {}}
+                    current = current[part]["children"]
+        return self._dict_tree_to_list(root)
+
+    @staticmethod
+    def _dict_tree_to_list(d: dict[str, dict]) -> list[dict]:
+        """Convert interim dict-tree to sorted list-tree (folders first, then A-Z)."""
+        result: list[dict] = []
+        folders = [(k, v) for k, v in d.items() if v.get("type") == "folder"]
+        docs = [(k, v) for k, v in d.items() if v.get("type") != "folder"]
+        for name, node in sorted(folders, key=lambda x: x[0].lower()) + sorted(docs, key=lambda x: x[0].lower()):
+            entry = dict(node)
+            if entry["type"] == "folder" and "children" in entry:
+                entry["children"] = DocumentManager._dict_tree_to_list(entry["children"])
+            result.append(entry)
+        return result
 
     # ── 文档读写 ──
 
@@ -372,6 +412,116 @@ class DocumentManager:
             )
         os.remove(filepath)
         logger.info("文档已删除: %s", filepath)
+
+    # ── 文件夹操作 ──
+
+    def create_folder(self, category_id: str, folder_path: str) -> dict:
+        """在类别目录中创建空文件夹。"""
+        cat = self._categories.get(category_id)
+        if not cat:
+            raise ValueError(f"未知文档类别: {category_id}")
+        full_path = os.path.join(cat.directory, folder_path)
+        if os.path.exists(full_path):
+            raise FileExistsError(f"文件夹已存在: {folder_path}")
+        os.makedirs(full_path, exist_ok=True)
+        logger.info("文件夹已创建: %s", full_path)
+        return {"path": folder_path, "category": category_id}
+
+    def delete_folder(self, category_id: str, folder_path: str) -> dict:
+        """删除空文件夹（仅当为空时允许）。"""
+        cat = self._categories.get(category_id)
+        if not cat:
+            raise ValueError(f"未知文档类别: {category_id}")
+        full_path = os.path.join(cat.directory, folder_path)
+        if not os.path.isdir(full_path):
+            raise DocumentNotFoundError(f"文件夹不存在: {folder_path}")
+        if os.listdir(full_path):
+            raise ValueError(f"文件夹非空: {folder_path}，请先删除内容")
+        os.rmdir(full_path)
+        logger.info("文件夹已删除: %s", full_path)
+        return {"path": folder_path, "category": category_id}
+
+    # ── 移动/重命名 ──
+
+    def move_document(self, category_id: str, doc_path: str,
+                      new_path: str = None) -> dict:
+        """移动/重命名文档。
+
+        new_path 为新的相对路径（相对于类别目录，不含 .md）。
+        """
+        old_filepath = self._resolve_path(category_id, doc_path)
+        if not old_filepath or not os.path.isfile(old_filepath):
+            raise DocumentNotFoundError(f"文档不存在: {category_id}/{doc_path}")
+
+        target_rel = new_path or doc_path
+        cat = self._categories[category_id]
+        new_filepath = os.path.join(cat.directory, f"{target_rel}.md")
+
+        if old_filepath == new_filepath:
+            raise ValueError("源路径和目标路径相同")
+
+        if os.path.exists(new_filepath):
+            raise FileExistsError(f"目标已存在: {target_rel}")
+
+        os.makedirs(os.path.dirname(new_filepath), exist_ok=True)
+        os.rename(old_filepath, new_filepath)
+
+        # 清理空父目录
+        self._cleanup_empty_dirs(os.path.dirname(old_filepath), cat.directory)
+
+        logger.info("文档已移动: %s → %s", old_filepath, new_filepath)
+        return {
+            "old_path": f"{category_id}/{doc_path}",
+            "new_path": f"{category_id}/{target_rel}",
+            "category": category_id,
+        }
+
+    def move_folder(self, category_id: str, folder_path: str,
+                    new_path: str = None) -> dict:
+        """移动/重命名文件夹。"""
+        cat = self._categories.get(category_id)
+        if not cat:
+            raise ValueError(f"未知文档类别: {category_id}")
+
+        old_full = os.path.join(cat.directory, folder_path)
+        if not os.path.isdir(old_full):
+            raise DocumentNotFoundError(f"文件夹不存在: {folder_path}")
+
+        target_rel = new_path or folder_path
+        new_full = os.path.join(cat.directory, target_rel)
+
+        if old_full == new_full:
+            raise ValueError("源路径和目标路径相同")
+
+        if os.path.exists(new_full):
+            raise FileExistsError(f"目标已存在: {target_rel}")
+
+        os.makedirs(os.path.dirname(new_full), exist_ok=True)
+        os.rename(old_full, new_full)
+
+        self._cleanup_empty_dirs(os.path.dirname(old_full), cat.directory)
+
+        logger.info("文件夹已移动: %s → %s", old_full, new_full)
+        return {
+            "old_path": f"{category_id}/{folder_path}",
+            "new_path": f"{category_id}/{target_rel}",
+            "category": category_id,
+        }
+
+    @staticmethod
+    def _cleanup_empty_dirs(start_dir: str, stop_dir: str):
+        """删除空的父目录链，直到 stop_dir（不含）。"""
+        current = start_dir
+        while current and current.startswith(stop_dir) and current != stop_dir:
+            try:
+                if not os.path.isdir(current):
+                    break
+                if os.listdir(current):
+                    break
+                os.rmdir(current)
+                current = os.path.dirname(current)
+            except OSError:
+                break
 
     # ── Git 集成 ──
 

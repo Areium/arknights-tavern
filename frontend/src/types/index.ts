@@ -67,6 +67,32 @@ export interface DocumentContent {
   filepath: string;
 }
 
+/** 文档树节点（来自后端） */
+export interface DocTreeNode {
+  name: string;
+  type: "folder" | "document";
+  id?: string;
+  hash?: string;
+  mtime?: number;
+  summary?: string;
+  category_id?: string;
+  children?: DocTreeNode[];
+}
+
+/** 文档树类别分组 */
+export interface DocTreeCategory {
+  category: string;
+  category_info: DocumentCategory;
+  children: DocTreeNode[];
+}
+
+/** 移动/重命名操作结果 */
+export interface MoveResult {
+  old_path: string;
+  new_path: string;
+  category: string;
+}
+
 /** SSE 事件 */
 export interface SSEEvent {
   type: "text" | "scene_event" | "choice" | "heartbeat" | "error" | "done" | "meta";
