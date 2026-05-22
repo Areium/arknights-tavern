@@ -18,11 +18,11 @@ export default function ChatView() {
       <div className="w-72 border-r border-gray-700 overflow-y-auto p-3 space-y-3 shrink-0">
         <SessionList />
         <CharacterPanel
-          key={refreshKey}
+          refreshKey={refreshKey}
           onAddClick={() => setCharBrowserOpen(true)}
         />
         <ItemPanel
-          key={`items-${refreshKey}`}
+          refreshKey={refreshKey}
           onAddClick={() => setItemBrowserOpen(true)}
         />
         <EnvironmentPanel />

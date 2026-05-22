@@ -13,8 +13,10 @@ interface CharacterInfo {
 
 export default function CharacterPanel({
   onAddClick,
+  refreshKey,
 }: {
   onAddClick?: () => void;
+  refreshKey?: number;
 }) {
   const { activeSessionId } = useAppStore();
   const api = useApi();
@@ -129,7 +131,13 @@ export default function CharacterPanel({
 
   useEffect(() => {
     loadCharacters();
-  }, [loadCharacters]);
+    // Clear preview state on session switch
+    setHoveredChar(null);
+    setHoverAnchor(null);
+    setPinnedChar(null);
+    setPinnedAnchor(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSessionId, refreshKey]);
 
   const handleLoad = async (name: string) => {
     if (!activeSessionId) return;

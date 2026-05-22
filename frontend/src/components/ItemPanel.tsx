@@ -13,8 +13,10 @@ interface SceneItem {
 
 export default function ItemPanel({
   onAddClick,
+  refreshKey,
 }: {
   onAddClick?: () => void;
+  refreshKey?: number;
 }) {
   const { activeSessionId } = useAppStore();
   const api = useApi();
@@ -121,7 +123,13 @@ export default function ItemPanel({
 
   useEffect(() => {
     loadItems();
-  }, [loadItems]);
+    // Clear preview state on session switch
+    setHoveredItem(null);
+    setHoverAnchor(null);
+    setPinnedItem(null);
+    setPinnedAnchor(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadItems, refreshKey]);
 
   const handleRemove = async (itemId: string) => {
     if (!activeSessionId) return;
