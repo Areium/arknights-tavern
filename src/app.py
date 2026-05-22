@@ -18,9 +18,6 @@ import uuid
 import logging
 from typing import Optional
 
-from dotenv import load_dotenv
-load_dotenv()
-
 import yaml
 from flask import Flask, jsonify, request, Response, stream_with_context
 from flask_cors import CORS

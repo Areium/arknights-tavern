@@ -421,6 +421,15 @@ export default function ChatPanel() {
     });
   }, [activeSessionId, api]);
 
+  // ── Single message deletion ──
+
+  const handleDeleteMessage = useCallback((idx: number) => {
+    setMessages((prev) => {
+      if (idx < 0 || idx >= prev.length) return prev;
+      return [...prev.slice(0, idx), ...prev.slice(idx + 1)];
+    });
+  }, []);
+
   // ── Derive round groups for rollback dividers ──
 
   const roundBoundaries: number[] = [];
@@ -620,6 +629,19 @@ export default function ChatPanel() {
                       )}
                       {msg.role === "narrator" && streaming && i === messages.length - 1 && (
                         <span className="inline-block w-2 h-4 bg-amber-400/70 ml-1 animate-pulse" />
+                      )}
+
+                      {/* Delete button (all messages, hover reveal) */}
+                      {!streaming && (
+                        <button
+                          onClick={() => handleDeleteMessage(i)}
+                          className="absolute -top-2 -left-2 w-5 h-5 rounded-full bg-gray-600
+                            text-gray-300 hover:bg-red-500 text-[10px] leading-5
+                            opacity-0 group-hover:opacity-100 transition-opacity"
+                          title="删除此消息"
+                        >
+                          ×
+                        </button>
                       )}
 
                       {/* Edit button on user messages (story mode only) */}

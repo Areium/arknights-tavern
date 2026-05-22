@@ -110,27 +110,8 @@ class LLMBackendManager:
         self._load_config()
 
     def _load_config(self):
-        """从 JSON 配置文件加载配置并同步到运行时。
-
-        如果 JSON 文件不存在但 .env 中有值，自动迁移。
-        """
+        """从 JSON 配置文件加载配置并同步到运行时。"""
         stored = _read_config_file()
-
-        # 首次启动：从 .env 迁移已有配置
-        if not stored:
-            env_config = {
-                "api_key": os.getenv("API_KEY", ""),
-                "base_url": os.getenv("BASE_URL") or os.getenv("API_URL", ""),
-                "cloud_model": ApiModelConfig.model,
-                "ollama_url": self.OLLAMA_URL,
-                "ollama_model": ModelConfig.model,
-            }
-            # 只保存非空值
-            stored = {k: v for k, v in env_config.items() if v}
-            if stored:
-                _write_config_file(stored)
-                logger.info("已从 .env 迁移配置到 %s", _CONFIG_PATH)
-
         merged = {**_DEFAULT_CONFIG, **stored}
 
         # 同步到 os.environ 和 ApiModelConfig 类属性（类属性在 import 时求值，需显式覆盖）

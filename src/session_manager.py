@@ -144,12 +144,10 @@ class Session:
                 return
 
     def should_generate_memory(self, interval: int) -> bool:
-        """检查是否应该生成回忆（本轮叙述后）。"""
+        """检查是否应该生成回忆（总轮次达到 interval 的倍数时触发）。"""
         if interval <= 0:
             return False
-        unsummarized = [h for h in self._narration_history
-                        if h["round"] > self._last_memory_end]
-        return len(unsummarized) >= interval
+        return self.narration_count % interval == 0 and self.narration_count > self._last_memory_end
 
     def generate_memory(self) -> dict | None:
         """从最近未总结的叙述历史生成回忆摘要。保留原始历史不删除。"""
