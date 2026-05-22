@@ -28,8 +28,7 @@ class OptionsMenu:
     def __init__(self, options: list[str], mode: str = "system",
                  character_name: str = "", scene_characters: list[str] | None = None):
         self.options = list(options)
-        # 内部追加「自行输入」作为最后一个可选项
-        self._items = list(options) + ["自行输入..."]
+        self._items = list(options)
         self.mode = mode
         self.character_name = character_name
         self.scene_characters = scene_characters or []
@@ -64,12 +63,8 @@ class OptionsMenu:
     # ── 内部方法 ──
 
     def _resolve_selection(self) -> str:
-        """处理当前选中项：正常选项返回文本，「自行输入」进入输入模式。"""
         print()
-        if self.selected < len(self.options):
-            return self.options[self.selected]
-        else:
-            return self._custom_input()
+        return self.options[self.selected]
 
     def _render(self):
         """渲染选项列表，高亮当前选中项。"""

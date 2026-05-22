@@ -4,7 +4,9 @@
  * 自动检测 Electron 环境（通过 preload）或纯浏览器环境。
  */
 
-const FALLBACK_URL = "http://127.0.0.1:5000";
+import { useMemo } from "react";
+
+const FALLBACK_URL = "";
 
 async function getBaseUrl(): Promise<string> {
   if (window.electronAPI) {
@@ -13,6 +15,8 @@ async function getBaseUrl(): Promise<string> {
   return FALLBACK_URL;
 }
 
+const REQUEST_TIMEOUT = 15000; // 15s
+
 async function request<T>(
   path: string,
   options: RequestInit = {}
@@ -20,30 +24,38 @@ async function request<T>(
   const base = await getBaseUrl();
   const url = `${base}${path}`;
 
-  const res = await fetch(url, {
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-    ...options,
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
 
-  if (!res.ok) {
-    const body = await res.text();
-    let message: string;
-    try {
-      message = JSON.parse(body).error || body;
-    } catch {
-      message = body;
+  try {
+    const res = await fetch(url, {
+      headers: {
+        "Content-Type": "application/json",
+        ...options.headers,
+      },
+      signal: controller.signal,
+      ...options,
+    });
+
+    if (!res.ok) {
+      const body = await res.text();
+      let message: string;
+      try {
+        message = JSON.parse(body).error || body;
+      } catch {
+        message = body;
+      }
+      throw new Error(message || `HTTP ${res.status}`);
     }
-    throw new Error(message || `HTTP ${res.status}`);
-  }
 
-  return res.json();
+    return res.json();
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 export function useApi() {
-  return {
+  return useMemo(() => ({
     // ── 状态 ──
     getStatus: () => request<any>("/api/status"),
 
@@ -57,6 +69,11 @@ export function useApi() {
     getSession: (id: string) => request<any>(`/api/sessions/${id}`),
     deleteSession: (id: string) =>
       request<any>(`/api/sessions/${id}`, { method: "DELETE" }),
+    renameSession: (id: string, name: string) =>
+      request<any>(`/api/sessions/${id}/rename`, {
+        method: "PUT",
+        body: JSON.stringify({ name }),
+      }),
 
     // ── 场景角色 ──
     getSceneCharacters: (sessionId: string) =>
@@ -138,9 +155,63 @@ export function useApi() {
         method: "POST",
         body: JSON.stringify({ endpoint: endpointId }),
       }),
+    getLLMConfig: () => request<any>("/api/llm/config"),
+    updateLLMConfig: (config: Record<string, any>) =>
+      request<any>("/api/llm/config", {
+        method: "PUT",
+        body: JSON.stringify(config),
+      }),
+    testLLMConnection: (type: "cloud" | "ollama", params: Record<string, string>) =>
+      request<any>("/api/llm/test", {
+        method: "POST",
+        body: JSON.stringify({ type, ...params }),
+      }),
 
     // ── 角色库 ──
     getCharacters: () => request<any[]>("/api/characters"),
+    getCharacter: (id: string) => request<any>(`/api/characters/${encodeURIComponent(id)}`),
+
+    // ── 物品库 ──
+    getItems: () => request<any[]>("/api/items"),
+    getItem: (id: string) => request<any>(`/api/items/${encodeURIComponent(id)}`),
+    getSceneItems: (sessionId: string) =>
+      request<any>(`/api/sessions/${sessionId}/items`),
+    addSceneItem: (sessionId: string, itemId: string) =>
+      request<any>(`/api/sessions/${sessionId}/items/add`, {
+        method: "POST",
+        body: JSON.stringify({ item_id: itemId }),
+      }),
+    removeSceneItem: (sessionId: string, itemId: string) =>
+      request<any>(`/api/sessions/${sessionId}/items/remove`, {
+        method: "POST",
+        body: JSON.stringify({ item_id: itemId }),
+      }),
+
+    // ── 会话覆盖 ──
+    getOverrides: (sessionId: string) =>
+      request<any>(`/api/sessions/${sessionId}/overrides`),
+    getCharacterMerged: (sessionId: string, name: string) =>
+      request<any>(`/api/sessions/${sessionId}/overrides/characters/${encodeURIComponent(name)}`),
+    setCharacterOverride: (sessionId: string, name: string, overrides: Record<string, any>) =>
+      request<any>(`/api/sessions/${sessionId}/overrides/characters/${encodeURIComponent(name)}`, {
+        method: "PUT",
+        body: JSON.stringify(overrides),
+      }),
+    deleteCharacterOverride: (sessionId: string, name: string) =>
+      request<any>(`/api/sessions/${sessionId}/overrides/characters/${encodeURIComponent(name)}`, {
+        method: "DELETE",
+      }),
+    getItemMerged: (sessionId: string, itemId: string) =>
+      request<any>(`/api/sessions/${sessionId}/overrides/items/${encodeURIComponent(itemId)}`),
+    setItemOverride: (sessionId: string, itemId: string, overrides: Record<string, any>) =>
+      request<any>(`/api/sessions/${sessionId}/overrides/items/${encodeURIComponent(itemId)}`, {
+        method: "PUT",
+        body: JSON.stringify(overrides),
+      }),
+    deleteItemOverride: (sessionId: string, itemId: string) =>
+      request<any>(`/api/sessions/${sessionId}/overrides/items/${encodeURIComponent(itemId)}`, {
+        method: "DELETE",
+      }),
 
     // ── 文档创建 ──
     createDocument: (
@@ -153,7 +224,7 @@ export function useApi() {
         method: "POST",
         body: JSON.stringify({ id, content, metadata }),
       }),
-  };
+  }), []);
 }
 
 /**

@@ -19,18 +19,19 @@ _ENV_RULE = """
 
 
 class CharacterAgent:
-    def __init__(self, character_name, llm, registry=None):
+    def __init__(self, character_name, llm, registry=None, overrides: dict = None):
         self.character_name = character_name
         self.llm = llm
         self.registry = registry
         self.metadata = {}
-        self.character = self.load_character(character_name)
+        self._overrides = overrides or {}
+        self.character = self.load_character(character_name, self._overrides)
         self.memory = VectorMemory(
             character_name=character_name,
             embed_fn=self.llm.embed if hasattr(self.llm, "embed") else None,
         )
 
-    def load_character(self, character_name: str) -> str:
+    def load_character(self, character_name: str, overrides: dict = None) -> str:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         project_root = os.path.dirname(base_dir)
         file_path = os.path.join(project_root, "data", "characters", f"{character_name}.md")
@@ -46,6 +47,14 @@ class CharacterAgent:
 
             metadata = character_data.metadata
             content = character_data.content
+
+            # Apply session overrides
+            if overrides:
+                metadata = self._apply_meta_overrides(metadata, overrides.get("metadata", {}))
+                if overrides.get("content") is not None:
+                    content = overrides["content"]
+                logger.debug("已应用角色 %s 的会话覆盖", character_name)
+
             self.metadata = metadata
             char_card = yaml.dump(metadata, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
@@ -136,6 +145,18 @@ class CharacterAgent:
 
         self.memory.add(user_input, clean_response)
         return clean_response, env_updates
+
+    @staticmethod
+    def _apply_meta_overrides(base: dict, overrides: dict) -> dict:
+        """深度合并覆盖到基础 metadata。"""
+        import copy
+        result = copy.deepcopy(base)
+        for key, value in overrides.items():
+            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                result[key] = CharacterAgent._apply_meta_overrides(result[key], value)
+            else:
+                result[key] = copy.deepcopy(value)
+        return result
 
     # ── 环境标记解析 ──
 

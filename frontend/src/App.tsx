@@ -8,9 +8,34 @@ import DocumentManager from "./components/DocumentManager";
 import SettingsPanel from "./components/SettingsPanel";
 
 export default function App() {
-  const { currentView, setBackendStatus, setLLMStatus, setSessions } =
+  const { currentView, setBackendStatus, setLLMStatus, setSessions, theme, setTheme } =
     useAppStore();
   const api = useApi();
+
+  // 启动时从配置文件加载主题设置
+  useEffect(() => {
+    const initConfig = async () => {
+      try {
+        const config = await api.getLLMConfig();
+        if (config.theme === "light" || config.theme === "dark") {
+          setTheme(config.theme);
+        }
+      } catch {
+        // 后端不可用时使用默认深色主题
+      }
+    };
+    initConfig();
+  }, []); // 仅启动时执行一次
+
+  // 应用主题 class 到 <html>
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === "light") {
+      root.classList.add("light");
+    } else {
+      root.classList.remove("light");
+    }
+  }, [theme]);
 
   // Poll backend status
   useEffect(() => {

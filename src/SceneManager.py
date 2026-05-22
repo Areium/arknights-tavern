@@ -27,9 +27,10 @@ class SceneManager:
     # 场景日志保留上限
     _MAX_SCENE_LOG = 20
 
-    def __init__(self, llm, registry):
+    def __init__(self, llm, registry, overlay=None):
         self._llm = llm
         self._registry = registry
+        self._overlay = overlay  # SessionOverlay instance
 
         # {name: CharacterAgent}
         self._agents: dict[str, CharacterAgent] = {}
@@ -40,7 +41,36 @@ class SceneManager:
         # 当前对话目标
         self.active: str | None = None
 
+        # 场景中的物品: {item_id: item_data}
+        self._scene_items: dict[str, dict] = {}
+
     # ── 公开 API（前端友好）──
+
+    def get_scene_items(self) -> list[dict]:
+        """返回场景中所有物品。"""
+        return [
+            {"id": item_id, **data}
+            for item_id, data in self._scene_items.items()
+        ]
+
+    def add_item(self, item_id: str, item_data: dict) -> bool:
+        """添加物品到场景。会自动合并会话覆盖。"""
+        if item_id in self._scene_items:
+            return False
+        # Merge session overrides if available
+        if self._overlay:
+            item_data, _ = self._overlay.apply_item_overrides(item_id, item_data, "")
+        self._scene_items[item_id] = item_data
+        self._log_event(f"📦 {item_data.get('name', item_id)} 出现在场景中")
+        return True
+
+    def remove_item(self, item_id: str) -> bool:
+        """从场景移除物品。"""
+        if item_id not in self._scene_items:
+            return False
+        data = self._scene_items.pop(item_id)
+        self._log_event(f"📦 {data.get('name', item_id)} 从场景中移除")
+        return True
 
     def get_scene_characters(self) -> list[str]:
         """返回场景中所有角色名。"""
@@ -69,7 +99,11 @@ class SceneManager:
             logger.info("角色已在场景中: %s", name)
             return True
 
-        agent = CharacterAgent(name, self._llm, self._registry)
+        char_overrides = {}
+        if self._overlay:
+            char_overrides = self._overlay.get_character_overrides(name)
+
+        agent = CharacterAgent(name, self._llm, self._registry, overrides=char_overrides if char_overrides else None)
         if agent.character is None:
             logger.error("无法加载角色: %s", name)
             return False
@@ -309,10 +343,20 @@ class SceneManager:
     # ── 内部方法 ──
 
     def _build_scene_context(self) -> str:
-        """构建【同场角色】和【场景动态】上下文，注入角色 prompt。"""
+        """构建【同场角色】【场景物品】和【场景动态】上下文，注入角色 prompt。"""
         lines = ["【同场角色】"]
         for name in self._agents:
             lines.append(f"- {name}")
+
+        if self._scene_items:
+            lines.append("\n【场景物品】")
+            for item_id, data in self._scene_items.items():
+                name = data.get("name", item_id)
+                owner = data.get("owner", "")
+                effects = data.get("effects", [])
+                effect_str = f"（{'、'.join(effects[:3])}）" if effects else ""
+                owner_str = f" — 属于 {owner}" if owner else ""
+                lines.append(f"- {name}{owner_str} {effect_str}")
 
         recent = self._scene_log[-10:]
         if recent:

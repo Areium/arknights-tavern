@@ -4,6 +4,7 @@ logs/
 .history/
 data/memory/
 src/data/
+config/
 venv/
 .venv/
 CLAUDE.md

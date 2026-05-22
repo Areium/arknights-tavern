@@ -4,10 +4,17 @@
 import { create } from "zustand";
 import type { BackendStatus, Session, LLMStatus } from "../types";
 
+type Theme = "dark" | "light";
+
 interface AppState {
   // 视图
   currentView: "chat" | "documents" | "settings";
   setCurrentView: (view: "chat" | "documents" | "settings") => void;
+
+  // 主题
+  theme: Theme;
+  setTheme: (theme: Theme) => void;
+  toggleTheme: () => void;
 
   // 后端连接
   backend: BackendStatus;
@@ -31,10 +38,18 @@ export const useAppStore = create<AppState>((set) => ({
   currentView: "chat",
   setCurrentView: (view) => set({ currentView: view }),
 
+  // 主题
+  theme: "dark",
+  setTheme: (theme) => set({ theme }),
+  toggleTheme: () => set((state) => ({ theme: state.theme === "dark" ? "light" : "dark" })),
+
   // 后端
   backend: { status: "connecting", url: "" },
   llmStatus: null,
-  setBackendStatus: (status) => set({ backend: status }),
+  setBackendStatus: (status) => set((state) => {
+    if (state.backend.status === status.status && state.backend.url === status.url) return {};
+    return { backend: status };
+  }),
   setLLMStatus: (status) => set({ llmStatus: status }),
 
   // 对话模式

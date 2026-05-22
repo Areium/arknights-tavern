@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useApi } from "../hooks/useApi";
 
 interface TreeNode {
@@ -16,6 +16,9 @@ interface DocContent {
 
 export default function DocumentManager() {
   const api = useApi();
+  const apiRef = useRef(api);
+  apiRef.current = api;
+
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [docContent, setDocContent] = useState<DocContent | null>(null);
@@ -24,48 +27,61 @@ export default function DocumentManager() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const loadTree = useCallback(async () => {
-    try {
-      const data: any[] = await api.getDocumentTree();
-      // Transform backend response to TreeNode format
-      const nodes: TreeNode[] = data.map((cat: any) => ({
-        name: cat.category || cat.category_info?.id || "unknown",
-        type: "category" as const,
-        children: (cat.documents || []).map((doc: any) => ({
-          name: doc.title || doc.id,
-          type: "document" as const,
-          path: `${cat.category || cat.category_info?.id}/${doc.id}`,
-        })),
-      }));
-      setTree(nodes);
-    } catch (err: any) {
-      setError("加载文档树失败: " + err.message);
+  const loadTree = useCallback(async (retries = 2): Promise<void> => {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const data: any[] = await apiRef.current.getDocumentTree();
+        const nodes: TreeNode[] = data.map((cat: any) => ({
+          name: cat.category || cat.category_info?.id || "unknown",
+          type: "category" as const,
+          children: (cat.documents || []).map((doc: any) => ({
+            name: doc.title || doc.id,
+            type: "document" as const,
+            path: `${cat.category || cat.category_info?.id}/${doc.id}`,
+          })),
+        }));
+        setTree(nodes);
+        setError("");
+        return;
+      } catch (err: any) {
+        if (attempt < retries) {
+          await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+        } else {
+          setError("加载文档树失败: " + err.message);
+        }
+      }
     }
-  }, [api]);
+  }, []);
 
   useEffect(() => {
     loadTree();
-  }, [loadTree]);
+  }, []);
+
+  const currentReq = useRef(0);
 
   const handleSelect = async (path: string) => {
+    const reqId = ++currentReq.current;
     setSelectedPath(path);
     setEditing(false);
     setLoading(true);
     setError("");
     try {
-      // Parse category/id from path
       const parts = path.split("/");
       if (parts.length < 2) throw new Error("Invalid path");
       const category = parts[0];
       const id = parts.slice(1).join("/");
       const content = await api.readDocument(category, id);
+      if (reqId !== currentReq.current) return; // 废弃旧请求的响应
       setDocContent(content);
       setEditContent(content.content);
     } catch (err: any) {
+      if (reqId !== currentReq.current) return;
       setError(err.message);
       setDocContent(null);
     } finally {
-      setLoading(false);
+      if (reqId === currentReq.current) {
+        setLoading(false);
+      }
     }
   };
 

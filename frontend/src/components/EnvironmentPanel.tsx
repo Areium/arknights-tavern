@@ -12,6 +12,7 @@ export default function EnvironmentPanel() {
   const { activeSessionId } = useAppStore();
   const api = useApi();
   const [env, setEnv] = useState<Environment | null>(null);
+  const [error, setError] = useState("");
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<Environment>({
     location: "",
@@ -25,8 +26,9 @@ export default function EnvironmentPanel() {
       const data = await api.getEnvironment(activeSessionId);
       setEnv(data);
       setForm(data);
-    } catch {
-      /* ignore */
+      setError("");
+    } catch (err: any) {
+      setError(err.message || "加载失败");
     }
   }, [activeSessionId, api]);
 
@@ -104,6 +106,8 @@ export default function EnvironmentPanel() {
             <span>{env.time || "未知"}</span>
           </div>
         </div>
+      ) : error ? (
+        <p className="text-red-400 text-sm text-center py-2">{error}</p>
       ) : (
         <p className="text-gray-500 text-sm text-center py-2">加载中...</p>
       )}

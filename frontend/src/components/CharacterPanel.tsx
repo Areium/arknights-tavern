@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useAppStore } from "../stores/appStore";
 import { useApi } from "../hooks/useApi";
+import CharacterDetailCard from "./CharacterDetailCard";
 
 interface CharacterInfo {
   id: string;
@@ -21,6 +22,80 @@ export default function CharacterPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  // Hover/pin preview
+  const [hoveredChar, setHoveredChar] = useState<string | null>(null);
+  const [hoverAnchor, setHoverAnchor] = useState<DOMRect | null>(null);
+  const [pinnedChar, setPinnedChar] = useState<string | null>(null);
+  const [pinnedAnchor, setPinnedAnchor] = useState<DOMRect | null>(null);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const previewChar = hoveredChar || pinnedChar;
+  const previewAnchor = hoveredChar ? hoverAnchor : pinnedAnchor;
+
+  const clearCloseTimer = () => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  };
+
+  const handleMouseEnter = (charId: string, el: HTMLElement) => {
+    clearCloseTimer();
+    setHoveredChar(charId);
+    setHoverAnchor(el.getBoundingClientRect());
+  };
+
+  const handleMouseLeave = () => {
+    // Delay close to give user time to reach the popup or pin button
+    closeTimerRef.current = setTimeout(() => {
+      setHoveredChar(null);
+      setHoverAnchor(null);
+    }, 250);
+  };
+
+  const handlePopupEnter = () => {
+    clearCloseTimer();
+  };
+
+  const handlePopupLeave = () => {
+    if (!pinnedChar) {
+      setHoveredChar(null);
+      setHoverAnchor(null);
+    }
+  };
+
+  const handleTogglePin = () => {
+    if (pinnedChar) {
+      setPinnedChar(null);
+      setPinnedAnchor(null);
+    } else if (hoveredChar) {
+      setPinnedChar(hoveredChar);
+      setPinnedAnchor(hoverAnchor);
+    }
+  };
+
+  const handlePinFromList = (charId: string, el: HTMLElement) => {
+    clearCloseTimer();
+    const rect = el.getBoundingClientRect();
+    if (pinnedChar === charId) {
+      setPinnedChar(null);
+      setPinnedAnchor(null);
+    } else {
+      setPinnedChar(charId);
+      setPinnedAnchor(rect);
+      setHoveredChar(charId);
+      setHoverAnchor(rect);
+    }
+  };
+
+  const handleClosePreview = () => {
+    clearCloseTimer();
+    setHoveredChar(null);
+    setHoverAnchor(null);
+    setPinnedChar(null);
+    setPinnedAnchor(null);
+  };
+
   const loadCharacters = useCallback(async () => {
     if (!activeSessionId) {
       setCharacters([]);
@@ -30,7 +105,6 @@ export default function CharacterPanel({
     setError("");
     try {
       const data = await api.getSceneCharacters(activeSessionId);
-      // data = { characters: ["霜星", "阿米娅"], active: "霜星" }
       const rawList: any[] = data.characters || data;
       const list: CharacterInfo[] = rawList.map((c: any) => {
         const name = typeof c === "string" ? c : c.name || c.id || "";
@@ -142,7 +216,9 @@ export default function CharacterPanel({
         {characters.map((c) => (
           <div
             key={c.id}
-            className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm ${
+            onMouseEnter={(e) => handleMouseEnter(c.name, e.currentTarget)}
+            onMouseLeave={handleMouseLeave}
+            className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm cursor-default ${
               c.active
                 ? "bg-amber-600/20 border border-amber-600/30"
                 : c.loaded
@@ -160,6 +236,21 @@ export default function CharacterPanel({
               )}
             </div>
             <div className="flex gap-1 shrink-0 ml-2">
+              {/* Pin button on list item */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handlePinFromList(c.name, e.currentTarget.parentElement!);
+                }}
+                className={`text-xs px-1 rounded transition-colors ${
+                  pinnedChar === c.name
+                    ? "bg-amber-600/30 text-amber-300"
+                    : "text-gray-600 hover:text-gray-300"
+                }`}
+                title={pinnedChar === c.name ? "取消固定" : "固定查看详情"}
+              >
+                📌
+              </button>
               {c.loaded ? (
                 <>
                   {!c.active && (
@@ -189,6 +280,19 @@ export default function CharacterPanel({
           </div>
         ))}
       </div>
+
+      {/* Character detail popup */}
+      {previewChar && previewAnchor && (
+        <CharacterDetailCard
+          characterId={previewChar}
+          anchorRect={previewAnchor}
+          pinned={!!pinnedChar}
+          onTogglePin={handleTogglePin}
+          onClose={handleClosePreview}
+          onMouseEnter={handlePopupEnter}
+          onMouseLeave={handlePopupLeave}
+        />
+      )}
     </div>
   );
 }

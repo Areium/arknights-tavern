@@ -33,7 +33,9 @@ export default function ChatPanel() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streaming]);
 
-  // On session/mode change: load scene_log, then optionally auto-narrate
+  const storageKey = activeSessionId ? `ark_chat_${activeSessionId}` : null;
+
+  // On session/mode change: load from localStorage or backend, then optionally auto-narrate
   useEffect(() => {
     setMessages([]);
     setStreaming(false);
@@ -43,11 +45,27 @@ export default function ChatPanel() {
 
     if (!activeSessionId) return;
     const sid: string = activeSessionId;
+    const key = `ark_chat_${sid}`;
 
     let cancelled = false;
 
     async function init() {
-      // 1. Load session details for scene_log
+      // 1. Try localStorage first
+      const cached = localStorage.getItem(key);
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            if (!cancelled) {
+              setMessages(parsed);
+              setInitialLoading(false);
+            }
+            return; // skip backend fetch — localStorage is the source of truth
+          }
+        } catch { /* corrupt cache, fall through to backend */ }
+      }
+
+      // 2. Fallback: load from backend scene_log
       setInitialLoading(true);
       try {
         const session = await api.getSession(sid);
@@ -55,7 +73,6 @@ export default function ChatPanel() {
 
         const initialMessages: Message[] = [];
 
-        // Show scene log entries as system context
         const log = filterSceneLog(session.scene_log || []);
         if (log.length > 0) {
           initialMessages.push({
@@ -64,7 +81,6 @@ export default function ChatPanel() {
           });
         }
 
-        // Show environment context
         if (session.environment) {
           const { location, weather, time } = session.environment;
           initialMessages.push({
@@ -73,7 +89,6 @@ export default function ChatPanel() {
           });
         }
 
-        // Show loaded characters
         const chars = session.characters || [];
         if (chars.length > 0) {
           const charList = chars
@@ -94,7 +109,7 @@ export default function ChatPanel() {
         if (!cancelled) setInitialLoading(false);
       }
 
-      // 2. Story mode: auto-start narration
+      // 3. Story mode: auto-start narration
       if (chatMode === "story" && !cancelled) {
         triggerNarrate(sid, setMessages, setStreaming, abortRef);
       }
@@ -106,6 +121,14 @@ export default function ChatPanel() {
       abortRef.current?.();
     };
   }, [activeSessionId, chatMode, api]);
+
+  // Persist messages to localStorage whenever they change
+  useEffect(() => {
+    if (!storageKey || messages.length === 0) return;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(messages));
+    } catch { /* localStorage full or unavailable */ }
+  }, [messages, storageKey]);
 
   // Extracted send logic for both handleSend and handleChoiceClick
   const performSend = useCallback(
@@ -155,11 +178,13 @@ export default function ChatPanel() {
             newMsgs.push({ role: "system", content: `【环境更新】${changes}` });
           }
 
-          const defaultChoices = ["继续推进剧情"];
-          if (data.active_character) {
-            defaultChoices.push(`对${data.active_character}说话`);
-          }
-          defaultChoices.push("自行输入...");
+          const defaultChoices = data.choices || (() => {
+            const opts = ["继续推进剧情"];
+            if (data.active_character) {
+              opts.push(`对${data.active_character}说话`);
+            }
+            return opts;
+          })();
           newMsgs.push({
             role: "system",
             content: "— 请选择 —",
@@ -194,7 +219,6 @@ export default function ChatPanel() {
   // Choice button click → auto-fill or send
   const handleChoiceClick = useCallback(
     (choice: string) => {
-      if (choice === "自行输入...") return;
       setInput("");
       setMessages((prev) => [...prev, { role: "user", content: choice }]);
       performSend(choice);
@@ -301,7 +325,7 @@ export default function ChatPanel() {
                         text-amber-300 hover:bg-amber-600/20 transition-colors
                         disabled:opacity-50"
                     >
-                      {ci + 1}. {choice}
+                      {msg.choices!.length > 1 ? `${ci + 1}. ` : ""}{choice}
                     </button>
                   ))}
                 </div>

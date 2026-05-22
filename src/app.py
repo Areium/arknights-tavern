@@ -42,13 +42,18 @@ logger = logging.getLogger(__name__)
 
 
 def _get_session(session_id: str):
-    """获取会话，不存在则返回 404。"""
+    """获取会话，不存在则返回 404。不检查 is_usable，由各路由自行判断。"""
     session = session_manager.get_session(session_id)
     if not session:
         return None
-    if not session.is_usable:
-        return None
     return session
+
+
+def _require_usable(session):
+    """检查会话是否可以进行 LLM 操作，不可用则返回 503 错误响应。"""
+    if not session.is_usable:
+        return _json_error("LLM 后端不可用，无法执行此操作", 503)
+    return None
 
 
 def _json_error(message: str, status: int = 400):
@@ -113,6 +118,20 @@ def delete_session(session_id: str):
     return jsonify({"message": "会话已删除"})
 
 
+@app.route("/api/sessions/<session_id>/rename", methods=["PUT"])
+def rename_session(session_id: str):
+    """重命名会话。"""
+    session = session_manager.get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+    data = request.json or {}
+    new_name = data.get("name", "").strip()
+    if not new_name:
+        return _json_error("需要 name 参数")
+    session_manager.rename_session(session_id, new_name)
+    return jsonify({"message": "已重命名", "name": new_name})
+
+
 # ══════════════════════════════════════════════════════
 # 3.  场景角色管理
 # ══════════════════════════════════════════════════════
@@ -123,7 +142,7 @@ def list_scene_characters(session_id: str):
     """获取当前场景中的角色列表。"""
     session = _get_session(session_id)
     if not session:
-        return _json_error("会话不可用", 404)
+        return _json_error("会话不存在", 404)
     return jsonify({
         "characters": session.scene_manager.get_scene_characters(),
         "active": session.scene_manager.active,
@@ -135,7 +154,10 @@ def load_scene_character(session_id: str):
     """加载角色到场景。"""
     session = _get_session(session_id)
     if not session:
-        return _json_error("会话不可用", 404)
+        return _json_error("会话不存在", 404)
+    err = _require_usable(session)
+    if err:
+        return err
     data = request.json or {}
     name = data.get("character")
     if not name:
@@ -151,7 +173,7 @@ def unload_scene_character(session_id: str):
     """从场景移除角色。"""
     session = _get_session(session_id)
     if not session:
-        return _json_error("会话不可用", 404)
+        return _json_error("会话不存在", 404)
     data = request.json or {}
     name = data.get("character")
     if not name:
@@ -167,7 +189,7 @@ def switch_scene_character(session_id: str):
     """切换当前对话目标。"""
     session = _get_session(session_id)
     if not session:
-        return _json_error("会话不可用", 404)
+        return _json_error("会话不存在", 404)
     data = request.json or {}
     name = data.get("character")
     if not name:
@@ -188,7 +210,10 @@ def session_chat(session_id: str):
     """剧情模式：对当前活跃角色说话。"""
     session = _get_session(session_id)
     if not session:
-        return _json_error("会话不可用", 404)
+        return _json_error("会话不存在", 404)
+    err = _require_usable(session)
+    if err:
+        return err
     data = request.json or {}
     user_input = data.get("input", "").strip()
     if not user_input:
@@ -217,7 +242,10 @@ def session_group_chat(session_id: str):
     """群聊模式：发送消息给场景中所有角色。"""
     session = _get_session(session_id)
     if not session:
-        return _json_error("会话不可用", 404)
+        return _json_error("会话不存在", 404)
+    err = _require_usable(session)
+    if err:
+        return err
     data = request.json or {}
     user_input = data.get("input", "").strip()
     if not user_input:
@@ -239,6 +267,44 @@ def session_group_chat(session_id: str):
         return _json_error(f"群聊处理失败: {e!s}", 500)
 
 
+def _build_choices(session, narrative: str) -> list[str]:
+    """根据配置生成选项：LLM 自动生成或内置默认（不再包含"自行输入..."）。"""
+    config = llm_backend.get_config()
+    if config.get("auto_generate_choices"):
+        count = config.get("choice_count", 3)
+        llm = session.get_llm()
+        if llm:
+            try:
+                active = session.scene_manager.active or ""
+                chars = session.scene_manager.get_scene_characters()
+                prompt = (
+                    f"【场景叙述】\n{narrative}\n\n"
+                    f"【当前场景角色】{', '.join(chars) if chars else '无'}\n"
+                    + (f"【对话目标】{active}\n" if active else "")
+                    + f"\n请基于以上叙述，生成恰好 {count} 个合理的后续行动选项，"
+                      f"每个选项不超过 15 个字，表达简洁直接。"
+                      f"每行一个选项，不要编号，不要加任何前缀或解释。"
+                )
+                response = llm.chat([
+                    {"role": "system", "content": "你是明日方舟文字冒险游戏的选项生成器。根据当前剧情，生成合理且多样化的后续行动选项。"},
+                    {"role": "user", "content": prompt},
+                ], stream=False)
+                lines = [l.strip() for l in response.strip().split("\n") if l.strip()]
+                # 过滤明显的垃圾行
+                lines = [l for l in lines if len(l) <= 30 and not l.startswith("#")]
+                if lines:
+                    return lines[:count]
+            except Exception:
+                pass
+
+    # 内置默认（无"自行输入..."）
+    options = ["继续推进剧情"]
+    active = session.scene_manager.active
+    if active:
+        options.append(f"对{active}说话")
+    return options
+
+
 @app.route("/api/sessions/<session_id>/narrate", methods=["GET"])
 def session_narrate(session_id: str):
     """剧情推进叙述（SSE 流式）。
@@ -251,7 +317,10 @@ def session_narrate(session_id: str):
     """
     session = _get_session(session_id)
     if not session:
-        return _json_error("会话不可用", 404)
+        return _json_error("会话不存在", 404)
+    err = _require_usable(session)
+    if err:
+        return err
 
     stream_id = f"narr_{uuid.uuid4().hex[:12]}"
     player_info = {"identity": request.args.get("identity", "博士")}
@@ -271,11 +340,7 @@ def session_narrate(session_id: str):
                 yield f"data: {json.dumps({'type': 'text', 'data': {'token': ch, 'stream_id': stream_id}})}\n\n"
 
             # 生成选项
-            options = ["继续推进剧情"]
-            active = session.scene_manager.active
-            if active:
-                options.append(f"对{active}说话")
-            options.append("自行输入...")
+            options = _build_choices(session, narrative)
 
             yield f"data: {json.dumps({'type': 'choice', 'data': {'options': options, 'stream_id': stream_id}})}\n\n"
 
@@ -300,7 +365,10 @@ def session_narrate_continue(session_id: str):
     """非流式叙述（前端不使用 SSE 时的回退）。"""
     session = _get_session(session_id)
     if not session:
-        return _json_error("会话不可用", 404)
+        return _json_error("会话不存在", 404)
+    err = _require_usable(session)
+    if err:
+        return err
     data = request.json or {}
     player_info = {"identity": data.get("identity", "博士")}
     env_context = session.environment.build_context()
@@ -311,9 +379,11 @@ def session_narrate_continue(session_id: str):
             user_action=data.get("action", ""),
         )
         session.environment.apply_update(env_updates)
+        options = _build_choices(session, narrative)
         return jsonify({
             "narrative": narrative,
             "env_updates": env_updates,
+            "choices": options,
         })
     except Exception as e:
         logger.error("叙述出错: %s", e)
@@ -330,7 +400,7 @@ def get_environment(session_id: str):
     """获取当前环境状态。"""
     session = _get_session(session_id)
     if not session:
-        return _json_error("会话不可用", 404)
+        return _json_error("会话不存在", 404)
     return jsonify({
         "location": session.environment.location,
         "weather": session.environment.weather,
@@ -483,6 +553,152 @@ def delete_document(category: str, doc_id: str):
 
 
 # ══════════════════════════════════════════════════════
+# 10. 会话覆盖（角色/物品/环境的会话级修改）
+# ══════════════════════════════════════════════════════
+
+
+@app.route("/api/sessions/<session_id>/overrides", methods=["GET"])
+def get_session_overrides(session_id: str):
+    """获取会话的全部覆盖数据。"""
+    session = session_manager.get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+    return jsonify(session.overlay.to_dict())
+
+
+@app.route("/api/sessions/<session_id>/overrides/characters/<name>", methods=["GET"])
+def get_character_merged(session_id: str, name: str):
+    """获取角色的合并后数据（模板 + 会话覆盖）。"""
+    session = session_manager.get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+    try:
+        doc = doc_manager.read_document("characters", name)
+    except DocumentNotFoundError:
+        return _json_error(f"角色不存在: {name}", 404)
+    merged_meta, merged_content = session.overlay.apply_character_overrides(
+        name, doc["metadata"], doc["content"]
+    )
+    return jsonify({
+        "metadata": merged_meta,
+        "content": merged_content,
+        "has_overrides": session.overlay.has_character_overrides(name),
+        "overrides": session.overlay.get_character_overrides(name),
+    })
+
+
+@app.route("/api/sessions/<session_id>/overrides/characters/<name>", methods=["PUT"])
+def set_character_override(session_id: str, name: str):
+    """设置角色覆盖（部分更新）。"""
+    session = session_manager.get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+    data = request.json or {}
+    overrides = {}
+    if "metadata" in data:
+        overrides["metadata"] = data["metadata"]
+    if "content" in data:
+        overrides["content"] = data["content"]
+    if not overrides:
+        return _json_error("需要 metadata 或 content 字段")
+    session.overlay.set_character_overrides(name, overrides)
+    return jsonify({"message": "覆盖已保存", "overrides": session.overlay.get_character_overrides(name)})
+
+
+@app.route("/api/sessions/<session_id>/overrides/characters/<name>", methods=["DELETE"])
+def delete_character_override(session_id: str, name: str):
+    """删除角色覆盖，还原为模板。"""
+    session = session_manager.get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+    ok = session.overlay.delete_character_overrides(name)
+    if not ok:
+        return _json_error(f"角色没有覆盖数据: {name}")
+    return jsonify({"message": "已还原为模板"})
+
+
+@app.route("/api/sessions/<session_id>/overrides/items/<item_id>", methods=["GET"])
+def get_item_merged(session_id: str, item_id: str):
+    """获取物品的合并后数据（模板 + 会话覆盖）。"""
+    session = session_manager.get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+    try:
+        doc = doc_manager.read_document("items", item_id)
+    except DocumentNotFoundError:
+        return _json_error(f"物品不存在: {item_id}", 404)
+    merged_meta, merged_content = session.overlay.apply_item_overrides(
+        item_id, doc["metadata"], doc["content"]
+    )
+    return jsonify({
+        "metadata": merged_meta,
+        "content": merged_content,
+        "has_overrides": session.overlay.has_item_overrides(item_id),
+        "overrides": session.overlay.get_item_overrides(item_id),
+    })
+
+
+@app.route("/api/sessions/<session_id>/overrides/items/<item_id>", methods=["PUT"])
+def set_item_override(session_id: str, item_id: str):
+    """设置物品覆盖（部分更新）。"""
+    session = session_manager.get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+    data = request.json or {}
+    overrides = {}
+    if "metadata" in data:
+        overrides["metadata"] = data["metadata"]
+    if "content" in data:
+        overrides["content"] = data["content"]
+    if not overrides:
+        return _json_error("需要 metadata 或 content 字段")
+    session.overlay.set_item_overrides(item_id, overrides)
+    return jsonify({"message": "覆盖已保存", "overrides": session.overlay.get_item_overrides(item_id)})
+
+
+@app.route("/api/sessions/<session_id>/overrides/items/<item_id>", methods=["DELETE"])
+def delete_item_override(session_id: str, item_id: str):
+    """删除物品覆盖，还原为模板。"""
+    session = session_manager.get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+    ok = session.overlay.delete_item_overrides(item_id)
+    if not ok:
+        return _json_error(f"物品没有覆盖数据: {item_id}")
+    return jsonify({"message": "已还原为模板"})
+
+
+@app.route("/api/sessions/<session_id>/overrides/environment", methods=["PUT"])
+def set_environment_override(session_id: str):
+    """设置环境覆盖（时间、氛围等）。"""
+    session = session_manager.get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+    data = request.json or {}
+    allowed = {"time_of_day", "atmosphere"}
+    overrides = {k: v for k, v in data.items() if k in allowed}
+    if not overrides:
+        return _json_error("无可更新的环境字段")
+    session.overlay.set_environment_overrides(overrides)
+    # 立即应用到当前环境状态
+    if "time_of_day" in overrides:
+        session.environment.time_of_day = overrides["time_of_day"]
+    if "atmosphere" in overrides:
+        session.environment.atmosphere = overrides["atmosphere"]
+    return jsonify({"message": "环境覆盖已保存"})
+
+
+@app.route("/api/sessions/<session_id>/overrides/environment", methods=["DELETE"])
+def delete_environment_override(session_id: str):
+    """清除环境覆盖。"""
+    session = session_manager.get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+    session.overlay.delete_environment_overrides()
+    return jsonify({"message": "环境覆盖已清除"})
+
+
+# ══════════════════════════════════════════════════════
 # 7.  LLM 配置 / 管理
 # ══════════════════════════════════════════════════════
 
@@ -529,6 +745,50 @@ def llm_switch():
     return jsonify(llm_backend.get_status())
 
 
+@app.route("/api/llm/config", methods=["GET"])
+def llm_get_config():
+    """获取 LLM 配置。"""
+    return jsonify(llm_backend.get_config())
+
+
+@app.route("/api/llm/config", methods=["PUT"])
+def llm_update_config():
+    """更新 LLM 配置。"""
+    data = request.json or {}
+    allowed = {"api_key", "base_url", "cloud_model", "ollama_url", "ollama_model", "theme",
+               "auto_generate_choices", "choice_count"}
+    updates = {k: v for k, v in data.items() if k in allowed and v is not None}
+    if not updates:
+        return _json_error("没有可更新的字段")
+    config = llm_backend.update_config(updates)
+    return jsonify(config)
+
+
+@app.route("/api/llm/test", methods=["POST"])
+def llm_test_connection():
+    """测试 LLM 后端连通性（不持久化）。"""
+    data = request.json or {}
+    endpoint_type = data.get("type", "")
+    if endpoint_type not in ("cloud", "ollama"):
+        return _json_error("type 必须是 'cloud' 或 'ollama'")
+
+    params: dict = {}
+    if endpoint_type == "cloud":
+        params = {
+            "api_key": data.get("api_key", ""),
+            "base_url": data.get("base_url", ""),
+            "model": data.get("model", ""),
+        }
+    else:
+        params = {
+            "ollama_url": data.get("ollama_url", ""),
+            "model": data.get("model", ""),
+        }
+
+    result = llm_backend.test_connection(endpoint_type, params)
+    return jsonify(result)
+
+
 # ══════════════════════════════════════════════════════
 # 8.  向后兼容端点（原有 app.py 端点）
 # ══════════════════════════════════════════════════════
@@ -561,6 +821,82 @@ def get_character_config(character_id):
         return jsonify({"error": "Character not found"}), 404
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ══════════════════════════════════════════════════════
+# 9.  物品管理
+# ══════════════════════════════════════════════════════
+
+
+@app.route("/api/items", methods=["GET"])
+def get_items():
+    """获取所有可用物品列表。"""
+    try:
+        items = doc_manager.list_documents("items", include_content=True)
+        return jsonify([
+            {"id": i["id"], "name": i["title"]}
+            for i in items
+        ])
+    except Exception as e:
+        app.logger.error(f"获取物品列表失败: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/items/<item_id>", methods=["GET"])
+def get_item_detail(item_id):
+    """获取物品详情。"""
+    try:
+        doc = doc_manager.read_document("items", item_id)
+        return jsonify({"metadata": doc["metadata"], "content": doc["content"]})
+    except DocumentNotFoundError:
+        return jsonify({"error": "物品不存在"}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/sessions/<session_id>/items", methods=["GET"])
+def get_scene_items(session_id: str):
+    """获取场景中的物品列表。"""
+    session = _get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+    return jsonify({"items": session.scene_manager.get_scene_items()})
+
+
+@app.route("/api/sessions/<session_id>/items/add", methods=["POST"])
+def add_scene_item(session_id: str):
+    """添加物品到场景。"""
+    session = _get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+    data = request.json or {}
+    item_id = data.get("item_id", "").strip()
+    if not item_id:
+        return _json_error("需要 item_id 参数")
+    try:
+        doc = doc_manager.read_document("items", item_id)
+    except DocumentNotFoundError:
+        return _json_error(f"物品不存在: {item_id}", 404)
+    ok = session.scene_manager.add_item(item_id, doc["metadata"])
+    if not ok:
+        return _json_error(f"物品已在场景中: {item_id}")
+    return jsonify(session.to_dict())
+
+
+@app.route("/api/sessions/<session_id>/items/remove", methods=["POST"])
+def remove_scene_item(session_id: str):
+    """从场景移除物品。"""
+    session = _get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+    data = request.json or {}
+    item_id = data.get("item_id", "").strip()
+    if not item_id:
+        return _json_error("需要 item_id 参数")
+    ok = session.scene_manager.remove_item(item_id)
+    if not ok:
+        return _json_error(f"物品不在场景中: {item_id}")
+    return jsonify(session.to_dict())
 
 
 @app.route("/api/chat", methods=["POST"])
@@ -612,7 +948,7 @@ def main():
     """启动 API 服务。"""
     host = os.getenv("API_HOST", "127.0.0.1")
     port = int(os.getenv("API_PORT", "5000"))
-    debug = os.getenv("FLASK_DEBUG", "true").lower() == "true"
+    debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
 
     status = llm_backend.get_status()
     print(f"\n  API 服务启动: http://{host}:{port}")
@@ -621,7 +957,7 @@ def main():
     print(f"  文档类别: {len(doc_manager.list_categories())} 个")
     print()
 
-    app.run(host=host, port=port, debug=debug)
+    app.run(host=host, port=port, debug=debug, threaded=True)
 
 
 if __name__ == "__main__":

@@ -4,9 +4,18 @@
 
 @layer base {
   body {
-    @apply bg-gray-900 text-gray-100 m-0 p-0;
+    @apply bg-gray-900 text-gray-100 m-0 p-0 transition-colors duration-300;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC",
       sans-serif;
+  }
+
+  /* 全局渐变过渡 */
+  *,
+  *::before,
+  *::after {
+    transition-property: background-color, border-color, color;
+    transition-duration: 300ms;
+    transition-timing-function: ease-in-out;
   }
 
   ::-webkit-scrollbar {
@@ -54,3 +63,69 @@
     @apply text-sm font-semibold text-gray-400 uppercase tracking-wider mb-2;
   }
 }
+
+/* ═══════════════════════════════════════
+   浅色主题覆盖（全部原生 CSS，不用 @apply）
+   ═══════════════════════════════════════  */
+
+html.light body {
+  --tw-bg-opacity: 1;
+  background-color: rgb(249 250 251 / var(--tw-bg-opacity));
+  --tw-text-opacity: 1;
+  color: rgb(31 41 55 / var(--tw-text-opacity));
+}
+
+html.light ::-webkit-scrollbar-track { background-color: rgb(229 231 235); }
+html.light ::-webkit-scrollbar-thumb { background-color: rgb(156 163 175); }
+
+html.light .card {
+  --tw-bg-opacity: 1;
+  background-color: rgb(255 255 255 / var(--tw-bg-opacity));
+  border-color: rgb(229 231 235);
+}
+
+html.light .input {
+  background-color: rgb(255 255 255);
+  border-color: rgb(209 213 219);
+  --tw-text-opacity: 1;
+  color: rgb(31 41 55 / var(--tw-text-opacity));
+}
+
+html.light .input::placeholder { color: rgb(156 163 175); }
+
+html.light .btn-ghost:hover { background-color: rgb(243 244 246); }
+html.light .btn-ghost { color: rgb(75 85 99); }
+
+html.light .panel-title { color: rgb(107 114 128); }
+
+/* ── 文字颜色 ── */
+html.light .text-gray-600 { color: rgb(75 85 99); }
+html.light .text-gray-500 { color: rgb(156 163 175); }
+html.light .text-gray-400 { color: rgb(107 114 128); }
+html.light .text-gray-300 { color: rgb(75 85 99); }
+html.light .text-gray-200 { color: rgb(55 65 81); }
+html.light .text-gray-100 { color: rgb(31 41 55); }
+
+/* ── 边框 ── */
+html.light .border-gray-700 { border-color: rgb(229 231 235); }
+
+/* ── 背景色 ── */
+html.light .bg-gray-900 { background-color: rgb(249 250 251); }
+html.light .bg-gray-850 { background-color: rgb(229 231 235); }
+html.light .bg-gray-800 { background-color: rgb(255 255 255); }
+html.light .bg-gray-700 { background-color: rgb(243 244 246); }
+html.light .bg-gray-600 { background-color: rgb(209 213 219); }
+html.light .bg-gray-700\/30 { background-color: rgb(243 244 246); }
+html.light .bg-gray-700\/50 { background-color: rgb(229 231 235 / 0.5); }
+
+/* ── 蓝色系 ── */
+html.light .bg-blue-600\/20 { background-color: rgb(219 234 254); }
+html.light .text-blue-300 { color: rgb(29 78 216); }
+
+/* ── 红色系 ── */
+html.light .bg-red-900\/30 { background-color: rgb(254 226 226); }
+html.light .text-red-400 { color: rgb(220 38 38); }
+
+/* ── 绿色系 ── */
+html.light .bg-green-800\/50 { background-color: rgb(220 252 231); }
+html.light .text-green-300 { color: rgb(21 128 61); }

@@ -7,6 +7,8 @@ export default function SessionList() {
     useAppStore();
   const api = useApi();
   const [creating, setCreating] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
 
   const handleCreate = async () => {
     setCreating(true);
@@ -29,8 +31,43 @@ export default function SessionList() {
       await api.deleteSession(id);
       setSessions(sessions.filter((s) => s.id !== id));
       if (activeSessionId === id) setActiveSession(null);
+      try { localStorage.removeItem(`ark_chat_${id}`); } catch {}
     } catch (err: any) {
       alert("删除失败: " + err.message);
+    }
+  };
+
+  const startRename = (id: string, currentName: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingId(id);
+    setEditName(currentName);
+  };
+
+  const commitRename = async () => {
+    const id = editingId;
+    const name = editName.trim();
+    setEditingId(null);
+    if (!id || !name) return;
+    try {
+      await api.renameSession(id, name);
+      setSessions(
+        sessions.map((s) => (s.id === id ? { ...s, name } : s))
+      );
+    } catch (err: any) {
+      alert("重命名失败: " + err.message);
+    }
+  };
+
+  const cancelRename = () => {
+    setEditingId(null);
+  };
+
+  const handleRenameKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commitRename();
+    } else if (e.key === "Escape") {
+      cancelRename();
     }
   };
 
@@ -62,12 +99,28 @@ export default function SessionList() {
             }`}
           >
             <div className="min-w-0 flex-1">
-              <div className="truncate font-medium">
-                {s.name || "未命名会话"}
-              </div>
+              {editingId === s.id ? (
+                <input
+                  className="input text-sm py-0.5 px-1 w-full"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  onBlur={commitRename}
+                  onKeyDown={handleRenameKeyDown}
+                  onClick={(e) => e.stopPropagation()}
+                  autoFocus
+                />
+              ) : (
+                <div
+                  className="truncate font-medium"
+                  onDoubleClick={(e) => startRename(s.id, s.name || "", e)}
+                  title="双击重命名"
+                >
+                  {s.name || "未命名会话"}
+                </div>
+              )}
               <div className="text-xs text-gray-500">
                 {s.mode === "story" ? "剧情" : "自由"} ·{" "}
-                {new Date(s.created_at).toLocaleString("zh-CN")}
+                {new Date(s.created_at * 1000).toLocaleString("zh-CN")}
               </div>
             </div>
             <button
