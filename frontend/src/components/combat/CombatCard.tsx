@@ -7,56 +7,119 @@ interface Props {
   selected: boolean;
   highlighted?: boolean;
   onClick: () => void;
+  onDragStart?: () => void;
+  onDragEnd?: () => void;
 }
 
-const DAMAGE_COLORS: Record<string, string> = {
-  physical: "border-red-700 bg-red-950/60",
-  arts: "border-purple-700 bg-purple-950/60",
-  healing: "border-green-700 bg-green-950/60",
-  mixed: "border-amber-700 bg-amber-950/60",
+const CLASS_CSS: Record<string, string> = {
+  "先锋": "class-vanguard", "近卫": "class-guard",
+  "重装": "class-defender", "狙击": "class-sniper",
+  "术师": "class-caster", "医疗": "class-medic",
+  "辅助": "class-supporter", "特种": "class-specialist",
 };
 
 const DMG_LABELS: Record<string, string> = {
-  physical: "物",
-  arts: "法",
-  healing: "治",
-  mixed: "混",
+  physical: "物理", arts: "法术", healing: "治疗", mixed: "混合",
 };
 
-export default function CombatCard({ card, index, affordable, selected, highlighted, onClick }: Props) {
-  const borderColor = DAMAGE_COLORS[card.damage_type] || "border-gray-700 bg-gray-900/60";
-  const selectedRing = selected ? "ring-2 ring-yellow-400" : "";
-  const highlightRing = highlighted ? "ring-1 ring-cyan-400 bg-cyan-900/10" : "";
-  const opacity = affordable ? "" : "opacity-40";
+const DMG_ICON_COLORS: Record<string, string> = {
+  physical: "text-dmg-physical", arts: "text-dmg-arts",
+  healing: "text-dmg-healing", mixed: "text-dmg-mixed",
+};
+
+function cardArtGradient(cardId: string, damageType: string): string {
+  const hash = cardId.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
+  const hue1 = (hash * 37) % 360;
+  const hue2 = (hue1 + 40) % 360;
+  const dmgHues: Record<string, number> = {
+    physical: 15, arts: 270, healing: 140, mixed: 45,
+  };
+  const base = dmgHues[damageType] || 220;
+  return `linear-gradient(135deg, hsl(${base}, 40%, 18%) 0%, hsl(${base + 30}, 35%, 12%) 50%, hsl(${base - 20}, 30%, 8%) 100%)`;
+}
+
+export default function CombatCard({ card, index, affordable, selected, highlighted, onClick, onDragStart, onDragEnd }: Props) {
+  const classKey = CLASS_CSS[card.class_required] || "";
+  const tierClass = card.tier === "elite" ? "elite" : "";
+  const selectedClass = selected ? "selected" : "";
+  const highlightedClass = highlighted ? "highlighted" : "";
+  const disabledClass = !affordable ? "disabled" : "";
+  const artBg = cardArtGradient(card.card_id, card.damage_type);
+
+  const handleDragStart = (e: React.DragEvent) => {
+    if (!affordable) {
+      e.preventDefault();
+      return;
+    }
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(index));
+    const img = new Image();
+    img.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+    e.dataTransfer.setDragImage(img, 0, 0);
+    onDragStart?.();
+  };
+
+  const handleDragEnd = () => {
+    onDragEnd?.();
+  };
 
   return (
     <button
-      className={`flex-shrink-0 w-36 h-24 border rounded p-1.5 text-left
-        transition-all hover:brightness-110 ${borderColor} ${selectedRing} ${highlightRing} ${opacity}`}
+      className={`combat-card ${classKey} ${tierClass} ${selectedClass} ${highlightedClass} ${disabledClass}`}
       onClick={onClick}
       disabled={!affordable}
+      draggable={affordable}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
     >
-      <div className="flex justify-between items-start">
-        <span className="text-xs font-bold text-gray-100 truncate max-w-[80px]">
-          {card.tier === "elite" && <span className="text-yellow-400 mr-0.5">*</span>}
-          {card.name}
+      {/* Card art area */}
+      <div
+        className="w-full h-[80px] relative flex items-center justify-center"
+        style={{ background: artBg }}
+      >
+        <span className={`absolute top-1 right-1 text-[10px] font-bold ${DMG_ICON_COLORS[card.damage_type] || "text-gray-400"}`}>
+          {DMG_LABELS[card.damage_type]?.charAt(0) || "?"}
         </span>
-        <span className="text-[10px] text-cyan-400 font-mono">{card.cost}AP</span>
-      </div>
-      <div className="text-[10px] text-gray-400 mt-0.5">
-        <span className="font-mono">{card.min_damage}-{card.max_damage}</span>
-        {" "}
-        <span className="text-gray-500">x{card.atk_scale.toFixed(1)}</span>
-        <span className={`ml-1 px-0.5 rounded text-[9px] ${DAMAGE_COLORS[card.damage_type]}`}>
-          {DMG_LABELS[card.damage_type] || card.damage_type}
+        {card.tier === "elite" && (
+          <span className="absolute top-1 left-7 text-yellow-400 text-sm">★</span>
+        )}
+        <span className="text-gray-600 text-[9px] font-mono opacity-30 rotate-[-30deg] select-none">
+          {card.name.length > 4 ? card.name.slice(0, 2) : card.name}
         </span>
       </div>
-      <div className="text-[9px] text-gray-500 mt-0.5 truncate">
-        {card.target} {card.range < 0 ? "全图" : `${card.range}格`}
-      </div>
-      <div className="text-[9px] text-gray-600 mt-0.5">
-        [{index + 1}] {card.class_required === "any" ? "通用" : card.class_required}
-        {card.owner && <span className="text-yellow-500 ml-0.5">@{card.owner}</span>}
+
+      {/* Card info */}
+      <div className="p-2 pt-1">
+        <div className="flex justify-between items-start">
+          <span className="text-xs font-bold text-gray-100 truncate max-w-[90px]">
+            {card.name}
+          </span>
+          <span className="text-[11px] text-combat-ap font-mono font-bold">{card.cost}</span>
+        </div>
+
+        <div className="text-[10px] text-gray-400 mt-0.5 font-mono">
+          <span>{card.min_damage}-{card.max_damage}</span>
+          <span className="text-gray-600 ml-1">×{card.atk_scale.toFixed(1)}</span>
+        </div>
+
+        <div className="text-[9px] text-gray-500 mt-0.5">
+          {card.target === "SINGLE" ? "单体" :
+           card.target === "ADJACENT" ? "邻接" :
+           card.target === "CROSS" ? "十字" :
+           card.target === "LINE_3" ? "直线" :
+           card.target === "ROW" ? "整行" :
+           card.target}
+          {" · "}
+          {card.range < 0 ? "全图" : `${card.range}格`}
+        </div>
+
+        <div className="text-[9px] text-gray-600 mt-1 flex justify-between">
+          <span>
+            {card.class_required === "any" ? "通用" : card.class_required}
+            {card.owner && <span className="text-combat-gold ml-0.5">@{card.owner}</span>}
+          </span>
+          <span className="font-mono text-gray-700">[{index + 1}]</span>
+        </div>
       </div>
     </button>
   );

@@ -1,12 +1,16 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useAppStore } from "../../stores/appStore";
 import { useApi, createCombatSSE, createCombatTestSSE } from "../../hooks/useApi";
-import type { CombatEventDTO, CombatStateDTO } from "../../types";
+import type { CombatEventDTO, CombatStateDTO, CardDTO } from "../../types";
 import CombatGrid from "./CombatGrid";
 import CombatHand from "./CombatHand";
 import CombatEventLog from "./CombatEventLog";
 import CombatUnitTooltip from "./CombatUnitTooltip";
 import UnitStatusPanel from "./UnitStatusPanel";
+import CombatParticles from "./CombatParticles";
+import CombatCard from "./CombatCard";
+
+const CELL = 56; // px — must match CSS .combat-cell size
 
 const DEFAULT_CHARACTERS = ["阿米娅", "博士", "银灰", "霜星"];
 const DEFAULT_ENCOUNTER = "初遇整合运动";
@@ -34,6 +38,8 @@ export default function CombatView() {
   const [result, setResult] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [cursor, setCursor] = useState<[number, number] | null>(null);
+  const [dragCardIndex, setDragCardIndex] = useState<number | null>(null);
+  const [dragCell, setDragCell] = useState<[number, number] | null>(null);
   const [startChars, setStartChars] = useState<string[]>(DEFAULT_CHARACTERS);
   const [encounterId, setEncounterId] = useState(DEFAULT_ENCOUNTER);
   const [charInput, setCharInput] = useState("");
@@ -43,6 +49,44 @@ export default function CombatView() {
   const sseRef = useRef<{ close: () => void } | null>(null);
   const stateRef = useRef(combatState);
   stateRef.current = combatState;
+
+  // Damage numbers for floating text effects
+  const [damageNumbers, setDamageNumbers] = useState<
+    { id: number; value: number; type: string; pos: [number, number] }[]
+  >([]);
+  const dmgIdRef = useRef(0);
+
+  const addDamageNumber = useCallback(
+    (value: number, type: string, pos: [number, number]) => {
+      const id = ++dmgIdRef.current;
+      setDamageNumbers((prev) => [...prev.slice(-20), { id, value, type, pos }]);
+      setTimeout(() => {
+        setDamageNumbers((prev) => prev.filter((d) => d.id !== id));
+      }, 1200);
+    },
+    []
+  );
+
+  // Particle emitters
+  const [particleEmitters, setParticleEmitters] = useState<
+    { id: string; config: { type: "spark" | "heal" | "death" | "victory"; x: number; y: number; count?: number } }[]
+  >([]);
+  const emitterIdRef = useRef(0);
+
+  const spawnParticles = useCallback(
+    (type: "spark" | "heal" | "death" | "victory", pos: [number, number], count?: number) => {
+      const id = `emitter_${++emitterIdRef.current}`;
+      const gap = 2;
+      const x = CELL + 5 + pos[1] * (CELL + gap) + CELL / 2;
+      const y = CELL - 12 + pos[0] * (CELL + gap) + CELL / 2;
+      setParticleEmitters((prev) => [...prev.slice(-30), { id, config: { type, x, y, count } }]);
+    },
+    []
+  );
+
+  const removeEmitter = useCallback((id: string) => {
+    setParticleEmitters((prev) => prev.filter((e) => e.id !== id));
+  }, []);
 
   const sessionId = activeSessionId || (sessions.length > 0 ? sessions[0].id : null);
   const effectiveId = combatTestId || sessionId;
@@ -68,8 +112,26 @@ export default function CombatView() {
     const handlers = {
       onEvent: (ev: any) => {
         setEvents((prev) => [...prev.slice(-200), ev as CombatEventDTO]);
+        // Spawn damage numbers + particles
+        if (ev.type === "damage" && ev.data?.damage > 0) {
+          const pos = ev.data.target_pos || [4, 4];
+          addDamageNumber(ev.data.damage, ev.data.damage_type || "physical", pos);
+          spawnParticles("spark", pos, 8 + Math.floor(ev.data.damage / 5));
+        }
+        if (ev.type === "heal" && ev.data?.amount > 0) {
+          const pos = ev.data.target_pos || [4, 4];
+          addDamageNumber(ev.data.amount, "heal", pos);
+          spawnParticles("heal", pos, 6);
+        }
+        if (ev.type === "death") {
+          const pos = ev.data.pos || [4, 4];
+          spawnParticles("death", pos, 15);
+        }
         if (ev.type === "battle_end") {
           setResult(ev.data.winner === "player" ? "胜利" : "失败");
+          if (ev.data.winner === "player") {
+            spawnParticles("victory", [4, 4], 40);
+          }
           fetchState();
         }
       },
@@ -79,7 +141,7 @@ export default function CombatView() {
     sseRef.current = combatTestId
       ? createCombatTestSSE(combatTestId, handlers)
       : createCombatSSE(sessionId!, handlers);
-  }, [effectiveId, combatTestId, sessionId, fetchState]);
+  }, [effectiveId, combatTestId, sessionId, fetchState, addDamageNumber, spawnParticles]);
 
   useEffect(() => {
     fetchState();
@@ -98,6 +160,7 @@ export default function CombatView() {
       setCombatState(state as CombatStateDTO);
       setEvents([]);
       setResult(null);
+      setDamageNumbers([]);
       connectSSE();
     } catch (e: any) {
       setError(e.message || "启动战斗失败");
@@ -115,7 +178,7 @@ export default function CombatView() {
       setCombatTestId(result.test_id);
       setEvents([]);
       setResult(null);
-      // SSE will connect via the useEffect that triggers on combatTestId change
+      setDamageNumbers([]);
     } catch (e: any) {
       setError(e.message || "启动战斗测试失败");
     } finally {
@@ -366,6 +429,50 @@ export default function CombatView() {
     setCurrentView("chat");
   }, [combatTestId, sessionId, combatState, encounterId, api, setCombatState, setCombatTestId, setSelectedUnitId, setCurrentView]);
 
+  const handleCardDragStart = useCallback((index: number) => {
+    setDragCardIndex(index);
+    setSelectedCardIndex(index);
+    setCombatUIMode("TARGETING");
+  }, [setSelectedCardIndex, setCombatUIMode]);
+
+  const handleCardDragEnd = useCallback(() => {
+    setDragCardIndex(null);
+    setDragCell(null);
+  }, []);
+
+  const handleGridDragMove = useCallback((cell: [number, number] | null) => {
+    setDragCell(cell);
+  }, []);
+
+  const handleGridDrop = useCallback(
+    async (row: number, col: number) => {
+      if (!effectiveId || !combatState || dragCardIndex === null) return;
+      setLoading(true);
+      try {
+        const doAction = (action: { action: string; card_index?: number; target: [number, number] }) =>
+          combatTestId
+            ? api.combatTestAction(combatTestId, action)
+            : api.combatAction(sessionId!, action);
+        await doAction({
+          action: "play_card",
+          card_index: dragCardIndex,
+          target: [row, col],
+        });
+        setSelectedCardIndex(null);
+        setSelectedUnitId(null);
+        setCombatUIMode("VIEWING");
+        await fetchState();
+      } catch {
+        setError("操作失败");
+      } finally {
+        setLoading(false);
+        setDragCardIndex(null);
+        setDragCell(null);
+      }
+    },
+    [effectiveId, combatTestId, sessionId, combatState, dragCardIndex, api, fetchState, setSelectedCardIndex, setCombatUIMode, setSelectedUnitId]
+  );
+
   const handleUnitClick = useCallback((unitId: string) => {
     if (selectedUnitId === unitId) {
       setSelectedUnitId(null);
@@ -426,66 +533,68 @@ export default function CombatView() {
 
   if (!combatState) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <div className="bg-gray-900 border border-gray-700 rounded-lg p-6 w-96">
-          <h2 className="text-lg font-bold text-gray-200 mb-4">开始战斗</h2>
+      <div className="flex items-center justify-center h-full bg-combat-bg">
+        <div className="bg-surface-card border border-combat-border rounded-xl p-6 w-96 shadow-2xl">
+          <h2 className="text-lg font-bold text-gray-200 mb-4 font-display tracking-wide">
+            开始战斗
+          </h2>
 
           {!sessionId && (
-            <p className="text-sm text-yellow-400 mb-3">
+            <p className="text-sm text-combat-gold/80 mb-3">
               未选择会话 — 可使用下方"战斗测试"直接开战，或先在对话页面创建会话
             </p>
           )}
 
           {error && (
-            <div className="bg-red-900/50 border border-red-700 rounded px-3 py-2 mb-3 text-sm text-red-300">
+            <div className="bg-red-950/50 border border-red-800 rounded-lg px-3 py-2 mb-3 text-sm text-red-300">
               {error}
               <button className="ml-2 text-red-400 hover:text-red-200" onClick={() => setError(null)}>x</button>
             </div>
           )}
 
-          <label className="block text-xs text-gray-400 mb-1">遭遇战</label>
+          <label className="block text-xs text-gray-500 mb-1 font-display tracking-wider">遭遇战</label>
           <input
-            className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-1.5 text-sm text-gray-200 mb-3"
+            className="w-full bg-surface-dark border border-combat-border rounded-lg px-3 py-2 text-sm text-gray-200 mb-4 focus:border-combat-player transition-colors"
             value={encounterId}
             onChange={(e) => setEncounterId(e.target.value)}
           />
 
-          <label className="block text-xs text-gray-400 mb-1">出战角色 (会话模式)</label>
+          <label className="block text-xs text-gray-500 mb-1 font-display tracking-wider">出战角色 (会话模式)</label>
           <div className="flex flex-wrap gap-1 mb-2">
             {startChars.map((c) => (
-              <span key={c} className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-cyan-900/60 text-cyan-200 rounded">
+              <span key={c} className="inline-flex items-center gap-1 px-2.5 py-1 text-xs bg-cyan-950/50 border border-cyan-900/50 text-cyan-300 rounded-full">
                 {c}
-                <button className="text-gray-400 hover:text-red-300" onClick={() => removeChar(c)}>x</button>
+                <button className="text-gray-500 hover:text-red-400 ml-0.5" onClick={() => removeChar(c)}>×</button>
               </span>
             ))}
           </div>
-          <div className="flex gap-1 mb-3">
+          <div className="flex gap-1.5 mb-4">
             <input
-              className="flex-1 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-xs text-gray-200"
+              className="flex-1 bg-surface-dark border border-combat-border rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:border-combat-player transition-colors"
               placeholder="输入角色名"
               value={charInput}
               onChange={(e) => setCharInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && addChar()}
             />
-            <button className="px-3 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded" onClick={addChar}>
+            <button className="px-3 py-1.5 text-xs bg-surface-hover hover:bg-gray-700 text-gray-300 rounded-lg transition-colors" onClick={addChar}>
               添加
             </button>
           </div>
 
           <button
-            className="w-full py-2 bg-cyan-700 hover:bg-cyan-600 text-cyan-200 rounded text-sm font-medium transition-colors disabled:opacity-40 mb-2"
+            className="w-full py-2.5 bg-cyan-900 hover:bg-cyan-800 text-cyan-200 rounded-lg text-sm font-medium transition-all disabled:opacity-40 mb-3 border border-cyan-800/50"
             onClick={handleStartBattle}
             disabled={!sessionId || startChars.length === 0 || loading}
           >
             {loading ? "启动中..." : "开始战斗"}
           </button>
 
-          <div className="border-t border-gray-700 pt-3 mt-1">
-            <p className="text-xs text-gray-500 mb-2">
+          <div className="border-t border-combat-divider pt-3 mt-1">
+            <p className="text-xs text-gray-600 mb-2">
               测试模式：无需会话，从 data/plots/combat-test/index.md 加载角色和随机敌人
             </p>
             <button
-              className="w-full py-2 bg-emerald-800 hover:bg-emerald-700 text-emerald-200 rounded text-sm font-medium transition-colors disabled:opacity-40"
+              className="w-full py-2.5 bg-emerald-900/60 hover:bg-emerald-800/60 text-emerald-200 rounded-lg text-sm font-medium transition-all disabled:opacity-40 border border-emerald-800/50"
               onClick={handleStartTestBattle}
               disabled={loading}
             >
@@ -498,39 +607,117 @@ export default function CombatView() {
   }
 
   const sharedAp = combatState.shared_ap ?? 0;
+  const sharedApMax = combatState.shared_ap_max ?? 6;
   const activeUnitName = activeUnit?.name ?? "?";
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full bg-combat-bg relative">
       {/* Error toast */}
       {error && (
-        <div className="absolute top-2 right-2 z-50 bg-red-900/90 text-red-200 px-3 py-1.5 rounded text-sm">
+        <div className="absolute top-3 right-3 z-50 bg-red-950/95 border border-red-800 text-red-200 px-4 py-2 rounded-lg text-sm shadow-lg">
           {error}
-          <button className="ml-2 text-red-400 hover:text-red-200" onClick={() => setError(null)}>
-            x
-          </button>
+          <button className="ml-2 text-red-400 hover:text-red-200" onClick={() => setError(null)}>×</button>
         </div>
       )}
 
-      {/* Main area: grid */}
-      <div className="flex-1 flex flex-col items-center justify-center p-4 relative">
-        {/* Player status — top-left overlay */}
-        <div className="absolute top-2 left-2 z-30 w-48 max-h-72 overflow-y-auto bg-gray-900/90 border border-gray-700 rounded-lg p-2">
+      {/* Main area: status panels + grid */}
+      <div className="flex-1 flex items-start justify-center p-4 gap-4 relative">
+        {/* Player status — left panel */}
+        <div className="w-56 flex-shrink-0 max-h-[calc(100vh-320px)] overflow-y-auto bg-surface-card/90 border border-combat-border rounded-xl p-3 backdrop-blur-sm">
           <UnitStatusPanel
             units={combatState.units}
             activeUnitId={combatState.active_unit_id}
             selectedUnitId={selectedUnitId}
             team="player"
-            sharedAp={combatState.shared_ap}
-            sharedApMax={combatState.shared_ap_max}
+            sharedAp={sharedAp}
+            sharedApMax={sharedApMax}
             onUnitClick={handleUnitClick}
             onUnitHover={handleUnitHover}
             onUnitLeave={handleHoverLeave}
           />
         </div>
 
-        {/* Enemy status — top-right overlay */}
-        <div className="absolute top-2 right-2 z-30 w-48 max-h-72 overflow-y-auto bg-gray-900/90 border border-gray-700 rounded-lg p-2">
+        {/* Grid area */}
+        <div className="flex flex-col items-center">
+          {/* Turn info */}
+          <div className="mb-4 text-center">
+            <span className="text-sm text-gray-300 font-display tracking-wider">
+              ROUND {combatState.round_num}
+            </span>
+            <span className={`ml-3 text-xs font-bold ${
+              combatState.phase === "PLAYER_TURN" ? "text-combat-player" : "text-combat-enemy"
+            }`}>
+              {combatState.phase === "PLAYER_TURN" ? "我方行动" : "敌方行动"}
+            </span>
+            {activeUnit && combatState.phase === "PLAYER_TURN" && (
+              <span className="text-xs text-cyan-400 ml-3">当前: {activeUnitName}</span>
+            )}
+          </div>
+
+          {/* Grid with damage numbers overlay */}
+          <div className="relative">
+            <CombatGrid
+              gridSize={combatState.grid_size}
+              units={combatState.units}
+              grid={combatState.grid ?? {}}
+              validTargets={combatState.valid_targets ?? []}
+              validMoves={[]}
+              moveHighlights={moveHighlights}
+              rangeHighlights={rangeHighlights}
+              selectedUnitId={selectedUnitId}
+              uiMode={combatUIMode}
+              cursor={cursor}
+              dragCell={dragCell}
+              onCellClick={handleCellClick}
+              onCellHover={handleCellHover}
+              onCellLeave={handleHoverLeave}
+              onCellDrop={handleGridDrop}
+              onGridDragMove={handleGridDragMove}
+            />
+
+            {/* Damage numbers */}
+            {damageNumbers.map((d) => (
+              <span
+                key={d.id}
+                className={`damage-number ${d.type === "heal" ? "heal" : d.type === "arts" ? "arts" : "physical"}`}
+                style={{
+                  position: "absolute",
+                  left: `${CELL + d.pos[1] * (CELL + 2)}px`,
+                  top: `${d.pos[0] * (CELL + 2)}px`,
+                  zIndex: 100,
+                }}
+              >
+                {d.type === "heal" ? `+${d.value}` : `-${d.value}`}
+              </span>
+            ))}
+
+            {/* Particle effects */}
+            <CombatParticles
+              width={8 * (CELL + 2) + CELL}
+              height={9 * (CELL + 2) + 20}
+              emitters={particleEmitters}
+              onEmitterDone={removeEmitter}
+            />
+          </div>
+
+          {/* Action hint */}
+          <div className="mt-3 flex gap-4 text-xs text-gray-600 min-h-[20px]">
+            {combatUIMode === "TARGETING" && (
+              <span className="text-dmg-physical">点击目标格子使用卡牌 · Esc 取消</span>
+            )}
+            {combatUIMode === "VIEWING" && selectedUnit && (
+              <span className="text-combat-player">
+                已选中 {selectedUnit.name} · 移速 {selectedUnit.mobility} · 点击手牌攻击 · 点击蓝框移动 · Esc 取消
+              </span>
+            )}
+            {combatUIMode === "VIEWING" && !selectedUnit && combatState.phase === "PLAYER_TURN" && (
+              <span className="text-gray-500">点击角色头像或地图选中 · 按数字键 1-5 快捷出牌</span>
+            )}
+          </div>
+        </div>
+
+        {/* Enemy status — right panel */}
+        <div className="w-56 flex-shrink-0 max-h-[calc(100vh-320px)] overflow-y-auto bg-surface-card/90 border border-combat-border rounded-xl p-3 backdrop-blur-sm">
           <UnitStatusPanel
             units={combatState.units}
             activeUnitId={combatState.active_unit_id}
@@ -541,63 +728,24 @@ export default function CombatView() {
             onUnitLeave={handleHoverLeave}
           />
         </div>
-
-        {/* Turn info */}
-        <div className="mb-3 text-center">
-          <span className="text-sm text-gray-300">
-            Round {combatState.round_num} —{" "}
-            {combatState.phase === "PLAYER_TURN" ? "我方回合" : "敌方回合"}
-          </span>
-          {activeUnit && combatState.phase === "PLAYER_TURN" && (
-            <span className="text-xs text-cyan-400 ml-3">当前: {activeUnitName}</span>
-          )}
-        </div>
-
-        <CombatGrid
-          gridSize={combatState.grid_size}
-          units={combatState.units}
-          grid={combatState.grid ?? {}}
-          validTargets={combatState.valid_targets ?? []}
-          validMoves={[]}
-          moveHighlights={moveHighlights}
-          rangeHighlights={rangeHighlights}
-          selectedUnitId={selectedUnitId}
-          uiMode={combatUIMode}
-          cursor={cursor}
-          onCellClick={handleCellClick}
-          onCellHover={handleCellHover}
-          onCellLeave={handleHoverLeave}
-        />
-
-        {/* Action hint */}
-        <div className="mt-2 flex gap-4 text-xs text-gray-500">
-          {combatUIMode === "TARGETING" && (
-            <span className="text-green-400">点击目标格子使用卡牌 · Esc 取消</span>
-          )}
-          {combatUIMode === "VIEWING" && selectedUnit && (
-            <span className="text-blue-400">
-              已选中 {selectedUnit.name} · 移动力 {selectedUnit.mobility} · 点击手牌攻击 · 点击格子移动 · Esc 取消
-            </span>
-          )}
-          {combatUIMode === "VIEWING" && !selectedUnit && combatState.phase === "PLAYER_TURN" && (
-            <span>点击角色头像或状态栏选中 · 点击手牌攻击</span>
-          )}
-        </div>
       </div>
 
       {/* Bottom: hand + controls + event log */}
-      <div className="border-t border-gray-700 bg-gray-950/60">
+      <div className="border-t border-combat-divider bg-surface-dark/80 backdrop-blur-sm">
         {/* Action bar */}
-        <div className="flex items-center gap-3 px-3 py-1.5">
-          <span className="text-xs text-gray-500">
+        <div className="flex items-center gap-3 px-4 py-2">
+          <span className="text-xs text-gray-500 font-display">
             手牌: {displayedHand.length}
             {selectedUnit && (
-              <span className="text-cyan-400 ml-1">({selectedUnit.name})</span>
+              <span className="text-combat-player ml-1">({selectedUnit.name})</span>
             )}
+          </span>
+          <span className="text-xs text-gray-500 font-display">
+            AP: <span className="text-white font-bold">{sharedAp}</span>/{sharedApMax}
           </span>
           <div className="flex-1" />
           <button
-            className="px-4 py-1 text-xs bg-cyan-800 hover:bg-cyan-700 text-cyan-200 rounded transition-colors disabled:opacity-30"
+            className="px-5 py-1.5 text-xs bg-cyan-900/70 hover:bg-cyan-800/70 text-cyan-200 rounded-lg transition-all disabled:opacity-30 border border-cyan-800/50 font-display tracking-wider"
             onClick={handleEndTurn}
             disabled={combatState.phase !== "PLAYER_TURN" || combatState.battle_over || loading}
           >
@@ -605,7 +753,7 @@ export default function CombatView() {
           </button>
           {(combatUIMode === "TARGETING" || selectedUnit) && (
             <button
-              className="px-3 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors"
+              className="px-4 py-1.5 text-xs bg-surface-hover hover:bg-gray-700 text-gray-300 rounded-lg transition-all border border-combat-border"
               onClick={handleCancel}
             >
               取消 (Esc)
@@ -613,10 +761,10 @@ export default function CombatView() {
           )}
           {combatState.battle_over && (
             <button
-              className="px-4 py-1 text-xs bg-yellow-700 hover:bg-yellow-600 text-yellow-200 rounded transition-colors"
+              className="px-5 py-1.5 text-xs bg-yellow-900/60 hover:bg-yellow-800/60 text-yellow-200 rounded-lg transition-all border border-yellow-800/50"
               onClick={handleReturnToChat}
             >
-              返回
+              返回对话
             </button>
           )}
         </div>
@@ -629,26 +777,30 @@ export default function CombatView() {
           disabled={!!selectedUnit && !isSelectedActive}
           highlightOwner={highlightOwner}
           onCardClick={handleCardClick}
+          onCardDragStart={handleCardDragStart}
+          onCardDragEnd={handleCardDragEnd}
         />
 
         {/* Event log */}
-        <div className="px-2 pb-2">
+        <div className="px-3 pb-3">
           <CombatEventLog events={events} />
         </div>
       </div>
 
       {/* Battle end overlay */}
       {combatState.battle_over && result && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/60 z-40">
-          <div className="bg-gray-900 border border-gray-600 rounded-lg p-8 text-center">
-            <div className={`text-4xl font-bold mb-4 ${result === "胜利" ? "text-yellow-300" : "text-red-400"}`}>
+        <div className="combat-overlay-enter absolute inset-0 flex items-center justify-center bg-black/70 z-40">
+          <div className="bg-surface-card border border-combat-border rounded-2xl p-10 text-center shadow-2xl">
+            <div className={`text-5xl font-black mb-4 font-display tracking-widest ${
+              result === "胜利" ? "text-combat-gold" : "text-combat-enemy"
+            }`}>
               {result === "胜利" ? "VICTORY" : "DEFEAT"}
             </div>
-            <div className="text-gray-400 text-sm mb-6">
+            <div className="text-gray-500 text-sm mb-6 font-display">
               战斗结束 — 共 {combatState.round_num} 回合
             </div>
             <button
-              className="px-6 py-2 bg-cyan-700 hover:bg-cyan-600 text-cyan-200 rounded transition-colors"
+              className="px-8 py-2.5 bg-cyan-900/70 hover:bg-cyan-800/70 text-cyan-200 rounded-lg transition-all border border-cyan-800/50 font-display tracking-wider"
               onClick={handleReturnToChat}
             >
               返回对话
