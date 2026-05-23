@@ -7,13 +7,14 @@ interface Props {
   grid: Record<string, string>;
   validTargets: [number, number][];
   validMoves: [number, number][];
+  rangeHighlights: Set<string>;
   uiMode: string;
   cursor: [number, number] | null;
   onCellClick: (row: number, col: number) => void;
 }
 
 export default function CombatGrid({
-  gridSize, units, grid, validTargets, validMoves, uiMode, cursor, onCellClick,
+  gridSize, units, grid, validTargets, validMoves, rangeHighlights, uiMode, cursor, onCellClick,
 }: Props) {
   const posToUnit: Record<string, CombatUnitDTO> = {};
   for (const u of units) {
@@ -35,7 +36,7 @@ export default function CombatGrid({
 
       if (cursor && cursor[0] === r && cursor[1] === c) {
         highlight = "cursor";
-      } else if (uiMode === "TARGETING" && targetSet.has(key)) {
+      } else if (uiMode === "TARGETING" && rangeHighlights.has(key)) {
         highlight = "target";
       } else if (uiMode === "MOVING" && moveSet.has(key)) {
         highlight = "move";

@@ -59,6 +59,8 @@ class CombatEngine:
         self.pools: dict[str, CardPool] = {}       # unit_id → CardPool
         self.state = CombatState()
         self._turns_remaining = 0  # Countdown of units yet to act this round
+        self.shared_ap = 0
+        self.SHARED_AP_MAX = 2
 
         # Callbacks for external input
         self.on_event: Optional[Callable[[CombatEvent], None]] = None
@@ -132,6 +134,9 @@ class CombatEngine:
         self.state.phase = "ROUND_START"
         self._emit("round_start", round=self.state.round_num)
         self.state.current_idx = 0
+
+        # Reset shared AP for player team
+        self.shared_ap = self.SHARED_AP_MAX
 
         # Update turn order (dead units removed)
         alive = [u for u in self.units.values() if u.is_alive]
@@ -215,11 +220,18 @@ class CombatEngine:
         if card not in pool.hand:
             self._emit("error", unit_id=unit_id, msg=f"卡牌 '{card.name}' 不在手牌中")
             return []
-        if unit.AP < card.cost:
-            self._emit("error", unit_id=unit_id, msg=f"AP 不足 ({unit.AP} < {card.cost})")
-            return []
 
-        unit.AP -= card.cost
+        # AP check: player units use shared AP, enemies use personal AP
+        if unit.team == "player":
+            if self.shared_ap < card.cost:
+                self._emit("error", unit_id=unit_id, msg=f"共用 AP 不足 ({self.shared_ap} < {card.cost})")
+                return []
+            self.shared_ap -= card.cost
+        else:
+            if unit.AP < card.cost:
+                self._emit("error", unit_id=unit_id, msg=f"AP 不足 ({unit.AP} < {card.cost})")
+                return []
+            unit.AP -= card.cost
 
         # Resolve target pattern
         if card.target == "ALL_ALLIES":
@@ -297,14 +309,22 @@ class CombatEngine:
 
     def move_unit(self, unit_id: str, new_pos: tuple[int, int],
                   ap_cost: int = 1) -> bool:
-        """Move a unit on the grid (costs 1 AP)."""
+        """Move a unit on the grid (costs 1 AP from shared pool for players)."""
         unit = self.units[unit_id]
-        if unit.AP < ap_cost:
+        if unit.team == "player":
+            if self.shared_ap < ap_cost:
+                return False
+            if self.grid.move_unit(unit, new_pos):
+                self.shared_ap -= ap_cost
+                return True
             return False
-        if self.grid.move_unit(unit, new_pos):
-            unit.AP -= ap_cost
-            return True
-        return False
+        else:
+            if unit.AP < ap_cost:
+                return False
+            if self.grid.move_unit(unit, new_pos):
+                unit.AP -= ap_cost
+                return True
+            return False
 
     # ── Enemy AI ──
 

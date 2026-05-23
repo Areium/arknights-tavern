@@ -1,9 +1,8 @@
 """
 Grid system for combat positioning.
 
-- Player zone: 6 rows × 3 cols (left side, cols 0-2)
-- Gap: 2 cols (cols 3-4)
-- Enemy zone:  6 rows × 3 cols (right side, cols 5-7)
+- Player zone: 9 rows × 3 cols (left side, cols 0-2)
+- Enemy zone: 9 rows × 5 cols (right side, cols 3-7)
 - Chebyshev distance: max(|dx|, |dy|)
 """
 
@@ -19,12 +18,10 @@ ENEMY_COLS = 3
 # Logical column ranges
 PLAYER_COL_START = 0
 PLAYER_COL_END = 2
-GAP_COL_START = 3
-GAP_COL_END = 3
-ENEMY_COL_START = 4
+ENEMY_COL_START = 3
 ENEMY_COL_END = 7
 TOTAL_COLS = 8
-TOTAL_ROWS = 6
+TOTAL_ROWS = 9
 
 
 def is_player_zone(col: int) -> bool:
@@ -98,22 +95,55 @@ class Grid:
         else:
             return ENEMY_COL_START <= col <= ENEMY_COL_END
 
-    def get_valid_moves(self, unit: CombatUnit, ap_cost: int = 1) -> list[tuple[int, int]]:
-        """Get all positions the unit can move to within a Manhattan distance of *range* cells."""
-        if unit.AP < ap_cost:
-            return []
+    def get_valid_moves(self, unit: CombatUnit, shared_ap: int = -1) -> list[tuple[int, int]]:
+        """Get all positions the unit can move to (1 cell Chebyshev distance).
+
+        Args:
+            unit: The unit to move.
+            shared_ap: If >= 0, used as AP check for player units instead of personal AP.
+        """
+        if unit.team == "player":
+            if shared_ap >= 0:
+                if shared_ap < 1:
+                    return []
+            elif unit.AP < 1:
+                return []
+        else:
+            if unit.AP < 1:
+                return []
         current = unit.pos
         if current == (-1, -1):
             return []
         moves = []
-        for dr in range(-ap_cost, ap_cost + 1):
-            for dc in range(-ap_cost, ap_cost + 1):
+        for dr in (-1, 0, 1):
+            for dc in (-1, 0, 1):
                 if dr == 0 and dc == 0:
                     continue
                 npos = (current[0] + dr, current[1] + dc)
                 if self.is_valid_position(npos, unit.team) and not self._cells.get(npos):
                     moves.append(npos)
         return moves
+
+    def cells_in_range(self, origin: tuple[int, int], max_range: int,
+                       team: str = "") -> list[tuple[int, int]]:
+        """Get all empty or enemy-occupied cells within Chebyshev range of origin."""
+        cells = []
+        r0, c0 = origin
+        for dr in range(-max_range, max_range + 1):
+            for dc in range(-max_range, max_range + 1):
+                if dr == 0 and dc == 0:
+                    continue
+                pos = (r0 + dr, c0 + dc)
+                if not (0 <= pos[0] < TOTAL_ROWS and 0 <= pos[1] < TOTAL_COLS):
+                    continue
+                if team == "player":
+                    if pos[1] < ENEMY_COL_START:
+                        continue
+                elif team == "enemy":
+                    if pos[1] > PLAYER_COL_END:
+                        continue
+                cells.append(pos)
+        return cells
 
     # ── Query ──
 

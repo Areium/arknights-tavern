@@ -44,13 +44,16 @@ class CombatSession:
 
     def start(self, encounter_id: str,
               character_names: list[str] = None,
-              character_metas: list[dict] = None) -> dict:
+              character_metas: list[dict] = None,
+              enemies_override: list[dict] = None) -> dict:
         """Initialize a battle from an encounter definition and character list.
 
         Args:
             encounter_id: Key in data/combat/encounters/ (without .md)
             character_names: List of character names to load from data/characters/
             character_metas: List of character metadata dicts (takes precedence over names)
+            enemies_override: Optional list of {name, count, positions} dicts.
+                              When provided, replaces encounter waves.
 
         Returns:
             dict: Initial combat state snapshot.
@@ -88,32 +91,37 @@ class CombatSession:
                 cards = get_starting_deck("辅助", count=5)
                 logger.warning("No card pool for class '%s', using 辅助 fallback", char_class)
 
-            pos = default_positions[i] if i < len(default_positions) else (3 + i % 3, 0)
+            pos = default_positions[i] if i < len(default_positions) else (4 + i % 3, 0)
             self.engine.add_player_unit(unit, cards, pos)
 
         # ── Load enemies ──
-        waves = encounter.get("waves", [])
-        for wave in waves:
-            for enemy_def in wave.get("enemies", []):
-                enemy_name = enemy_def.get("enemy", "")
-                count = enemy_def.get("count", 1)
-                positions = enemy_def.get("positions", [])
+        if enemies_override:
+            enemy_defs = enemies_override
+        else:
+            enemy_defs = []
+            for wave in encounter.get("waves", []):
+                enemy_defs.extend(wave.get("enemies", []))
 
-                for j in range(count):
-                    enemy_unit = self.loader.load_enemy(enemy_name)
-                    if not enemy_unit:
-                        logger.warning("Enemy '%s' not found, skipping", enemy_name)
-                        continue
+        for enemy_def in enemy_defs:
+            enemy_name = enemy_def.get("enemy", enemy_def.get("name", ""))
+            count = enemy_def.get("count", 1)
+            positions = enemy_def.get("positions", [])
 
-                    # Use specified position or auto-place
-                    if j < len(positions):
-                        pos = tuple(positions[j])
-                    else:
-                        # Auto-place in enemy zone (cols 5-7)
-                        pos = (random.randint(0, TOTAL_ROWS - 1),
-                               random.randint(ENEMY_COL_START, TOTAL_COLS - 1))
+            for j in range(count):
+                enemy_unit = self.loader.load_enemy(enemy_name)
+                if not enemy_unit:
+                    logger.warning("Enemy '%s' not found, skipping", enemy_name)
+                    continue
 
-                    self.engine.add_enemy_unit(enemy_unit, pos)
+                # Use specified position or auto-place
+                if j < len(positions):
+                    pos = tuple(positions[j])
+                else:
+                    # Auto-place in enemy zone (cols 3-7)
+                    pos = (random.randint(0, TOTAL_ROWS - 1),
+                           random.randint(ENEMY_COL_START, TOTAL_COLS - 1))
+
+                self.engine.add_enemy_unit(enemy_unit, pos)
 
         # Start the state machine
         self.engine.start_battle()
@@ -188,8 +196,8 @@ class CombatSession:
                     return {"ok": False, "error": f"Invalid card index: {card_index}"}
 
                 card = hand[card_index]
-                if card.cost > active.AP:
-                    return {"ok": False, "error": "Insufficient AP"}
+                if card.cost > self.engine.shared_ap:
+                    return {"ok": False, "error": f"共用 AP 不足 ({self.engine.shared_ap} < {card.cost})"}
 
                 # For auto-target cards, use caster position
                 if card.target in ("SELF", "ALL_ALLIES", "GLOBAL"):
@@ -290,6 +298,9 @@ class CombatSession:
         # Valid targets for targeting mode
         valid_targets = self._compute_valid_targets()
 
+        # Valid move destinations for the active unit
+        valid_moves = self._compute_valid_moves(active, e.shared_ap)
+
         # Grid (positions only)
         grid_cells = {}
         for pos_key, unit in e.grid._cells.items():
@@ -300,9 +311,12 @@ class CombatSession:
             "phase": e.state.phase,
             "winner": e.state.winner or None,
             "grid_size": max(TOTAL_ROWS, TOTAL_COLS),
+            "shared_ap": e.shared_ap,
+            "shared_ap_max": e.SHARED_AP_MAX,
             "units": units,
             "shared_hand": shared_hand,
             "valid_targets": valid_targets,
+            "valid_moves": valid_moves,
             "active_unit_id": active.unit_id if active else None,
             "grid": grid_cells,
             "battle_over": e.is_battle_over(),
@@ -322,6 +336,13 @@ class CombatSession:
         for enemy in enemies:
             targets.append(list(enemy.pos))
         return targets
+
+    def _compute_valid_moves(self, active, shared_ap: int) -> list[list[int]]:
+        """Compute valid move destinations for the active unit."""
+        if not self.engine or not active or active.team != "player":
+            return []
+        moves = self.engine.grid.get_valid_moves(active, shared_ap)
+        return [[r, c] for r, c in moves]
 
     # ── Serialization ──
 

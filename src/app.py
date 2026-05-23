@@ -25,6 +25,8 @@ if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
 import yaml
+import random
+import frontmatter
 from flask import Flask, jsonify, request, Response, stream_with_context, send_from_directory
 from flask_cors import CORS
 
@@ -1238,6 +1240,142 @@ def combat_events(session_id: str):
 
     def generate():
         stream_id = f"combat_{uuid.uuid4().hex[:8]}"
+        yield f"data: {json.dumps({'type': 'meta', 'data': {'stream_id': stream_id}})}\n\n"
+
+        while combat.engine and not combat.engine.is_battle_over():
+            try:
+                ev = combat.event_queue.get(timeout=30)
+                event_data = {
+                    "type": ev.type,
+                    "data": ev.data,
+                }
+                yield f"event: {ev.type}\ndata: {json.dumps(event_data, ensure_ascii=False)}\n\n"
+
+                if ev.type == "battle_end":
+                    yield f"data: {json.dumps({'type': 'done', 'data': {'stream_id': stream_id}})}\n\n"
+                    break
+            except queue.Empty:
+                yield f"data: {json.dumps({'type': 'heartbeat', 'data': {}})}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# ══════════════════════════════════════════════════════
+# 12.  Combat Test — 无会话战斗测试
+# ══════════════════════════════════════════════════════
+
+_test_combats: dict[str, "CombatSession"] = {}
+
+
+def _load_combat_test_plot() -> dict:
+    """Load the combat test plot config from data/plots/combat-test/index.md."""
+    from pathlib import Path
+    plot_path = Path(_project_root) / "data" / "plots" / "combat-test" / "index.md"
+    if not plot_path.exists():
+        raise ValueError("战斗测试配置文件不存在: data/plots/combat-test/index.md")
+    with open(plot_path, "r", encoding="utf-8") as f:
+        return dict(frontmatter.load(f).metadata)
+
+
+@app.route("/api/combat/test/start", methods=["POST"])
+def combat_test_start():
+    """Start a test combat session (no session required).
+    Reads config from data/plots/combat-test/index.md."""
+    try:
+        config = _load_combat_test_plot()
+    except ValueError as e:
+        return _json_error(str(e), 404)
+
+    data = request.json or {}
+    encounter_id = data.get("encounter_id", config.get("default_encounter", "初遇整合运动"))
+    character_names = data.get("characters", config.get("characters", ["阿米娅", "博士", "银灰", "霜星"]))
+
+    # Randomly pick enemies from pool
+    enemy_pool = config.get("enemy_pool", [])
+    count_cfg = config.get("enemy_count", {})
+    min_enemies = count_cfg.get("min", 2)
+    max_enemies = count_cfg.get("max", 4)
+    enemy_count = random.randint(min_enemies, max(min_enemies, max_enemies))
+
+    if enemy_pool:
+        picked = random.sample(enemy_pool, min(enemy_count, len(enemy_pool)))
+    else:
+        picked = ["整合运动士兵", "整合运动术师"]
+
+    enemies_override = []
+    for name in picked:
+        enemies_override.append({"name": name, "count": 1, "positions": []})
+
+    test_id = uuid.uuid4().hex[:12]
+    try:
+        combat = CombatSession(test_id)
+        state = combat.start(encounter_id, character_names=character_names,
+                            enemies_override=enemies_override)
+        _test_combats[test_id] = combat
+        return jsonify({"test_id": test_id, "state": state})
+    except Exception as e:
+        logger.exception("Failed to start test combat")
+        return _json_error(f"战斗测试启动失败: {e}", 500)
+
+
+@app.route("/api/combat/test/<test_id>/state", methods=["GET"])
+def combat_test_state(test_id: str):
+    """Get test combat state."""
+    combat = _test_combats.get(test_id)
+    if not combat:
+        return _json_error("测试战斗不存在或已过期", 404)
+    return jsonify(combat.get_state())
+
+
+@app.route("/api/combat/test/<test_id>/action", methods=["POST"])
+def combat_test_action(test_id: str):
+    """Submit player action for test combat."""
+    combat = _test_combats.get(test_id)
+    if not combat:
+        return _json_error("测试战斗不存在或已过期", 404)
+
+    data = request.json or {}
+    result = combat.handle_action(data)
+
+    if not result.get("ok"):
+        return _json_error(result.get("error", "操作失败"), 400)
+
+    return jsonify(result.get("state", {}))
+
+
+@app.route("/api/combat/test/<test_id>/end-turn", methods=["POST"])
+def combat_test_end_turn(test_id: str):
+    """Manually end current turn in test combat."""
+    combat = _test_combats.get(test_id)
+    if not combat:
+        return _json_error("测试战斗不存在或已过期", 404)
+
+    result = combat.end_turn()
+
+    if not result.get("ok"):
+        return _json_error(result.get("error", "操作失败"), 400)
+
+    return jsonify(result.get("state", {}))
+
+
+@app.route("/api/combat/test/<test_id>/events")
+def combat_test_events(test_id: str):
+    """SSE endpoint for test combat events."""
+    combat = _test_combats.get(test_id)
+    if not combat:
+        def error_stream():
+            yield f"data: {json.dumps({'type': 'error', 'data': {'message': 'Test combat not found'}})}\n\n"
+        return Response(error_stream(), mimetype="text/event-stream")
+
+    def generate():
+        stream_id = f"test_{uuid.uuid4().hex[:8]}"
         yield f"data: {json.dumps({'type': 'meta', 'data': {'stream_id': stream_id}})}\n\n"
 
         while combat.engine and not combat.engine.is_battle_over():

@@ -340,6 +340,27 @@ export function useApi() {
       request<any>(`/api/sessions/${sessionId}/combat/end-turn`, {
         method: "POST",
       }),
+
+    // ── Combat Test (no session required) ──
+    combatTestStart: (encounterId?: string) =>
+      request<{ test_id: string; state: any }>("/api/combat/test/start", {
+        method: "POST",
+        body: JSON.stringify(encounterId ? { encounter_id: encounterId } : {}),
+      }),
+
+    combatTestState: (testId: string) =>
+      request<any>(`/api/combat/test/${testId}/state`),
+
+    combatTestAction: (testId: string, action: { action: string; card_index?: number; target: [number, number] }) =>
+      request<any>(`/api/combat/test/${testId}/action`, {
+        method: "POST",
+        body: JSON.stringify(action),
+      }),
+
+    combatTestEndTurn: (testId: string) =>
+      request<any>(`/api/combat/test/${testId}/end-turn`, {
+        method: "POST",
+      }),
   }), []);
 }
 
@@ -390,6 +411,21 @@ export function createCombatSSE(
   }
 ): { close: () => void } {
   const path = `/api/sessions/${sessionId}/combat/events`;
+  return connectCombatSSE(path, handlers);
+}
+
+/**
+ * 创建战斗测试 SSE 连接
+ */
+export function createCombatTestSSE(
+  testId: string,
+  handlers: {
+    onEvent?: (event: { type: string; data: Record<string, any> }) => void;
+    onError?: (message: string) => void;
+    onDone?: () => void;
+  }
+): { close: () => void } {
+  const path = `/api/combat/test/${testId}/events`;
   return connectCombatSSE(path, handlers);
 }
 

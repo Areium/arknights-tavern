@@ -59,6 +59,8 @@ interface AppState {
   setCombatUIMode: (mode: "VIEWING" | "TARGETING" | "MOVING") => void;
   selectedCardIndex: number | null;
   setSelectedCardIndex: (index: number | null) => void;
+  combatTestId: string | null;
+  setCombatTestId: (id: string | null) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -117,4 +119,6 @@ export const useAppStore = create<AppState>((set) => ({
   setCombatUIMode: (mode) => set({ combatUIMode: mode }),
   selectedCardIndex: null,
   setSelectedCardIndex: (index) => set({ selectedCardIndex: index }),
+  combatTestId: null,
+  setCombatTestId: (id) => set({ combatTestId: id }),
 }));

@@ -194,7 +194,10 @@ export interface CombatStateDTO {
   grid_size: number;
   units: CombatUnitDTO[];
   shared_hand: CardDTO[];
+  shared_ap: number;
+  shared_ap_max: number;
   valid_targets: [number, number][];
+  valid_moves: [number, number][];
   active_unit_id: string | null;
   grid: Record<string, string>;
   battle_over: boolean;
