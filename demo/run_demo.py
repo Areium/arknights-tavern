@@ -45,10 +45,10 @@ def load_character_meta(filename: str) -> dict:
 
 # Map character file → (card pool class override, position on grid)
 PLAYER_SETUP = [
-    ("data/characters/博士.md", "辅助", (1, 0)),    # 博士 → 辅助 class cards
-    ("data/characters/阿米娅.md", None, (0, 1)),     # 阿米娅 (术师)
-    ("data/characters/银灰.md", None, (2, 1)),       # 银灰 (近卫)
-    ("data/characters/闪灵.md", None, (1, 2)),       # 闪灵 (医疗)
+    ("data/characters/博士/index.md", "辅助", (1, 0)),
+    ("data/characters/阿米娅/index.md", None, (0, 1)),
+    ("data/characters/银灰/index.md", None, (2, 1)),
+    ("data/characters/闪灵/index.md", None, (1, 2)),
 ]
 
 ENEMY_DEFS = [
