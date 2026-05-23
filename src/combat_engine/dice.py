@@ -12,8 +12,8 @@ import random
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .entity import CombatUnit
-    from .card import Card
+    from combat_engine.entity import CombatUnit  # noqa: F401
+    from combat_engine.card import Card  # noqa: F401
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Dice Utilities

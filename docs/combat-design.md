@@ -2,7 +2,7 @@
 
 > Arknights Text RPG — 回合制卡牌战斗的底层逻辑、数据结构、与项目集成方案
 >
-> demo 代码：`demo/combat/` | 当前版本：v0.1
+> 引擎代码：`src/combat_engine/` | 当前版本：v1.0
 
 ---
 
@@ -35,7 +35,7 @@
 - **AP（行动点）** 每回合恢复，卡牌消耗 AP，移动消耗 AP
 - 回合顺序由 **SPD（速度）** 决定，速度高者先行动
 
-整个战斗引擎在 `demo/combat/` 中以纯 Python 实现，不依赖任何前端框架。同时提供了基于 **Textual** 的鼠标交互界面（`demo/tui_app.py`）和简单的终端输入界面（`demo/run_demo.py`）。
+整个战斗引擎在 `src/combat_engine/` 中以纯 Python 实现，前端使用 React + TypeScript 的 Web 界面。
 
 **目标架构**：将战斗引擎集成到项目的 **Flask 后端 + React 前端** 架构中。Flask 提供 REST + SSE 接口驱动战斗状态机，React 负责渲染网格、手牌和战斗事件。详见 [Web 架构设计](#web-架构设计) 章节。
 
@@ -78,7 +78,7 @@
 
 缺失属性默认值：**5**（标准成人水平）。
 
-> 代码位置：`demo/combat/entity.py` → `CombatUnit.from_character_metadata()`
+> 代码位置：`src/combat_engine/entity.py` → `CombatUnit.from_character_metadata()`
 > 
 > 集成到后端时需加入属性 key 兼容层（见 [差距分析](./combat-integration-gap-analysis.md#一属性系统变化关键demo-公式需要更新)）。
 
@@ -200,7 +200,7 @@ if d20 == 20            → 暴击 (crit, 伤害 ×2)
 if d20 == 1             → 未命中 (miss, 伤害 = 0)
 ```
 
-> 代码位置：`demo/combat/dice.py` → `check_hit()`
+> 代码位置：`src/combat_engine/dice.py` → `check_hit()`
 
 ### 伤害计算
 
@@ -215,7 +215,7 @@ final       = max(1, round(raw × 2)) if crit else max(1, round(raw))
 - 治疗无视抗性，不暴击：`final = max(0, round(raw))`
 - 伤害保底 1 点
 
-> 代码位置：`demo/combat/dice.py` → `compute_damage()`
+> 代码位置：`src/combat_engine/dice.py` → `compute_damage()`
 
 ---
 
@@ -275,7 +275,7 @@ class Card:
     owner: str | None     # 角色专属标识，null 表示非专属
 ```
 
-> 代码位置：`demo/combat/card.py`
+> 代码位置：`src/combat_engine/card.py`
 
 ### 目标模式一览
 
@@ -291,7 +291,7 @@ class Card:
 | 全体友军 | `ALL_ALLIES` | — | 所有友方单位 |
 | 全体敌军 | `GLOBAL` | — | 所有敌方单位 |
 
-> 代码位置：`demo/combat/grid.py` → `resolve_targets()`
+> 代码位置：`src/combat_engine/grid.py` → `resolve_targets()`
 
 ### 卡牌生命周期（共享牌库版）
 
@@ -309,7 +309,7 @@ class Card:
 - 基本卡（basic）循环利用
 - 角色保底：补牌时若某存活角色在手牌中无任何可用牌，强制替换一张手牌为该角色的随机牌
 
-> 代码位置：`demo/combat/card.py` → `CardPool`
+> 代码位置：`src/combat_engine/card.py` → `CardPool`
 
 ### 职业卡池
 
@@ -326,7 +326,7 @@ class Card:
 | 辅助 | 减速术、削弱、束缚术、领域展开、干扰术 | 源石沉默、增幅过载、精神操控 | 控制 |
 | 特种 | 位移术、背刺、陷阱、暗影步、闪避姿态 | 处决、烟雾弹、伏击 | 混合特殊 |
 
-> 代码位置：`demo/combat/card_data.py`
+> 代码位置：`src/combat_engine/card_data.py`
 
 ---
 
@@ -439,7 +439,7 @@ deploy_zones:
 
 这对应"王棋移动"——斜走与直走等价，攻击范围判定以此为基准。
 
-> 代码位置：`demo/combat/grid.py`
+> 代码位置：`src/combat_engine/grid.py`
 
 ---
 
@@ -488,7 +488,7 @@ INIT → ROUND_START → PLAYER_PHASE (卡牌驱动) → ENEMY_TURN → ROUND_EN
 | `battle_end` | 战斗结束 | `winner`, `reason` |
 | `error` | 操作失败 | `unit_id`, `msg` |
 
-> 代码位置：`demo/combat/engine.py` → `CombatEngine`
+> 代码位置：`src/combat_engine/engine.py` → `CombatEngine`
 
 ---
 
@@ -502,7 +502,7 @@ INIT → ROUND_START → PLAYER_PHASE (卡牌驱动) → ENEMY_TURN → ROUND_EN
 4. 如有 AP 但无法攻击 → 向最近玩家移动一步（切比雪夫方向）
 5. 无法行动 → 跳过
 
-> 代码位置：`demo/combat/engine.py` → `execute_enemy_turn()`
+> 代码位置：`src/combat_engine/engine.py` → `execute_enemy_turn()`
 
 ---
 
@@ -801,7 +801,7 @@ combat_cards:
 
 - [ ] 创建 `data/combat/` 目录结构（`enemies/`、`cards/`、`encounters/`）
 - [ ] 编写敌人模板 `TEMPLATE_enemy.md` 和卡牌模板 `TEMPLATE_card.md`
-- [ ] 将现有的 4 个 demo 敌人转为 markdown 文件
+- [x] 将现有的 4 个 demo 敌人转为 markdown 文件
 - [ ] 将 64 张卡牌定义转为 markdown 文件（按职业分目录）
 - [ ] 创建 `data/classes/战术指挥/index.md` 职业定义
 - [ ] 补全博士的 8 属性
@@ -819,7 +819,7 @@ combat_cards:
   - `from_card_md(path) → Card`
   - `from_encounter_md(path) → encounter_config`
 - [ ] 扩展 `RegistryManager` 以支持战斗数据类型
-- [ ] 将 `demo/combat/` 从 demo 目录提升/导入到 `src/` 后端可引用的位置
+- [x] 将 `combat_engine/` 从 demo 目录迁移到 `src/` 后端可引用的位置
 
 ### Phase 3: 后端 API 层
 
@@ -862,7 +862,7 @@ combat_cards:
 
 ## Web 架构设计
 
-> 将 demo 战斗引擎嵌入现有的 React + Flask 架构中。
+> 战斗引擎已嵌入现有的 React + Flask 架构中。
 
 ### 总体架构
 
@@ -1244,58 +1244,38 @@ type CombatEventDTO =
 
 ---
 
-## demo 文件索引
+## 文件索引
 
-### 现有 demo 文件
-
-```
-demo/
-├── combat/
-│   ├── __init__.py
-│   ├── entity.py        # CombatUnit — 属性映射、伤害/治疗
-│   ├── grid.py           # Grid — 4×8 网格、目标模式、距离
-│   ├── card.py           # Card、CardPool — 卡牌生命周期
-│   ├── card_data.py      # 64 张卡牌定义（8 职业 × 8 张）
-│   ├── engine.py         # CombatEngine — 状态机、AI、事件
-│   ├── dice.py           # 命中判定、伤害计算
-│   └── renderer.py       # ASCII 终端渲染（已弃用，保留参考）
-├── run_demo.py           # 终端键盘交互 demo（保留）
-├── tui_app.py            # Textual 鼠标交互界面（当前推荐）
-└── tui_widgets.py        # Textual 自定义控件
-```
-
-### 集成后的目标文件结构
+### 战斗引擎（后端）
 
 ```
 src/
-├── combat/                      # 从 demo/combat/ 提升的后端战斗模块
+├── combat_engine/
 │   ├── __init__.py
-│   ├── entity.py                # CombatUnit（含属性 key 兼容层）
-│   ├── grid.py                  # Grid + resolve_targets
-│   ├── card.py                  # Card + CardPool
-│   ├── dice.py                  # check_hit + compute_damage
-│   ├── engine.py                # CombatEngine 状态机
-│   ├── data_loader.py           # NEW: CombatDataLoader（读取 markdown 数据）
-│   └── combat_session.py        # NEW: CombatSession（服务端会话管理）
-├── app.py                       # 新增 combat API 端点
+│   ├── entity.py                # CombatUnit — 属性映射、伤害/治疗
+│   ├── grid.py                  # Grid — 4×8 网格、目标模式、距离
+│   ├── card.py                  # Card、CardPool — 卡牌生命周期
+│   ├── card_data.py             # 72 张卡牌定义（9 职业 × 8 张）
+│   ├── engine.py                # CombatEngine — 状态机、AI、事件
+│   └── dice.py                  # 命中判定、伤害计算
+├── combat_session.py            # CombatSession — 服务端会话管理
+├── combat_data_loader.py        # CombatDataLoader — 从 markdown 加载数据
+└── app.py                       # combat API 端点
 
 frontend/src/
 ├── components/
-│   └── combat/                  # NEW: 战斗 UI 组件
+│   └── combat/
 │       ├── CombatView.tsx        # 战斗主视图
-│       ├── CombatGrid.tsx        # 4×8 网格
+│       ├── CombatGrid.tsx        # 网格
 │       ├── GridCell.tsx          # 单格
 │       ├── CombatCard.tsx        # 卡牌组件
 │       ├── CombatHand.tsx        # 手牌栏
 │       ├── UnitStatusPanel.tsx   # 单位状态面板
-│       ├── CombatEventLog.tsx    # 事件日志（SSE 消费）
-│       └── CombatResult.tsx      # 结算画面
-├── stores/
-│   └── combatSlice.ts           # NEW: Zustand combat state
-└── hooks/
-    └── useCombatSSE.ts          # NEW: SSE hook for combat events
+│       └── CombatEventLog.tsx    # 事件日志（SSE 消费）
+└── stores/
+    └── appStore.ts              # Zustand store（含 combat state）
 
-data/combat/                     # NEW: 战斗数据（markdown）
+data/combat/
 ├── _index.md
 ├── TEMPLATE_enemy.md
 ├── TEMPLATE_card.md
@@ -1310,18 +1290,17 @@ data/combat/                     # NEW: 战斗数据（markdown）
     └── *.md                     # 战斗遭遇
 ```
 
-### 关键文件对应关系
+### 关键组件对应关系
 
-| 需求 | 现有组件 | 集成后替代 |
-|------|---------|-----------|
-| 敌人数据 | `CombatUnit.create_enemy()` 硬编码 | `CombatDataLoader.from_enemy_md()` |
-| 卡牌数据 | `card_data.py` 硬编码 | 从 `data/combat/cards/` markdown 加载 |
-| 战斗遭遇 | `run_demo.py` 中的 `ENEMY_DEFS` | 从 `data/combat/encounters/` 加载 |
-| 角色属性 | `CombatUnit.from_character_metadata()` | 使用属性 key 兼容层 + 角色 `.md` 的 `attributes` |
-| 职业卡池 | `get_starting_deck(char_class)` | 从 `data/combat/cards/<职业>/` 加载 |
-| 用户界面 | Textual `tui_app.py` / `run_demo.py` | React `CombatView.tsx` 组件树 |
-| 事件系统 | `engine.on_event` 回调 | SSE `/combat/events` 端点 |
-| 状态管理 | 本地 CombatScreen 对象 | 服务端 `CombatSession` + 前端 Zustand store |
+| 需求 | 实现 |
+|------|------|
+| 敌人数据 | `CombatDataLoader.load_enemy()` → `data/combat/enemies/` |
+| 卡牌数据 | `get_starting_deck(class)` / `CombatDataLoader.load_cards_for_class()` |
+| 战斗遭遇 | `CombatDataLoader.load_encounter()` → `data/combat/encounters/` |
+| 角色属性 | `CombatUnit.from_character_metadata()` + `_ATTR_KEY_MAP` 兼容层 |
+| 用户界面 | React `CombatView.tsx` 组件树 |
+| 事件系统 | `engine.on_event` 回调 → SSE `/combat/events` 端点 |
+| 状态管理 | `CombatSession`（服务端）+ Zustand `appStore`（前端） |
 ---
 
-*本文档随 `demo/combat/` 代码演进同步更新。最后一版代码验证：所有 30 场自动战斗测试通过，4v4 完整战斗在 4-13 回合内正常终结。*
+*本文档随 `src/combat_engine/` 代码演进同步更新。最后一版代码验证：所有 30 场自动战斗测试通过，4v4 完整战斗在 4-13 回合内正常终结。*

@@ -19,11 +19,11 @@ for _p in (_src_dir, _project_root):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from demo.combat.entity import CombatUnit
-from demo.combat.card import Card
-from demo.combat.card_data import get_starting_deck
-from demo.combat.engine import CombatEngine, CombatEvent
-from demo.combat.grid import resolve_targets, range_between, TOTAL_ROWS, TOTAL_COLS
+from combat_engine.entity import CombatUnit
+from combat_engine.card import Card
+from combat_engine.card_data import get_starting_deck
+from combat_engine.engine import CombatEngine, CombatEvent
+from combat_engine.grid import resolve_targets, range_between, TOTAL_ROWS, TOTAL_COLS
 from combat_data_loader import CombatDataLoader
 
 logger = logging.getLogger(__name__)
@@ -356,7 +356,7 @@ class CombatSession:
         cs._character_metas = data.get("character_metas", [])
 
         # Reconstruct engine
-        from demo.combat.engine import CombatState
+        from combat_engine.engine import CombatState
         engine = CombatEngine()
         es = data.get("engine_state", {})
         engine.state = CombatState(
@@ -396,7 +396,7 @@ class CombatSession:
 
         # Restore card pools
         for uid, pdict in data.get("pools", {}).items():
-            from demo.combat.card import CardPool
+            from combat_engine.card import CardPool
             pool = CardPool()
             pool.deck = [Card.from_dict(c) for c in pdict.get("deck", [])]
             pool.hand = [Card.from_dict(c) for c in pdict.get("hand", [])]

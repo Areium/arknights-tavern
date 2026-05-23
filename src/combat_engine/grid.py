@@ -8,7 +8,7 @@ Grid system for combat positioning.
 """
 
 from typing import Optional
-from .entity import CombatUnit
+from combat_engine.entity import CombatUnit
 
 # ── Grid dimensions ──
 PLAYER_ROWS = 3

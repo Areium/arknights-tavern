@@ -12,7 +12,7 @@ Cards are designed around class identity:
   - 特种: mixed short range, high mobility, unique effects
 """
 
-from .card import Card
+from combat_engine.card import Card
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  术师 (Caster) — arts, medium range, AOE

@@ -13,8 +13,8 @@ from typing import Optional
 
 import frontmatter
 
-from demo.combat.entity import CombatUnit
-from demo.combat.card import Card
+from combat_engine.entity import CombatUnit
+from combat_engine.card import Card
 
 logger = logging.getLogger(__name__)
 

@@ -19,7 +19,7 @@ import queue
 import logging
 from typing import Optional
 
-# Ensure project root is on sys.path for demo/ imports
+# Ensure project root is on sys.path for data/ access
 _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
