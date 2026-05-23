@@ -1158,8 +1158,6 @@ def combat_start(session_id: str):
     session = session_manager.get_session(session_id)
     if not session:
         return _json_error("会话不存在", 404)
-    if not _require_usable(session):
-        return _json_error("LLM 不可用", 503)
 
     data = request.json or {}
     encounter_id = data.get("encounter_id", "初遇整合运动")

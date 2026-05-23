@@ -228,6 +228,13 @@ export default function CombatView() {
             <p className="text-sm text-red-400 mb-3">请先在对话页面创建或选择一个会话</p>
           )}
 
+          {error && (
+            <div className="bg-red-900/50 border border-red-700 rounded px-3 py-2 mb-3 text-sm text-red-300">
+              {error}
+              <button className="ml-2 text-red-400 hover:text-red-200" onClick={() => setError(null)}>x</button>
+            </div>
+          )}
+
           <label className="block text-xs text-gray-400 mb-1">遭遇战</label>
           <input
             className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-1.5 text-sm text-gray-200 mb-3"
