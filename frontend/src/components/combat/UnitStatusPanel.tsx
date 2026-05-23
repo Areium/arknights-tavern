@@ -91,15 +91,21 @@ export default function UnitStatusPanel({
         const dead = !u.is_alive;
 
         let borderClass = "border-combat-border bg-surface-card/60";
-        if (dead) borderClass = "border-gray-800 bg-gray-900/20 opacity-45";
-        else if (isActive)
+        if (dead) {
+          borderClass = "border-gray-800 bg-gray-900/20 opacity-45";
+        } else if (isActive && isSelected) {
           borderClass = isPlayer
-            ? "border-combat-player bg-cyan-950/30 shadow-[0_0_8px_rgba(0,180,216,0.2)]"
-            : "border-combat-enemy bg-red-950/30 shadow-[0_0_8px_rgba(231,76,60,0.2)]";
-        else if (isSelected)
+            ? "ring-1 ring-combat-player border-combat-player bg-cyan-950/30 shadow-[0_0_8px_rgba(0,180,216,0.2)]"
+            : "ring-1 ring-combat-enemy border-combat-enemy bg-red-950/30 shadow-[0_0_8px_rgba(231,76,60,0.2)]";
+        } else if (isActive) {
+          borderClass = isPlayer
+            ? "border-cyan-950/70 bg-cyan-950/15"
+            : "border-red-950/70 bg-red-950/15";
+        } else if (isSelected) {
           borderClass = isPlayer
             ? "ring-1 ring-combat-player border-combat-player bg-surface-hover"
             : "ring-1 ring-combat-enemy border-combat-enemy bg-surface-hover";
+        }
 
         return (
           <div

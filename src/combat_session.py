@@ -298,10 +298,12 @@ class CombatSession:
 
         # All player hands for character selection UI
         player_hands = {}
+        player_pools = {}
         for uid, pool in e.pools.items():
             unit = e.units.get(uid)
             if unit and unit.team == "player" and unit.is_alive:
                 player_hands[uid] = [c.to_dict() for c in pool.hand]
+                player_pools[uid] = pool.to_dict()
 
         # Valid targets for targeting mode
         valid_targets = self._compute_valid_targets()
@@ -324,6 +326,7 @@ class CombatSession:
             "units": units,
             "shared_hand": shared_hand,
             "player_hands": player_hands,
+            "player_pools": player_pools,
             "valid_targets": valid_targets,
             "valid_moves": valid_moves,
             "active_unit_id": active.unit_id if active else None,

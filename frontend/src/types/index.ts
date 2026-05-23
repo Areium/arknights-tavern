@@ -187,6 +187,14 @@ export interface CardDTO {
   owner: string | null;
 }
 
+/** 角色卡池（手牌 + 抽牌堆 + 弃牌堆 + 消耗堆） */
+export interface PlayerPoolDTO {
+  deck: CardDTO[];
+  hand: CardDTO[];
+  discard: CardDTO[];
+  exhaust: CardDTO[];
+}
+
 /** 战斗状态快照 */
 export interface CombatStateDTO {
   round_num: number;
@@ -196,6 +204,7 @@ export interface CombatStateDTO {
   units: CombatUnitDTO[];
   shared_hand: CardDTO[];
   player_hands: Record<string, CardDTO[]>;
+  player_pools: Record<string, PlayerPoolDTO>;
   shared_ap: number;
   shared_ap_max: number;
   valid_targets: [number, number][];

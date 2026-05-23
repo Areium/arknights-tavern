@@ -9,6 +9,7 @@ import CombatUnitTooltip from "./CombatUnitTooltip";
 import UnitStatusPanel from "./UnitStatusPanel";
 import CombatParticles from "./CombatParticles";
 import CombatCard from "./CombatCard";
+import DeckViewer from "./DeckViewer";
 
 const CELL = 56; // px — must match CSS .combat-cell size
 
@@ -45,6 +46,7 @@ export default function CombatView() {
   const [charInput, setCharInput] = useState("");
   const [hoveredUnitId, setHoveredUnitId] = useState<string | null>(null);
   const [hoveredUnitRect, setHoveredUnitRect] = useState<DOMRect | null>(null);
+  const [showDeckViewer, setShowDeckViewer] = useState(false);
   const writingBackRef = useRef(false);
   const sseRef = useRef<{ close: () => void } | null>(null);
   const stateRef = useRef(combatState);
@@ -745,6 +747,12 @@ export default function CombatView() {
           </span>
           <div className="flex-1" />
           <button
+            className="px-3 py-1.5 text-xs bg-surface-hover hover:bg-gray-700 text-gray-300 rounded-lg transition-all border border-combat-border font-display tracking-wider"
+            onClick={() => setShowDeckViewer(true)}
+          >
+            卡组
+          </button>
+          <button
             className="px-5 py-1.5 text-xs bg-cyan-900/70 hover:bg-cyan-800/70 text-cyan-200 rounded-lg transition-all disabled:opacity-30 border border-cyan-800/50 font-display tracking-wider"
             onClick={handleEndTurn}
             disabled={combatState.phase !== "PLAYER_TURN" || combatState.battle_over || loading}
@@ -807,6 +815,15 @@ export default function CombatView() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* Deck viewer modal */}
+      {showDeckViewer && combatState && (
+        <DeckViewer
+          units={combatState.units}
+          playerPools={combatState.player_pools ?? {}}
+          onClose={() => setShowDeckViewer(false)}
+        />
       )}
 
       {/* Hover tooltip */}
