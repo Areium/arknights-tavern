@@ -33,10 +33,15 @@ _CORE_SECTIONS = {
         ("## 天气概述", 2),
         ("## 视觉特征", 2),
     ],
+    "enemies": [
+        ("## 战斗信息", 3),
+        ("## 行为模式", None),
+        ("## 外貌描写", 2),
+    ],
 }
 
 
-# ── 属性英文名 → 中文名映射 ──
+# ── 属性名 → 中文名映射（兼容英文旧格式和中文新格式）──
 _ATTR_ENG_TO_CN = {
     "physical_strength": "物理强度",
     "tactical_planning": "战术规划",
@@ -46,6 +51,15 @@ _ATTR_ENG_TO_CN = {
     "charisma": "魅力",
     "physiological_tolerance": "生理耐受",
     "mobility": "战场机动",
+    # v4.0 角色文件直接使用中文属性名，中文→中文直通
+    "物理强度": "物理强度",
+    "战术规划": "战术规划",
+    "情绪稳定性": "情绪稳定性",
+    "战斗技巧": "战斗技巧",
+    "源石技艺适应性": "源石技艺适应性",
+    "魅力": "魅力",
+    "生理耐受": "生理耐受",
+    "战场机动": "战场机动",
 }
 
 
@@ -268,7 +282,7 @@ class RegistryManager:
                 filepath = entry.get("file", "")
                 if not filepath:
                     issues.append(f"[{type_}] '{key}': 缺少 file 字段")
-                elif not os.path.isfile(filepath):
+                elif not self._resolve_filepath(filepath):
                     issues.append(f"[{type_}] '{key}': 文件不存在 → {filepath}")
         if issues:
             logger.warning("索引完整性检查发现 %d 个问题", len(issues))

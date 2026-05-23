@@ -50,6 +50,7 @@ plot（data/plots/）：<near_light_aftermath>
 
 | 文件 | 内容 | 说明 |
 |------|------|------|
+| [opening.md](opening.md) | 开局设置 | 开场场景、角色选取、可到达地点、场景流程图、开局对话流程、推荐配置 |
 | [setting.md](setting.md) | 常量设定 | 核心冲突、定时炸弹、关键人物、势力关系、偏离策略、后续影响、伏笔 |
 | [narrative.md](narrative.md) | 剧情叙述 | 剧情概述、章节大纲、关键节拍、对话方向、玩家选项、关键对话参考 |
 | [scenes.md](scenes.md) | 场景配置 | 节点顺序、地点/时间/氛围/五感、出场角色/敌人、场景转换、偏离点判定 |

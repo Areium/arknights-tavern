@@ -6,6 +6,15 @@
 # 包括 buff/debuff 抽取池、失败后果系统等推理规则。
 # ==============================================================================
 index:
+  combat-system:
+    file: "combat-system/index.md"
+    name: "战斗系统规则（战术模式 + 叙事模式）"
+    category: rule
+    priority: 1
+    summary: "双模式战斗系统——战术模式为d20回合制战斗，叙事模式为剧情驱动的关键判定战斗。玩家可随时切换"
+    sub_files:
+      - "combat-system/narrative-mode.md"
+
   rarity-system:
     file: "rarity-system/index.md"
     name: "稀有度分级体系"

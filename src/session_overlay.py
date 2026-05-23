@@ -142,6 +142,20 @@ class SessionOverlay:
         merged_content = overrides.get("content") if overrides.get("content") is not None else content
         return merged_meta, merged_content
 
+    # ── 战斗模式设置 ──
+
+    def get_combat_mode(self) -> str:
+        """获取战斗模式。返回 "narrative"（默认）或 "tactical"。"""
+        return self._data.get("combat_mode", "narrative")
+
+    def set_combat_mode(self, mode: str):
+        """设置战斗模式。mode 为 "narrative" 或 "tactical"。"""
+        if mode not in ("narrative", "tactical"):
+            raise ValueError(f"无效的战斗模式: {mode}，可选值: narrative, tactical")
+        self._data["combat_mode"] = mode
+        self._save()
+        logger.info("会话 %s: 战斗模式切换为 %s", self.session_id, mode)
+
     # ── 环境覆盖 ──
 
     def get_environment_overrides(self) -> dict:
@@ -219,6 +233,7 @@ class SessionOverlay:
         return {
             "session_id": self.session_id,
             "plot_id": self._data.get("plot_id"),
+            "combat_mode": self.get_combat_mode(),
             "characters": self._data.get("characters", {}),
             "items": self._data.get("items", {}),
             "environment": self._data.get("environment", {}),

@@ -60,4 +60,68 @@ index:
     portable: true
     rarity: common
     related_characters: []
+
+  指挥官护甲:
+    file: "指挥官护甲.md"
+    summary: "瑕光为博士亲手改装的战术护甲，左肩嵌有临光家族手工徽章"
+    category: equipment
+    portable: true
+    rarity: epic
+    related_characters: ["瑕光", "博士"]
+
+  感染者合同数据:
+    file: "感染者合同数据.md"
+    summary: "焰尾从商业联合会窃取的感染者骑士合同加密数据，揭露商业联合会利用感染者骑士进行源石实验"
+    category: document
+    portable: true
+    rarity: epic
+    related_characters: ["焰尾"]
+
+  临光的旧铠甲:
+    file: "临光的旧铠甲.md"
+    summary: "临光上一届特锦赛夺冠时的骑士铠甲，由瑕光暗中修复保留"
+    category: equipment
+    portable: false
+    rarity: rare
+    related_characters: ["临光", "瑕光"]
+
+  托兰的雇佣证明:
+    file: "托兰的雇佣证明.md"
+    summary: "玛恩纳以一枚旧银币雇佣托兰暗中保护临光姐妹的证据"
+    category: document
+    portable: true
+    rarity: uncommon
+    related_characters: ["玛恩纳·临光", "托兰"]
+
+  瑕光工坊外的监视照片:
+    file: "瑕光工坊外的监视照片.md"
+    summary: "砾在博士不知情时拍摄的无胄盟监视瑕光工坊的证据照片"
+    category: document
+    portable: true
+    rarity: uncommon
+    related_characters: ["砾", "瑕光", "白金"]
+
+  商业联合会内部清洗的证据:
+    file: "商业联合会内部清洗的证据.md"
+    summary: "商业联合会对内部不配合董事进行清洗的计划文件，由玄铁大位秘密保留"
+    category: document
+    portable: true
+    rarity: epic
+    related_characters: ["玄铁大位"]
+
+  商业联合会内部会议纪要:
+    file: "商业联合会内部会议纪要.md"
+    summary: "商业联合会针对临光回归的应对策略会议记录"
+    category: document
+    portable: true
+    rarity: rare
+    related_characters: []
+
+  焰尾的感染者合同数据:
+    file: "焰尾的感染者合同数据.md"
+    summary: "焰尾本人的感染者合同，包含将她的源石结晶用于科研的秘密附加条款"
+    category: document
+    portable: true
+    rarity: epic
+    related_characters: ["焰尾"]
 ---

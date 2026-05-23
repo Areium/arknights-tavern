@@ -1106,6 +1106,29 @@ def set_environment_override(session_id: str):
     return jsonify({"message": "环境覆盖已保存"})
 
 
+@app.route("/api/sessions/<session_id>/combat-mode", methods=["PUT"])
+def set_combat_mode(session_id: str):
+    """切换战斗模式（narrative / tactical）。"""
+    session = session_manager.get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+    data = request.json or {}
+    mode = data.get("mode", "").strip()
+    if mode not in ("narrative", "tactical"):
+        return _json_error("mode 必须是 'narrative' 或 'tactical'")
+    session.overlay.set_combat_mode(mode)
+    return jsonify({"combat_mode": mode})
+
+
+@app.route("/api/sessions/<session_id>/combat-mode", methods=["GET"])
+def get_combat_mode(session_id: str):
+    """获取当前战斗模式。"""
+    session = session_manager.get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+    return jsonify({"combat_mode": session.overlay.get_combat_mode()})
+
+
 @app.route("/api/sessions/<session_id>/overrides/environment", methods=["DELETE"])
 def delete_environment_override(session_id: str):
     """清除环境覆盖。"""
