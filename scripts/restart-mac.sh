@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ═══════════════════════════════════════════════════════════
-#  Arknights Txt — macOS 一键重启脚本
+#  Arknights Tavern — macOS 一键重启脚本
 #  1. 停止旧进程（Flask + Vite + Electron）
 #  2. 启动 Flask 后端
 #  3. 启动 Vite 前端开发服务器
@@ -33,7 +33,7 @@ trap cleanup SIGINT SIGTERM
 
 echo ""
 echo "  ═══════════════════════════════════════"
-echo "    Arknights Txt — 重启前后端"
+echo "    Arknights Tavern — 重启前后端"
 echo "  ═══════════════════════════════════════"
 echo ""
 

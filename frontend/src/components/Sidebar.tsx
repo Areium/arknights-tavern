@@ -15,7 +15,7 @@ export default function Sidebar() {
     <aside className="w-56 bg-gray-850 border-r border-gray-700 flex flex-col shrink-0">
       {/* Logo */}
       <div className="px-4 py-4 border-b border-gray-700">
-        <h1 className="text-lg font-bold text-amber-400">Arknights TXT</h1>
+        <h1 className="text-lg font-bold text-amber-400">Arknights Tavern</h1>
         <p className="text-xs text-gray-500 mt-0.5">文字角色扮演</p>
       </div>
 

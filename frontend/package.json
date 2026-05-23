@@ -2,7 +2,7 @@
   "name": "arknights-tavern",
   "version": "0.1.0",
   "private": true,
-  "description": "Arknights Text RPG - Electron Frontend",
+  "description": "Arknights Tavern - Electron Frontend",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",

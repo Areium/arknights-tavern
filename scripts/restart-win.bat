@@ -4,7 +4,7 @@ set "ROOT=%~dp0.."
 pushd "%ROOT%"
 
 echo ============================================
-echo   Arknights Txt — 重启前后端
+echo   Arknights Tavern — 重启前后端
 echo ============================================
 echo.
 

@@ -477,7 +477,7 @@ export default function SettingsPanel() {
       <section className="card">
         <h3 className="panel-title">关于</h3>
         <div className="text-sm text-gray-400 space-y-1">
-          <p>Arknights TXT v0.1.0</p>
+          <p>Arknights Tavern v0.1.0</p>
           <p>基于 Electron + React + Python Flask</p>
           <p>
             LLM 后端:{" "}

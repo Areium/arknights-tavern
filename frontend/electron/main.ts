@@ -24,7 +24,7 @@ function createWindow() {
     height: 900,
     minWidth: 1000,
     minHeight: 600,
-    title: "明日方舟 - 文字冒险",
+    title: "Arknights Tavern - 明日方舟文字角色扮演",
     backgroundColor: "#0f1117",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),

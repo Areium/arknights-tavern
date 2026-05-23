@@ -1,6 +1,6 @@
 # 战斗系统设计文档
 
-> Arknights Text RPG — 回合制卡牌战斗的底层逻辑、数据结构、与项目集成方案
+> Arknights Tavern — 回合制卡牌战斗的底层逻辑、数据结构、与项目集成方案
 >
 > 引擎代码：`src/combat_engine/` | 当前版本：v1.0
 
