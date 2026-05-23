@@ -1,4 +1,4 @@
-# Arknights Txt — 明日方舟文字角色扮演
+# arknights-tavern — 明日方舟文字角色扮演
 
 基于明日方舟世界观的文字角色扮演游戏，提供沉浸式剧情体验。
 
@@ -173,7 +173,7 @@ API 层           │  Flask API (src/app.py)
 ## 项目结构
 
 ```
-arknights-txt/
+arknights-tavern/
 ├── src/                          # Python 后端
 │   ├── app.py                    # Flask Web API 服务
 │   ├── GameAgent.py              # 游戏代理：工具调用、对话路由

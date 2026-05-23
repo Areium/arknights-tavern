@@ -1,5 +1,5 @@
 {
-  "name": "arknights-txt",
+  "name": "arknights-tavern",
   "version": "0.1.0",
   "private": true,
   "description": "Arknights Text RPG - Electron Frontend",
@@ -34,8 +34,8 @@
     "vite-plugin-electron-renderer": "^0.14.7"
   },
   "build": {
-    "appId": "com.arknights-txt.app",
-    "productName": "Arknights Txt",
+    "appId": "com.arknights-tavern.app",
+    "productName": "Arknights Tavern",
     "directories": {
       "output": "release"
     },
