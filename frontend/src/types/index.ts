@@ -168,6 +168,7 @@ export interface CombatUnitDTO {
   mobility: number;
   pos: [number, number];
   is_alive: boolean;
+  attributes?: Record<string, number>;
 }
 
 /** 卡牌 */

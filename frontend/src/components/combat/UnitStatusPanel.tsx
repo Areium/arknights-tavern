@@ -8,6 +8,8 @@ interface Props {
   sharedAp?: number;
   sharedApMax?: number;
   onUnitClick?: (unitId: string) => void;
+  onUnitHover?: (unitId: string, rect: DOMRect) => void;
+  onUnitLeave?: () => void;
 }
 
 function HPBar({ current, max }: { current: number; max: number }) {
@@ -37,7 +39,7 @@ function APBar({ current, max, color }: { current: number; max: number; color?: 
   );
 }
 
-export default function UnitStatusPanel({ units, activeUnitId, selectedUnitId, team, sharedAp, sharedApMax, onUnitClick }: Props) {
+export default function UnitStatusPanel({ units, activeUnitId, selectedUnitId, team, sharedAp, sharedApMax, onUnitClick, onUnitHover, onUnitLeave }: Props) {
   const filtered = team ? units.filter((u) => u.team === team) : units;
   const isPlayer = team === "player";
   const labelColor = isPlayer ? "text-cyan-200" : "text-red-200";
@@ -63,6 +65,8 @@ export default function UnitStatusPanel({ units, activeUnitId, selectedUnitId, t
         <div
           key={u.unit_id}
           onClick={() => onUnitClick?.(u.unit_id)}
+          onMouseEnter={(e) => onUnitHover?.(u.unit_id, (e.currentTarget as HTMLElement).getBoundingClientRect())}
+          onMouseLeave={() => onUnitLeave?.()}
           className={`p-1.5 rounded border transition-colors cursor-pointer hover:brightness-110 ${
             u.unit_id === activeUnitId
               ? activeBorder

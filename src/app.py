@@ -1156,7 +1156,11 @@ from combat_session import CombatSession  # noqa: E402
 
 @app.route("/api/sessions/<session_id>/combat/start", methods=["POST"])
 def combat_start(session_id: str):
-    """开始一场战斗。请求体: {encounter_id: str, characters: [str]}"""
+    """开始一场战斗。请求体: {encounter_id: str, characters: [str]}
+
+    未提供角色列表时，使用场景中已加载的角色。
+    会话中编辑过的角色属性（overrides）会自动应用到战斗数值。
+    """
     session = session_manager.get_session(session_id)
     if not session:
         return _json_error("会话不存在", 404)
@@ -1165,9 +1169,40 @@ def combat_start(session_id: str):
     encounter_id = data.get("encounter_id", "初遇整合运动")
     character_names = data.get("characters", [])
 
+    # Default to scene characters when none specified
+    if not character_names:
+        character_names = session.scene_manager.get_scene_characters()
+
+    if not character_names:
+        return _json_error("没有可用角色，请先加载角色到场景中", 400)
+
+    # Build character_metas list with session overrides applied
+    from pathlib import Path as _Path
+    character_metas = []
+    for name in character_names:
+        char_path = _Path(_project_root) / "data" / "characters" / name / "index.md"
+        if not char_path.exists():
+            logger.warning("Character file not found: %s", char_path)
+            continue
+        try:
+            with open(char_path, "r", encoding="utf-8") as f:
+                doc = frontmatter.load(f)
+            meta = dict(doc.metadata)
+            content = doc.content or ""
+            merged_meta, _merged_content = session.overlay.apply_character_overrides(
+                name, meta, content
+            )
+            character_metas.append(merged_meta)
+        except Exception as e:
+            logger.error("Failed to load character %s: %s", name, e)
+            continue
+
+    if not character_metas:
+        return _json_error("无法加载角色数据", 500)
+
     try:
         combat = CombatSession(session_id)
-        state = combat.start(encounter_id, character_names=character_names)
+        state = combat.start(encounter_id, character_metas=character_metas)
         session.combat = combat
         return jsonify(state)
     except ValueError as e:
@@ -1225,6 +1260,44 @@ def combat_end_turn(session_id: str):
         return _json_error(result.get("error", "操作失败"), 400)
 
     return jsonify(result.get("state", {}))
+
+
+@app.route("/api/sessions/<session_id>/combat/complete", methods=["POST"])
+def combat_complete(session_id: str):
+    """战斗结算：将战斗结果写入会话 overrides，然后清除战斗状态。"""
+    session = session_manager.get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+
+    data = request.json or {}
+    import time
+
+    result = {
+        "timestamp": time.time(),
+        "encounter_id": data.get("encounter_id", ""),
+        "winner": data.get("winner", ""),
+        "survivors": data.get("survivors", []),
+        "rounds": data.get("rounds", 0),
+        "character_stats": data.get("character_stats", {}),
+    }
+
+    overlay_data = session.overlay._data
+    if "combat_history" not in overlay_data:
+        overlay_data["combat_history"] = []
+    overlay_data["combat_history"].append(result)
+
+    # Keep only last 20 entries
+    if len(overlay_data["combat_history"]) > 20:
+        overlay_data["combat_history"] = overlay_data["combat_history"][-20:]
+
+    session.overlay._save()
+
+    # Clear combat from session
+    session.combat = None
+
+    logger.info("会话 %s: 战斗结果已记录 (winner=%s, rounds=%d)",
+                 session_id, data.get("winner"), data.get("rounds", 0))
+    return jsonify({"message": "战斗结果已记录", "result": result})
 
 
 @app.route("/api/sessions/<session_id>/combat/events")

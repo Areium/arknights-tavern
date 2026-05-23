@@ -287,6 +287,7 @@ class CombatSession:
                 "mobility": u.mobility,
                 "pos": list(u.pos),
                 "is_alive": u.is_alive,
+                "attributes": dict(u.attributes) if u.attributes else {},
             })
 
         # Active unit's hand (only for player turns)

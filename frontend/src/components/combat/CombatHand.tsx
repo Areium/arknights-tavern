@@ -6,10 +6,11 @@ interface Props {
   activeAp: number;
   selectedIndex: number | null;
   disabled?: boolean;
+  highlightOwner?: string | null;
   onCardClick: (index: number) => void;
 }
 
-export default function CombatHand({ cards, activeAp, selectedIndex, disabled, onCardClick }: Props) {
+export default function CombatHand({ cards, activeAp, selectedIndex, disabled, highlightOwner, onCardClick }: Props) {
   return (
     <div className="flex gap-1.5 overflow-x-auto py-2 px-1 min-h-[110px] items-center">
       {cards.length === 0 && (
@@ -22,6 +23,7 @@ export default function CombatHand({ cards, activeAp, selectedIndex, disabled, o
           index={i}
           affordable={!disabled && card.cost <= activeAp}
           selected={selectedIndex === i}
+          highlighted={!!highlightOwner && card.owner === highlightOwner}
           onClick={() => onCardClick(i)}
         />
       ))}

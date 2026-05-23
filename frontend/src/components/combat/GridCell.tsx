@@ -6,6 +6,8 @@ interface Props {
   unit: CombatUnitDTO | null;
   highlight: "" | "cursor" | "target" | "move";
   onClick: (row: number, col: number) => void;
+  onMouseEnter?: (e: React.MouseEvent) => void;
+  onMouseLeave?: (e: React.MouseEvent) => void;
 }
 
 const TEAM_COLORS: Record<string, string> = {
@@ -19,7 +21,7 @@ const HIGHLIGHT_COLORS: Record<string, string> = {
   move: "ring-2 ring-blue-400 bg-blue-900/30",
 };
 
-export default function GridCell({ row, col, unit, highlight, onClick }: Props) {
+export default function GridCell({ row, col, unit, highlight, onClick, onMouseEnter, onMouseLeave }: Props) {
   const teamStyle = unit ? TEAM_COLORS[unit.team] || "" : "bg-gray-800/40 border-gray-700";
   const highlightStyle = highlight ? HIGHLIGHT_COLORS[highlight] || "" : "";
   const label = unit ? unit.name.slice(0, 2) : "";
@@ -29,7 +31,8 @@ export default function GridCell({ row, col, unit, highlight, onClick }: Props) 
       className={`w-10 h-10 border text-xs font-bold flex items-center justify-center
         transition-colors hover:brightness-125 ${teamStyle} ${highlightStyle}`}
       onClick={() => onClick(row, col)}
-      title={unit ? `${unit.name} (${unit.char_class}) HP:${unit.hp}/${unit.max_hp}` : `(${row},${col})`}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
     >
       {label}
     </button>

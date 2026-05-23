@@ -5,6 +5,7 @@ import type { CombatEventDTO, CombatStateDTO } from "../../types";
 import CombatGrid from "./CombatGrid";
 import CombatHand from "./CombatHand";
 import CombatEventLog from "./CombatEventLog";
+import CombatUnitTooltip from "./CombatUnitTooltip";
 import UnitStatusPanel from "./UnitStatusPanel";
 
 const DEFAULT_CHARACTERS = ["阿米娅", "博士", "银灰", "霜星"];
@@ -36,6 +37,9 @@ export default function CombatView() {
   const [startChars, setStartChars] = useState<string[]>(DEFAULT_CHARACTERS);
   const [encounterId, setEncounterId] = useState(DEFAULT_ENCOUNTER);
   const [charInput, setCharInput] = useState("");
+  const [hoveredUnitId, setHoveredUnitId] = useState<string | null>(null);
+  const [hoveredUnitRect, setHoveredUnitRect] = useState<DOMRect | null>(null);
+  const writingBackRef = useRef(false);
   const sseRef = useRef<{ close: () => void } | null>(null);
   const stateRef = useRef(combatState);
   stateRef.current = combatState;
@@ -142,12 +146,18 @@ export default function CombatView() {
   // Attack range origin: selected unit or active unit
   const rangeOrigin = selectedUnit || activeUnit;
 
-  // Cards to display: selected unit's hand, or active unit's hand
-  const displayedHand = selectedUnit && combatState?.player_hands
-    ? (combatState.player_hands[selectedUnit.unit_id] || [])
-    : combatState?.shared_hand ?? [];
+  // Cards to display: always the active unit's hand
+  const displayedHand = combatState?.shared_hand ?? [];
 
   const isSelectedActive = selectedUnit?.unit_id === combatState?.active_unit_id;
+
+  // Highlight cards belonging to the selected character (if not active)
+  const highlightOwner = selectedUnit && !isSelectedActive ? selectedUnit.name : null;
+
+  // Hovered unit for tooltip
+  const hoveredUnit = hoveredUnitId
+    ? combatState?.units.find((u) => u.unit_id === hoveredUnitId) ?? null
+    : null;
 
   // Move range from selected unit's mobility (Chebyshev distance)
   const moveHighlights = useMemo(() => {
@@ -315,6 +325,47 @@ export default function CombatView() {
     setSelectedUnitId(null);
   }, [setCombatUIMode, setSelectedCardIndex, setSelectedUnitId]);
 
+  const handleReturnToChat = useCallback(async () => {
+    if (writingBackRef.current) return;
+    sseRef.current?.close();
+
+    // Writeback: only for session-based combat (not test)
+    if (!combatTestId && sessionId && combatState) {
+      writingBackRef.current = true;
+      const survivors = combatState.units
+        .filter((u) => u.is_alive && u.team === "player")
+        .map((u) => u.name);
+      const characterStats: Record<string, any> = {};
+      for (const u of combatState.units) {
+        if (u.team === "player") {
+          characterStats[u.name] = {
+            hp: u.hp,
+            max_hp: u.max_hp,
+            attributes: u.attributes,
+            is_alive: u.is_alive,
+          };
+        }
+      }
+      try {
+        await api.combatComplete(sessionId, {
+          encounter_id: encounterId,
+          winner: combatState.winner || "unknown",
+          survivors,
+          rounds: combatState.round_num,
+          character_stats: characterStats,
+        });
+      } catch {
+        // Non-critical — silently ignore writeback failures
+      }
+      writingBackRef.current = false;
+    }
+
+    setCombatState(null);
+    setCombatTestId(null);
+    setSelectedUnitId(null);
+    setCurrentView("chat");
+  }, [combatTestId, sessionId, combatState, encounterId, api, setCombatState, setCombatTestId, setSelectedUnitId, setCurrentView]);
+
   const handleUnitClick = useCallback((unitId: string) => {
     if (selectedUnitId === unitId) {
       setSelectedUnitId(null);
@@ -326,6 +377,22 @@ export default function CombatView() {
       setSelectedCardIndex(null);
     }
   }, [selectedUnitId, setSelectedUnitId, setCombatUIMode, setSelectedCardIndex]);
+
+  // Hover tooltip
+  const handleCellHover = useCallback((unit: CombatStateDTO["units"][number], rect: DOMRect) => {
+    setHoveredUnitId(unit.unit_id);
+    setHoveredUnitRect(rect);
+  }, []);
+
+  const handleUnitHover = useCallback((unitId: string, rect: DOMRect) => {
+    setHoveredUnitId(unitId);
+    setHoveredUnitRect(rect);
+  }, []);
+
+  const handleHoverLeave = useCallback(() => {
+    setHoveredUnitId(null);
+    setHoveredUnitRect(null);
+  }, []);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -457,6 +524,8 @@ export default function CombatView() {
             sharedAp={combatState.shared_ap}
             sharedApMax={combatState.shared_ap_max}
             onUnitClick={handleUnitClick}
+            onUnitHover={handleUnitHover}
+            onUnitLeave={handleHoverLeave}
           />
         </div>
 
@@ -468,6 +537,8 @@ export default function CombatView() {
             selectedUnitId={selectedUnitId}
             team="enemy"
             onUnitClick={handleUnitClick}
+            onUnitHover={handleUnitHover}
+            onUnitLeave={handleHoverLeave}
           />
         </div>
 
@@ -494,6 +565,8 @@ export default function CombatView() {
           uiMode={combatUIMode}
           cursor={cursor}
           onCellClick={handleCellClick}
+          onCellHover={handleCellHover}
+          onCellLeave={handleHoverLeave}
         />
 
         {/* Action hint */}
@@ -541,13 +614,7 @@ export default function CombatView() {
           {combatState.battle_over && (
             <button
               className="px-4 py-1 text-xs bg-yellow-700 hover:bg-yellow-600 text-yellow-200 rounded transition-colors"
-              onClick={() => {
-                sseRef.current?.close();
-                setCombatState(null);
-                setCombatTestId(null);
-                setSelectedUnitId(null);
-                setCurrentView("chat");
-              }}
+              onClick={handleReturnToChat}
             >
               返回
             </button>
@@ -560,6 +627,7 @@ export default function CombatView() {
           activeAp={sharedAp}
           selectedIndex={selectedCardIndex}
           disabled={!!selectedUnit && !isSelectedActive}
+          highlightOwner={highlightOwner}
           onCardClick={handleCardClick}
         />
 
@@ -581,17 +649,21 @@ export default function CombatView() {
             </div>
             <button
               className="px-6 py-2 bg-cyan-700 hover:bg-cyan-600 text-cyan-200 rounded transition-colors"
-              onClick={() => {
-                sseRef.current?.close();
-                setCombatState(null);
-                setCombatTestId(null);
-                setCurrentView("chat");
-              }}
+              onClick={handleReturnToChat}
             >
               返回对话
             </button>
           </div>
         </div>
+      )}
+
+      {/* Hover tooltip */}
+      {hoveredUnit && hoveredUnitRect && (
+        <CombatUnitTooltip
+          unit={hoveredUnit}
+          anchorRect={hoveredUnitRect}
+          onMouseLeave={handleHoverLeave}
+        />
       )}
     </div>
   );

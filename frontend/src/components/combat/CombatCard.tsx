@@ -5,6 +5,7 @@ interface Props {
   index: number;
   affordable: boolean;
   selected: boolean;
+  highlighted?: boolean;
   onClick: () => void;
 }
 
@@ -22,15 +23,16 @@ const DMG_LABELS: Record<string, string> = {
   mixed: "混",
 };
 
-export default function CombatCard({ card, index, affordable, selected, onClick }: Props) {
+export default function CombatCard({ card, index, affordable, selected, highlighted, onClick }: Props) {
   const borderColor = DAMAGE_COLORS[card.damage_type] || "border-gray-700 bg-gray-900/60";
   const selectedRing = selected ? "ring-2 ring-yellow-400" : "";
+  const highlightRing = highlighted ? "ring-1 ring-cyan-400 bg-cyan-900/10" : "";
   const opacity = affordable ? "" : "opacity-40";
 
   return (
     <button
       className={`flex-shrink-0 w-36 h-24 border rounded p-1.5 text-left
-        transition-all hover:brightness-110 ${borderColor} ${selectedRing} ${opacity}`}
+        transition-all hover:brightness-110 ${borderColor} ${selectedRing} ${highlightRing} ${opacity}`}
       onClick={onClick}
       disabled={!affordable}
     >

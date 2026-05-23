@@ -341,6 +341,18 @@ export function useApi() {
         method: "POST",
       }),
 
+    combatComplete: (sessionId: string, data: {
+      encounter_id: string;
+      winner: string;
+      survivors: string[];
+      rounds: number;
+      character_stats: Record<string, any>;
+    }) =>
+      request<any>(`/api/sessions/${sessionId}/combat/complete`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
     // ── Combat Test (no session required) ──
     combatTestStart: (encounterId?: string) =>
       request<{ test_id: string; state: any }>("/api/combat/test/start", {

@@ -73,6 +73,8 @@ class CombatEngine:
         self.units[unit.unit_id] = unit
         pool = CardPool()
         if cards:
+            for c in cards:
+                c.owner = unit.name
             pool.init_deck(cards)
         self.pools[unit.unit_id] = pool
 

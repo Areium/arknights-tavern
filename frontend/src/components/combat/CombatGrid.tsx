@@ -13,10 +13,12 @@ interface Props {
   uiMode: string;
   cursor: [number, number] | null;
   onCellClick: (row: number, col: number) => void;
+  onCellHover?: (unit: CombatUnitDTO, rect: DOMRect) => void;
+  onCellLeave?: () => void;
 }
 
 export default function CombatGrid({
-  gridSize, units, grid, validTargets, validMoves, moveHighlights, rangeHighlights, selectedUnitId, uiMode, cursor, onCellClick,
+  gridSize, units, grid, validTargets, validMoves, moveHighlights, rangeHighlights, selectedUnitId, uiMode, cursor, onCellClick, onCellHover, onCellLeave,
 }: Props) {
   const posToUnit: Record<string, CombatUnitDTO> = {};
   for (const u of units) {
@@ -51,6 +53,12 @@ export default function CombatGrid({
           unit={unit}
           highlight={highlight}
           onClick={onCellClick}
+          onMouseEnter={(e) => {
+            if (unit && onCellHover) {
+              onCellHover(unit, (e.currentTarget as HTMLElement).getBoundingClientRect());
+            }
+          }}
+          onMouseLeave={onCellLeave}
         />
       );
     }
