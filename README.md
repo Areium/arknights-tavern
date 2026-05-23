@@ -126,6 +126,31 @@ BASE_URL=https://api.deepseek.com/v1
 
 左侧导航切换到「📄 文档」可浏览和编辑数据文档（角色、物品、世界观设定等），支持在线编辑和保存。
 
+### 战斗系统
+
+剧情模式下可通过遭遇战进入回合制战斗，使用卡牌指挥角色在网格地图上作战。
+
+**启动战斗**：
+- 点击左侧导航切换到「⚔️ 战斗」，配置出战角色和遭遇战 ID
+- 在剧情模式中，当故事触发战斗时，系统会自动进入战斗场景
+- 也可以使用「战斗测试」模式：无需会话，从 `data/plots/combat-test/` 加载预设战斗
+
+**战斗操作**：
+- **选择卡牌** — 点击手牌中的卡牌，或按数字键 1-5 快捷选牌
+- **打出卡牌** — 选中卡牌后点击敌方区域的格子，或直接拖拽卡牌到目标格子
+- **移动角色** — 点击地图上的我方角色选中，再点击蓝色高亮格子移动
+- **查看属性** — 点击角色头像或格子上的小人选中角色，悬停查看详细属性浮窗
+- **结束回合** — 点击「结束回合」或按 F 键
+- **取消操作** — 按 Esc 键
+
+**战斗界面布局**：
+- 左侧：我方角色状态面板（HP 条、AP 点、头像）
+- 中央：9×8 俯视网格地图（CSS 3D 透视效果），角色小人 + 特效粒子
+- 右侧：敌方角色状态面板
+- 底部：手牌区（弧形排列）+ 操作栏 + 事件日志
+
+**数据回写**：战斗结束后，角色的 HP 变化、受伤、死亡等状态会自动回写到当前会话。
+
 ## 架构概览
 
 ```
@@ -156,6 +181,15 @@ arknights-txt/
 │   ├── CharacterAgent.py         # 角色代理：角色扮演 + 记忆
 │   ├── session_manager.py        # 多会话管理
 │   ├── session_overlay.py        # 会话覆盖层
+│   ├── combat_session.py         # 战斗会话管理
+│   ├── combat_data_loader.py     # 战斗数据加载器
+│   ├── combat_engine/            # 战斗引擎
+│   │   ├── engine.py             # 核心战斗逻辑
+│   │   ├── entity.py             # 战斗实体
+│   │   ├── grid.py               # 网格系统
+│   │   ├── card.py               # 卡牌逻辑
+│   │   ├── card_data.py          # 卡牌数据
+│   │   └── dice.py               # 骰子系统
 │   ├── document_manager.py       # 文档 CRUD + 冲突检测
 │   ├── registry_manager.py       # 索引注册表管理器
 │   ├── llm_backend_manager.py    # LLM 多后端检测与自动降级
@@ -168,10 +202,30 @@ arknights-txt/
 │   └── src/
 │       ├── App.tsx               # 主应用布局
 │       ├── components/           # UI 组件
+│       │   ├── combat/           # 战斗系统组件
+│       │   │   ├── CombatView.tsx         # 战斗主界面
+│       │   │   ├── CombatGrid.tsx         # 地图网格（3D 透视 + 拖放）
+│       │   │   ├── GridCell.tsx           # 单个格子
+│       │   │   ├── CombatCard.tsx         # 卡牌（程序化卡面）
+│       │   │   ├── CombatHand.tsx         # 手牌区（弧形排列）
+│       │   │   ├── ChibiSprite.tsx        # 像素战斗小人
+│       │   │   ├── UnitStatusPanel.tsx    # 角色状态面板
+│       │   │   ├── CombatUnitTooltip.tsx  # 单位悬浮提示框
+│       │   │   ├── CombatEventLog.tsx     # 事件日志
+│       │   │   └── CombatParticles.tsx    # Canvas 粒子特效
+│       │   └── ...
 │       ├── hooks/useApi.ts       # API 客户端封装
 │       ├── stores/appStore.ts    # 全局状态
 │       └── style.css             # 全局样式
 ├── data/                         # 数据文件（角色/物品/世界观等）
+│   ├── combat/                   # 战斗数据
+│   │   ├── cards/                # 卡牌数据
+│   │   ├── enemies/              # 敌人数据
+│   │   └── encounters/           # 遭遇战配置
+│   └── ...
+├── docs/                         # 设计文档
+│   ├── combat-design.md          # 战斗引擎设计
+│   └── combat-ui-design.md       # 战斗 UI 设计
 ├── environment/                  # 环境预设（地点/天气）
 ├── requirements.txt
 └── .env.example

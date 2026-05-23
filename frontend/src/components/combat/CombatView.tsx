@@ -670,6 +670,7 @@ export default function CombatView() {
               uiMode={combatUIMode}
               cursor={cursor}
               dragCell={dragCell}
+              arrowFrom={dragCardIndex !== null && rangeOrigin?.pos ? rangeOrigin.pos : null}
               onCellClick={handleCellClick}
               onCellHover={handleCellHover}
               onCellLeave={handleHoverLeave}
