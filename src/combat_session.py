@@ -12,10 +12,12 @@ import sys
 import random
 from typing import Optional
 
-# Ensure project root is importable for demo/ module
-_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _project_root not in sys.path:
-    sys.path.insert(0, _project_root)
+# Ensure project root and src/ are importable
+_src_dir = os.path.dirname(os.path.abspath(__file__))
+_project_root = os.path.dirname(_src_dir)
+for _p in (_src_dir, _project_root):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 from demo.combat.entity import CombatUnit
 from demo.combat.card import Card
