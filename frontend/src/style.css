@@ -133,3 +133,300 @@ html.light .text-red-400 { color: rgb(220 38 38); }
 /* ── 绿色系 ── */
 html.light .bg-green-800\/50 { background-color: rgb(220 252 231); }
 html.light .text-green-300 { color: rgb(21 128 61); }
+
+/* ═══════════════════════════════════════
+   战斗系统样式
+   ═══════════════════════════════════════ */
+
+/* ── 地图透视容器 ── */
+.combat-grid-perspective {
+  perspective: 2000px;
+  perspective-origin: 50% 45%;
+}
+
+.combat-grid-3d {
+  transform: rotateX(6deg);
+  transform-style: preserve-3d;
+}
+
+/* ── 格子样式 ── */
+.combat-cell {
+  width: 56px;
+  height: 56px;
+  background: rgba(15, 20, 35, 0.6);
+  border: 1px solid rgba(100, 120, 160, 0.25);
+  background-image: radial-gradient(circle at center, rgba(60, 80, 120, 0.12) 0%, transparent 70%);
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.combat-cell.player-zone {
+  border-color: rgba(0, 180, 220, 0.2);
+  background: rgba(0, 40, 60, 0.25);
+}
+
+.combat-cell.enemy-zone {
+  border-color: rgba(220, 60, 60, 0.15);
+  background: rgba(40, 10, 10, 0.2);
+}
+
+.combat-cell.highlight-move {
+  border-color: rgba(0, 180, 255, 0.8) !important;
+  box-shadow: inset 0 0 14px rgba(0, 180, 255, 0.15), 0 0 10px rgba(0, 180, 255, 0.25);
+}
+
+.combat-cell.highlight-target {
+  border-color: rgba(255, 80, 60, 0.85) !important;
+  box-shadow: inset 0 0 14px rgba(255, 80, 60, 0.15), 0 0 10px rgba(255, 80, 60, 0.25);
+}
+
+.combat-cell.highlight-selected {
+  border-color: rgba(240, 192, 96, 1) !important;
+  box-shadow: inset 0 0 18px rgba(240, 192, 96, 0.15), 0 0 14px rgba(240, 192, 96, 0.35);
+  animation: cell-pulse 1.5s ease-in-out infinite;
+}
+
+.combat-cell.highlight-cursor {
+  border-color: rgba(240, 192, 96, 0.7);
+  box-shadow: 0 0 8px rgba(240, 192, 96, 0.3);
+}
+
+@keyframes cell-pulse {
+  0%, 100% { box-shadow: inset 0 0 18px rgba(240, 192, 96, 0.15), 0 0 14px rgba(240, 192, 96, 0.35); }
+  50%      { box-shadow: inset 0 0 24px rgba(240, 192, 96, 0.25), 0 0 20px rgba(240, 192, 96, 0.5); }
+}
+
+/* ── 手牌弧形布局 ── */
+.combat-hand-fan {
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  gap: 0;
+  padding: 8px 0 4px;
+  min-height: 210px;
+  perspective: 800px;
+}
+
+.combat-hand-fan .hand-card-wrapper {
+  transition: transform 0.2s ease, z-index 0s;
+  margin: 0 -6px;
+}
+
+.combat-hand-fan .hand-card-wrapper:hover {
+  transform: translateY(-16px) scale(1.08) !important;
+  z-index: 50 !important;
+}
+
+/* ── 卡牌样式 ── */
+.combat-card {
+  width: 140px;
+  height: 190px;
+  border-radius: 8px;
+  background: linear-gradient(160deg, #16192b 0%, #111827 50%, #0d1525 100%);
+  border: 2px solid #2a3a5e;
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  text-align: left;
+}
+
+.combat-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  z-index: 2;
+}
+
+.combat-card.class-vanguard::before { background: #d4a574; }
+.combat-card.class-guard::before { background: #c44b3c; }
+.combat-card.class-defender::before { background: #4a6b8a; }
+.combat-card.class-sniper::before { background: #3c8c4a; }
+.combat-card.class-caster::before { background: #8b5ca8; }
+.combat-card.class-medic::before { background: #5c9a8b; }
+.combat-card.class-supporter::before { background: #c4a83c; }
+.combat-card.class-specialist::before { background: #6b5c8a; }
+
+.combat-card.elite {
+  border-color: #c8a840;
+  box-shadow: 0 0 10px rgba(200, 168, 64, 0.25), 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.combat-card:hover {
+  transform: translateY(-8px) scale(1.05);
+  z-index: 10;
+}
+
+.combat-card.elite:hover {
+  box-shadow: 0 0 20px rgba(200, 168, 64, 0.45), 0 8px 24px rgba(0, 0, 0, 0.55);
+}
+
+.combat-card.selected {
+  border-color: #f0c060 !important;
+  transform: translateY(-14px);
+  box-shadow: 0 0 18px rgba(240, 192, 96, 0.5), 0 4px 16px rgba(0, 0, 0, 0.5);
+  animation: card-selected-glow 1.5s ease-in-out infinite;
+}
+
+.combat-card.disabled {
+  opacity: 0.4;
+  filter: grayscale(0.5);
+  cursor: not-allowed;
+}
+
+.combat-card.disabled:hover {
+  transform: none;
+}
+
+@keyframes card-selected-glow {
+  0%, 100% { box-shadow: 0 0 18px rgba(240, 192, 96, 0.5), 0 4px 16px rgba(0, 0, 0, 0.5); }
+  50% { box-shadow: 0 0 28px rgba(240, 192, 96, 0.7), 0 4px 20px rgba(0, 0, 0, 0.6); }
+}
+
+/* ── HP 条 ── */
+.combat-hp-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(10, 14, 23, 0.8);
+  border: 1px solid rgba(42, 58, 94, 0.5);
+  overflow: hidden;
+}
+
+.combat-hp-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+
+.combat-hp-fill.high   { background: linear-gradient(90deg, #2ecc71, #27ae60); }
+.combat-hp-fill.medium { background: linear-gradient(90deg, #f39c12, #e67e22); }
+.combat-hp-fill.low    { background: linear-gradient(90deg, #e74c3c, #c0392b); animation: hp-pulse 0.8s infinite; }
+
+@keyframes hp-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.5; }
+}
+
+/* ── 伤害数字 ── */
+.damage-number {
+  font-family: 'Orbitron', 'Arial Black', sans-serif;
+  font-weight: 900;
+  font-size: 28px;
+  color: #fff;
+  text-shadow:
+    -1px -1px 0 #000,
+     1px -1px 0 #000,
+    -1px  1px 0 #000,
+     1px  1px 0 #000,
+    0 0 8px rgba(255, 60, 30, 0.8);
+  animation: damage-float 1s ease-out forwards;
+  pointer-events: none;
+}
+
+.damage-number.physical { color: #ff6b4a; text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 0 8px rgba(255, 107, 74, 0.8); }
+.damage-number.arts     { color: #b44af0; text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 0 8px rgba(180, 74, 240, 0.8); }
+.damage-number.heal     { color: #4aff8b; text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 0 8px rgba(74, 255, 139, 0.8); }
+.damage-number.crit     { font-size: 38px; color: #ffd700; }
+
+@keyframes damage-float {
+  0%   { transform: translateY(0) scale(0.8); opacity: 1; }
+  20%  { transform: translateY(-6px) scale(1.15); opacity: 1; }
+  100% { transform: translateY(-36px) scale(0.85); opacity: 0; }
+}
+
+/* ── 单位受击震动 ── */
+.unit-hit-shake {
+  animation: hit-shake 0.3s ease-in-out;
+}
+
+@keyframes hit-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(2px); }
+}
+
+/* ── 战斗小人占位 ── */
+.chibi-placeholder {
+  width: 48px;
+  height: 56px;
+  border-radius: 4px 4px 2px 2px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: transform 0.3s ease;
+}
+
+.chibi-placeholder .chibi-head {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  margin-top: 6px;
+  margin-bottom: 4px;
+}
+
+.chibi-placeholder .chibi-body {
+  width: 32px;
+  height: 20px;
+  border-radius: 3px 3px 0 0;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.chibi-placeholder.player {
+  box-shadow: 0 0 6px rgba(0, 180, 216, 0.3);
+}
+
+.chibi-placeholder.enemy {
+  box-shadow: 0 0 6px rgba(231, 76, 60, 0.3);
+}
+
+/* ── 战斗事件日志 timeline ── */
+.combat-log-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 2px 0;
+}
+
+.combat-log-entry .log-icon {
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
+}
+
+/* ── 战斗结束 overlay ── */
+.combat-overlay-enter {
+  animation: overlay-fade-in 0.5s ease-out;
+}
+
+@keyframes overlay-fade-in {
+  0%   { opacity: 0; backdrop-filter: blur(0); }
+  100% { opacity: 1; backdrop-filter: blur(4px); }
+}
+
+/* ── AP 点 ── */
+.combat-ap-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  transition: background-color 0.3s ease;
+}
+
+.combat-ap-dot.filled {
+  box-shadow: 0 0 4px rgba(0, 212, 255, 0.5);
+}
+
+/* ── 部署方向箭头 ── */
+.deploy-arrow {
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 8px solid rgba(240, 192, 96, 0.6);
+  transition: transform 0.3s ease;
+}

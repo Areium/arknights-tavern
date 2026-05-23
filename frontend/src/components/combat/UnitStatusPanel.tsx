@@ -10,89 +10,126 @@ interface Props {
   onUnitClick?: (unitId: string) => void;
 }
 
-function HPBar({ current, max }: { current: number; max: number }) {
-  const pct = Math.max(0, Math.min(1, current / max));
-  const color = pct > 0.5 ? "bg-green-600" : pct > 0.25 ? "bg-yellow-600" : "bg-red-600";
+const CLASS_COLORS: Record<string, string> = {
+  "先锋": "#d4a574", "近卫": "#c44b3c", "重装": "#4a6b8a",
+  "狙击": "#3c8c4a", "术师": "#8b5ca8", "医疗": "#5c9a8b",
+  "辅助": "#c4a83c", "特种": "#6b5c8a",
+};
+
+function AvatarPlaceholder({ name, charClass }: { name: string; charClass: string }) {
+  const bg = CLASS_COLORS[charClass] || "#555";
+  const initial = name.charAt(0);
   return (
-    <div className="flex items-center gap-1">
-      <div className="w-16 h-2 bg-gray-800 rounded overflow-hidden">
-        <div className={`h-full ${color} transition-all`} style={{ width: `${pct * 100}%` }} />
-      </div>
-      <span className="text-[10px] text-gray-400 font-mono">{current}/{max}</span>
+    <div
+      className="w-10 h-10 rounded-lg flex items-center justify-center text-sm font-bold text-white/90 flex-shrink-0"
+      style={{ backgroundColor: bg, boxShadow: `0 0 8px ${bg}40` }}
+    >
+      {initial}
     </div>
   );
 }
 
-function APBar({ current, max, color }: { current: number; max: number; color?: string }) {
-  const fill = color || "bg-cyan-500";
+function HPBar({ current, max }: { current: number; max: number }) {
+  const pct = Math.max(0, Math.min(1, current / max));
+  const level = pct > 0.5 ? "high" : pct > 0.25 ? "medium" : "low";
+  return (
+    <div className="flex items-center gap-1.5">
+      <div className="flex-1 combat-hp-bar">
+        <div
+          className={`combat-hp-fill ${level}`}
+          style={{ width: `${pct * 100}%` }}
+        />
+      </div>
+      <span className="text-[10px] text-gray-500 font-mono w-12 text-right">
+        {current}/{max}
+      </span>
+    </div>
+  );
+}
+
+function APDots({ current, max, color }: { current: number; max: number; color?: string }) {
   return (
     <div className="flex gap-0.5">
       {Array.from({ length: max }, (_, i) => (
         <div
           key={i}
-          className={`w-2.5 h-2.5 rounded-sm ${i < current ? fill : "bg-gray-700"}`}
+          className={`combat-ap-dot ${i < current ? "filled" : "bg-gray-800"}`}
+          style={i < current ? { backgroundColor: color || "#00d4ff" } : {}}
         />
       ))}
     </div>
   );
 }
 
-export default function UnitStatusPanel({ units, activeUnitId, selectedUnitId, team, sharedAp, sharedApMax, onUnitClick }: Props) {
+export default function UnitStatusPanel({
+  units, activeUnitId, selectedUnitId, team, sharedAp, sharedApMax, onUnitClick,
+}: Props) {
   const filtered = team ? units.filter((u) => u.team === team) : units;
   const isPlayer = team === "player";
-  const labelColor = isPlayer ? "text-cyan-200" : "text-red-200";
-  const activeBorder = isPlayer ? "border-cyan-400 bg-cyan-900/30" : "border-red-400 bg-red-900/30";
+  const label = isPlayer ? "我方" : "敌方";
+  const labelColor = isPlayer ? "text-combat-player" : "text-combat-enemy";
 
   return (
     <div className="flex flex-col gap-2">
       {/* Header */}
-      <div className="text-xs font-bold text-gray-300 uppercase tracking-wider border-b border-gray-700 pb-1">
-        {isPlayer ? "PLAYER" : "ENEMY"}
+      <div className="text-[11px] font-bold text-gray-400 uppercase tracking-widest border-b border-combat-divider pb-1.5 font-display">
+        {label}
       </div>
 
       {/* Shared AP (player only) */}
       {isPlayer && sharedAp !== undefined && sharedApMax !== undefined && (
-        <div className="flex items-center gap-1.5">
-          <span className="text-[9px] text-gray-500 w-10">共用AP</span>
-          <APBar current={sharedAp} max={sharedApMax} color="bg-white" />
+        <div className="flex items-center gap-2 px-1">
+          <span className="text-[9px] text-gray-500 w-10">共用</span>
+          <APDots current={sharedAp} max={sharedApMax} color="#ffffff" />
         </div>
       )}
 
       {/* Units */}
-      {filtered.map((u) => (
-        <div
-          key={u.unit_id}
-          onClick={() => onUnitClick?.(u.unit_id)}
-          className={`p-1.5 rounded border transition-colors cursor-pointer hover:brightness-110 ${
-            u.unit_id === activeUnitId
-              ? activeBorder
-              : !u.is_alive
-              ? "border-gray-700 bg-gray-900/20 opacity-50"
-              : u.unit_id === selectedUnitId
-              ? `${isPlayer ? "ring-2 ring-cyan-400" : "ring-2 ring-red-400"} bg-gray-800/60`
-              : "border-gray-700 bg-gray-900/40"
-          }`}
-        >
-          <div className="flex justify-between items-center">
-            <span className={`text-xs font-bold ${u.is_alive ? labelColor : "text-gray-500"}`}>
-              {u.name}
-            </span>
-            <span className="text-[9px] text-gray-500">{u.char_class}</span>
-          </div>
-          <div className="mt-1">
-            <HPBar current={u.hp} max={u.max_hp} />
-          </div>
-          {u.is_alive && (
-            <div className="mt-0.5 flex justify-between items-center">
-              <div className="flex items-center gap-1">
-                <span className="text-[8px] text-gray-600">AP</span>
-                <APBar current={u.personal_ap} max={u.max_personal_ap} />
+      {filtered.map((u) => {
+        const isActive = u.unit_id === activeUnitId;
+        const isSelected = u.unit_id === selectedUnitId;
+        const dead = !u.is_alive;
+
+        let borderClass = "border-combat-border bg-surface-card/60";
+        if (dead) borderClass = "border-gray-800 bg-gray-900/20 opacity-45";
+        else if (isActive)
+          borderClass = isPlayer
+            ? "border-combat-player bg-cyan-950/30 shadow-[0_0_8px_rgba(0,180,216,0.2)]"
+            : "border-combat-enemy bg-red-950/30 shadow-[0_0_8px_rgba(231,76,60,0.2)]";
+        else if (isSelected)
+          borderClass = isPlayer
+            ? "ring-1 ring-combat-player border-combat-player bg-surface-hover"
+            : "ring-1 ring-combat-enemy border-combat-enemy bg-surface-hover";
+
+        return (
+          <div
+            key={u.unit_id}
+            onClick={() => onUnitClick?.(u.unit_id)}
+            className={`p-2 rounded-lg border transition-all cursor-pointer hover:brightness-110 ${borderClass}`}
+          >
+            <div className="flex items-center gap-2">
+              <AvatarPlaceholder name={u.name} charClass={u.char_class} />
+              <div className="flex-1 min-w-0">
+                <div className="flex justify-between items-center">
+                  <span className={`text-xs font-bold truncate ${dead ? "text-gray-600" : "text-gray-200"}`}>
+                    {u.name}
+                  </span>
+                  <span className="text-[9px] text-gray-600 ml-1 flex-shrink-0">{u.char_class}</span>
+                </div>
+                <div className="mt-1">
+                  <HPBar current={u.hp} max={u.max_hp} />
+                </div>
+                {u.is_alive && (
+                  <div className="mt-1 flex justify-between items-center">
+                    <APDots current={u.personal_ap} max={u.max_personal_ap} />
+                    <span className="text-[9px] text-gray-600">{u.mobility}速</span>
+                  </div>
+                )}
               </div>
-              <span className="text-[9px] text-gray-600">{u.mobility}速</span>
             </div>
-          )}
-        </div>
-      ))}
+          </div>
+        );
+      })}
     </div>
   );
 }
