@@ -20,7 +20,7 @@ for _p in (_src_dir, _project_root):
         sys.path.insert(0, _p)
 
 from combat_engine.entity import CombatUnit
-from combat_engine.card import Card
+from combat_engine.card import Card, CardPool
 from combat_engine.card_data import get_starting_deck
 from combat_engine.engine import CombatEngine, CombatEvent
 from combat_engine.grid import resolve_targets, range_between, TOTAL_ROWS, TOTAL_COLS, ENEMY_COL_START
@@ -169,6 +169,7 @@ class CombatSession:
             action: {
                 "action": "play_card" | "move",
                 "card_index": int (for play_card),
+                "unit_id": str (for move),
                 "target": [row, col]
             }
 
@@ -181,9 +182,8 @@ class CombatSession:
         if self.engine.is_battle_over():
             return {"ok": False, "error": "Battle is over"}
 
-        active = self.engine.get_active_unit()
-        if not active or active.team != "player":
-            return {"ok": False, "error": "Not a player turn"}
+        if self.engine.state.phase != "PLAYER_TURN":
+            return {"ok": False, "error": "Not player turn"}
 
         action_type = action.get("action", "")
         target = tuple(action.get("target", [0, 0]))
@@ -191,7 +191,7 @@ class CombatSession:
         try:
             if action_type == "play_card":
                 card_index = action.get("card_index", 0)
-                hand = self.engine.get_unit_hand(active.unit_id)
+                hand = self.engine.shared_pool.hand if self.engine.shared_pool else []
                 if card_index < 0 or card_index >= len(hand):
                     return {"ok": False, "error": f"Invalid card index: {card_index}"}
 
@@ -199,22 +199,30 @@ class CombatSession:
                 if card.cost > self.engine.shared_ap:
                     return {"ok": False, "error": f"共用 AP 不足 ({self.engine.shared_ap} < {card.cost})"}
 
+                # Find the unit that owns this card
+                owner_unit = None
+                for u in self.engine.units.values():
+                    if u.team == "player" and u.is_alive and u.name == card.owner:
+                        owner_unit = u
+                        break
+                if not owner_unit:
+                    return {"ok": False, "error": f"Card owner '{card.owner}' not found or not alive"}
+
                 # For auto-target cards, use caster position
                 if card.target in ("SELF", "ALL_ALLIES", "GLOBAL"):
-                    target = active.pos
+                    target = owner_unit.pos
 
-                results = self.engine.play_card(active.unit_id, card, target)
+                self.engine.play_card(owner_unit.unit_id, card, target)
                 self._flush_engine_events()
-
-                # Auto-end turn after playing a card
-                self.engine.end_current_turn()
-                self._flush_engine_events()
-                self._auto_enemy_turns()
 
             elif action_type == "move":
-                if self.engine.move_unit(active.unit_id, target):
+                unit_id = action.get("unit_id", "")
+                unit = self.engine.units.get(unit_id)
+                if not unit or unit.team != "player" or not unit.is_alive:
+                    return {"ok": False, "error": "Invalid unit for move"}
+
+                if self.engine.move_unit(unit_id, target):
                     self._flush_engine_events()
-                    # Don't end turn — player can still play a card after moving
                 else:
                     return {"ok": False, "error": "Invalid move target"}
 
@@ -228,33 +236,17 @@ class CombatSession:
         return {"ok": True, "state": self.get_state()}
 
     def end_turn(self) -> dict:
-        """Manually end the current player's turn."""
+        """End the player's round: execute enemy phase, draw new hand."""
         if not self.engine:
             return {"ok": False, "error": "No active battle"}
 
         if self.engine.is_battle_over():
             return {"ok": False, "error": "Battle is over"}
 
-        self.engine.end_current_turn()
+        self.engine.end_player_round()
         self._flush_engine_events()
-        self._auto_enemy_turns()
 
         return {"ok": True, "state": self.get_state()}
-
-    def _auto_enemy_turns(self) -> None:
-        """Execute all consecutive enemy turns."""
-        if not self.engine:
-            return
-        while True:
-            if self.engine.is_battle_over():
-                break
-            active = self.engine.get_active_unit()
-            if not active or active.team != "enemy":
-                break
-            self.engine.execute_enemy_turn(active.unit_id)
-            self._flush_engine_events()
-            self.engine.end_current_turn()
-            self._flush_engine_events()
 
     # ── State queries ──
 
@@ -264,7 +256,6 @@ class CombatSession:
             return {"phase": "NONE", "error": "No active battle"}
 
         e = self.engine
-        active = e.get_active_unit()
 
         units = []
         for u in e.units.values():
@@ -290,26 +281,30 @@ class CombatSession:
                 "attributes": dict(u.attributes) if u.attributes else {},
             })
 
-        # Active unit's hand (only for player turns)
+        # Shared hand — always available from shared pool
         shared_hand = []
-        if active and active.team == "player":
-            for card in e.get_unit_hand(active.unit_id):
+        if e.shared_pool:
+            for card in e.shared_pool.hand:
                 shared_hand.append(card.to_dict())
 
-        # All player hands for character selection UI
-        player_hands = {}
-        player_pools = {}
-        for uid, pool in e.pools.items():
-            unit = e.units.get(uid)
-            if unit and unit.team == "player" and unit.is_alive:
-                player_hands[uid] = [c.to_dict() for c in pool.hand]
-                player_pools[uid] = pool.to_dict()
+        # Shared card pool data (deck, discard, exhaust)
+        shared_pool_data = e.shared_pool.to_dict() if e.shared_pool else {}
+
+        # Per-player hand breakdown for character selection UI
+        player_hands: dict[str, list[dict]] = {}
+        if e.shared_pool:
+            for u in e.units.values():
+                if u.team == "player" and u.is_alive:
+                    player_hands[u.unit_id] = [
+                        c.to_dict() for c in e.shared_pool.hand
+                        if c.owner == u.name
+                    ]
 
         # Valid targets for targeting mode
         valid_targets = self._compute_valid_targets()
 
-        # Valid move destinations for the active unit
-        valid_moves = self._compute_valid_moves(active, e.shared_ap)
+        # Valid move destinations (computed client-side for selected unit)
+        valid_moves: list[list[int]] = []
 
         # Grid (positions only)
         grid_cells = {}
@@ -326,20 +321,21 @@ class CombatSession:
             "units": units,
             "shared_hand": shared_hand,
             "player_hands": player_hands,
-            "player_pools": player_pools,
+            "shared_pool": {"deck": shared_pool_data.get("deck", []),
+                           "discard": shared_pool_data.get("discard", []),
+                           "exhaust": shared_pool_data.get("exhaust", [])},
             "valid_targets": valid_targets,
             "valid_moves": valid_moves,
-            "active_unit_id": active.unit_id if active else None,
+            "active_unit_id": None,
             "grid": grid_cells,
             "battle_over": e.is_battle_over(),
         }
 
     def _compute_valid_targets(self) -> list[list[int]]:
-        """Compute valid target positions for the active player unit."""
+        """Compute valid target positions (all alive enemies) during player phase."""
         if not self.engine:
             return []
-        active = self.engine.get_active_unit()
-        if not active or active.team != "player":
+        if self.engine.state.phase != "PLAYER_TURN":
             return []
 
         targets = []
@@ -348,13 +344,6 @@ class CombatSession:
         for enemy in enemies:
             targets.append(list(enemy.pos))
         return targets
-
-    def _compute_valid_moves(self, active, shared_ap: int) -> list[list[int]]:
-        """Compute valid move destinations for the active unit."""
-        if not self.engine or not active or active.team != "player":
-            return []
-        moves = self.engine.grid.get_valid_moves(active, shared_ap)
-        return [[r, c] for r, c in moves]
 
     # ── Serialization ──
 
@@ -375,7 +364,8 @@ class CombatSession:
                 "current_idx": self.engine.state.current_idx,
             },
             "units": {uid: u.to_dict() for uid, u in self.engine.units.items()},
-            "pools": {uid: p.to_dict() for uid, p in self.engine.pools.items()},
+            "shared_pool": self.engine.shared_pool.to_dict() if self.engine.shared_pool else {},
+            "enemy_pools": {uid: p.to_dict() for uid, p in self.engine.enemy_pools.items()},
             "character_metas": self._character_metas,
         }
 
@@ -425,15 +415,23 @@ class CombatSession:
                 engine.grid._cells[unit.pos] = unit
                 engine.grid._positions[uid] = unit.pos
 
-        # Restore card pools
-        for uid, pdict in data.get("pools", {}).items():
-            from combat_engine.card import CardPool
-            pool = CardPool()
+        # Restore shared card pool
+        sp = data.get("shared_pool", {})
+        if sp:
+            engine.shared_pool = CardPool(hand_size=CombatEngine.SHARED_HAND_SIZE)
+            engine.shared_pool.deck = [Card.from_dict(c) for c in sp.get("deck", [])]
+            engine.shared_pool.hand = [Card.from_dict(c) for c in sp.get("hand", [])]
+            engine.shared_pool.discard = [Card.from_dict(c) for c in sp.get("discard", [])]
+            engine.shared_pool.exhaust = [Card.from_dict(c) for c in sp.get("exhaust", [])]
+
+        # Restore enemy card pools
+        for uid, pdict in data.get("enemy_pools", {}).items():
+            pool = CardPool(hand_size=5)
             pool.deck = [Card.from_dict(c) for c in pdict.get("deck", [])]
             pool.hand = [Card.from_dict(c) for c in pdict.get("hand", [])]
             pool.discard = [Card.from_dict(c) for c in pdict.get("discard", [])]
             pool.exhaust = [Card.from_dict(c) for c in pdict.get("exhaust", [])]
-            engine.pools[uid] = pool
+            engine.enemy_pools[uid] = pool
 
         cs.engine = engine
         cs.engine.on_event = cs._enqueue_event

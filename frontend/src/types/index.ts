@@ -204,7 +204,7 @@ export interface CombatStateDTO {
   units: CombatUnitDTO[];
   shared_hand: CardDTO[];
   player_hands: Record<string, CardDTO[]>;
-  player_pools: Record<string, PlayerPoolDTO>;
+  shared_pool: PlayerPoolDTO;
   shared_ap: number;
   shared_ap_max: number;
   valid_targets: [number, number][];
@@ -218,6 +218,7 @@ export interface CombatStateDTO {
 export interface CombatAction {
   action: "play_card" | "move";
   card_index?: number;
+  unit_id?: string;
   target: [number, number];
 }
 

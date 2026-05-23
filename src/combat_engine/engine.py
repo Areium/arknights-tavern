@@ -53,12 +53,14 @@ class CombatState:
 class CombatEngine:
     """Orchestrates a complete combat encounter."""
 
+    SHARED_HAND_SIZE = 6
+
     def __init__(self):
         self.grid = Grid()
         self.units: dict[str, CombatUnit] = {}     # unit_id → CombatUnit
-        self.pools: dict[str, CardPool] = {}       # unit_id → CardPool
+        self.shared_pool: CardPool | None = None    # single shared pool for all player cards
+        self.enemy_pools: dict[str, CardPool] = {}  # per-enemy pools for AI
         self.state = CombatState()
-        self._turns_remaining = 0  # Countdown of units yet to act this round
         self.shared_ap = 0
         self.SHARED_AP_MAX = 2
 
@@ -69,25 +71,27 @@ class CombatEngine:
 
     def add_player_unit(self, unit: CombatUnit, cards: list[Card] = None,
                         pos: tuple[int, int] = None):
-        """Add a player unit with its starting deck."""
+        """Add a player unit. Player cards go into the shared pool."""
         self.units[unit.unit_id] = unit
-        pool = CardPool()
+
+        # Set card owners and collect into shared pool
+        if not self.shared_pool:
+            self.shared_pool = CardPool(hand_size=self.SHARED_HAND_SIZE)
         if cards:
             for c in cards:
                 c.owner = unit.name
-            pool.init_deck(cards)
-        self.pools[unit.unit_id] = pool
+                self.shared_pool.deck.append(c)
 
         # Auto-place if position given
         if pos:
             self.grid.place_unit(unit, pos)
 
     def add_enemy_unit(self, unit: CombatUnit, pos: tuple[int, int] = None):
-        """Add an enemy unit (enemies don't use card pools — they have simple attacks)."""
+        """Add an enemy unit with its own simple card pool."""
         self.units[unit.unit_id] = unit
-        pool = CardPool()
+        pool = CardPool(hand_size=5)
         pool.init_deck(self._enemy_cards(unit))
-        self.pools[unit.unit_id] = pool
+        self.enemy_pools[unit.unit_id] = pool
 
         if pos:
             self.grid.place_unit(unit, pos)
@@ -113,100 +117,119 @@ class CombatEngine:
             self.on_event(ev)
 
     def start_battle(self):
-        """Initialize combat: shuffle decks, draw hands, roll initiative."""
+        """Initialize combat: shuffle shared deck, draw 6."""
         self.state.phase = "INIT"
         self.state.round_num = 1
 
-        # Shuffle all decks and draw initial hands
-        for uid, pool in self.pools.items():
-            random.shuffle(pool.deck)
-            pool.draw_to_hand()
+        # Shuffle shared deck
+        if self.shared_pool:
+            random.shuffle(self.shared_pool.deck)
+            self.shared_pool.hand = []
+            self.shared_pool.discard = []
+            self.shared_pool.exhaust = []
 
-        # Determine turn order by SPD (highest first)
-        alive = [u for u in self.units.values() if u.is_alive]
-        alive.sort(key=lambda u: u.SPD, reverse=True)
-        self.state.turn_order = [u.unit_id for u in alive]
-        self.state.current_idx = 0
+        # Shuffle enemy decks
+        for pool in self.enemy_pools.values():
+            random.shuffle(pool.deck)
 
         self._emit("battle_start", round=1)
         self._start_round()
 
     def _start_round(self):
-        """Begin a new round: reset AP, draw cards."""
+        """Begin a new round: discard hand, draw 6, reset AP."""
         self.state.phase = "ROUND_START"
         self._emit("round_start", round=self.state.round_num)
-        self.state.current_idx = 0
 
-        # Reset shared AP for player team
+        # Move all remaining hand cards to discard (shared pool)
+        if self.shared_pool:
+            self.shared_pool.discard_hand()
+            self._draw_shared_hand()
+            self._character_guarantee()
+
+        # Reset shared AP
+        self._recalc_shared_ap_max()
         self.shared_ap = self.SHARED_AP_MAX
 
-        # Update turn order (dead units removed)
-        alive = [u for u in self.units.values() if u.is_alive]
-        alive_ids = {u.unit_id for u in alive}
-        self.state.turn_order = [uid for uid in self.state.turn_order
-                                 if uid in alive_ids]
-        self._turns_remaining = len(alive)
-
-        for uid in alive_ids:
-            unit = self.units[uid]
+        # Reset personal AP for all units
+        for unit in self.units.values():
             unit.reset_ap()
-            self.pools[uid].draw_to_hand()
 
-        # Advance to first unit's turn
-        self._next_turn()
+        # All players share the same round — begin player phase
+        self.state.phase = "PLAYER_TURN"
 
-    def _next_turn(self):
-        """Advance to the next alive unit's turn."""
-        # Check win/loss
-        player_alive = any(u.is_alive and u.team == "player"
-                          for u in self.units.values())
-        enemy_alive = any(u.is_alive and u.team == "enemy"
-                         for u in self.units.values())
-
-        if not player_alive:
-            self.state.phase = "END"
-            self.state.winner = "enemy"
-            self._emit("battle_end", winner="enemy", reason="all players dead")
+    def _draw_shared_hand(self):
+        """Draw cards from shared deck until hand has SHARED_HAND_SIZE cards."""
+        if not self.shared_pool:
             return
-        if not enemy_alive:
-            self.state.phase = "END"
-            self.state.winner = "player"
-            self._emit("battle_end", winner="player", reason="all enemies dead")
-            return
+        while len(self.shared_pool.hand) < self.SHARED_HAND_SIZE:
+            if not self.shared_pool.deck:
+                # Reshuffle discard into deck
+                if not self.shared_pool.discard:
+                    break
+                self.shared_pool._reshuffle_discard()
+            if self.shared_pool.deck:
+                self.shared_pool.hand.append(self.shared_pool.deck.pop())
 
-        # All units have acted this round → advance round
-        if self._turns_remaining <= 0:
+    def _character_guarantee(self):
+        """Ensure each alive player character has at least one usable card in hand.
+        If not, replace one random hand card with a card from that character's owner pool."""
+        if not self.shared_pool:
+            return
+        player_units = [u for u in self.units.values()
+                       if u.team == "player" and u.is_alive]
+        for unit in player_units:
+            if not any(c.owner == unit.name for c in self.shared_pool.hand):
+                # Find a card owned by this character from deck or discard
+                replacement = None
+                # Check deck first (unlikely at round start, but possible)
+                replacement = next((c for c in self.shared_pool.deck
+                                   if c.owner == unit.name), None)
+                if not replacement:
+                    replacement = next((c for c in self.shared_pool.discard
+                                       if c.owner == unit.name), None)
+                if not replacement:
+                    replacement = next((c for c in self.shared_pool.exhaust
+                                       if c.owner == unit.name), None)
+
+                if replacement and self.shared_pool.hand:
+                    # Replace a random card in hand
+                    idx = random.randrange(len(self.shared_pool.hand))
+                    old = self.shared_pool.hand[idx]
+                    self.shared_pool.discard.append(old)
+                    self.shared_pool.hand[idx] = replacement
+                    # Remove replacement from its source pile
+                    if replacement in self.shared_pool.deck:
+                        self.shared_pool.deck.remove(replacement)
+                    elif replacement in self.shared_pool.discard:
+                        self.shared_pool.discard.remove(replacement)
+                    elif replacement in self.shared_pool.exhaust:
+                        self.shared_pool.exhaust.remove(replacement)
+
+    def _recalc_shared_ap_max(self):
+        """Shared AP derived from highest tactical_planning among alive players."""
+        player_int = [u.attributes.get("tactical_planning", 5)
+                     for u in self.units.values()
+                     if u.team == "player" and u.is_alive]
+        if player_int:
+            highest = max(player_int)
+            self.SHARED_AP_MAX = 2 + max(0, (highest - 5) // 3)
+        else:
+            self.SHARED_AP_MAX = 2
+
+    def end_player_round(self):
+        """End the player's round: execute all enemy turns, then advance round."""
+        self.state.phase = "ENEMY_TURN"
+
+        enemy_units = [u for u in self.units.values()
+                       if u.team == "enemy" and u.is_alive]
+        for enemy in enemy_units:
+            if self.is_battle_over():
+                break
+            self.execute_enemy_turn(enemy.unit_id)
+
+        if not self.is_battle_over():
             self.state.round_num += 1
             self._start_round()
-            return
-
-        n = len(self.state.turn_order)
-        if n == 0:
-            return
-
-        # Find next alive unit in turn order
-        for _ in range(n):
-            idx = self.state.current_idx
-            uid = self.state.turn_order[idx]
-            unit = self.units.get(uid)
-            self.state.current_idx = (idx + 1) % n
-            if unit and unit.is_alive:
-                self._turns_remaining -= 1
-                if unit.team == "player":
-                    self.state.phase = "PLAYER_TURN"
-                else:
-                    self.state.phase = "ENEMY_TURN"
-                self._emit("turn_start", unit_id=uid, name=unit.name,
-                           team=unit.team, ap=unit.AP)
-                return
-
-        # No alive unit found (remaining units died before their turn)
-        self._turns_remaining = 0
-        self._next_turn()
-
-    def end_current_turn(self):
-        """Called after player/enemy finishes their turn."""
-        self._next_turn()
 
     # ── Actions ──
 
@@ -217,9 +240,14 @@ class CombatEngine:
         in the target pattern takes damage/healing respectively.
         """
         unit = self.units[unit_id]
-        pool = self.pools[unit_id]
 
-        if card not in pool.hand:
+        # Player cards come from shared pool; enemy cards from per-unit pool
+        if unit.team == "player":
+            pool = self.shared_pool
+        else:
+            pool = self.enemy_pools.get(unit_id)
+
+        if not pool or card not in pool.hand:
             self._emit("error", unit_id=unit_id, msg=f"卡牌 '{card.name}' 不在手牌中")
             return []
 
@@ -301,7 +329,10 @@ class CombatEngine:
 
         if not results:
             # No valid targets in range — refund AP, don't consume card
-            unit.AP += card.cost
+            if unit.team == "player":
+                self.shared_ap += card.cost
+            else:
+                unit.AP += card.cost
             self._emit("error", unit_id=unit.unit_id,
                        msg=f"目标不在 '{card.name}' 的范围 ({card.range}) 内")
             return results
@@ -333,9 +364,14 @@ class CombatEngine:
     def execute_enemy_turn(self, unit_id: str) -> list[DamageResult]:
         """Simple AI: find nearest player, play best card if in range, else move closer."""
         unit = self.units[unit_id]
-        pool = self.pools[unit_id]
-        enemies = [u for u in self.units.values()
-                   if u.team == "enemy" and u.is_alive]
+        pool = self.enemy_pools.get(unit_id)
+
+        # Draw a card for this enemy
+        if pool:
+            if not pool.deck and pool.discard:
+                pool._reshuffle_discard()
+            if pool.deck:
+                pool.hand.append(pool.deck.pop())
 
         # Find nearest player unit
         players = [u for u in self.units.values()
@@ -376,15 +412,14 @@ class CombatEngine:
     # ── Query ──
 
     def get_unit_hand(self, unit_id: str) -> list[Card]:
-        return self.pools[unit_id].hand if unit_id in self.pools else []
+        """Get the hand for a given unit. Player units use the shared hand;
+        enemy units use their per-unit pool."""
+        unit = self.units.get(unit_id)
+        if unit and unit.team == "player":
+            return self.shared_pool.hand if self.shared_pool else []
+        return self.enemy_pools[unit_id].hand if unit_id in self.enemy_pools else []
 
     def get_active_unit(self) -> Optional[CombatUnit]:
-        if self.state.turn_order:
-            # The active unit is the one before current_idx in the order
-            n = len(self.state.turn_order)
-            prev_idx = (self.state.current_idx - 1) % n
-            uid = self.state.turn_order[prev_idx]
-            return self.units.get(uid)
         return None
 
     def is_battle_over(self) -> bool:
@@ -396,6 +431,8 @@ class CombatEngine:
             "phase": self.state.phase,
             "winner": self.state.winner,
             "units": [u.to_dict() for u in self.units.values()],
+            "shared_pool": self.shared_pool.to_dict() if self.shared_pool else {},
+            "enemy_pools": {uid: p.to_dict() for uid, p in self.enemy_pools.items()},
             "events": [{"type": e.type, "data": e.data}
                        for e in self.state.events[-20:]],  # last 20 events
         }

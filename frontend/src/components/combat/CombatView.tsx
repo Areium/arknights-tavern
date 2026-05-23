@@ -214,10 +214,8 @@ export default function CombatView() {
   // Cards to display: always the active unit's hand
   const displayedHand = combatState?.shared_hand ?? [];
 
-  const isSelectedActive = selectedUnit?.unit_id === combatState?.active_unit_id;
-
-  // Highlight cards belonging to the selected character (if not active)
-  const highlightOwner = selectedUnit && !isSelectedActive ? selectedUnit.name : null;
+  // Highlight cards belonging to the selected character
+  const highlightOwner = selectedUnit ? selectedUnit.name : null;
 
   // Hovered unit for tooltip
   const hoveredUnit = hoveredUnitId
@@ -287,7 +285,7 @@ export default function CombatView() {
     async (row: number, col: number) => {
       if (!effectiveId || !combatState) return;
 
-      const doAction = (action: { action: string; card_index?: number; target: [number, number] }) =>
+      const doAction = (action: { action: string; card_index?: number; unit_id?: string; target: [number, number] }) =>
         combatTestId
           ? api.combatTestAction(combatTestId, action)
           : api.combatAction(sessionId!, action);
@@ -317,7 +315,7 @@ export default function CombatView() {
       if (selectedUnitId && moveHighlights.has(`${row},${col}`)) {
         setLoading(true);
         try {
-          await doAction({ action: "move", target: [row, col] });
+          await doAction({ action: "move", unit_id: selectedUnitId, target: [row, col] });
           setSelectedUnitId(null);
           setCombatUIMode("VIEWING");
           await fetchState();
@@ -610,7 +608,6 @@ export default function CombatView() {
 
   const sharedAp = combatState.shared_ap ?? 0;
   const sharedApMax = combatState.shared_ap_max ?? 6;
-  const activeUnitName = activeUnit?.name ?? "?";
 
   return (
     <div className="flex flex-col h-full bg-combat-bg relative">
@@ -651,9 +648,6 @@ export default function CombatView() {
             }`}>
               {combatState.phase === "PLAYER_TURN" ? "我方行动" : "敌方行动"}
             </span>
-            {activeUnit && combatState.phase === "PLAYER_TURN" && (
-              <span className="text-xs text-cyan-400 ml-3">当前: {activeUnitName}</span>
-            )}
           </div>
 
           {/* Grid with damage numbers overlay */}
@@ -783,7 +777,7 @@ export default function CombatView() {
           cards={displayedHand}
           activeAp={sharedAp}
           selectedIndex={selectedCardIndex}
-          disabled={!!selectedUnit && !isSelectedActive}
+          disabled={combatState.phase !== "PLAYER_TURN"}
           highlightOwner={highlightOwner}
           onCardClick={handleCardClick}
           onCardDragStart={handleCardDragStart}
@@ -822,7 +816,7 @@ export default function CombatView() {
       {showDeckViewer && combatState && (
         <DeckViewer
           units={combatState.units}
-          playerPools={combatState.player_pools ?? {}}
+          sharedPool={combatState.shared_pool ?? { deck: [], hand: [], discard: [], exhaust: [] }}
           onClose={() => setShowDeckViewer(false)}
         />
       )}
