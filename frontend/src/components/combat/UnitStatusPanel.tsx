@@ -3,9 +3,11 @@ import type { CombatUnitDTO } from "../../types";
 interface Props {
   units: CombatUnitDTO[];
   activeUnitId: string | null;
+  selectedUnitId?: string | null;
   team?: "player" | "enemy";
   sharedAp?: number;
   sharedApMax?: number;
+  onUnitClick?: (unitId: string) => void;
 }
 
 function HPBar({ current, max }: { current: number; max: number }) {
@@ -35,7 +37,7 @@ function APBar({ current, max, color }: { current: number; max: number; color?: 
   );
 }
 
-export default function UnitStatusPanel({ units, activeUnitId, team, sharedAp, sharedApMax }: Props) {
+export default function UnitStatusPanel({ units, activeUnitId, selectedUnitId, team, sharedAp, sharedApMax, onUnitClick }: Props) {
   const filtered = team ? units.filter((u) => u.team === team) : units;
   const isPlayer = team === "player";
   const labelColor = isPlayer ? "text-cyan-200" : "text-red-200";
@@ -60,11 +62,14 @@ export default function UnitStatusPanel({ units, activeUnitId, team, sharedAp, s
       {filtered.map((u) => (
         <div
           key={u.unit_id}
-          className={`p-1.5 rounded border transition-colors ${
+          onClick={() => onUnitClick?.(u.unit_id)}
+          className={`p-1.5 rounded border transition-colors cursor-pointer hover:brightness-110 ${
             u.unit_id === activeUnitId
               ? activeBorder
               : !u.is_alive
               ? "border-gray-700 bg-gray-900/20 opacity-50"
+              : u.unit_id === selectedUnitId
+              ? `${isPlayer ? "ring-2 ring-cyan-400" : "ring-2 ring-red-400"} bg-gray-800/60`
               : "border-gray-700 bg-gray-900/40"
           }`}
         >

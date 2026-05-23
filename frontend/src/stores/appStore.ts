@@ -61,6 +61,8 @@ interface AppState {
   setSelectedCardIndex: (index: number | null) => void;
   combatTestId: string | null;
   setCombatTestId: (id: string | null) => void;
+  selectedUnitId: string | null;
+  setSelectedUnitId: (id: string | null) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -121,4 +123,6 @@ export const useAppStore = create<AppState>((set) => ({
   setSelectedCardIndex: (index) => set({ selectedCardIndex: index }),
   combatTestId: null,
   setCombatTestId: (id) => set({ combatTestId: id }),
+  selectedUnitId: null,
+  setSelectedUnitId: (id) => set({ selectedUnitId: id }),
 }));

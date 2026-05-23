@@ -22,6 +22,8 @@ export default function CombatView() {
     setSelectedCardIndex,
     combatTestId,
     setCombatTestId,
+    selectedUnitId,
+    setSelectedUnitId,
     setCurrentView,
   } = useAppStore();
   const api = useApi();
@@ -129,6 +131,83 @@ export default function CombatView() {
     setStartChars(startChars.filter((c) => c !== name));
   };
 
+  // Active unit (engine's current turn)
+  const activeUnit = combatState?.units.find((u) => u.unit_id === combatState.active_unit_id) ?? null;
+
+  // Selected unit (clicked on grid or status panel)
+  const selectedUnit = selectedUnitId
+    ? combatState?.units.find((u) => u.unit_id === selectedUnitId) ?? null
+    : null;
+
+  // Attack range origin: selected unit or active unit
+  const rangeOrigin = selectedUnit || activeUnit;
+
+  // Cards to display: selected unit's hand, or active unit's hand
+  const displayedHand = selectedUnit && combatState?.player_hands
+    ? (combatState.player_hands[selectedUnit.unit_id] || [])
+    : combatState?.shared_hand ?? [];
+
+  const isSelectedActive = selectedUnit?.unit_id === combatState?.active_unit_id;
+
+  // Move range from selected unit's mobility (Chebyshev distance)
+  const moveHighlights = useMemo(() => {
+    if (!selectedUnit || !selectedUnit.is_alive || selectedUnit.team !== "player") {
+      return new Set<string>();
+    }
+    const mobility = selectedUnit.mobility || 1;
+    const [r0, c0] = selectedUnit.pos;
+    const cells = new Set<string>();
+    for (let dr = -mobility; dr <= mobility; dr++) {
+      for (let dc = -mobility; dc <= mobility; dc++) {
+        if (dr === 0 && dc === 0) continue;
+        if (Math.abs(dr) > mobility || Math.abs(dc) > mobility) continue;
+        const r = r0 + dr;
+        const c = c0 + dc;
+        if (r >= 0 && r < 9 && c >= 0 && c <= 2) {
+          const key = `${r},${c}`;
+          if (!combatState?.grid?.[key]) {
+            cells.add(key);
+          }
+        }
+      }
+    }
+    return cells;
+  }, [selectedUnit, combatState]);
+
+  // Attack range from selected card + range origin
+  const rangeHighlights = useMemo(() => {
+    if (combatUIMode !== "TARGETING" || selectedCardIndex === null || !rangeOrigin) {
+      return new Set<string>();
+    }
+    const card = displayedHand[selectedCardIndex];
+    if (!card) return new Set<string>();
+
+    const [r0, c0] = rangeOrigin.pos;
+    const maxRange = card.range;
+    const cells = new Set<string>();
+
+    if (maxRange < 0) {
+      for (let r = 0; r < 9; r++) {
+        for (let c = 3; c < 8; c++) {
+          cells.add(`${r},${c}`);
+        }
+      }
+      return cells;
+    }
+
+    for (let dr = -maxRange; dr <= maxRange; dr++) {
+      for (let dc = -maxRange; dc <= maxRange; dc++) {
+        if (dr === 0 && dc === 0) continue;
+        const r = r0 + dr;
+        const c = c0 + dc;
+        if (r >= 0 && r < 9 && c >= 3 && c < 8) {
+          cells.add(`${r},${c}`);
+        }
+      }
+    }
+    return cells;
+  }, [combatUIMode, selectedCardIndex, displayedHand, rangeOrigin]);
+
   const handleCellClick = useCallback(
     async (row: number, col: number) => {
       if (!effectiveId || !combatState) return;
@@ -138,6 +217,7 @@ export default function CombatView() {
           ? api.combatTestAction(combatTestId, action)
           : api.combatAction(sessionId!, action);
 
+      // TARGETING: play card
       if (combatUIMode === "TARGETING" && selectedCardIndex !== null) {
         setLoading(true);
         try {
@@ -147,6 +227,7 @@ export default function CombatView() {
             target: [row, col],
           });
           setSelectedCardIndex(null);
+          setSelectedUnitId(null);
           setCombatUIMode("VIEWING");
           await fetchState();
         } catch {
@@ -157,13 +238,12 @@ export default function CombatView() {
         return;
       }
 
-      if (combatUIMode === "MOVING") {
+      // Unit selected + clicked a move-highlighted cell → move
+      if (selectedUnitId && moveHighlights.has(`${row},${col}`)) {
         setLoading(true);
         try {
-          await doAction({
-            action: "move",
-            target: [row, col],
-          });
+          await doAction({ action: "move", target: [row, col] });
+          setSelectedUnitId(null);
           setCombatUIMode("VIEWING");
           await fetchState();
         } catch {
@@ -174,19 +254,25 @@ export default function CombatView() {
         return;
       }
 
-      // VIEWING mode: click an own unit to prepare movement
+      // Click on a player unit → select it
       const unit = combatState.units.find(
         (u) => u.is_alive && u.pos[0] === row && u.pos[1] === col && u.team === "player"
       );
-      if (unit && combatState.phase === "PLAYER_TURN") {
+      if (unit) {
+        setSelectedUnitId(selectedUnitId === unit.unit_id ? null : unit.unit_id);
+        setCombatUIMode("VIEWING");
+        setSelectedCardIndex(null);
         setCursor([row, col]);
-        setCombatUIMode("MOVING");
         return;
       }
 
+      // Clicked empty/invalid cell → deselect
+      setSelectedUnitId(null);
+      setCombatUIMode("VIEWING");
+      setSelectedCardIndex(null);
       setCursor([row, col]);
     },
-    [effectiveId, combatTestId, sessionId, combatState, combatUIMode, selectedCardIndex, api, fetchState, setSelectedCardIndex, setCombatUIMode]
+    [effectiveId, combatTestId, sessionId, combatState, combatUIMode, selectedCardIndex, selectedUnitId, moveHighlights, api, fetchState, setSelectedCardIndex, setCombatUIMode, setSelectedUnitId]
   );
 
   const handleCardClick = useCallback(
@@ -213,19 +299,33 @@ export default function CombatView() {
       }
       setCombatUIMode("VIEWING");
       setSelectedCardIndex(null);
+      setSelectedUnitId(null);
       await fetchState();
     } catch {
       setError("结束回合失败");
     } finally {
       setLoading(false);
     }
-  }, [effectiveId, combatTestId, sessionId, api, fetchState, setCombatUIMode, setSelectedCardIndex]);
+  }, [effectiveId, combatTestId, sessionId, api, fetchState, setCombatUIMode, setSelectedCardIndex, setSelectedUnitId]);
 
   const handleCancel = useCallback(() => {
     setCombatUIMode("VIEWING");
     setSelectedCardIndex(null);
     setCursor(null);
-  }, [setCombatUIMode, setSelectedCardIndex]);
+    setSelectedUnitId(null);
+  }, [setCombatUIMode, setSelectedCardIndex, setSelectedUnitId]);
+
+  const handleUnitClick = useCallback((unitId: string) => {
+    if (selectedUnitId === unitId) {
+      setSelectedUnitId(null);
+      setCombatUIMode("VIEWING");
+      setSelectedCardIndex(null);
+    } else {
+      setSelectedUnitId(unitId);
+      setCombatUIMode("VIEWING");
+      setSelectedCardIndex(null);
+    }
+  }, [selectedUnitId, setSelectedUnitId, setCombatUIMode, setSelectedCardIndex]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -236,7 +336,13 @@ export default function CombatView() {
         return;
       }
       if (e.key === "Escape") {
-        handleCancel();
+        if (selectedUnitId) {
+          setSelectedUnitId(null);
+          setCombatUIMode("VIEWING");
+          setSelectedCardIndex(null);
+        } else {
+          handleCancel();
+        }
         return;
       }
       const num = parseInt(e.key);
@@ -249,47 +355,7 @@ export default function CombatView() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [combatState, handleEndTurn, handleCancel, handleCardClick]);
-
-  // Compute attack range highlights when a card is selected in TARGETING mode
-  const activeUnit = combatState?.units.find((u) => u.unit_id === combatState.active_unit_id) ?? null;
-
-  const rangeHighlights = useMemo(() => {
-    if (!combatState) return new Set<string>();
-    if (combatUIMode !== "TARGETING" || selectedCardIndex === null) {
-      return new Set<string>();
-    }
-    const card = combatState.shared_hand[selectedCardIndex];
-    if (!card) return new Set<string>();
-    if (!activeUnit) return new Set<string>();
-
-    const [r0, c0] = activeUnit.pos;
-    const maxRange = card.range;
-    const cells = new Set<string>();
-
-    // Global range: highlight all enemy-zone cells
-    if (maxRange < 0) {
-      for (let r = 0; r < 9; r++) {
-        for (let c = 3; c < 8; c++) {
-          cells.add(`${r},${c}`);
-        }
-      }
-      return cells;
-    }
-
-    // Chebyshev distance: all cells within maxRange in enemy zone
-    for (let dr = -maxRange; dr <= maxRange; dr++) {
-      for (let dc = -maxRange; dc <= maxRange; dc++) {
-        if (dr === 0 && dc === 0) continue;
-        const r = r0 + dr;
-        const c = c0 + dc;
-        if (r >= 0 && r < 9 && c >= 3 && c < 8) {
-          cells.add(`${r},${c}`);
-        }
-      }
-    }
-    return cells;
-  }, [combatUIMode, selectedCardIndex, combatState, activeUnit]);
+  }, [combatState, selectedUnitId, handleEndTurn, handleCancel, handleCardClick, setSelectedUnitId, setCombatUIMode, setSelectedCardIndex]);
 
   if (!combatState) {
     return (
@@ -386,15 +452,23 @@ export default function CombatView() {
           <UnitStatusPanel
             units={combatState.units}
             activeUnitId={combatState.active_unit_id}
+            selectedUnitId={selectedUnitId}
             team="player"
             sharedAp={combatState.shared_ap}
             sharedApMax={combatState.shared_ap_max}
+            onUnitClick={handleUnitClick}
           />
         </div>
 
         {/* Enemy status — top-right overlay */}
         <div className="absolute top-2 right-2 z-30 w-48 max-h-72 overflow-y-auto bg-gray-900/90 border border-gray-700 rounded-lg p-2">
-          <UnitStatusPanel units={combatState.units} activeUnitId={combatState.active_unit_id} team="enemy" />
+          <UnitStatusPanel
+            units={combatState.units}
+            activeUnitId={combatState.active_unit_id}
+            selectedUnitId={selectedUnitId}
+            team="enemy"
+            onUnitClick={handleUnitClick}
+          />
         </div>
 
         {/* Turn info */}
@@ -413,8 +487,10 @@ export default function CombatView() {
           units={combatState.units}
           grid={combatState.grid ?? {}}
           validTargets={combatState.valid_targets ?? []}
-          validMoves={combatState.valid_moves ?? []}
+          validMoves={[]}
+          moveHighlights={moveHighlights}
           rangeHighlights={rangeHighlights}
+          selectedUnitId={selectedUnitId}
           uiMode={combatUIMode}
           cursor={cursor}
           onCellClick={handleCellClick}
@@ -425,11 +501,13 @@ export default function CombatView() {
           {combatUIMode === "TARGETING" && (
             <span className="text-green-400">点击目标格子使用卡牌 · Esc 取消</span>
           )}
-          {combatUIMode === "MOVING" && (
-            <span className="text-blue-400">点击目标格子移动单位 · Esc 取消</span>
+          {combatUIMode === "VIEWING" && selectedUnit && (
+            <span className="text-blue-400">
+              已选中 {selectedUnit.name} · 移动力 {selectedUnit.mobility} · 点击手牌攻击 · 点击格子移动 · Esc 取消
+            </span>
           )}
-          {combatUIMode === "VIEWING" && combatState.phase === "PLAYER_TURN" && (
-            <span>点击手牌使用卡牌 · 点击单位移动</span>
+          {combatUIMode === "VIEWING" && !selectedUnit && combatState.phase === "PLAYER_TURN" && (
+            <span>点击角色头像或状态栏选中 · 点击手牌攻击</span>
           )}
         </div>
       </div>
@@ -439,7 +517,10 @@ export default function CombatView() {
         {/* Action bar */}
         <div className="flex items-center gap-3 px-3 py-1.5">
           <span className="text-xs text-gray-500">
-            手牌: {combatState.shared_hand.length}
+            手牌: {displayedHand.length}
+            {selectedUnit && (
+              <span className="text-cyan-400 ml-1">({selectedUnit.name})</span>
+            )}
           </span>
           <div className="flex-1" />
           <button
@@ -449,7 +530,7 @@ export default function CombatView() {
           >
             结束回合 (F)
           </button>
-          {(combatUIMode === "TARGETING" || combatUIMode === "MOVING") && (
+          {(combatUIMode === "TARGETING" || selectedUnit) && (
             <button
               className="px-3 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors"
               onClick={handleCancel}
@@ -464,6 +545,7 @@ export default function CombatView() {
                 sseRef.current?.close();
                 setCombatState(null);
                 setCombatTestId(null);
+                setSelectedUnitId(null);
                 setCurrentView("chat");
               }}
             >
@@ -474,9 +556,10 @@ export default function CombatView() {
 
         {/* Hand */}
         <CombatHand
-          cards={combatState.shared_hand}
+          cards={displayedHand}
           activeAp={sharedAp}
           selectedIndex={selectedCardIndex}
+          disabled={!!selectedUnit && !isSelectedActive}
           onCardClick={handleCardClick}
         />
 

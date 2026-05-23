@@ -295,6 +295,13 @@ class CombatSession:
             for card in e.get_unit_hand(active.unit_id):
                 shared_hand.append(card.to_dict())
 
+        # All player hands for character selection UI
+        player_hands = {}
+        for uid, pool in e.pools.items():
+            unit = e.units.get(uid)
+            if unit and unit.team == "player" and unit.is_alive:
+                player_hands[uid] = [c.to_dict() for c in pool.hand]
+
         # Valid targets for targeting mode
         valid_targets = self._compute_valid_targets()
 
@@ -315,6 +322,7 @@ class CombatSession:
             "shared_ap_max": e.SHARED_AP_MAX,
             "units": units,
             "shared_hand": shared_hand,
+            "player_hands": player_hands,
             "valid_targets": valid_targets,
             "valid_moves": valid_moves,
             "active_unit_id": active.unit_id if active else None,

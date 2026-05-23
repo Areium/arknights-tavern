@@ -5,10 +5,11 @@ interface Props {
   cards: CardDTO[];
   activeAp: number;
   selectedIndex: number | null;
+  disabled?: boolean;
   onCardClick: (index: number) => void;
 }
 
-export default function CombatHand({ cards, activeAp, selectedIndex, onCardClick }: Props) {
+export default function CombatHand({ cards, activeAp, selectedIndex, disabled, onCardClick }: Props) {
   return (
     <div className="flex gap-1.5 overflow-x-auto py-2 px-1 min-h-[110px] items-center">
       {cards.length === 0 && (
@@ -19,7 +20,7 @@ export default function CombatHand({ cards, activeAp, selectedIndex, onCardClick
           key={`${card.card_id}-${i}`}
           card={card}
           index={i}
-          affordable={card.cost <= activeAp}
+          affordable={!disabled && card.cost <= activeAp}
           selected={selectedIndex === i}
           onClick={() => onCardClick(i)}
         />

@@ -194,6 +194,7 @@ export interface CombatStateDTO {
   grid_size: number;
   units: CombatUnitDTO[];
   shared_hand: CardDTO[];
+  player_hands: Record<string, CardDTO[]>;
   shared_ap: number;
   shared_ap_max: number;
   valid_targets: [number, number][];
