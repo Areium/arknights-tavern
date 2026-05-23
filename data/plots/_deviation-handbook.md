@@ -127,7 +127,7 @@ Step 4 — 输出：LLM 输出叙事 + 更新上下文（如有）
 
 #### Debuff定义
 
-详见 `data/rules/04-debuff-system/index.md`。Debuff分类包括：
+详见 `data/rules/debuff-system/index.md`。Debuff分类包括：
 
 - **Physical** (PH-001~004) - 轻伤、重伤、中毒、疲惫
 - **Mental** (ME-001~004) - 惊吓、恐惧、困惑、愤怒

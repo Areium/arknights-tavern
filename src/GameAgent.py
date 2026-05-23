@@ -254,7 +254,7 @@ class GameAgent:
 
     def _load_pool(self, filename: str) -> dict[int, list[dict]]:
         """解析 buff/debuff 池 markdown 文件，返回 {星级: [条目列表]}。"""
-        path = os.path.join(self._ROOT, "data", "rules", "05-buff-pool", filename)
+        path = os.path.join(self._ROOT, "data", "rules", "buff-pool", filename)
         pool: dict[int, list[dict]] = {s: [] for s in range(1, 7)}
         if not os.path.isfile(path):
             return pool
