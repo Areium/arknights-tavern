@@ -44,6 +44,9 @@ class GameAgent:
         # 对话模式: "system" = 系统操作, "story" = 剧情模式
         self.dialogue_mode = "system"
 
+        # 战斗模式: "narrative" = 叙事驱动(默认), "tactical" = 战术回合制
+        self.combat_mode = "narrative"
+
         # 缓存：字符列表 + 已知地点（避免每次调用都扫描文件系统）
         self._character_list = self._scan_characters()
         self._known_locations = self._scan_locations()
@@ -96,6 +99,18 @@ class GameAgent:
         if env_info:
             current_status += f"\n{env_info}"
 
+        combat_mode_info = ""
+        if self.combat_mode == "narrative":
+            combat_mode_info = """
+## ⚔️ 当前战斗模式：叙事模式（默认）
+战斗通过剧情描述和关键判定来推进，不需要管理 HP/SP/回合。
+玩家使用 `/combat tactical` 可切换为战术回合制模式。"""
+        else:
+            combat_mode_info = """
+## ⚔️ 当前战斗模式：战术模式
+战斗使用 d20 回合制系统，包含 HP/SP/防御 DC/先攻等完整数值结算。
+玩家使用 `/combat narrative` 可切换为叙事模式。"""
+
         return f"""# 明日方舟 游戏代理 (Game Agent)
 
 你是明日方舟文字冒险游戏的**游戏代理**，负责协调游戏中的各种系统。
@@ -105,6 +120,7 @@ class GameAgent:
 1. **角色管理**: 引导用户选择角色、告知可用角色
 2. **玩家管理**: 引导用户设置玩家身份
 3. **游戏引导**: 在无角色状态下引导用户开始游戏
+4. **战斗管理**: 根据当前战斗模式（叙事/战术）处理战斗场景
 
 ## 🎮 可用角色
 {', '.join(self._character_list)}
@@ -121,6 +137,7 @@ class GameAgent:
   抽buff        → 从 Buff 池抽取（d20 决定稀有度）
   抽debuff      → 从 Debuff 池抽取（d20 决定稀有度）
   抽buff +2     → 带修正抽取（+2 提高稀有度档位）
+{combat_mode_info}
 
 ## 📊 当前状态
 {current_status}
@@ -130,6 +147,8 @@ class GameAgent:
 - 帮助用户在明日方舟的世界中获得最佳体验
 - 当有活跃角色时，除非用户明确发出系统命令，否则将对话路由给角色代理
 - 保持游戏世界的沉浸感和连贯性
+- 在叙事战斗模式下：战斗是剧情的延伸——用关键选择和 d20 判定推进冲突，不使用机械的回合制结算
+- 在战术战斗模式下：严格遵循 combat-system/index.md 中的回合制规则
 
 请开始你的游戏代理工作！"""
 
@@ -190,6 +209,25 @@ class GameAgent:
         else:
             self.dialogue_mode = "system"
             return "已切换到系统模式。按 Tab 进入剧情模式。"
+
+    def toggle_combat_mode(self) -> str:
+        """切换战斗模式：叙事模式 ↔ 战术模式。"""
+        if self.combat_mode == "narrative":
+            self.combat_mode = "tactical"
+            self.system_prompt = self._build_system_prompt()  # 重建系统提示
+            return (
+                "⚔️ 已切换为**战术模式**。\n\n"
+                "战斗将使用完整的 d20 回合制系统：HP、SP、防御 DC、先攻顺序、卡牌消耗。\n"
+                "如需回到叙事模式，输入 `/combat narrative`。"
+            )
+        else:
+            self.combat_mode = "narrative"
+            self.system_prompt = self._build_system_prompt()
+            return (
+                "📖 已切换为**叙事模式**。\n\n"
+                "战斗将通过剧情描述和关键判定来推进，不需要管理数值。\n"
+                "适合只想体验剧情的玩家。如需回到战术模式，输入 `/combat tactical`。"
+            )
 
     # ── 玩家管理工具 ──
 
@@ -254,7 +292,7 @@ class GameAgent:
 
     def _load_pool(self, filename: str) -> dict[int, list[dict]]:
         """解析 buff/debuff 池 markdown 文件，返回 {星级: [条目列表]}。"""
-        path = os.path.join(self._ROOT, "data", "rules", "05-buff-pool", filename)
+        path = os.path.join(self._ROOT, "data", "rules", "buff-pool", filename)
         pool: dict[int, list[dict]] = {s: [] for s in range(1, 7)}
         if not os.path.isfile(path):
             return pool

@@ -75,6 +75,12 @@ index:
     ref_by: ["characters"]
     refs: []
 
+  enemies:
+    index: "data/enemies/_index.md"
+    dir: "data/enemies/"
+    ref_by: ["plots"]
+    refs: ["races", "factions"]
+
   combat_enemies:
     index: "data/combat/_index.md"
     dir: "data/combat/enemies/"

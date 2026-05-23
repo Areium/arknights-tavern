@@ -365,6 +365,7 @@ class Session:
             "id": self.id,
             "name": self.name,
             "mode": self.mode,
+            "combat_mode": self.overlay.get_combat_mode(),
             "created_at": self.created_at,
             "usable": self.is_usable,
             "characters": self.scene_manager.get_scene_characters(),

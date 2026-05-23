@@ -320,6 +320,22 @@ class SceneManager:
             context_parts.append("\n【场景动态】")
             context_parts.extend(recent)
 
+        # 注入战斗模式上下文
+        combat_mode = "narrative"
+        if self._overlay:
+            combat_mode = self._overlay.get_combat_mode()
+        if combat_mode == "narrative":
+            combat_instruction = (
+                "\n【战斗模式：叙事】如场景中出现战斗，通过剧情描述和关键判定推进，"
+                "不展示 HP/SP 等数值，提供有叙事含义的战术选项。"
+            )
+        else:
+            combat_instruction = (
+                "\n【战斗模式：战术】如场景中出现战斗，使用完整 d20 回合制系统，"
+                "展示 HP/SP/防御 DC/先攻顺序等完整数值结算。"
+            )
+        context_parts.append(combat_instruction)
+
         context_parts.append(
             "\n---\n请基于以上场景信息，继续推进剧情。"
             "描写场景和角色的反应，角色对话用「」标注。"
