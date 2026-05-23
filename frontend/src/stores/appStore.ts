@@ -2,14 +2,14 @@
  * 应用全局状态
  */
 import { create } from "zustand";
-import type { BackendStatus, Session, LLMStatus } from "../types";
+import type { BackendStatus, Session, LLMStatus, CombatStateDTO } from "../types";
 
 type Theme = "dark" | "light";
 
 interface AppState {
   // 视图
-  currentView: "chat" | "documents" | "settings";
-  setCurrentView: (view: "chat" | "documents" | "settings") => void;
+  currentView: "chat" | "documents" | "settings" | "combat";
+  setCurrentView: (view: "chat" | "documents" | "settings" | "combat") => void;
 
   // 主题
   theme: Theme;
@@ -51,6 +51,14 @@ interface AppState {
   // 场景切换触发器（剧情模式切换场景后 +1，通知 ChatPanel 触发叙述）
   sceneSwitchKey: number;
   triggerSceneSwitch: () => void;
+
+  // 战斗
+  combatState: CombatStateDTO | null;
+  setCombatState: (state: CombatStateDTO | null) => void;
+  combatUIMode: "VIEWING" | "TARGETING" | "MOVING";
+  setCombatUIMode: (mode: "VIEWING" | "TARGETING" | "MOVING") => void;
+  selectedCardIndex: number | null;
+  setSelectedCardIndex: (index: number | null) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -101,4 +109,12 @@ export const useAppStore = create<AppState>((set) => ({
   // 场景切换触发器
   sceneSwitchKey: 0,
   triggerSceneSwitch: () => set((state) => ({ sceneSwitchKey: state.sceneSwitchKey + 1 })),
+
+  // 战斗
+  combatState: null,
+  setCombatState: (state) => set({ combatState: state }),
+  combatUIMode: "VIEWING",
+  setCombatUIMode: (mode) => set({ combatUIMode: mode }),
+  selectedCardIndex: null,
+  setSelectedCardIndex: (index) => set({ selectedCardIndex: index }),
 }));

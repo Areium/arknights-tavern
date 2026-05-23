@@ -3,20 +3,71 @@ CombatUnit — wraps character data with combat-specific stats (HP, ATK, DEF, et
 
 Stat conversion: 1-10 roleplay attributes → combat numbers.
 
-    HP   = endurance × 12  +  strength × 3
-    PATK = (strength + combat_skill) × 2
-    MATK = (originium_arts + intelligence) × 2
-    HEAL = (originium_arts + intelligence) × 2
-    DEF  = round(endurance × 1.5  +  strength × 0.5)
-    RES  = round(emotional_stability × 1.5  +  originium_arts × 0.5)
-    SPD  = agility × 2  +  intelligence × 0.5
-    HIT  = combat_skill + agility
-    EVA  = agility × 1.5
+    HP   = physiological_tolerance × 12  +  physical_strength × 3
+    PATK = (physical_strength + combat_skill) × 2
+    MATK = (originium_arts_assimilation + tactical_planning) × 2
+    HEAL = (originium_arts_assimilation + tactical_planning) × 2
+    DEF  = round(physiological_tolerance × 1.5  +  physical_strength × 0.5)
+    RES  = round(emotional_stability × 1.5  +  originium_arts_assimilation × 0.5)
+    SPD  = mobility × 2  +  tactical_planning × 0.5
+    HIT  = combat_skill + mobility
+    EVA  = round(mobility × 1.5)
+
+    Personal AP = 1 + floor((mobility - 3) / 3)
 """
 
 from dataclasses import dataclass, field
 from typing import Optional
 import random
+import math
+
+
+# ── Attribute key compatibility ──
+
+_ATTR_KEY_MAP = {
+    # New canonical keys (English) → normalize to English
+    "physical_strength": "physical_strength",
+    "mobility": "mobility",
+    "physiological_tolerance": "physiological_tolerance",
+    "tactical_planning": "tactical_planning",
+    "combat_skill": "combat_skill",
+    "originium_arts_assimilation": "originium_arts_assimilation",
+    "emotional_stability": "emotional_stability",
+    "charisma": "charisma",
+    # New canonical keys (Chinese) → English
+    "物理强度": "physical_strength",
+    "战场机动": "mobility",
+    "生理耐受": "physiological_tolerance",
+    "战术规划": "tactical_planning",
+    "战斗技巧": "combat_skill",
+    "源石技艺适应性": "originium_arts_assimilation",
+    "情绪稳定性": "emotional_stability",
+    "魅力": "charisma",
+    # Old demo keys → new canonical keys
+    "strength": "physical_strength",
+    "agility": "mobility",
+    "endurance": "physiological_tolerance",
+    "intelligence": "tactical_planning",
+    "originium_arts": "originium_arts_assimilation",
+}
+
+_DEFAULT_ATTR = 5  # Standard adult baseline for missing attributes
+
+
+def _normalize_attributes(raw: dict) -> dict[str, int]:
+    """Normalize attribute keys and fill missing values with default."""
+    result = {}
+    for key, value in raw.items():
+        canonical = _ATTR_KEY_MAP.get(key, key)
+        result[canonical] = int(value) if value is not None else _DEFAULT_ATTR
+    # Fill missing
+    for canonical in ["physical_strength", "mobility", "physiological_tolerance",
+                       "tactical_planning", "combat_skill",
+                       "originium_arts_assimilation", "emotional_stability",
+                       "charisma"]:
+        if canonical not in result:
+            result[canonical] = _DEFAULT_ATTR
+    return result
 
 
 @dataclass
@@ -57,6 +108,11 @@ class CombatUnit:
     def is_player(self) -> bool:
         return self.team == "player"
 
+    @property
+    def mobility(self) -> int:
+        """The unit's mobility attribute (1-10), used for AP and movement efficiency."""
+        return self.attributes.get("mobility", _DEFAULT_ATTR)
+
     def take_damage(self, amount: int) -> int:
         """Apply damage, return actual HP lost (capped at current HP)."""
         actual = min(amount, self.hp)
@@ -77,27 +133,22 @@ class CombatUnit:
     @classmethod
     def from_character_metadata(cls, meta: dict, unit_id: str = "",
                                  team: str = "player") -> "CombatUnit":
-        """Create a CombatUnit from existing character YAML frontmatter metadata.
+        """Create a CombatUnit from character YAML frontmatter metadata.
 
-        Handles partial attribute sets by defaulting missing stats to 5.
+        Handles old/new attribute keys, Chinese/English keys, and missing values.
         """
         name = meta.get("name", unit_id or "未知")
         char_class = meta.get("class", "")
-        attrs = meta.get("attributes", {}) or {}
+        raw_attrs = meta.get("attributes", {}) or {}
+        a = _normalize_attributes(raw_attrs)
 
-        def a(key: str) -> int:
-            """Get attribute value, default 5."""
-            v = attrs.get(key, 5)
-            return int(v) if v is not None else 5
-
-        STR = a("strength")
-        INT = a("intelligence")
-        EMO = a("emotional_stability")
-        CBT = a("combat_skill")
-        ORG = a("originium_arts")
-        # CHA = a("charisma")  # not used in combat formulas (yet)
-        END = a("endurance")
-        AGI = a("agility")
+        STR = a["physical_strength"]
+        MOB = a["mobility"]
+        END = a["physiological_tolerance"]
+        INT = a["tactical_planning"]
+        CBT = a["combat_skill"]
+        ORG = a["originium_arts_assimilation"]
+        EMO = a["emotional_stability"]
 
         max_hp = END * 12 + STR * 3
         patk = (STR + CBT) * 2
@@ -105,17 +156,13 @@ class CombatUnit:
         heal = (ORG + INT) * 2
         defense = round(END * 1.5 + STR * 0.5)
         resist = round(EMO * 1.5 + ORG * 0.5)
-        spd = AGI * 2 + INT * 0.5
-        hit = CBT + AGI
-        eva = round(AGI * 1.5)
+        spd = MOB * 2 + INT * 0.5
+        hit = CBT + MOB
+        eva = round(MOB * 1.5)
 
-        # Determine MAX_AP from agility
-        if AGI >= 8:
-            max_ap = 4
-        elif AGI <= 3:
-            max_ap = 2
-        else:
-            max_ap = 3
+        # Personal AP from mobility: 1 + floor((mobility - 3) / 3)
+        max_ap = 1 + math.floor((MOB - 3) / 3)
+        max_ap = max(1, min(max_ap, 4))
 
         return cls(
             unit_id=unit_id or name,
@@ -134,7 +181,7 @@ class CombatUnit:
             EVA=eva,
             AP=max_ap,
             MAX_AP=max_ap,
-            attributes=attrs,
+            attributes=a,
         )
 
     @classmethod

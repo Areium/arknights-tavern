@@ -4,6 +4,7 @@ import { useApi } from "./hooks/useApi";
 import Sidebar from "./components/Sidebar";
 import StatusBar from "./components/StatusBar";
 import ChatView from "./components/ChatView";
+import CombatView from "./components/combat/CombatView";
 import DocumentManager from "./components/DocumentManager";
 import SettingsPanel from "./components/SettingsPanel";
 
@@ -107,6 +108,8 @@ export default function App() {
         return <ChatView />;
       case "documents":
         return <DocumentManager />;
+      case "combat":
+        return <CombatView />;
       case "settings":
         return <SettingsPanel />;
     }

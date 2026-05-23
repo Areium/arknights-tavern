@@ -319,6 +319,27 @@ export function useApi() {
           body: JSON.stringify({ new_path: newPath }),
         }
       ),
+
+    // ── Combat ──
+    combatStart: (sessionId: string, encounterId: string, characters: string[]) =>
+      request<any>(`/api/sessions/${sessionId}/combat/start`, {
+        method: "POST",
+        body: JSON.stringify({ encounter_id: encounterId, characters }),
+      }),
+
+    combatState: (sessionId: string) =>
+      request<any>(`/api/sessions/${sessionId}/combat/state`),
+
+    combatAction: (sessionId: string, action: { action: string; card_index?: number; target: [number, number] }) =>
+      request<any>(`/api/sessions/${sessionId}/combat/action`, {
+        method: "POST",
+        body: JSON.stringify(action),
+      }),
+
+    combatEndTurn: (sessionId: string) =>
+      request<any>(`/api/sessions/${sessionId}/combat/end-turn`, {
+        method: "POST",
+      }),
   }), []);
 }
 
@@ -355,6 +376,94 @@ export function createPostSSE(
   }
 ): { close: () => void } {
   return connectSSE(path, "POST", body, handlers);
+}
+
+/**
+ * 创建战斗 SSE 连接
+ */
+export function createCombatSSE(
+  sessionId: string,
+  handlers: {
+    onEvent?: (event: { type: string; data: Record<string, any> }) => void;
+    onError?: (message: string) => void;
+    onDone?: () => void;
+  }
+): { close: () => void } {
+  const path = `/api/sessions/${sessionId}/combat/events`;
+  return connectCombatSSE(path, handlers);
+}
+
+function connectCombatSSE(
+  path: string,
+  handlers: {
+    onEvent?: (event: { type: string; data: Record<string, any> }) => void;
+    onError?: (message: string) => void;
+    onDone?: () => void;
+  }
+): { close: () => void } {
+  let closed = false;
+
+  async function connect() {
+    const base = await getBaseUrl();
+    const url = `${base}${path}`;
+
+    try {
+      const res = await fetch(url, {
+        headers: { "Accept": "text/event-stream" },
+      });
+
+      if (!res.ok) {
+        handlers.onError?.(`SSE error: ${res.status}`);
+        return;
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) return;
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (!closed) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const eventData = JSON.parse(line.slice(6));
+              if (eventData.type === "done") {
+                handlers.onDone?.();
+                closed = true;
+                return;
+              } else if (eventData.type === "error") {
+                handlers.onError?.(eventData.data?.message || "Unknown error");
+              } else if (eventData.type !== "heartbeat") {
+                handlers.onEvent?.(eventData);
+              }
+            } catch {
+              // skip parse errors
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      if (!closed) {
+        handlers.onError?.(err.message || "SSE connection failed");
+      }
+    }
+  }
+
+  connect();
+
+  return {
+    close: () => {
+      closed = true;
+    },
+  };
 }
 
 function connectSSE(

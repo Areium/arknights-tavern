@@ -148,6 +148,74 @@ export interface PlotInfo {
   trigger_character: string[];
 }
 
+/** 战斗单位 */
+export interface CombatUnitDTO {
+  unit_id: string;
+  name: string;
+  team: "player" | "enemy";
+  char_class: string;
+  hp: number;
+  max_hp: number;
+  personal_ap: number;
+  max_personal_ap: number;
+  patk: number;
+  matk: number;
+  def: number;
+  res: number;
+  spd: number;
+  hit: number;
+  eva: number;
+  mobility: number;
+  pos: [number, number];
+  is_alive: boolean;
+}
+
+/** 卡牌 */
+export interface CardDTO {
+  card_id: string;
+  name: string;
+  damage_type: "physical" | "arts" | "healing" | "mixed";
+  min_damage: number;
+  max_damage: number;
+  atk_scale: number;
+  target: string;
+  range: number;
+  cost: number;
+  tier: "basic" | "elite";
+  class_required: string;
+  owner: string | null;
+}
+
+/** 战斗状态快照 */
+export interface CombatStateDTO {
+  round_num: number;
+  phase: string;
+  winner: string | null;
+  grid_size: number;
+  units: CombatUnitDTO[];
+  shared_hand: CardDTO[];
+  valid_targets: [number, number][];
+  active_unit_id: string | null;
+  grid: Record<string, string>;
+  battle_over: boolean;
+}
+
+/** 战斗操作 */
+export interface CombatAction {
+  action: "play_card" | "move";
+  card_index?: number;
+  target: [number, number];
+}
+
+/** 战斗 SSE 事件 */
+export interface CombatEventDTO {
+  type: "battle_start" | "round_start" | "turn_start" | "damage" | "heal"
+    | "death" | "battle_end" | "move" | "error" | "block_attempt"
+    | "block_success" | "block_fail" | "intercept_prompt" | "meta"
+    | "heartbeat" | "done";
+  data: Record<string, any>;
+}
+
 declare global {
   interface Window {
     electronAPI?: ElectronAPI;

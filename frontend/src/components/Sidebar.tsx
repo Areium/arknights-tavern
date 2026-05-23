@@ -3,6 +3,7 @@ import { useAppStore } from "../stores/appStore";
 const NAV_ITEMS = [
   { id: "chat" as const, label: "对话", icon: "💬" },
   { id: "documents" as const, label: "资产", icon: "📄" },
+  { id: "combat" as const, label: "战斗", icon: "⚔️" },
   { id: "settings" as const, label: "设置", icon: "⚙️" },
 ];
 

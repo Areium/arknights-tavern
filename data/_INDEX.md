@@ -74,4 +74,28 @@ index:
     dir: "data/attributes/"
     ref_by: ["characters"]
     refs: []
+
+  combat_enemies:
+    index: "data/combat/_index.md"
+    dir: "data/combat/enemies/"
+    ref_by: ["combat_encounters"]
+    refs: ["classes"]
+
+  combat_cards:
+    index: "data/combat/_index.md"
+    dir: "data/combat/cards/"
+    ref_by: ["characters", "combat_encounters"]
+    refs: ["classes"]
+
+  combat_encounters:
+    index: "data/combat/_index.md"
+    dir: "data/combat/encounters/"
+    ref_by: ["plots"]
+    refs: ["combat_enemies", "locations"]
+
+  rules:
+    index: "data/rules/_index.md"
+    dir: "data/rules/"
+    ref_by: ["characters", "combat_encounters"]
+    refs: []
 ---

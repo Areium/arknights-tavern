@@ -1,7 +1,8 @@
 ---
 name: 阿米娅
 class: 术师
-race: 奇美拉（卡特斯与萨卡兹特征）
+race: 卡特斯
+note: 奇美拉，同时具备萨卡兹特征
 faction: 罗德岛
 tags:
 - 领袖

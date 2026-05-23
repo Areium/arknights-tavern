@@ -210,6 +210,30 @@ SPECIALIST_CARDS = [
 #  Master Pool
 # ══════════════════════════════════════════════════════════════════════════════
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  战术指挥 (Commander) — mixed, global range, support + strike
+# ══════════════════════════════════════════════════════════════════════════════
+
+COMMANDER_CARDS = [
+    Card("cmd_order", "战术指令", "发出战术指令增强友军",
+         "mixed", 3, 6, 0.3, "SINGLE", 4, 1, "basic", "战术指挥"),
+    Card("cmd_strike", "精准打击", "指挥远程精准打击",
+         "physical", 4, 8, 0.4, "SINGLE", 4, 1, "basic", "战术指挥"),
+    Card("cmd_shell", "炮击指令", "呼叫炮火支援",
+         "physical", 3, 7, 0.4, "ADJACENT", 4, 2, "basic", "战术指挥"),
+    Card("cmd_rally", "集结号令", "激励友军恢复生命",
+         "healing", 4, 8, 0.3, "SINGLE", 3, 1, "basic", "战术指挥"),
+    Card("cmd_scan", "战场扫描", "扫描战场暴露敌人弱点",
+         "arts", 2, 5, 0.2, "CROSS", 4, 1, "basic", "战术指挥"),
+    # Elite
+    Card("cmd_orbital", "轨道打击", "呼叫轨道炮火打击",
+         "mixed", 8, 14, 0.8, "AREA_2X2", -1, 3, "elite", "战术指挥"),
+    Card("cmd_banner", "战旗", "竖起罗德岛战旗鼓舞全军",
+         "healing", 6, 12, 0.5, "ALL_ALLIES", -1, 2, "elite", "战术指挥"),
+    Card("cmd_trap", "战术陷阱", "布置精心设计的战术陷阱",
+         "physical", 10, 16, 0.9, "SINGLE", 4, 3, "elite", "战术指挥"),
+]
+
 CLASS_CARD_POOLS: dict[str, list[Card]] = {
     "术师": CASTER_CARDS,
     "近卫": GUARD_CARDS,
@@ -219,6 +243,7 @@ CLASS_CARD_POOLS: dict[str, list[Card]] = {
     "医疗": MEDIC_CARDS,
     "辅助": SUPPORTER_CARDS,
     "特种": SPECIALIST_CARDS,
+    "战术指挥": COMMANDER_CARDS,
 }
 
 

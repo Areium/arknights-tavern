@@ -32,6 +32,7 @@ class Card:
     cost: int              # AP cost (1-3)
     tier: str              # "basic" | "elite"
     class_required: str = "any"  # Class restriction or "any"
+    owner: str | None = None  # Character name for exclusive cards
 
     def to_dict(self) -> dict:
         return {
@@ -46,6 +47,8 @@ class Card:
             "range": self.range,
             "cost": self.cost,
             "tier": self.tier,
+            "class_required": self.class_required,
+            "owner": self.owner,
         }
 
     @classmethod

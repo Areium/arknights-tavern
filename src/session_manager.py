@@ -64,6 +64,9 @@ class Session:
             if env_overrides.get("atmosphere"):
                 self.environment.atmosphere = env_overrides["atmosphere"]
 
+        # 战斗系统
+        self.combat = None  # CombatSession | None
+
         # 回忆系统
         self.narration_count = 0
         self._narration_history: list[dict] = []   # 完整叙述历史 [{round, text, action}]
@@ -378,6 +381,8 @@ class Session:
             "overridden_characters": overridden_chars,
             "overridden_items": overridden_items,
             "narration_count": self.narration_count,
+            "in_combat": self.combat is not None,
+            "combat": self.combat.get_state() if self.combat else None,
         }
 
 

@@ -8,6 +8,11 @@ attributes:
   tactical_planning: 10
   physical_strength: 5
   emotional_stability: 8
+  mobility: 5
+  physiological_tolerance: 5
+  combat_skill: 4
+  originium_arts_assimilation: 5
+  charisma: 7
 relationships:
   "阿米娅": "最信任的副官与保护对象"
   "凯尔希": "互相尊重但常有分歧的同事"

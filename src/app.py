@@ -15,8 +15,14 @@ import sys
 import json
 import time
 import uuid
+import queue
 import logging
 from typing import Optional
+
+# Ensure project root is on sys.path for demo/ imports
+_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
 
 import yaml
 from flask import Flask, jsonify, request, Response, stream_with_context, send_from_directory
@@ -1114,6 +1120,128 @@ def delete_environment_override(session_id: str):
         return _json_error("会话不存在", 404)
     session.overlay.delete_environment_overrides()
     return jsonify({"message": "环境覆盖已清除"})
+
+
+# ══════════════════════════════════════════════════════
+# 11.  Combat — 战斗系统
+# ══════════════════════════════════════════════════════
+
+from combat_session import CombatSession  # noqa: E402
+
+
+@app.route("/api/sessions/<session_id>/combat/start", methods=["POST"])
+def combat_start(session_id: str):
+    """开始一场战斗。请求体: {encounter_id: str, characters: [str]}"""
+    session = session_manager.get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+    if not _require_usable(session):
+        return _json_error("LLM 不可用", 503)
+
+    data = request.json or {}
+    encounter_id = data.get("encounter_id", "初遇整合运动")
+    character_names = data.get("characters", [])
+
+    try:
+        combat = CombatSession(session_id)
+        state = combat.start(encounter_id, character_names=character_names)
+        session.combat = combat
+        return jsonify(state)
+    except ValueError as e:
+        return _json_error(str(e), 404)
+    except Exception as e:
+        logger.exception("Failed to start combat")
+        return _json_error(f"战斗启动失败: {e}", 500)
+
+
+@app.route("/api/sessions/<session_id>/combat/state", methods=["GET"])
+def combat_state(session_id: str):
+    """获取当前战斗状态快照。"""
+    session = session_manager.get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+
+    if not session.combat:
+        return _json_error("没有进行中的战斗", 404)
+
+    return jsonify(session.combat.get_state())
+
+
+@app.route("/api/sessions/<session_id>/combat/action", methods=["POST"])
+def combat_action(session_id: str):
+    """提交玩家操作。请求体: {action: str, card_index: int, target: [row, col]}"""
+    session = session_manager.get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+
+    if not session.combat:
+        return _json_error("没有进行中的战斗", 404)
+
+    data = request.json or {}
+    result = session.combat.handle_action(data)
+
+    if not result.get("ok"):
+        return _json_error(result.get("error", "操作失败"), 400)
+
+    return jsonify(result.get("state", {}))
+
+
+@app.route("/api/sessions/<session_id>/combat/end-turn", methods=["POST"])
+def combat_end_turn(session_id: str):
+    """手动结束当前回合。"""
+    session = session_manager.get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+
+    if not session.combat:
+        return _json_error("没有进行中的战斗", 404)
+
+    result = session.combat.end_turn()
+
+    if not result.get("ok"):
+        return _json_error(result.get("error", "操作失败"), 400)
+
+    return jsonify(result.get("state", {}))
+
+
+@app.route("/api/sessions/<session_id>/combat/events")
+def combat_events(session_id: str):
+    """SSE 端点：流式推送战斗事件。"""
+    session = session_manager.get_session(session_id)
+    if not session or not session.combat:
+        def error_stream():
+            yield f"data: {json.dumps({'type': 'error', 'data': {'message': 'No combat session'}})}\n\n"
+        return Response(error_stream(), mimetype="text/event-stream")
+
+    combat = session.combat
+
+    def generate():
+        stream_id = f"combat_{uuid.uuid4().hex[:8]}"
+        yield f"data: {json.dumps({'type': 'meta', 'data': {'stream_id': stream_id}})}\n\n"
+
+        while combat.engine and not combat.engine.is_battle_over():
+            try:
+                ev = combat.event_queue.get(timeout=30)
+                event_data = {
+                    "type": ev.type,
+                    "data": ev.data,
+                }
+                yield f"event: {ev.type}\ndata: {json.dumps(event_data, ensure_ascii=False)}\n\n"
+
+                if ev.type == "battle_end":
+                    yield f"data: {json.dumps({'type': 'done', 'data': {'stream_id': stream_id}})}\n\n"
+                    break
+            except queue.Empty:
+                yield f"data: {json.dumps({'type': 'heartbeat', 'data': {}})}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # ══════════════════════════════════════════════════════

@@ -220,7 +220,6 @@ class CombatEngine:
             return []
 
         unit.AP -= card.cost
-        real_range = card.range if card.range >= 0 else 999
 
         # Resolve target pattern
         if card.target == "ALL_ALLIES":
@@ -234,11 +233,11 @@ class CombatEngine:
         else:
             affected_positions = resolve_targets(card.target, target_pos)
 
-        # Range check
-        if real_range < 999:
+        # Range check (-1 = global, no filtering)
+        if card.range >= 0:
             valid = []
             for p in affected_positions:
-                if range_between(unit.pos, p) <= real_range:
+                if range_between(unit.pos, p) <= card.range:
                     valid.append(p)
             affected_positions = valid
 
@@ -286,6 +285,13 @@ class CombatEngine:
 
             results.append(dr)
 
+        if not results:
+            # No valid targets in range — refund AP, don't consume card
+            unit.AP += card.cost
+            self._emit("error", unit_id=unit.unit_id,
+                       msg=f"目标不在 '{card.name}' 的范围 ({card.range}) 内")
+            return results
+
         pool.play_card(card)
         return results
 
@@ -320,14 +326,14 @@ class CombatEngine:
 
         # Try to play a card
         playable = [c for c in pool.hand if c.cost <= unit.AP]
-        if playable and dist <= 1:  # Only attack if adjacent or in range
+        if playable:
             # Sort by damage potential
             playable.sort(key=lambda c: c.max_damage + c.atk_scale * 10, reverse=True)
             for card in playable:
                 if card.target in ("SELF", "ALL_ALLIES"):
                     continue
-                real_range = card.range if card.range >= 0 else 999
-                if dist <= real_range:
+                in_range = card.range < 0 or dist <= card.range
+                if in_range:
                     return self.play_card(unit_id, card, nearest.pos)
 
         # Can't attack — move toward nearest player
