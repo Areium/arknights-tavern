@@ -34,10 +34,17 @@ class CharacterAgent:
     def load_character(self, character_name: str, overrides: dict = None) -> str:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         project_root = os.path.dirname(base_dir)
-        file_path = os.path.join(project_root, "data", "characters", f"{character_name}.md")
+        chars_dir = os.path.join(project_root, "data", "characters")
 
-        if not os.path.isfile(file_path):
-            logger.warning("角色文件未找到: %s", file_path)
+        # 优先查找实体文件夹（{name}/index.md），其次传统文件（{name}.md）
+        entity_path = os.path.join(chars_dir, character_name, "index.md")
+        legacy_path = os.path.join(chars_dir, f"{character_name}.md")
+        if os.path.isfile(entity_path):
+            file_path = entity_path
+        elif os.path.isfile(legacy_path):
+            file_path = legacy_path
+        else:
+            logger.warning("角色文件未找到: %s", character_name)
             return None
 
         logger.info("正在从 '%s' 加载角色文件...", file_path)

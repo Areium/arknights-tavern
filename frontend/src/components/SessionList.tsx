@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useAppStore } from "../stores/appStore";
 import { useApi } from "../hooks/useApi";
+import type { PlotInfo } from "../types";
 
 export default function SessionList() {
   const { sessions, activeSessionId, chatMode, setSessions, setActiveSession } =
@@ -11,6 +12,16 @@ export default function SessionList() {
   const [editName, setEditName] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [batchDeleting, setBatchDeleting] = useState(false);
+
+  // 剧情选择相关
+  const [plots, setPlots] = useState<PlotInfo[]>([]);
+  const [showPlotPicker, setShowPlotPicker] = useState(false);
+
+  // 加载可用剧情列表（仅在剧情模式时）
+  useEffect(() => {
+    if (chatMode !== "story") return;
+    api.listPlots().then(setPlots).catch(() => {});
+  }, [chatMode]);
 
   // 按当前模式过滤会话
   const filteredSessions = useMemo(
@@ -62,7 +73,6 @@ export default function SessionList() {
       if (activeSessionId && selectedIds.has(activeSessionId)) {
         setActiveSession(null);
       }
-      // Clean localStorage for deleted sessions
       for (const id of selectedIds) {
         try { localStorage.removeItem(`ark_chat_${chatMode}_${id}`); } catch {}
       }
@@ -74,16 +84,25 @@ export default function SessionList() {
     }
   };
 
-  const handleCreate = async () => {
+  const handleCreate = async (plotId: string) => {
+    setShowPlotPicker(false);
     setCreating(true);
     try {
-      const session = await api.createSession(chatMode);
+      const session = await api.createSession(chatMode, "", plotId);
       setSessions([...sessions, session]);
       setActiveSession(session.id);
     } catch (err: any) {
       alert("创建会话失败: " + err.message);
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleNewClick = () => {
+    if (chatMode === "story" && plots.length > 0) {
+      setShowPlotPicker(true);
+    } else {
+      handleCreate("");
     }
   };
 
@@ -161,7 +180,7 @@ export default function SessionList() {
             </button>
           )}
           <button
-            onClick={handleCreate}
+            onClick={handleNewClick}
             disabled={creating}
             className="btn-primary text-xs px-3 py-1"
           >
@@ -169,6 +188,50 @@ export default function SessionList() {
           </button>
         </div>
       </div>
+
+      {/* Plot picker dialog */}
+      {showPlotPicker && (
+        <div className="mb-3 p-2 rounded-lg bg-gray-800 border border-gray-700">
+          <p className="text-xs text-gray-400 mb-2">选择绑定的剧情：</p>
+          <div className="space-y-1 max-h-48 overflow-y-auto">
+            {/* No binding option */}
+            <button
+              onClick={() => handleCreate("")}
+              className="w-full text-left px-3 py-2 rounded-md text-sm text-gray-400
+                         hover:bg-gray-700/50 transition-colors flex items-center gap-2"
+            >
+              <span className="text-gray-600 text-[10px] w-12 shrink-0">不绑定</span>
+              <span>自由探索</span>
+            </button>
+            {plots.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => handleCreate(p.id)}
+                className="w-full text-left px-3 py-2 rounded-md text-sm hover:bg-gray-700/50
+                           transition-colors flex items-center gap-2"
+              >
+                <span
+                  className={`text-[10px] px-1 py-0.5 rounded shrink-0 w-12 text-center ${
+                    p.category === "main"
+                      ? "bg-amber-600/20 text-amber-400"
+                      : "bg-blue-600/20 text-blue-400"
+                  }`}
+                >
+                  {p.category === "main" ? "主线" : p.category}
+                </span>
+                <span className="text-gray-200 flex-1 truncate">{p.name}</span>
+                <span className="text-[10px] text-gray-600">{p.id}</span>
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => setShowPlotPicker(false)}
+            className="w-full mt-2 text-xs text-gray-600 hover:text-gray-400 py-1"
+          >
+            取消
+          </button>
+        </div>
+      )}
 
       <div className="space-y-1 max-h-60 overflow-y-auto">
         {filteredSessions.length === 0 && (

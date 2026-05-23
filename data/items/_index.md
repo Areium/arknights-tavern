@@ -22,7 +22,7 @@
 # ==============================================================================
 index:
   抑制戒指:
-    file: "抑制戒指.md"
+    file: "抑制戒指/index.md"
     summary: "阿米娅佩戴的源石技艺抑制装置，用于控制其强大的法术力量"
     category: accessory
     portable: true
@@ -30,7 +30,7 @@ index:
     related_characters: ["阿米娅"]
 
   博士的战术终端:
-    file: "博士的战术终端.md"
+    file: "博士的战术终端/index.md"
     summary: "博士使用的便携式战术指挥设备，连接PRTS系统"
     category: equipment
     portable: true
@@ -38,7 +38,7 @@ index:
     related_characters: ["博士"]
 
   罗德岛干员证:
-    file: "罗德岛干员证.md"
+    file: "罗德岛干员证/index.md"
     summary: "罗德岛正式干员的身份证明，集成门禁、通讯和紧急定位功能"
     category: key_item
     portable: true
@@ -46,7 +46,7 @@ index:
     related_characters: []
 
   源石结晶:
-    file: "源石结晶.md"
+    file: "源石结晶/index.md"
     summary: "泰拉世界的核心能源物质，也是矿石病的病原体"
     category: material
     portable: true
@@ -54,7 +54,7 @@ index:
     related_characters: []
 
   战术地图:
-    file: "战术地图.md"
+    file: "战术地图/index.md"
     summary: "标注了行动路线和关键节点的纸质或电子地图"
     category: document
     portable: true

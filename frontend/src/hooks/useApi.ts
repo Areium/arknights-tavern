@@ -61,10 +61,11 @@ export function useApi() {
 
     // ── 会话 ──
     listSessions: () => request<any[]>("/api/sessions"),
-    createSession: (mode: "free" | "story" = "free", name = "") =>
+    listPlots: () => request<any[]>("/api/plots"),
+    createSession: (mode: "free" | "story" = "free", name = "", plotId = "") =>
       request<any>("/api/sessions", {
         method: "POST",
-        body: JSON.stringify({ mode, name }),
+        body: JSON.stringify({ mode, name, plot_id: plotId }),
       }),
     getSession: (id: string) => request<any>(`/api/sessions/${id}`),
     deleteSession: (id: string) =>
@@ -185,6 +186,10 @@ export function useApi() {
         }),
       }),
 
+    // ── 资产（图像等）──
+    getAssetImages: () => request<any[]>("/api/assets/images"),
+    getDataDir: () => request<{ path: string }>("/api/assets/data-dir"),
+
     // ── LLM ──
     getLLMStatus: () => request<any>("/api/llm/status"),
     refreshLLM: () =>
@@ -225,6 +230,22 @@ export function useApi() {
         method: "POST",
         body: JSON.stringify({ item_id: itemId }),
       }),
+
+    // ── 任务系统 ──
+    getQuests: (sessionId: string) =>
+      request<{ plot_id: string | null; quests: any[] }>(
+        `/api/sessions/${sessionId}/quests`
+      ),
+    loadQuests: (sessionId: string, plotId: string) =>
+      request<{ plot_id: string; quests: any[] }>(
+        `/api/sessions/${sessionId}/quests/load`,
+        { method: "PUT", body: JSON.stringify({ plot_id: plotId }) }
+      ),
+    updateQuestState: (sessionId: string, questId: string, status: string) =>
+      request<{ quest_id: string; status: string }>(
+        `/api/sessions/${sessionId}/quests/${encodeURIComponent(questId)}`,
+        { method: "PATCH", body: JSON.stringify({ status }) }
+      ),
 
     // ── 会话覆盖 ──
     getOverrides: (sessionId: string) =>

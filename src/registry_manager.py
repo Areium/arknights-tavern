@@ -38,14 +38,14 @@ _CORE_SECTIONS = {
 
 # ── 属性英文名 → 中文名映射 ──
 _ATTR_ENG_TO_CN = {
-    "strength": "力量",
-    "intelligence": "智力",
+    "physical_strength": "物理强度",
+    "tactical_planning": "战术规划",
     "emotional_stability": "情绪稳定性",
     "combat_skill": "战斗技巧",
-    "originium_arts": "源石技艺",
+    "originium_arts_assimilation": "源石技艺适应性",
     "charisma": "魅力",
-    "endurance": "耐力",
-    "agility": "敏捷",
+    "physiological_tolerance": "生理耐受",
+    "mobility": "战场机动",
 }
 
 
@@ -174,7 +174,7 @@ class RegistryManager:
         """为角色的属性数值构建等级描述上下文。
 
         Args:
-            attributes: 角色卡的 attributes 字典，如 {strength: 7, intelligence: 5}
+            attributes: 角色卡的 attributes 字典，如 {physical_strength: 7, tactical_planning: 5}
 
         Returns:
             格式化的属性等级描述文本。
@@ -328,25 +328,51 @@ class RegistryManager:
         logger.info("已加载索引 [%s]: %d 个条目", cat_name, len(self._indexes[cat_name]))
 
     def _read_file(self, type_: str, key: str, filepath: str) -> str:
-        """读取详细 Markdown 文件，带缓存。"""
+        """读取详细 Markdown 文件，带缓存。
+
+        支持实体文件夹（{name}/index.md）和传统文件（{name}.md）。
+        """
         if type_ not in self._file_cache:
             self._file_cache[type_] = {}
 
         if key in self._file_cache[type_]:
             return self._file_cache[type_][key]
 
-        if not filepath or not os.path.isfile(filepath):
+        # 解析实际文件路径
+        actual = self._resolve_filepath(filepath)
+        if not actual:
             return ""
 
         try:
-            with open(filepath, "r", encoding="utf-8") as f:
+            with open(actual, "r", encoding="utf-8") as f:
                 data = frontmatter.load(f)
             content = data.content
             self._file_cache[type_][key] = content
             return content
         except Exception as e:
-            logger.error("读取文件失败 %s: %s", filepath, e)
+            logger.error("读取文件失败 %s: %s", actual, e)
             return ""
+
+    @staticmethod
+    def _resolve_filepath(filepath: str) -> str | None:
+        """解析文件路径，支持实体文件夹和传统 .md 文件。"""
+        if not filepath:
+            return None
+        if os.path.isfile(filepath):
+            return filepath
+        # 如果 filepath 是 {name}.md，尝试 {name}/index.md
+        if filepath.endswith(".md"):
+            stem = os.path.splitext(filepath)[0]
+            entity = os.path.join(stem, "index.md")
+            if os.path.isfile(entity):
+                return entity
+        # 如果 filepath 是 {name}/index.md，尝试 {name}.md
+        if os.path.basename(filepath) == "index.md":
+            parent = os.path.dirname(filepath)
+            legacy = parent + ".md"
+            if os.path.isfile(legacy):
+                return legacy
+        return None
 
     def _extract_core(self, content: str, type_: str) -> str:
         """从 Markdown 正文中提取核心章节。

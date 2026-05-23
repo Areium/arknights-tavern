@@ -21,7 +21,11 @@
 # deployment_cost_range: 部署费用范围（可选），如 "15-25"
 # core_attributes: 该职业最重要的属性（必填），按重要性排序
 #                 用于 AI 理解该职业角色的能力侧重
-#                 参考 data/attributes.md 中的属性定义
+#                 参考 data/attributes/_index.md 中的属性定义
+#                 综合体检测试六项 + RP 补充属性：
+#                   physical_strength / mobility / physiological_tolerance
+#                   / tactical_planning / combat_skill / originium_arts_assimilation
+#                   / emotional_stability / charisma
 # ==============================================================================
 name: "术师"
 alias: "Caster"
@@ -30,7 +34,7 @@ combat_role: "远程法术输出核心"
 damage_type: arts
 attack_range: medium
 deployment_cost_range: "15-35"
-core_attributes: ["originium_arts", "intelligence"]
+core_attributes: ["originium_arts_assimilation", "tactical_planning"]
 ---
 # 职业名（示例：术师 / Caster）
 

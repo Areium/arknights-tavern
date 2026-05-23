@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("get-backend-status"),
   restartBackend: (): Promise<{ status: string }> =>
     ipcRenderer.invoke("restart-backend"),
+  openDirectory: (dirPath: string): Promise<{ success: boolean; error: string }> =>
+    ipcRenderer.invoke("open-directory", dirPath),
 
   // 后端状态变更监听（主进程推送）
   onBackendStatus: (callback: (status: { status: string; url: string }) => void) => {

@@ -16,7 +16,7 @@
 # ==============================================================================
 index:
   罗德岛:
-    file: "罗德岛.md"
+    file: "罗德岛/index.md"
     summary: "致力于矿石病治疗和感染者权益保护的医药公司，拥有武装力量"
     type: organization
     scale: regional
@@ -24,7 +24,7 @@ index:
     key_characters: ["阿米娅", "凯尔希", "博士"]
 
   整合运动:
-    file: "整合运动.md"
+    file: "整合运动/index.md"
     summary: "感染者激进组织，以暴力手段为感染者争取权益"
     type: rebellion
     scale: national
@@ -32,7 +32,7 @@ index:
     key_characters: ["塔露拉", "霜星", "梅菲斯特"]
 
   龙门:
-    file: "龙门.md"
+    file: "龙门/index.md"
     summary: "繁荣的移动城邦，商业中心，在各方势力间维持微妙平衡"
     type: nation
     scale: city
@@ -40,7 +40,7 @@ index:
     key_characters: ["陈", "魏彦吾"]
 
   乌萨斯帝国:
-    file: "乌萨斯帝国.md"
+    file: "乌萨斯帝国/index.md"
     summary: "军国主义大国，对感染者实行高压政策，军事力量强大"
     type: nation
     scale: global
@@ -48,7 +48,7 @@ index:
     key_characters: ["凛冬", "真理"]
 
   维多利亚:
-    file: "维多利亚.md"
+    file: "维多利亚/index.md"
     summary: "蒸汽与工业之国，正在经历政治动荡，科技与贵族体制并存"
     type: nation
     scale: global
@@ -56,7 +56,7 @@ index:
     key_characters: ["推进之王", "风笛"]
 
   莱茵生命:
-    file: "莱茵生命.md"
+    file: "莱茵生命/index.md"
     summary: "大型科技研究机构，在前沿科技和源石应用领域领先"
     type: research
     scale: national

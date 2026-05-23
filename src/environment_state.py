@@ -75,18 +75,37 @@ class EnvironmentState:
         """从 environment/Location/ 下加载地点描述及默认物品。
 
         name 可以是文件名（含别名）或 frontmatter 中的 name 字段。
+        支持实体文件夹（{name}/index.md）和传统 .md 文件。
         """
         base = os.path.join(self.data_dir, "Location")
         if not os.path.isdir(base):
             return False
 
         # 第一遍：按文件名匹配（精确 + 别名）
-        for root, _dirs, files in os.walk(base):
+        for root, dirs, files in os.walk(base):
+            # 实体文件夹
+            for d in dirs:
+                d_full = os.path.join(root, d)
+                index_md = os.path.join(d_full, "index.md")
+                if os.path.isfile(index_md):
+                    d_rel = os.path.relpath(d_full, base).replace("\\", "/")
+                    if d == name or d_rel == name:
+                        return self._parse_location_file(index_md)
+                    try:
+                        with open(index_md, "r", encoding="utf-8") as fh:
+                            meta = frontmatter.load(fh).metadata
+                        if meta.get("alias") == name or meta.get("name") == name:
+                            return self._parse_location_file(index_md)
+                    except Exception:
+                        continue
+            # 传统 .md 文件（向后兼容）
             for f in files:
+                if not f.endswith(".md"):
+                    continue
                 stem = os.path.splitext(f)[0]
-                if stem == name:
+                f_rel = os.path.relpath(os.path.join(root, stem), base).replace("\\", "/")
+                if f_rel == name:
                     return self._parse_location_file(os.path.join(root, f))
-                # 别名匹配：Training Room ↔ 训练室
                 try:
                     with open(os.path.join(root, f), "r", encoding="utf-8") as fh:
                         meta = frontmatter.load(fh).metadata
@@ -98,30 +117,59 @@ class EnvironmentState:
         logger.info("未找到地点文件: %s", name)
         return False
 
+    @staticmethod
+    def _resolve_weather_path(data_dir: str, name: str) -> str | None:
+        """解析天气文件路径，优先实体文件夹再传统 .md 文件。"""
+        base = os.path.join(data_dir, "weather")
+        # 实体文件夹
+        entity = os.path.join(base, name, "index.md")
+        if os.path.isfile(entity):
+            return entity
+        # 传统文件
+        legacy = os.path.join(base, f"{name}.md")
+        if os.path.isfile(legacy):
+            return legacy
+        return None
+
     def load_weather(self, name: str) -> bool:
         """从 environment/weather/ 加载天气描述。
 
         name 可以是文件名(如 sunny)或 frontmatter name(如 晴天)。
+        支持实体文件夹（{name}/index.md）和传统 .md 文件。
         """
         # 精确文件名匹配
-        filepath = os.path.join(self.data_dir, "weather", f"{name}.md")
-        if os.path.isfile(filepath):
+        filepath = self._resolve_weather_path(self.data_dir, name)
+        if filepath:
             return self._parse_weather_file(filepath)
 
         # 扫描 frontmatter name/别名匹配
         base = os.path.join(self.data_dir, "weather")
         if os.path.isdir(base):
-            for f in os.listdir(base):
-                if not f.endswith(".md"):
-                    continue
-                try:
-                    with open(os.path.join(base, f), "r", encoding="utf-8") as fh:
-                        meta = frontmatter.load(fh).metadata
-                    wtype = meta.get("weather_type", {})
-                    if wtype.get("name") == name or wtype.get("id") == name:
-                        return self._parse_weather_file(os.path.join(base, f))
-                except Exception:
-                    continue
+            for entry in os.listdir(base):
+                # 实体文件夹
+                entry_path = os.path.join(base, entry)
+                if os.path.isdir(entry_path):
+                    index_md = os.path.join(entry_path, "index.md")
+                    if os.path.isfile(index_md):
+                        try:
+                            with open(index_md, "r", encoding="utf-8") as fh:
+                                meta = frontmatter.load(fh).metadata
+                            wtype = meta.get("weather_type", {})
+                            if wtype.get("name") == name or wtype.get("id") == name:
+                                return self._parse_weather_file(index_md)
+                        except Exception:
+                            continue
+                # 传统 .md 文件（向后兼容）
+                elif entry.endswith(".md"):
+                    try:
+                        fp = os.path.join(base, entry)
+                        with open(fp, "r", encoding="utf-8") as fh:
+                            meta = frontmatter.load(fh).metadata
+                        wtype = meta.get("weather_type", {})
+                        if wtype.get("name") == name or wtype.get("id") == name:
+                            return self._parse_weather_file(fp)
+                    except Exception:
+                        continue
 
         logger.info("未找到天气文件: %s", name)
         return False
@@ -243,7 +291,10 @@ class EnvironmentState:
             meta = data.metadata
             content = data.content
 
-            self.location = meta.get("name", os.path.splitext(os.path.basename(filepath))[0])
+            fallback_name = os.path.basename(os.path.dirname(filepath)) \
+                if os.path.basename(filepath) == "index.md" \
+                else os.path.splitext(os.path.basename(filepath))[0]
+            self.location = meta.get("name", fallback_name)
             self.location_desc = content
 
             # 加载新地点时清空旧场景物品（被携带的物品由 LLM 通过 env 标记恢复）
@@ -276,7 +327,10 @@ class EnvironmentState:
             meta = data.metadata
             content = data.content
             wtype = meta.get("weather_type", {})
-            self.weather = wtype.get("name", os.path.splitext(os.path.basename(filepath))[0])
+            fallback_name = os.path.basename(os.path.dirname(filepath)) \
+                if os.path.basename(filepath) == "index.md" \
+                else os.path.splitext(os.path.basename(filepath))[0]
+            self.weather = wtype.get("name", fallback_name)
             self.weather_desc = content
             return True
         except Exception as e:
@@ -362,19 +416,34 @@ class EnvironmentState:
         )
 
     def _list_locations(self) -> list[str]:
-        """递归扫描 environmnt/Location/ 下的地点文件（排除模板和索引）。"""
+        """递归扫描 environment/Location/ 下的地点（排除模板和索引）。
+
+        支持实体文件夹和传统 .md 文件。
+        """
         base = os.path.join(self.data_dir, "Location")
         if not os.path.isdir(base):
             return []
-        _EXCLUDED = {"TEMPLATE", "_index"}
+        _EXCLUDED = {"TEMPLATE", "_index", "index"}
         locs = []
-        for root, _dirs, files in os.walk(base):
-            for f in files:
+        for root, dirs, _files in os.walk(base):
+            # 实体文件夹
+            for d in dirs:
+                d_full = os.path.join(root, d)
+                if os.path.isfile(os.path.join(d_full, "index.md")):
+                    rel = os.path.relpath(d_full, base).replace("\\", "/")
+                    locs.append(rel if rel != "." else d)
+            # 传统 .md 文件（向后兼容）
+            for f in os.listdir(root):
                 if not f.endswith(".md"):
                     continue
                 stem = os.path.splitext(f)[0]
-                if stem not in _EXCLUDED:
-                    locs.append(stem)
+                if stem in _EXCLUDED:
+                    continue
+                # 跳过实体文件夹内的 index.md
+                parent = os.path.join(root, stem)
+                if os.path.isdir(parent) and os.path.isfile(os.path.join(parent, "index.md")):
+                    continue
+                locs.append(stem)
         return locs
 
     def _apply_object_updates(self, objects: dict):

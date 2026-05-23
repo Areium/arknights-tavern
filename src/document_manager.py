@@ -13,6 +13,7 @@ import re
 import json
 import hashlib
 import logging
+import shutil
 from typing import Optional
 
 import frontmatter
@@ -94,7 +95,12 @@ class DocumentInfo:
 
 
 class DocumentManager:
-    """文档管理器：读取/写入/列举所有数据文件。"""
+    """文档管理器：读取/写入/列举所有数据文件。
+
+    支持两种文档组织方式（双模式）：
+    - 实体文件夹：目录包含 index.md（如 characters/银灰/index.md）
+    - 传统文件：独立 .md 文件（如 characters/银灰.md），向后兼容
+    """
 
     # 文件名白名单（不视为数据文档）
     _EXCLUDED_FILES = {"TEMPLATE", "_index", "_INDEX", "README"}
@@ -149,6 +155,10 @@ class DocumentManager:
                        include_content: bool = False) -> list[dict]:
         """列出指定类别下的所有文档。
 
+        支持两种文档模式：
+        - 实体文件夹：目录含 index.md → doc_id 为文件夹名
+        - 传统文件：独立 .md 文件（向后兼容）
+
         Args:
             category_id: 类别 ID（如 "characters"）
             include_content: 是否同时返回内容摘要
@@ -165,15 +175,68 @@ class DocumentManager:
         if not os.path.isdir(base):
             return docs
 
+        entity_dirs: set[str] = set()  # 已识别为实体的目录绝对路径
+
+        for root, dirs, _files in os.walk(base):
+            dirs.sort()
+
+            # 1. 识别实体文件夹（含 index.md 的目录）
+            for d in dirs:
+                d_full = os.path.join(root, d)
+                index_md = os.path.join(d_full, "index.md")
+                if os.path.isfile(index_md):
+                    entity_dirs.add(d_full)
+                    doc_rel = os.path.relpath(d_full, base).replace("\\", "/")
+                    stat = os.stat(index_md)
+                    file_hash = self._hash_file(index_md)
+
+                    title = d
+                    summary = ""
+                    if include_content:
+                        try:
+                            with open(index_md, "r", encoding="utf-8") as fh:
+                                data = frontmatter.load(fh)
+                            title = data.metadata.get("name", d)
+                            summary = data.metadata.get("summary", "")
+                            if not summary:
+                                first_line = data.content.strip().split("\n")[0]
+                                summary = first_line[:80] if first_line else ""
+                        except Exception:
+                            pass
+
+                    docs.append(DocumentInfo(
+                        category_id=category_id,
+                        doc_id=doc_rel,
+                        title=title,
+                        path=doc_rel,  # 实体文件夹：路径不含 index.md
+                        hash_str=file_hash,
+                        mtime=stat.st_mtime,
+                        summary=summary,
+                    ).to_dict())
+
         for root, _dirs, files in os.walk(base):
             for f in sorted(files):
                 if not f.endswith(".md"):
                     continue
                 stem = os.path.splitext(f)[0]
-                if stem in self._EXCLUDED_FILES:
+                if stem in self._EXCLUDED_FILES or stem == "index":
                     continue
 
                 filepath = os.path.join(root, f)
+
+                # 跳过已在实体文件夹内的 .md 文件（作为子文档另行处理）
+                file_dir = os.path.dirname(filepath)
+                is_in_entity = any(
+                    file_dir == ed or file_dir.startswith(ed + os.sep)
+                    for ed in entity_dirs
+                )
+                # 文件本身是 index.md 且父目录是实体
+                if f == "index.md" and file_dir in entity_dirs:
+                    continue
+
+                cat_rel = os.path.relpath(filepath, base).replace("\\", "/")
+                doc_id = os.path.splitext(cat_rel)[0]
+
                 stat = os.stat(filepath)
                 file_hash = self._hash_file(filepath)
 
@@ -191,11 +254,9 @@ class DocumentManager:
                     except Exception:
                         pass
 
-                # doc_id 相对于类别目录（如 "characters" → "银灰"），统一使用 /
-                cat_rel = os.path.relpath(filepath, cat.directory).replace("\\", "/")
                 docs.append(DocumentInfo(
                     category_id=category_id,
-                    doc_id=os.path.splitext(cat_rel)[0],
+                    doc_id=doc_id,
                     title=title,
                     path=cat_rel,
                     hash_str=file_hash,
@@ -229,14 +290,19 @@ class DocumentManager:
         return flat
 
     def _docs_to_tree(self, documents: list[dict], category_id: str) -> list[dict]:
-        """Build nested tree from flat document list by splitting doc id on '/' or '\\'."""
+        """Build nested tree from flat document list by splitting doc id on '/' or '\\'.
+
+        支持实体文件夹内含子文档的情况：当文档的中间路径也是另一个文档时，
+        该节点升级为可展开的文档节点（带 children）。
+        """
         root: dict[str, dict] = {}
         for doc in documents:
             parts = doc["id"].replace("\\", "/").split("/")
             current = root
             for i, part in enumerate(parts):
                 if i == len(parts) - 1:
-                    current[part] = {
+                    # 叶子节点：文档
+                    node = {
                         "name": doc["title"],
                         "type": "document",
                         "id": doc["id"],
@@ -245,9 +311,16 @@ class DocumentManager:
                         "summary": doc["summary"],
                         "category_id": doc["category_id"],
                     }
+                    if part in current and "children" in current[part]:
+                        # 已有中间路径创建的 folder → 升级为可展开文档
+                        node["children"] = current[part]["children"]
+                    current[part] = node
                 else:
                     if part not in current:
                         current[part] = {"name": part, "type": "folder", "children": {}}
+                    elif "children" not in current[part]:
+                        # 已有文档节点但无 children → 添加 children
+                        current[part]["children"] = {}
                     current = current[part]["children"]
         return self._dict_tree_to_list(root)
 
@@ -275,7 +348,7 @@ class DocumentManager:
 
         Returns:
             {"metadata": {...}, "content": "...", "hash": "...", "path": "...",
-             "frontmatter_raw": "..."}
+             "filepath": "...", "frontmatter_raw": "..."}
         """
         filepath = self._resolve_path(category_id, doc_path)
         if not filepath or not os.path.isfile(filepath):
@@ -294,7 +367,11 @@ class DocumentManager:
             fm_raw = ""
 
         file_hash = self._hash_file(filepath)
-        rel_path = os.path.relpath(filepath, self._root)
+        # 实体文件夹：path 不含 index.md，用文件夹名作为路径
+        if os.path.basename(filepath) == "index.md":
+            rel_path = os.path.relpath(os.path.dirname(filepath), self._root)
+        else:
+            rel_path = os.path.relpath(filepath, self._root)
 
         return {
             "metadata": data.metadata,
@@ -329,30 +406,36 @@ class DocumentManager:
                 f"文档不存在: {category_id}/{doc_path}"
             )
 
+        # 确保父目录存在（对实体文件夹尤其重要）
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+
         # 冲突检测
         if expected_hash:
-            current_hash = self._hash_file(filepath)
-            if current_hash != expected_hash:
-                with open(filepath, "r", encoding="utf-8") as f:
-                    current_content = f.read()
-                raise ConflictError(
-                    path=filepath,
-                    current_hash=current_hash,
-                    expected_hash=expected_hash,
-                    current_content=current_content,
-                )
+            if os.path.isfile(filepath):
+                current_hash = self._hash_file(filepath)
+                if current_hash != expected_hash:
+                    with open(filepath, "r", encoding="utf-8") as f:
+                        current_content = f.read()
+                    raise ConflictError(
+                        path=filepath,
+                        current_hash=current_hash,
+                        expected_hash=expected_hash,
+                        current_content=current_content,
+                    )
 
         # 读取已有 frontmatter（如果 metadata 未提供则保留）
         if metadata is None:
             try:
-                with open(filepath, "r", encoding="utf-8") as f:
-                    existing = frontmatter.load(f)
-                metadata = existing.metadata
+                if os.path.isfile(filepath):
+                    with open(filepath, "r", encoding="utf-8") as f:
+                        existing = frontmatter.load(f)
+                    metadata = existing.metadata
+                else:
+                    metadata = {}
             except Exception:
                 metadata = {}
 
         # 写回文件
-        os.makedirs(os.path.dirname(filepath), exist_ok=True)
         with open(filepath, "w", encoding="utf-8") as f:
             if metadata:
                 f.write("---\n")
@@ -362,13 +445,17 @@ class DocumentManager:
             f.write(content.lstrip("\n"))
 
         new_hash = self._hash_file(filepath)
-        rel_path = os.path.relpath(filepath, self._root)
+        # 实体文件夹：path 用文件夹名
+        if os.path.basename(filepath) == "index.md":
+            rel_path = os.path.relpath(os.path.dirname(filepath), self._root)
+        else:
+            rel_path = os.path.relpath(filepath, self._root)
         logger.info("文档已保存: %s (%s)", rel_path, new_hash[:12])
         return {"hash": new_hash, "path": rel_path}
 
     def create_document(self, category_id: str, doc_id: str,
                         content: str = "", metadata: dict = None) -> dict:
-        """创建新文档。
+        """创建新文档（实体文件夹模式：创建 {doc_id}/index.md）。
 
         Args:
             category_id: 类别 ID
@@ -383,11 +470,13 @@ class DocumentManager:
         if not cat:
             raise ValueError(f"未知文档类别: {category_id}")
 
-        filepath = os.path.join(cat.directory, f"{doc_id}.md")
+        entity_dir = os.path.join(cat.directory, doc_id)
+        filepath = os.path.join(entity_dir, "index.md")
+
         if os.path.isfile(filepath):
             raise FileExistsError(f"文档已存在: {doc_id}")
 
-        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        os.makedirs(entity_dir, exist_ok=True)
         with open(filepath, "w", encoding="utf-8") as f:
             if metadata:
                 f.write("---\n")
@@ -399,19 +488,30 @@ class DocumentManager:
                 f.write(content)
 
         new_hash = self._hash_file(filepath)
-        rel_path = os.path.relpath(filepath, self._root)
+        rel_path = os.path.relpath(entity_dir, self._root)
         logger.info("文档已创建: %s", rel_path)
         return {"hash": new_hash, "path": rel_path}
 
     def delete_document(self, category_id: str, doc_path: str):
-        """删除文档。"""
+        """删除文档。
+
+        实体文件夹模式：删除整个实体目录（含所有资产）。
+        传统文件模式：仅删除 .md 文件。
+        """
         filepath = self._resolve_path(category_id, doc_path)
         if not filepath or not os.path.isfile(filepath):
             raise DocumentNotFoundError(
                 f"文档不存在: {category_id}/{doc_path}"
             )
-        os.remove(filepath)
-        logger.info("文档已删除: %s", filepath)
+
+        # 实体文件夹：删除整个目录
+        if os.path.basename(filepath) == "index.md":
+            entity_dir = os.path.dirname(filepath)
+            shutil.rmtree(entity_dir)
+            logger.info("实体文件夹已删除: %s", entity_dir)
+        else:
+            os.remove(filepath)
+            logger.info("文档已删除: %s", filepath)
 
     # ── 文件夹操作 ──
 
@@ -447,6 +547,8 @@ class DocumentManager:
                       new_path: str = None) -> dict:
         """移动/重命名文档。
 
+        实体文件夹：移动/重命名整个实体目录。
+        传统文件：移动/重命名 .md 文件。
         new_path 为新的相对路径（相对于类别目录，不含 .md）。
         """
         old_filepath = self._resolve_path(category_id, doc_path)
@@ -455,21 +557,36 @@ class DocumentManager:
 
         target_rel = new_path or doc_path
         cat = self._categories[category_id]
-        new_filepath = os.path.join(cat.directory, f"{target_rel}.md")
 
-        if old_filepath == new_filepath:
-            raise ValueError("源路径和目标路径相同")
+        # 判断是实体文件夹还是传统文件
+        if os.path.basename(old_filepath) == "index.md":
+            old_entity_dir = os.path.dirname(old_filepath)
+            new_entity_dir = os.path.join(cat.directory, target_rel)
 
-        if os.path.exists(new_filepath):
-            raise FileExistsError(f"目标已存在: {target_rel}")
+            if old_entity_dir == new_entity_dir:
+                raise ValueError("源路径和目标路径相同")
 
-        os.makedirs(os.path.dirname(new_filepath), exist_ok=True)
-        os.rename(old_filepath, new_filepath)
+            if os.path.exists(new_entity_dir):
+                raise FileExistsError(f"目标已存在: {target_rel}")
 
-        # 清理空父目录
-        self._cleanup_empty_dirs(os.path.dirname(old_filepath), cat.directory)
+            os.makedirs(os.path.dirname(new_entity_dir), exist_ok=True)
+            os.rename(old_entity_dir, new_entity_dir)
+            self._cleanup_empty_dirs(os.path.dirname(old_entity_dir), cat.directory)
+            logger.info("实体文件夹已移动: %s → %s", old_entity_dir, new_entity_dir)
+        else:
+            new_filepath = os.path.join(cat.directory, f"{target_rel}.md")
 
-        logger.info("文档已移动: %s → %s", old_filepath, new_filepath)
+            if old_filepath == new_filepath:
+                raise ValueError("源路径和目标路径相同")
+
+            if os.path.exists(new_filepath):
+                raise FileExistsError(f"目标已存在: {target_rel}")
+
+            os.makedirs(os.path.dirname(new_filepath), exist_ok=True)
+            os.rename(old_filepath, new_filepath)
+            self._cleanup_empty_dirs(os.path.dirname(old_filepath), cat.directory)
+            logger.info("文档已移动: %s → %s", old_filepath, new_filepath)
+
         return {
             "old_path": f"{category_id}/{doc_path}",
             "new_path": f"{category_id}/{target_rel}",
@@ -545,23 +662,34 @@ class DocumentManager:
     # ── 内部方法 ──
 
     def _resolve_path(self, category_id: str, doc_path: str) -> Optional[str]:
-        """将 category_id + doc_path 解析为绝对文件路径。"""
+        """将 category_id + doc_path 解析为实际文件路径。
+
+        查找顺序：
+        1. 实体文件夹：{dir}/{doc_path}/index.md
+        2. 传统文件：{dir}/{doc_path}.md
+        3. 备用：basename 查找
+        """
         cat = self._categories.get(category_id)
         if not cat:
             return None
 
-        # doc_path 可能包含子目录（如 "Rhode_Island/Dormitories"）
-        # 也可能已经是完整相对路径
-        candidate = os.path.join(cat.directory, f"{doc_path}.md")
-        if os.path.isfile(candidate):
-            return candidate
+        # 实体文件夹：目录/index.md
+        entity_path = os.path.join(cat.directory, doc_path, "index.md")
+        if os.path.isfile(entity_path):
+            return entity_path
 
-        # 尝试 doc_path 本身不含子目录时直接在目录下找
-        base = os.path.join(cat.directory, f"{os.path.basename(doc_path)}.md")
-        if base != candidate and os.path.isfile(base):
-            return base
+        # 传统文件：目录/名称.md
+        legacy_path = os.path.join(cat.directory, f"{doc_path}.md")
+        if os.path.isfile(legacy_path):
+            return legacy_path
 
-        return candidate
+        # 备用：仅用 basename 查找
+        basename_path = os.path.join(cat.directory, f"{os.path.basename(doc_path)}.md")
+        if basename_path != legacy_path and os.path.isfile(basename_path):
+            return basename_path
+
+        # 返回实体路径（用于创建新文档等场景），fallback 到 legacy
+        return entity_path
 
     @staticmethod
     def _hash_file(filepath: str) -> str:

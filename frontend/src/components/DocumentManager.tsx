@@ -49,6 +49,9 @@ export default function DocumentManager() {
   const apiRef = useRef(api);
   apiRef.current = api;
 
+  // ── Tab ──
+  const [activeTab, setActiveTab] = useState<"docs" | "images">("docs");
+
   // ── Tree ──
   const [tree, setTree] = useState<DocTreeCategory[]>([]);
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
@@ -57,6 +60,10 @@ export default function DocumentManager() {
     category: string;
     node?: DocTreeNode;
   } | null>(null);
+
+  // ── Images ──
+  const [assetImages, setAssetImages] = useState<any[]>([]);
+  const [imagesLoading, setImagesLoading] = useState(false);
 
   // ── Modal ──
   const [modal, setModal] = useState<ModalState | null>(null);
@@ -104,6 +111,24 @@ export default function DocumentManager() {
   useEffect(() => {
     loadTree();
   }, [loadTree]);
+
+  // ── Load images ──
+
+  const loadImages = useCallback(async () => {
+    setImagesLoading(true);
+    try {
+      const data = await apiRef.current.getAssetImages();
+      setAssetImages(data || []);
+    } catch {
+      setAssetImages([]);
+    } finally {
+      setImagesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "images") loadImages();
+  }, [activeTab, loadImages]);
 
   // ── Tree collapse ──
 
@@ -356,36 +381,21 @@ export default function DocumentManager() {
     const key = nodeKey(category, node);
     const collapsed = isCollapsed(key);
     const isSelected = node.type === "document" && selectedPath === `${category}/${node.id}`;
+    const hasChildren = node.children && node.children.length > 0;
 
+    // 隐藏纯文件夹节点，直接渲染子节点（保留层级缩进）
     if (node.type === "folder") {
+      if (!node.children || node.children.length === 0) return null;
       return (
         <div key={key}>
-          <div
-            className="group flex items-center gap-1 cursor-pointer rounded text-sm hover:bg-gray-700/50 select-none"
-            style={{ paddingLeft: depth * 16 + 4 }}
-            onClick={() => toggleCollapse(key)}
-            onContextMenu={(e) => handleContextMenu(e, category, node)}
-          >
-            <span className="w-4 text-center text-gray-500 shrink-0">
-              {collapsed ? "▶" : "▼"}
-            </span>
-            <span className="w-4 text-center shrink-0">
-              {collapsed ? "📁" : "📂"}
-            </span>
-            <span className="text-gray-300 truncate">{node.name}</span>
-          </div>
-          {!collapsed && node.children && (
-            <div>
-              {node.children.map((child) =>
-                renderTreeNode(child, category, depth + 1, nodePath)
-              )}
-            </div>
+          {node.children.map((child) =>
+            renderTreeNode(child, category, depth, parentPath)
           )}
         </div>
       );
     }
 
-    // Document node
+    // Document node — may also have children (entity folder with sub-documents)
     return (
       <div key={key}>
         <div
@@ -395,15 +405,85 @@ export default function DocumentManager() {
               : "text-gray-400 hover:text-gray-200 hover:bg-gray-700/50"
           }`}
           style={{ paddingLeft: depth * 16 + 4 }}
-          onClick={() => handleSelect(category, node.id!)}
           onContextMenu={(e) => handleContextMenu(e, category, node)}
         >
-          <span className="w-4 text-center shrink-0" />
-          <span className="w-4 text-center text-gray-500 shrink-0">📄</span>
-          <span className="truncate">{node.name}</span>
+          {hasChildren ? (
+            <span
+              className="w-4 text-center text-gray-500 shrink-0"
+              onClick={(e) => { e.stopPropagation(); toggleCollapse(key); }}
+            >
+              {collapsed ? "▶" : "▼"}
+            </span>
+          ) : (
+            <span className="w-4 text-center shrink-0" />
+          )}
+          <span
+            className="flex-1 flex items-center gap-1 truncate"
+            onClick={() => handleSelect(category, node.id!)}
+          >
+            <span className="w-4 text-center text-blue-500 shrink-0">{hasChildren ? "📑" : "📄"}</span>
+            <span className="truncate">{node.name}</span>
+          </span>
         </div>
+        {hasChildren && !collapsed && node.children && (
+          <div>
+            {node.children.map((child) =>
+              renderTreeNode(child, category, depth + 1, nodePath)
+            )}
+          </div>
+        )}
       </div>
     );
+  };
+
+  // ── Render: image tree ──
+
+  const renderImageTree = () => {
+    // 按 category 分组
+    const grouped: Record<string, any[]> = {};
+    for (const item of assetImages) {
+      const cat = item.category;
+      if (!grouped[cat]) grouped[cat] = [];
+      grouped[cat].push(item);
+    }
+
+    return Object.entries(grouped).map(([cat, items]) => (
+      <div key={cat} className="mb-3">
+        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider py-1 mb-1">
+          {cat}
+        </div>
+        {items.map((item: any) => (
+          <div key={`${cat}/${item.entity}`} className="mb-2">
+            <div className="text-xs text-gray-400 px-1 mb-1 truncate" title={item.entity_name}>
+              {item.entity_name}
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {item.images.map((img: any) => (
+                <div
+                  key={img.path}
+                  className="relative group cursor-pointer rounded overflow-hidden border border-gray-700 hover:border-blue-500/50 transition-colors"
+                  style={{ width: 64, height: 64 }}
+                  onClick={() => {
+                    // 在新窗口打开原图
+                    window.open(img.url, "_blank");
+                  }}
+                >
+                  <img
+                    src={img.url}
+                    alt={img.name}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                  <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-[10px] text-gray-300 px-1 truncate opacity-0 group-hover:opacity-100 transition-opacity">
+                    {img.name}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    ));
   };
 
   // ── Render: category ──
@@ -489,22 +569,78 @@ export default function DocumentManager() {
     <div className="flex h-full">
       {/* ── Tree sidebar ── */}
       <div className="w-72 border-r border-gray-700 overflow-y-auto p-3 shrink-0" id="doc-tree-sidebar">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="panel-title mb-0 text-sm">文档</h2>
+        {/* Tabs */}
+        <div className="flex items-center gap-1 mb-3">
           <button
-            onClick={() => loadTree()}
-            className="text-xs text-gray-500 hover:text-gray-300"
+            className={`text-xs px-3 py-1 rounded transition-colors ${
+              activeTab === "docs"
+                ? "bg-blue-600/30 text-blue-300"
+                : "text-gray-500 hover:text-gray-300"
+            }`}
+            onClick={() => setActiveTab("docs")}
           >
-            刷新
+            文档
+          </button>
+          <button
+            className={`text-xs px-3 py-1 rounded transition-colors ${
+              activeTab === "images"
+                ? "bg-blue-600/30 text-blue-300"
+                : "text-gray-500 hover:text-gray-300"
+            }`}
+            onClick={() => setActiveTab("images")}
+          >
+            图像
+          </button>
+          <div className="flex-1" />
+          <button
+            onClick={async () => {
+              try {
+                const { path } = await apiRef.current.getDataDir();
+                if (window.electronAPI) {
+                  await window.electronAPI.openDirectory(path);
+                } else {
+                  // Web 模式：复制路径到剪贴板
+                  await navigator.clipboard.writeText(path);
+                  showToast("路径已复制: " + path);
+                }
+              } catch { /* ignore */ }
+            }}
+            className="text-xs text-gray-500 hover:text-gray-300 px-1"
+            title="打开资产文件夹"
+          >
+            📂
+          </button>
+          <button
+            onClick={() => (activeTab === "docs" ? loadTree() : loadImages())}
+            className="text-xs text-gray-500 hover:text-gray-300"
+            title="刷新"
+          >
+            ↻
           </button>
         </div>
-        {error && !selectedPath && (
+
+        {error && !selectedPath && activeTab === "docs" && (
           <p className="text-red-400 text-xs mb-2">{error}</p>
         )}
-        {tree.length === 0 ? (
-          <p className="text-gray-500 text-sm text-center py-4">加载中...</p>
-        ) : (
-          tree.map((cat) => renderCategory(cat))
+
+        {/* ── 文档 Tab ── */}
+        {activeTab === "docs" && (
+          tree.length === 0 ? (
+            <p className="text-gray-500 text-sm text-center py-4">加载中...</p>
+          ) : (
+            tree.map((cat) => renderCategory(cat))
+          )
+        )}
+
+        {/* ── 图像 Tab ── */}
+        {activeTab === "images" && (
+          imagesLoading ? (
+            <p className="text-gray-500 text-sm text-center py-4">加载中...</p>
+          ) : assetImages.length === 0 ? (
+            <p className="text-gray-500 text-sm text-center py-4">暂无图像资产</p>
+          ) : (
+            renderImageTree()
+          )
         )}
       </div>
 

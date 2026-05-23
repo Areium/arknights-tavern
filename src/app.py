@@ -19,7 +19,7 @@ import logging
 from typing import Optional
 
 import yaml
-from flask import Flask, jsonify, request, Response, stream_with_context
+from flask import Flask, jsonify, request, Response, stream_with_context, send_from_directory
 from flask_cors import CORS
 
 from llm_backend_manager import LLMBackendManager
@@ -88,7 +88,7 @@ def list_sessions():
 
 @app.route("/api/sessions", methods=["POST"])
 def create_session():
-    """创建新会话。"""
+    """创建新会话，可选绑定剧情。"""
     data = request.json or {}
     mode = data.get("mode", "free")
     if mode not in ("free", "story"):
@@ -97,6 +97,17 @@ def create_session():
         name=data.get("name", ""),
         mode=mode,
     )
+
+    # 可选：创建时绑定剧情
+    plot_id = data.get("plot_id", "").strip()
+    if plot_id and mode == "story":
+        from session_overlay import _resolve_plot_dir
+        resolved = _resolve_plot_dir(plot_id) or plot_id
+        import os as _os2
+        plot_dir = _os2.path.join(_os2.path.dirname(__file__), "..", "data", "plots", resolved)
+        if _os2.path.isdir(plot_dir):
+            session.overlay.load_quests_from_plot(plot_id)
+
     return jsonify(session.to_dict()), 201
 
 
@@ -130,6 +141,38 @@ def rename_session(session_id: str):
         return _json_error("需要 name 参数")
     session_manager.rename_session(session_id, new_name)
     return jsonify({"message": "已重命名", "name": new_name})
+
+
+# ══════════════════════════════════════════════════════
+# 2.5 剧情列表
+# ══════════════════════════════════════════════════════
+
+
+@app.route("/api/plots", methods=["GET"])
+def list_plots():
+    """列出所有可用剧情（从 plots/_index.md 解析）。"""
+    import os as _os3
+    import frontmatter as _fm
+    index_path = _os3.path.join(_os3.path.dirname(__file__), "..", "data", "plots", "_index.md")
+    if not _os3.path.isfile(index_path):
+        return jsonify([])
+
+    with open(index_path, "r", encoding="utf-8") as f:
+        data = _fm.load(f)
+
+    plots = []
+    for pid, info in data.metadata.get("index", {}).items():
+        plots.append({
+            "id": pid,
+            "name": info.get("name", pid),
+            "category": info.get("category", "main"),
+            "priority": info.get("priority", 5),
+            "trigger_location": info.get("trigger_location", []),
+            "trigger_character": info.get("trigger_character", []),
+        })
+    # 按 priority 降序
+    plots.sort(key=lambda p: p["priority"], reverse=True)
+    return jsonify(plots)
 
 
 # ══════════════════════════════════════════════════════
@@ -499,6 +542,94 @@ def session_narrate_update(session_id: str):
 # ══════════════════════════════════════════════════════
 
 
+# ══════════════════════════════════════════════════════
+# 4.5 任务系统
+# ══════════════════════════════════════════════════════
+
+
+@app.route("/api/sessions/<session_id>/quests", methods=["GET"])
+def get_quests(session_id: str):
+    """获取会话的完整任务列表（含状态）。"""
+    session = _get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+
+    plot_id = session.overlay.get_plot_id()
+    if not plot_id:
+        return jsonify({"plot_id": None, "quests": []})
+
+    from session_overlay import _parse_quests_md
+    quests = _parse_quests_md(plot_id)
+    states = session.overlay.get_quest_states()
+
+    # 合并状态，过滤掉 hidden 任务
+    visible_quests = []
+    for q in quests:
+        qid = q["id"]
+        st = states.get(qid, {})
+        status = st.get("status", "hidden")
+        if status == "hidden":
+            continue  # 未触发的任务不返回给前端
+        q["status"] = status
+        q["updated_at"] = st.get("updated_at", 0)
+        visible_quests.append(q)
+
+    return jsonify({"plot_id": plot_id, "quests": visible_quests})
+
+
+@app.route("/api/sessions/<session_id>/quests/load", methods=["PUT"])
+def load_quests(session_id: str):
+    """加载指定剧情的任务到当前会话。"""
+    session = _get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+
+    data = request.json or {}
+    plot_id = data.get("plot_id", "").strip()
+    if not plot_id:
+        return _json_error("需要 plot_id 参数")
+
+    # 验证剧情目录存在
+    from session_overlay import _resolve_plot_dir
+    resolved = _resolve_plot_dir(plot_id) or plot_id
+    import os as _os
+    plot_dir = _os.path.join(_os.path.dirname(__file__), "..", "data", "plots", resolved)
+    if not _os.path.isdir(plot_dir):
+        return _json_error(f"剧情不存在: {plot_id}", 404)
+
+    session.overlay.load_quests_from_plot(plot_id)
+
+    from session_overlay import _parse_quests_md
+    quests = _parse_quests_md(plot_id)
+    states = session.overlay.get_quest_states()
+    visible_quests = []
+    for q in quests:
+        status = states.get(q["id"], {}).get("status", "hidden")
+        if status == "hidden":
+            continue
+        q["status"] = status
+        q["updated_at"] = states.get(q["id"], {}).get("updated_at", 0)
+        visible_quests.append(q)
+
+    return jsonify({"plot_id": plot_id, "quests": visible_quests})
+
+
+@app.route("/api/sessions/<session_id>/quests/<quest_id>", methods=["PATCH"])
+def update_quest_state(session_id: str, quest_id: str):
+    """更新单个任务状态。"""
+    session = _get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+
+    data = request.json or {}
+    status = data.get("status", "").strip()
+    if status not in ("hidden", "locked", "visible", "active", "completed", "failed"):
+        return _json_error("status 必须是 hidden/locked/visible/active/completed/failed")
+
+    session.overlay.set_quest_state(quest_id, status)
+    return jsonify({"quest_id": quest_id, "status": status})
+
+
 @app.route("/api/sessions/<session_id>/environment", methods=["GET"])
 def get_environment(session_id: str):
     """获取当前环境状态。"""
@@ -560,23 +691,40 @@ def get_environment_presets():
     weathers = []
     weather_dir = os.path.join(os.path.dirname(__file__), "..", "environment", "weather")
     try:
-        for fname in sorted(os.listdir(weather_dir)):
-            if not fname.endswith(".md") or fname.startswith("_") or fname == "TEMPLATE.md":
-                continue
-            fpath = os.path.join(weather_dir, fname)
-            try:
-                with open(fpath, "r", encoding="utf-8") as f:
-                    data = frontmatter.load(f)
-                wt = data.metadata.get("weather_type", {})
-                if wt.get("name"):
-                    weathers.append({
-                        "name": wt["name"],
-                        "id": wt.get("id", ""),
-                        "icon": wt.get("icon", ""),
-                        "category": wt.get("category", ""),
-                    })
-            except Exception:
-                continue
+        for entry in sorted(os.listdir(weather_dir)):
+            entry_path = os.path.join(weather_dir, entry)
+            # 实体文件夹
+            if os.path.isdir(entry_path):
+                index_md = os.path.join(entry_path, "index.md")
+                if os.path.isfile(index_md):
+                    try:
+                        with open(index_md, "r", encoding="utf-8") as f:
+                            data = frontmatter.load(f)
+                        wt = data.metadata.get("weather_type", {})
+                        if wt.get("name"):
+                            weathers.append({
+                                "name": wt["name"],
+                                "id": wt.get("id", ""),
+                                "icon": wt.get("icon", ""),
+                                "category": wt.get("category", ""),
+                            })
+                    except Exception:
+                        continue
+            # 传统 .md 文件（向后兼容）
+            elif entry.endswith(".md") and not entry.startswith("_") and entry != "TEMPLATE.md":
+                try:
+                    with open(entry_path, "r", encoding="utf-8") as f:
+                        data = frontmatter.load(f)
+                    wt = data.metadata.get("weather_type", {})
+                    if wt.get("name"):
+                        weathers.append({
+                            "name": wt["name"],
+                            "id": wt.get("id", ""),
+                            "icon": wt.get("icon", ""),
+                            "category": wt.get("category", ""),
+                        })
+                except Exception:
+                    continue
     except Exception as e:
         logger.warning("解析天气预设失败: %s", e)
 
@@ -1210,6 +1358,102 @@ def legacy_reset():
     if char_id:
         session_manager.delete_session(f"legacy_{char_id}")
     return jsonify({"message": "ok"})
+
+
+# ══════════════════════════════════════════════════════
+# 资产 API（图像等静态资源）
+# ══════════════════════════════════════════════════════
+
+# 支持的图片格式
+_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"}
+
+
+def _list_entity_images() -> list[dict]:
+    """扫描所有实体文件夹下的图片文件。
+
+    Returns:
+        [{category, entity, entity_name, images: [{name, path, url}]}]
+    """
+    categories = doc_manager.list_categories()
+    result = []
+
+    for cat_meta in categories:
+        cat = doc_manager.get_category(cat_meta["id"])
+        if not cat or not os.path.isdir(cat.directory):
+            continue
+        cat_dir = cat.directory
+
+        for root, dirs, _files in os.walk(cat_dir):
+            for d in sorted(dirs):
+                d_full = os.path.join(root, d)
+                index_md = os.path.join(d_full, "index.md")
+                if not os.path.isfile(index_md):
+                    continue
+                # 这是实体文件夹，扫描其中的图片
+                images = []
+                for f in sorted(os.listdir(d_full)):
+                    ext = os.path.splitext(f)[1].lower()
+                    if ext in _IMAGE_EXTS and f != "index.md":
+                        entity_rel = os.path.relpath(d_full, cat_dir).replace("\\", "/")
+                        images.append({
+                            "name": f,
+                            "path": f"{cat['id']}/{entity_rel}/{f}",
+                            "url": f"/api/assets/{cat['id']}/{entity_rel}/{f}",
+                        })
+
+                if images:
+                    # 读取 entity 的 frontmatter 获取显示名
+                    entity_name = d
+                    try:
+                        import frontmatter as _fm
+                        with open(index_md, "r", encoding="utf-8") as fh:
+                            meta = _fm.load(fh).metadata
+                        entity_name = meta.get("name", d)
+                    except Exception:
+                        pass
+
+                    result.append({
+                        "category": cat["id"],
+                        "entity": d,
+                        "entity_name": entity_name,
+                        "images": images,
+                    })
+
+    return result
+
+
+@app.route("/api/assets/images", methods=["GET"])
+def list_asset_images():
+    """列出所有实体文件夹下的图片资产。"""
+    return jsonify(_list_entity_images())
+
+
+@app.route("/api/assets/data-dir", methods=["GET"])
+def get_data_directory():
+    """返回 data/ 目录的绝对路径（供 Electron 打开目录使用）。"""
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return jsonify({"path": os.path.join(root, "data")})
+
+
+@app.route("/api/assets/<category>/<path:filename>", methods=["GET"])
+def serve_asset(category: str, filename: str):
+    """提供静态资产文件（图片等）。
+
+    URL 格式: /api/assets/{category}/{entity}/{image_name}
+    例如: /api/assets/characters/银灰/avatar.png
+    """
+    cat = doc_manager.get_category(category)
+    if not cat:
+        return jsonify({"error": f"未知类别: {category}"}), 404
+
+    # filename 包含 entity/image_name
+    filepath = os.path.join(cat.directory, filename)
+    if not os.path.isfile(filepath):
+        return jsonify({"error": "文件不存在"}), 404
+
+    directory = os.path.dirname(filepath)
+    basename = os.path.basename(filepath)
+    return send_from_directory(directory, basename)
 
 
 # ══════════════════════════════════════════════════════

@@ -161,15 +161,68 @@ class SessionOverlay:
             return True
         return False
 
+    # ── 剧情/任务 ──
+
+    def get_plot_id(self) -> str | None:
+        """获取当前会话绑定的剧情 ID。"""
+        return self._data.get("plot_id")
+
+    def set_plot_id(self, plot_id: str):
+        """设置当前会话绑定的剧情 ID。"""
+        self._data["plot_id"] = plot_id
+        self._save()
+        logger.info("会话 %s: 剧情绑定为 %s", self.session_id, plot_id)
+
+    def get_quest_states(self) -> dict:
+        """获取所有任务状态 {quest_id: {status, updated_at}}。"""
+        return self._data.get("quest_states", {})
+
+    def set_quest_state(self, quest_id: str, status: str):
+        """更新单个任务状态（locked/active/completed/failed）。"""
+        if "quest_states" not in self._data:
+            self._data["quest_states"] = {}
+        import time
+        self._data["quest_states"][quest_id] = {
+            "status": status,
+            "updated_at": time.time(),
+        }
+        self._save()
+
+    def load_quests_from_plot(self, plot_id: str):
+        """加载剧情并初始化所有任务状态。
+
+        规则：
+        - 所有任务初始为 hidden（不在前端显示）
+        - 当玩家在剧情中通过对话/行动触发任务时，LLM/系统将其设为 visible 或 active
+        - 序章/开场自动触发的任务由 narrate 推进时激活
+        """
+        self._data["plot_id"] = plot_id
+        if "quest_states" not in self._data:
+            self._data["quest_states"] = {}
+
+        quests = _parse_quests_md(plot_id)
+        existing = self._data["quest_states"]
+
+        for q in quests:
+            qid = q["id"]
+            if qid not in existing:
+                existing[qid] = {"status": "hidden", "updated_at": 0}
+
+        self._data["quest_states"] = existing
+        self._save()
+        logger.info("会话 %s: 已加载剧情 %s，共 %d 个任务（全部隐藏）", self.session_id, plot_id, len(quests))
+
     # ── 全量导出 ──
 
     def to_dict(self) -> dict:
         """返回全部覆盖数据（供 API 使用）。"""
         return {
             "session_id": self.session_id,
+            "plot_id": self._data.get("plot_id"),
             "characters": self._data.get("characters", {}),
             "items": self._data.get("items", {}),
             "environment": self._data.get("environment", {}),
+            "quest_states": self._data.get("quest_states", {}),
         }
 
     @staticmethod
@@ -180,6 +233,117 @@ class SessionOverlay:
         if session_dir.exists():
             shutil.rmtree(session_dir)
             logger.info("已删除会话覆盖数据: %s/%s", mode, session_id)
+
+
+def _resolve_plot_dir(plot_id: str) -> str | None:
+    """通过 plots/_index.md 解析 plot_id 对应的目录名。"""
+    import re
+    index_path = _PROJECT_ROOT / "data" / "plots" / "_index.md"
+    if not index_path.exists():
+        return None
+    try:
+        with open(index_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        # 查找 plot_id 对应的 file 字段
+        pattern = rf"{re.escape(plot_id)}:\s*\n\s+file:\s*\"([^\"]+)\""
+        m = re.search(pattern, content)
+        if m:
+            file_path = m.group(1)  # e.g. "near-light/index.md"
+            return file_path.rsplit("/", 1)[0]  # e.g. "near-light"
+    except Exception:
+        pass
+    return None
+
+
+def _parse_quests_md(plot_id: str) -> list[dict]:
+    """解析指定剧情的 quests.md，返回结构化任务列表。"""
+    import re
+
+    # 先尝试直接用 plot_id 作为目录名
+    path = _PROJECT_ROOT / "data" / "plots" / plot_id / "quests.md"
+    if not path.exists():
+        # 通过 _index.md 解析实际目录名
+        resolved = _resolve_plot_dir(plot_id)
+        if resolved:
+            path = _PROJECT_ROOT / "data" / "plots" / resolved / "quests.md"
+
+    if not path.exists():
+        logger.warning("未找到剧情任务文件: %s (plot_id=%s)", path, plot_id)
+        return []
+
+    with open(path, "r", encoding="utf-8") as f:
+        text = f.read()
+
+    quests = []
+    current_chapter = ""
+    current_type = "main"  # "main" | "side" | "deep"
+
+    # 检测当前所在章节
+    lines = text.split("\n")
+    for i, line in enumerate(lines):
+        # 追踪章节
+        ch_match = re.match(r"^### 第([一二三四五六七八九十\d]+)章", line)
+        if ch_match:
+            ch_num = ch_match.group(1)
+            cn_map = {"一": "1", "二": "2", "三": "3", "四": "4", "五": "5", "六": "6", "七": "7", "八": "8"}
+            current_chapter = cn_map.get(ch_num, ch_num)
+            continue
+
+        # 追踪任务类型
+        if "## 主线任务" in line or "## 主线任务链" in line:
+            current_type = "main"
+            continue
+        if "## 支线任务" in line:
+            current_type = "side"
+            continue
+        if "## 偏离触发的深层任务" in line:
+            current_type = "deep"
+            continue
+
+        # 匹配任务标题: #### M1-1：名称 或 #### S1-1：名称
+        q_match = re.match(r"^#### ([A-Z]+\d*-[A-Za-z]?\d+)[：:](.+)", line)
+        if not q_match:
+            continue
+
+        quest_id = q_match.group(1).strip()
+        quest_name = q_match.group(2).strip()
+
+        # 读取该任务的属性表（后续几行中的 | **X** | **Y** | 格式）
+        attrs = {"id": quest_id, "name": quest_name, "type": current_type, "chapter": current_chapter}
+        for j in range(i + 1, min(i + 20, len(lines))):
+            attr_line = lines[j].strip()
+            # 匹配 | **属性** | 内容 |
+            m = re.match(r"^\|\s*\*\*(.+?)\*\*\s*\|\s*(.+?)\s*\|", attr_line)
+            if not m:
+                # 也匹配 | 属性 | 内容 | (无粗体)
+                m = re.match(r"^\|\s*(.+?)\s*\|\s*(.+?)\s*\|", attr_line)
+                if not m:
+                    # 遇到下一个标题或空表行则停止
+                    if re.match(r"^#### |^---$|^\s*$", attr_line) and j > i + 3:
+                        break
+                    continue
+            key = m.group(1).strip()
+            value = m.group(2).strip()
+            key_lower = key.lower()
+
+            if key in ("目标", "**目标**"):
+                attrs["objective"] = value
+            elif key in ("触发", "**触发**"):
+                attrs["trigger"] = value
+            elif key in ("完成条件", "**完成条件**"):
+                attrs["completion"] = value
+            elif key in ("奖励", "**奖励**"):
+                attrs["reward"] = value
+            elif key in ("失败条件", "**失败条件**"):
+                attrs["failure"] = value
+            elif key in ("任务 ID", "**任务 ID**"):
+                attrs["task_id"] = value
+            elif key in ("类型", "**类型**"):
+                attrs["subtype"] = value
+
+        quests.append(attrs)
+
+    return quests
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
