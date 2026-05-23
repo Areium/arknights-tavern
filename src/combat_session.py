@@ -86,9 +86,9 @@ class CombatSession:
             char_class = unit.char_class
 
             # Use class card pool; fall back to 辅助
-            cards = get_starting_deck(char_class, count=5)
+            cards = get_starting_deck(char_class, count=7)
             if not cards:
-                cards = get_starting_deck("辅助", count=5)
+                cards = get_starting_deck("辅助", count=7)
                 logger.warning("No card pool for class '%s', using 辅助 fallback", char_class)
 
             pos = default_positions[i] if i < len(default_positions) else (4 + i % 3, 0)

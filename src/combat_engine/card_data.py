@@ -252,14 +252,19 @@ def get_cards_for_class(char_class: str) -> list[Card]:
     return CLASS_CARD_POOLS.get(char_class, [])
 
 
-def get_starting_deck(char_class: str, count: int = 5) -> list[Card]:
-    """Draw a starting deck for a newly acquired character.
+def get_starting_deck(char_class: str, count: int = 7) -> list[Card]:
+    """Draw a starting deck for a character.
 
-    Draws `count` basic cards from the class pool.
+    Returns all basic cards from the class pool, supplemented with
+    random elite cards if needed to reach `count`.
     """
     import random
     pool = get_cards_for_class(char_class)
     basics = [c for c in pool if c.tier == "basic"]
-    if len(basics) < count:
-        count = len(basics)
-    return random.sample(basics, count)
+    elites = [c for c in pool if c.tier == "elite"]
+
+    result = list(basics)
+    if len(result) < count and elites:
+        needed = min(count - len(result), len(elites))
+        result.extend(random.sample(elites, needed))
+    return result
