@@ -23,6 +23,8 @@ const ICON_MAP: Record<string, string> = {
   block_fail: "✗",
   intercept_prompt: "⚡",
   battle_start: "▶",
+  card_played: "◆",
+  turn_end: "◁",
 };
 
 function formatEvent(ev: CombatEvent): { icon: string; text: string } {
@@ -54,6 +56,13 @@ function formatEvent(ev: CombatEvent): { icon: string; text: string } {
       return { icon, text: `${ev.data.name || "?"} 挡刀失败` };
     case "battle_end":
       return { icon, text: ev.data.winner === "player" ? "战斗胜利！" : "战斗失败..." };
+    case "card_played": {
+      const results = ev.data.results as number[] | undefined;
+      const total = results?.reduce((a: number, b: number) => a + b, 0) ?? 0;
+      return { icon, text: `${ev.data.caster || "?"} 使用「${ev.data.card || "?"}」→ (${ev.data.target?.join(",") || "?"}) 造成 ${total} 点伤害` };
+    }
+    case "turn_end":
+      return { icon, text: `第 ${ev.data.round || "?"} 回合结束` };
     case "error":
       return { icon, text: `错误: ${ev.data.msg || "?"}` };
     default:
@@ -70,6 +79,8 @@ function eventStyle(type: string): string {
     case "round_start":     return "text-combat-gold font-bold";
     case "battle_start":
     case "battle_end":      return "text-combat-gold font-bold";
+    case "card_played":     return "text-combat-player";
+    case "turn_end":        return "text-gray-500";
     case "block_success":   return "text-combat-player";
     case "block_fail":
     case "error":           return "text-combat-enemy";

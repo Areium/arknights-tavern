@@ -470,3 +470,143 @@ html.light .text-green-300 { color: rgb(21 128 61); }
   border-bottom: 8px solid rgba(240, 192, 96, 0.6);
   transition: transform 0.3s ease;
 }
+
+/* ═══════════════════════════════════════
+   战斗系统 — 浅色模式覆盖
+   ═══════════════════════════════════════ */
+
+/* ── 战斗背景 & 面板 ── */
+html.light .bg-combat-bg { background-color: #f0f2f5; }
+html.light .bg-surface-dark { background-color: #f8f9fa; }
+html.light .bg-surface-dark\/80 { background-color: rgba(248,249,250,0.8); }
+html.light .bg-surface-card { background-color: #ffffff; }
+html.light .bg-surface-card\/90 { background-color: rgba(255,255,255,0.9); }
+html.light .bg-surface-hover { background-color: #f3f4f6; }
+html.light .border-combat-border { border-color: #d1d5db; }
+html.light .border-combat-divider { border-color: #e5e7eb; }
+html.light .border-combat-player { border-color: #0077b6; }
+
+/* ── 战斗文字色 ── */
+html.light .text-combat-player { color: #0077b6; }
+html.light .text-combat-gold { color: #b8860b; }
+html.light .text-combat-ap { color: #0891b2; }
+html.light .text-dmg-physical { color: #dc2626; }
+
+/* ── 战斗启动面板 ── */
+html.light .bg-cyan-950\/50 { background-color: #ecfeff; }
+html.light .bg-cyan-900 { background-color: #cffafe; }
+html.light .bg-cyan-900\/70 { background-color: rgba(207,250,255,0.7); }
+html.light .bg-cyan-800 { background-color: #a5f3fc; }
+html.light .bg-cyan-800\/70 { background-color: rgba(165,243,252,0.7); }
+html.light .text-cyan-300 { color: #0e7490; }
+html.light .text-cyan-200 { color: #155e75; }
+html.light .border-cyan-900\/50 { border-color: rgba(14,116,144,0.3); }
+html.light .border-cyan-800\/50 { border-color: rgba(14,116,144,0.4); }
+
+html.light .bg-emerald-900\/60 { background-color: rgba(209,250,229,0.8); }
+html.light .bg-emerald-800\/60 { background-color: rgba(167,243,208,0.8); }
+html.light .text-emerald-200 { color: #065f46; }
+html.light .border-emerald-800\/50 { border-color: rgba(6,95,70,0.3); }
+
+html.light .bg-red-950\/50 { background-color: #fef2f2; }
+html.light .bg-red-950\/95 { background-color: rgba(254,242,242,0.95); }
+html.light .text-red-300 { color: #b91c1c; }
+html.light .text-red-200 { color: #dc2626; }
+html.light .text-red-400 { color: #991b1b; }
+html.light .border-red-800 { border-color: #fecaca; }
+
+html.light .bg-yellow-900\/60 { background-color: rgba(254,249,195,0.8); }
+html.light .bg-yellow-800\/60 { background-color: rgba(254,240,138,0.8); }
+html.light .text-yellow-200 { color: #854d0e; }
+html.light .text-yellow-400 { color: #a16207; }
+html.light .border-yellow-800\/50 { border-color: rgba(133,77,14,0.3); }
+
+/* ── 文字通用覆盖 ── */
+html.light .text-white { color: #1f2937; }
+html.light .text-gray-700 { color: rgb(55 65 81); }
+
+/* ── 背景 & 边框补充 ── */
+html.light .bg-gray-800\/50 { background-color: rgba(255,255,255,0.5); }
+html.light .border-gray-600 { border-color: rgb(209 213 219); }
+html.light .bg-black { background-color: rgb(229 231 235); }
+html.light .bg-black\/70 { background-color: rgba(229,231,235,0.7); }
+html.light .bg-black\/50 { background-color: rgba(229,231,235,0.5); }
+
+/* ── 格子 ── */
+html.light .combat-cell {
+  background: rgba(200, 210, 225, 0.25);
+  border-color: rgba(140, 155, 180, 0.35);
+  background-image: radial-gradient(circle at center, rgba(100, 120, 160, 0.08) 0%, transparent 70%);
+}
+html.light .combat-cell.player-zone {
+  border-color: rgba(0, 140, 200, 0.25);
+  background: rgba(180, 220, 250, 0.2);
+}
+html.light .combat-cell.enemy-zone {
+  border-color: rgba(200, 60, 60, 0.2);
+  background: rgba(250, 200, 200, 0.18);
+}
+
+/* ── 卡牌 ── */
+html.light .combat-card {
+  background: linear-gradient(160deg, #e8ecf2 0%, #f0f3f8 50%, #f8f9fb 100%);
+  border-color: #c5cdd8;
+}
+html.light .combat-card.elite {
+  border-color: #c8a840;
+  box-shadow: 0 0 10px rgba(200, 168, 64, 0.2), 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+html.light .combat-card.elite:hover {
+  box-shadow: 0 0 20px rgba(200, 168, 64, 0.35), 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+html.light .combat-card.selected {
+  box-shadow: 0 0 18px rgba(200, 160, 60, 0.45), 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+html.light .combat-card.disabled {
+  opacity: 0.45;
+  filter: grayscale(0.3);
+}
+
+/* ── 卡牌选中动画需要调整阴影（无纯黑） ── */
+html.light .combat-card.selected {
+  animation: card-selected-glow-light 1.5s ease-in-out infinite;
+}
+@keyframes card-selected-glow-light {
+  0%, 100% { box-shadow: 0 0 18px rgba(200, 160, 60, 0.45), 0 4px 16px rgba(0, 0, 0, 0.1); }
+  50%      { box-shadow: 0 0 28px rgba(200, 160, 60, 0.6), 0 4px 20px rgba(0, 0, 0, 0.15); }
+}
+
+/* ── HP 条 ── */
+html.light .combat-hp-bar {
+  background: rgba(180, 190, 200, 0.35);
+  border-color: rgba(160, 175, 195, 0.5);
+}
+
+/* ── 战斗小人（暗色头/身以在浅色背景可见） ── */
+html.light .chibi-placeholder .chibi-head {
+  background: rgba(60, 70, 90, 0.2);
+}
+html.light .chibi-placeholder .chibi-body {
+  background: rgba(60, 70, 90, 0.15);
+}
+
+/* ── 攻击箭头（略加深金色以保证浅色背景对比度） ── */
+html.light .attack-arrow-line {
+  stroke: #c8960c;
+  filter: drop-shadow(0 0 3px rgba(180, 134, 11, 0.4));
+}
+html.light .attack-arrow-glow {
+  stroke: rgba(200, 150, 12, 0.2);
+}
+html.light .attack-arrow-head {
+  fill: #c8960c;
+  filter: drop-shadow(0 0 4px rgba(180, 134, 11, 0.5));
+}
+
+/* ── 部署箭头 ── */
+html.light .deploy-arrow {
+  border-bottom-color: rgba(180, 134, 11, 0.6);
+}
+
+/* ── 伤害数字（保持暗色文字阴影以保证可读性） ── */
+/* damage-number 在两种模式下均可读，无需额外覆盖 */

@@ -53,9 +53,13 @@ export default function CombatCard({ card, index, affordable, selected, highligh
     }
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", String(index));
-    const img = new Image();
-    img.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
-    e.dataTransfer.setDragImage(img, 0, 0);
+    // Use a zero-size transparent canvas as drag image to hide browser's default ghost
+    const canvas = document.createElement("canvas");
+    canvas.width = 1;
+    canvas.height = 1;
+    const ctx = canvas.getContext("2d");
+    if (ctx) ctx.clearRect(0, 0, 1, 1);
+    e.dataTransfer.setDragImage(canvas, -10, -10);
     onDragStart?.();
   };
 

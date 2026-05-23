@@ -225,9 +225,9 @@ export interface CombatAction {
 /** 战斗 SSE 事件 */
 export interface CombatEventDTO {
   type: "battle_start" | "round_start" | "turn_start" | "damage" | "heal"
-    | "death" | "battle_end" | "move" | "error" | "block_attempt"
-    | "block_success" | "block_fail" | "intercept_prompt" | "meta"
-    | "heartbeat" | "done";
+    | "death" | "battle_end" | "move" | "card_played" | "turn_end"
+    | "error" | "block_attempt" | "block_success" | "block_fail"
+    | "intercept_prompt" | "meta" | "heartbeat" | "done";
   data: Record<string, any>;
 }
 

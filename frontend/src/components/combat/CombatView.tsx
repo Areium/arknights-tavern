@@ -10,6 +10,7 @@ import UnitStatusPanel from "./UnitStatusPanel";
 import CombatParticles from "./CombatParticles";
 import CombatCard from "./CombatCard";
 import DeckViewer from "./DeckViewer";
+import AttackArrow from "./AttackArrow";
 
 const CELL = 56; // px — must match CSS .combat-cell size
 
@@ -51,6 +52,8 @@ export default function CombatView() {
   const sseRef = useRef<{ close: () => void } | null>(null);
   const stateRef = useRef(combatState);
   stateRef.current = combatState;
+  const gridElRef = useRef<HTMLDivElement | null>(null);
+  const relativeRef = useRef<HTMLDivElement | null>(null);
 
   // Damage numbers for floating text effects
   const [damageNumbers, setDamageNumbers] = useState<
@@ -213,6 +216,17 @@ export default function CombatView() {
 
   // Cards to display: always the active unit's hand
   const displayedHand = combatState?.shared_hand ?? [];
+
+  // Arrow start position: the card owner's cell, or fall back to rangeOrigin
+  const arrowFrom = useMemo(() => {
+    if (dragCardIndex === null || !combatState) return null;
+    const card = displayedHand[dragCardIndex];
+    if (!card?.owner) return null;
+    const ownerUnit = combatState.units.find(
+      (u) => u.team === "player" && u.is_alive && u.name === card.owner
+    );
+    return ownerUnit?.pos ?? null;
+  }, [dragCardIndex, combatState, displayedHand]);
 
   // Highlight cards belonging to the selected character
   const highlightOwner = selectedUnit ? selectedUnit.name : null;
@@ -651,7 +665,7 @@ export default function CombatView() {
           </div>
 
           {/* Grid with damage numbers overlay */}
-          <div className="relative">
+          <div className="relative" ref={relativeRef}>
             <CombatGrid
               gridSize={combatState.grid_size}
               units={combatState.units}
@@ -664,12 +678,12 @@ export default function CombatView() {
               uiMode={combatUIMode}
               cursor={cursor}
               dragCell={dragCell}
-              arrowFrom={dragCardIndex !== null && rangeOrigin?.pos ? rangeOrigin.pos : null}
               onCellClick={handleCellClick}
               onCellHover={handleCellHover}
               onCellLeave={handleHoverLeave}
               onCellDrop={handleGridDrop}
               onGridDragMove={handleGridDragMove}
+              onGridMount={(el) => { gridElRef.current = el; }}
             />
 
             {/* Damage numbers */}
@@ -695,6 +709,16 @@ export default function CombatView() {
               emitters={particleEmitters}
               onEmitterDone={removeEmitter}
             />
+
+            {/* Attack arrow during card drag */}
+            {arrowFrom && dragCell && gridElRef.current && relativeRef.current && (
+              <AttackArrow
+                from={arrowFrom}
+                to={dragCell}
+                gridEl={gridElRef.current}
+                parentEl={relativeRef.current}
+              />
+            )}
           </div>
 
           {/* Action hint */}

@@ -98,12 +98,31 @@ class CombatEngine:
 
     @staticmethod
     def _enemy_cards(unit: CombatUnit) -> list[Card]:
-        """Generate simple enemy attack cards."""
+        """Generate enemy attack cards based on class/archetype."""
+        # Caster-type enemies use arts damage
+        if unit.char_class in ("术师", "caster", "caster_elite"):
+            return [
+                Card("enemy_bolt", "能量弹", "发射源石能量弹",
+                     "arts", 5, 10, 0.5, "SINGLE", 3, 1, "basic", "any"),
+                Card("enemy_storm", "法术风暴", "范围法术攻击",
+                     "arts", 4, 8, 0.4, "ADJACENT", 2, 2, "basic", "any"),
+                Card("enemy_blast", "法术冲击", "高密度源石能量",
+                     "arts", 8, 16, 0.8, "SINGLE", 2, 2, "basic", "any"),
+            ]
+        # Sniper-type enemies use physical ranged attacks
+        if unit.char_class in ("狙击", "sniper", "sniper_elite"):
+            return [
+                Card("enemy_shot", "射击", "精准射击",
+                     "physical", 6, 12, 0.6, "SINGLE", 3, 1, "basic", "any"),
+                Card("enemy_barrage", "连射", "快速连射",
+                     "physical", 4, 8, 0.4, "SINGLE", 3, 2, "basic", "any"),
+            ]
+        # Default melee enemies (guard, defender, soldier)
         return [
             Card("enemy_atk", "攻击", "基础攻击",
-                 "physical", 4, 8, 0.4, "SINGLE", 1, 1, "basic", "any"),
+                 "physical", 5, 10, 0.5, "SINGLE", 1, 1, "basic", "any"),
             Card("enemy_heavy", "重击", "强力攻击",
-                 "physical", 7, 14, 0.7, "SINGLE", 1, 2, "basic", "any"),
+                 "physical", 8, 16, 0.8, "SINGLE", 1, 2, "basic", "any"),
             Card("enemy_aoe", "横扫", "范围攻击",
                  "physical", 3, 6, 0.3, "ADJACENT", 1, 2, "basic", "any"),
         ]
@@ -218,6 +237,9 @@ class CombatEngine:
 
     def end_player_round(self):
         """End the player's round: execute all enemy turns, then advance round."""
+        if self._check_battle_end():
+            return
+
         self.state.phase = "ENEMY_TURN"
 
         enemy_units = [u for u in self.units.values()
@@ -226,8 +248,10 @@ class CombatEngine:
             if self.is_battle_over():
                 break
             self.execute_enemy_turn(enemy.unit_id)
+            self._check_battle_end()
 
         if not self.is_battle_over():
+            self._emit("turn_end", round=self.state.round_num)
             self.state.round_num += 1
             self._start_round()
 
@@ -338,17 +362,24 @@ class CombatEngine:
             return results
 
         pool.play_card(card)
+        self._emit("card_played", unit_id=unit.unit_id, caster=unit.name,
+                   card=card.name, target=list(target_pos),
+                   results=[r.final for r in results])
+        self._check_battle_end()
         return results
 
     def move_unit(self, unit_id: str, new_pos: tuple[int, int],
                   ap_cost: int = 1) -> bool:
         """Move a unit on the grid (costs 1 AP from shared pool for players)."""
         unit = self.units[unit_id]
+        from_pos = unit.pos
         if unit.team == "player":
             if self.shared_ap < ap_cost:
                 return False
             if self.grid.move_unit(unit, new_pos):
                 self.shared_ap -= ap_cost
+                self._emit("move", unit_id=unit_id, name=unit.name,
+                          from_pos=list(from_pos), to_pos=list(new_pos))
                 return True
             return False
         else:
@@ -356,6 +387,8 @@ class CombatEngine:
                 return False
             if self.grid.move_unit(unit, new_pos):
                 unit.AP -= ap_cost
+                self._emit("move", unit_id=unit_id, name=unit.name,
+                          from_pos=list(from_pos), to_pos=list(new_pos))
                 return True
             return False
 
@@ -420,7 +453,29 @@ class CombatEngine:
         return self.enemy_pools[unit_id].hand if unit_id in self.enemy_pools else []
 
     def get_active_unit(self) -> Optional[CombatUnit]:
+        """Return the first alive player unit, or None if none remain."""
+        for u in self.units.values():
+            if u.team == "player" and u.is_alive:
+                return u
         return None
+
+    def _check_battle_end(self) -> bool:
+        """Check if the battle has ended (all players or all enemies dead).
+        Returns True if the battle ended."""
+        players_alive = any(u.team == "player" and u.is_alive for u in self.units.values())
+        enemies_alive = any(u.team == "enemy" and u.is_alive for u in self.units.values())
+
+        if not enemies_alive:
+            self.state.phase = "END"
+            self.state.winner = "player"
+            self._emit("battle_end", winner="player", reason="所有敌人已消灭")
+            return True
+        if not players_alive:
+            self.state.phase = "END"
+            self.state.winner = "enemy"
+            self._emit("battle_end", winner="enemy", reason="所有干员已撤退")
+            return True
+        return False
 
     def is_battle_over(self) -> bool:
         return self.state.phase == "END"
@@ -434,5 +489,5 @@ class CombatEngine:
             "shared_pool": self.shared_pool.to_dict() if self.shared_pool else {},
             "enemy_pools": {uid: p.to_dict() for uid, p in self.enemy_pools.items()},
             "events": [{"type": e.type, "data": e.data}
-                       for e in self.state.events[-20:]],  # last 20 events
+                       for e in self.state.events],
         }

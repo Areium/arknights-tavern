@@ -65,8 +65,8 @@ class CombatSession:
         self._encounter_id = encounter_id
         self.engine = CombatEngine()
 
-        # Wire up event forwarding into the SSE queue
-        self.engine.on_event = self._enqueue_event
+        # Events flow through _flush_engine_events() only — no on_event callback
+        # to avoid double-queuing when both the callback and flush fire.
 
         # ── Load player characters ──
         if character_metas:
@@ -213,6 +213,7 @@ class CombatSession:
                     target = owner_unit.pos
 
                 self.engine.play_card(owner_unit.unit_id, card, target)
+                self.engine._check_battle_end()
                 self._flush_engine_events()
 
             elif action_type == "move":
@@ -326,7 +327,7 @@ class CombatSession:
                            "exhaust": shared_pool_data.get("exhaust", [])},
             "valid_targets": valid_targets,
             "valid_moves": valid_moves,
-            "active_unit_id": None,
+            "active_unit_id": next((u.unit_id for u in e.units.values() if u.team == "player" and u.is_alive), None),
             "grid": grid_cells,
             "battle_over": e.is_battle_over(),
         }
@@ -434,5 +435,4 @@ class CombatSession:
             engine.enemy_pools[uid] = pool
 
         cs.engine = engine
-        cs.engine.on_event = cs._enqueue_event
         return cs
