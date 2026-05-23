@@ -303,8 +303,8 @@ export default function CombatView() {
           setSelectedUnitId(null);
           setCombatUIMode("VIEWING");
           await fetchState();
-        } catch {
-          setError("操作失败");
+        } catch (e: any) {
+          setError(e?.message || "操作失败");
         } finally {
           setLoading(false);
         }
@@ -319,8 +319,8 @@ export default function CombatView() {
           setSelectedUnitId(null);
           setCombatUIMode("VIEWING");
           await fetchState();
-        } catch {
-          setError("移动失败");
+        } catch (e: any) {
+          setError(e?.message || "移动失败");
         } finally {
           setLoading(false);
         }
@@ -374,8 +374,8 @@ export default function CombatView() {
       setSelectedCardIndex(null);
       setSelectedUnitId(null);
       await fetchState();
-    } catch {
-      setError("结束回合失败");
+    } catch (e: any) {
+      setError(e?.message || "结束回合失败");
     } finally {
       setLoading(false);
     }
@@ -462,8 +462,8 @@ export default function CombatView() {
         setSelectedUnitId(null);
         setCombatUIMode("VIEWING");
         await fetchState();
-      } catch {
-        setError("操作失败");
+      } catch (e: any) {
+        setError(e?.message || "操作失败");
       } finally {
         setLoading(false);
         setDragCardIndex(null);

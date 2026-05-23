@@ -70,15 +70,13 @@ export default function ChibiSprite({ unit, direction = 1, animation = "idle", o
     "";
 
   return (
-    <button
-      className={`relative cursor-pointer transition-transform ${animClass}`}
+    <div
+      className={`relative pointer-events-none transition-transform ${animClass}`}
       style={{
         width: 48, height: 60,
         transform: `scaleY(${animation === "death" ? 0.3 : 1})`,
         filter: animation === "death" ? "grayscale(0.8)" : "",
       }}
-      onClick={onClick}
-      title={`${unit.name} (${unit.char_class})`}
     >
       {/* Shadow on ground */}
       <div
@@ -152,6 +150,6 @@ export default function ChibiSprite({ unit, direction = 1, animation = "idle", o
           style={{ transform: `translateX(-50%) rotate(${direction * 90}deg)` }}
         />
       )}
-    </button>
+    </div>
   );
 }
