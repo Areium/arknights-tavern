@@ -1,9 +1,9 @@
 """
 Grid system for combat positioning.
 
-- Player zone: 3 rows × 3 cols (left side, logical cols 0-2)
-- Enemy zone:  4 rows × 5 cols (right side, logical cols 3-7)
-- 1-cell visual gap between zones
+- Player zone: 6 rows × 3 cols (left side, cols 0-2)
+- Gap: 2 cols (cols 3-4)
+- Enemy zone:  6 rows × 3 cols (right side, cols 5-7)
 - Chebyshev distance: max(|dx|, |dy|)
 """
 
@@ -13,16 +13,18 @@ from combat_engine.entity import CombatUnit
 # ── Grid dimensions ──
 PLAYER_ROWS = 3
 PLAYER_COLS = 3
-ENEMY_ROWS = 4
-ENEMY_COLS = 5
+ENEMY_ROWS = 3
+ENEMY_COLS = 3
 
 # Logical column ranges
 PLAYER_COL_START = 0
 PLAYER_COL_END = 2
-ENEMY_COL_START = 3
+GAP_COL_START = 3
+GAP_COL_END = 3
+ENEMY_COL_START = 4
 ENEMY_COL_END = 7
 TOTAL_COLS = 8
-TOTAL_ROWS = 4  # max of both zones (enemy is taller)
+TOTAL_ROWS = 6
 
 
 def is_player_zone(col: int) -> bool:

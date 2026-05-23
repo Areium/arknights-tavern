@@ -23,7 +23,7 @@ from combat_engine.entity import CombatUnit
 from combat_engine.card import Card
 from combat_engine.card_data import get_starting_deck
 from combat_engine.engine import CombatEngine, CombatEvent
-from combat_engine.grid import resolve_targets, range_between, TOTAL_ROWS, TOTAL_COLS
+from combat_engine.grid import resolve_targets, range_between, TOTAL_ROWS, TOTAL_COLS, ENEMY_COL_START
 from combat_data_loader import CombatDataLoader
 
 logger = logging.getLogger(__name__)
@@ -75,8 +75,8 @@ class CombatSession:
                 if meta:
                     self._character_metas.append(meta)
 
-        # Default positions for 4 players in 3×3 left zone
-        default_positions = [(1, 0), (0, 1), (2, 1), (1, 2)]
+        # Default positions for 4 players in 3×3 zone spanning rows 3-5, cols 0-2
+        default_positions = [(3, 0), (4, 0), (5, 0), (4, 1)]
 
         for i, meta in enumerate(self._character_metas):
             unit = CombatUnit.from_character_metadata(meta, team="player")
@@ -88,7 +88,7 @@ class CombatSession:
                 cards = get_starting_deck("辅助", count=5)
                 logger.warning("No card pool for class '%s', using 辅助 fallback", char_class)
 
-            pos = default_positions[i] if i < len(default_positions) else (i % 3, 0)
+            pos = default_positions[i] if i < len(default_positions) else (3 + i % 3, 0)
             self.engine.add_player_unit(unit, cards, pos)
 
         # ── Load enemies ──
@@ -109,9 +109,9 @@ class CombatSession:
                     if j < len(positions):
                         pos = tuple(positions[j])
                     else:
-                        # Auto-place in enemy zone (cols 3-7)
+                        # Auto-place in enemy zone (cols 5-7)
                         pos = (random.randint(0, TOTAL_ROWS - 1),
-                               random.randint(TOTAL_COLS - 5, TOTAL_COLS - 1))
+                               random.randint(ENEMY_COL_START, TOTAL_COLS - 1))
 
                     self.engine.add_enemy_unit(enemy_unit, pos)
 
@@ -206,9 +206,7 @@ class CombatSession:
             elif action_type == "move":
                 if self.engine.move_unit(active.unit_id, target):
                     self._flush_engine_events()
-                    self.engine.end_current_turn()
-                    self._flush_engine_events()
-                    self._auto_enemy_turns()
+                    # Don't end turn — player can still play a card after moving
                 else:
                     return {"ok": False, "error": "Invalid move target"}
 
