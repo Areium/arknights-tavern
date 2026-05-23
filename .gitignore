@@ -8,3 +8,5 @@ config/
 venv/
 .venv/
 CLAUDE.md
+.DS_Store
+.dev-pids

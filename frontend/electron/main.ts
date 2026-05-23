@@ -7,7 +7,7 @@
  * - IPC 通信桥接
  */
 
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain, shell } from "electron";
 import { PythonProcessManager } from "./processManager";
 import path from "path";
 
@@ -89,7 +89,8 @@ function startBackend() {
 // ── IPC 处理 ──
 
 ipcMain.handle("get-backend-url", () => {
-  return BACKEND_URL;
+  // 开发模式使用 Vite 代理（同源请求），生产模式直连 Flask
+  return isDev ? "" : BACKEND_URL;
 });
 
 ipcMain.handle("get-backend-status", () => {
@@ -103,6 +104,11 @@ ipcMain.handle("get-backend-status", () => {
 ipcMain.handle("restart-backend", async () => {
   await processManager?.restart();
   return { status: "restarting" };
+});
+
+ipcMain.handle("open-directory", async (_event, dirPath: string) => {
+  const result = await shell.openPath(dirPath);
+  return { success: !result, error: result || "" };
 });
 
 // ── 应用生命周期 ──

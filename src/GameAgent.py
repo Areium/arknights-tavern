@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import random
 import logging
 
 import frontmatter
@@ -44,11 +45,7 @@ class GameAgent:
         self.dialogue_mode = "system"
 
         # 缓存：字符列表 + 已知地点（避免每次调用都扫描文件系统）
-        self._character_list = [
-            name.replace(".md", "")
-            for name in os.listdir(self._CHARACTERS_DIR)
-            if name.endswith(".md")
-        ]
+        self._character_list = self._scan_characters()
         self._known_locations = self._scan_locations()
 
         self.system_prompt = self._build_system_prompt()
@@ -111,6 +108,19 @@ class GameAgent:
 
 ## 🎮 可用角色
 {', '.join(self._character_list)}
+
+## 🎲 骰子工具
+用户可以使用掷骰命令进行 d20 判定：
+  /roll         → 掷 d20
+  /roll dc15    → 掷 d20，对抗 DC 15
+  /roll 3 dc15  → 掷 d20 + 3，对抗 DC 15
+  投骰子 / 判定 dc15 → 同上
+
+## 🎁 Buff/Debuff 抽取
+用户可以从 Buff/Debuff 池中随机抽取：
+  抽buff        → 从 Buff 池抽取（d20 决定稀有度）
+  抽debuff      → 从 Debuff 池抽取（d20 决定稀有度）
+  抽buff +2     → 带修正抽取（+2 提高稀有度档位）
 
 ## 📊 当前状态
 {current_status}
@@ -221,6 +231,243 @@ class GameAgent:
         if changes:
             return f"环境已更新: {'、'.join(changes)}"
         return "未指定任何环境参数"
+
+    # ── Buff/Debuff 抽取池 ──
+
+    # 稀有度映射：d20 结果 → (星级, 稀有度名)
+    _RARITY_TABLE = [
+        (range(1, 6), 1, "★ 普通"),
+        (range(6, 11), 2, "★★ 稀有"),
+        (range(11, 15), 3, "★★★ 精良"),
+        (range(15, 18), 4, "★★★★ 史诗"),
+        (range(18, 20), 5, "★★★★★ 传说"),
+        (range(20, 21), 6, "★★★★★★ 神话"),
+    ]
+
+    @staticmethod
+    def _rarity_for_roll(roll: int) -> tuple[int, str]:
+        """根据 d20 结果返回 (星级, 稀有度名)。"""
+        for rng, stars, name in GameAgent._RARITY_TABLE:
+            if roll in rng:
+                return stars, name
+        return 1, "★ 普通"
+
+    def _load_pool(self, filename: str) -> dict[int, list[dict]]:
+        """解析 buff/debuff 池 markdown 文件，返回 {星级: [条目列表]}。"""
+        path = os.path.join(self._ROOT, "data", "rules", "05-buff-pool", filename)
+        pool: dict[int, list[dict]] = {s: [] for s in range(1, 7)}
+        if not os.path.isfile(path):
+            return pool
+
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read()
+
+        # 匹配每个条目块：### ID: 名称 ... 直到下一个 ### 或文件尾
+        entries = re.split(r"\n(?=### [A-Z]+-\d+:)", text)
+        for block in entries:
+            m = re.match(r"### ([A-Z]+-\d+): (.+?)(?:\((.+?)\))?\s*$", block, re.MULTILINE)
+            if not m:
+                continue
+            entry_id = m.group(1).strip()
+            name = m.group(2).strip()
+
+            def _extract(key: str) -> str:
+                mm = re.search(rf"- \*\*{key}\*\*[:：](.+?)$", block, re.MULTILINE)
+                return mm.group(1).strip() if mm else ""
+
+            category = _extract("类别")
+            effect = _extract("效果")
+            duration = _extract("持续")
+            narrative = _extract("叙事")
+            if narrative.startswith('"') and narrative.endswith('"'):
+                narrative = narrative[1:-1]
+
+            entry = {
+                "id": entry_id, "name": name, "category": category,
+                "effect": effect, "duration": duration, "narrative": narrative,
+            }
+
+            # 判断星级：通过所在章节的 ## 标题
+            section_match = re.search(
+                r"## ★+(?:★)\s*([^(\n]+?)(?:\s*\([^)]+\))?\s*(?:—.*?)?$",
+                block, re.MULTILINE
+            )
+            # 回退：从整个 block 之前的章节标题推断
+            # 简单方法：按 block 在全文中的位置，向前查找最近的 ## ★ 标题
+            block_start = text.find(block)
+            if block_start > 0:
+                before = text[:block_start]
+                stars_match = re.findall(r"## (★+)\s*(?:[^(\n]+?)(?:\s*\([^)]*d20: (\d+)-?(\d+)?\))", before)
+                if stars_match:
+                    last = stars_match[-1]
+                    star_count = len(last[0])
+                    if star_count in pool:
+                        pool[star_count].append(entry)
+                    continue
+
+            # 最终回退：从 block 内容中找
+            for star_count in range(6, 0, -1):
+                stars_str = "★" * star_count
+                if stars_str in block[:200]:
+                    pool[star_count].append(entry)
+                    break
+
+        return pool
+
+    def _draw_from_pool(self, pool_name: str, modifier: int = 0) -> str:
+        """从指定池中抽取一个 buff/debuff，返回格式化的结果。"""
+        filename = "buffs.md" if pool_name == "buff" else "debuffs.md"
+        pool = self._load_pool(filename)
+
+        roll = random.randint(1, 20)
+        adjusted = min(20, max(1, roll + modifier))
+        stars, rarity_name = self._rarity_for_roll(adjusted)
+
+        if modifier != 0 and adjusted != roll:
+            mod_str = f"+{modifier}" if modifier > 0 else str(modifier)
+            roll_info = f"d20 = {roll} (修正 {mod_str} → {adjusted})"
+        else:
+            roll_info = f"d20 = {roll}"
+
+        available = pool.get(stars, [])
+        if not available:
+            # 降级查找
+            for s in range(stars - 1, 0, -1):
+                if pool.get(s):
+                    available = pool[s]
+                    stars = s
+                    rarity_name = self._rarity_for_roll(
+                        {1: 3, 2: 8, 3: 12, 4: 16, 5: 18, 6: 20}[s]
+                    )[1]
+                    break
+
+        if not available:
+            return f"🎲 {roll_info} → {rarity_name}\n该档位暂无可用条目。"
+
+        entry = random.choice(available)
+        lines = [
+            f"🎲 {roll_info}",
+            f"📦 稀有度：{rarity_name} ({'★' * stars})",
+            f"📛 {entry['id']}: {entry['name']}",
+            f"📂 类别：{entry['category']}",
+            f"📐 效果：{entry['effect']}",
+            f"⏱ 持续：{entry['duration']}",
+            f"💬 {entry['narrative']}",
+        ]
+        return "\n".join(lines)
+
+    def draw_buff(self, modifier: int = 0) -> str:
+        """抽取一个 Buff。"""
+        return self._draw_from_pool("buff", modifier)
+
+    def draw_debuff(self, modifier: int = 0) -> str:
+        """抽取一个 Debuff。"""
+        return self._draw_from_pool("debuff", modifier)
+
+    @staticmethod
+    def _is_draw_request(text: str) -> bool:
+        """检测是否为 buff/debuff 抽取请求。"""
+        keywords = [
+            "抽buff", "抽debuff", "抽取buff", "抽取debuff",
+            "抽个buff", "抽个debuff", "抽一个buff", "抽一个debuff",
+            "buff池", "debuff池", "抽奖", "抽卡",
+            "draw buff", "draw debuff",
+        ]
+        text_lower = text.lower().strip()
+        return any(kw in text_lower for kw in keywords)
+
+    def _handle_draw(self, text: str) -> str:
+        """解析抽取请求并执行。支持格式：抽buff / 抽debuff / 抽buff +2。"""
+        is_debuff = any(kw in text.lower() for kw in ["debuff", "debuff池"])
+        modifier = 0
+        mod_match = re.search(r"\+(\d+)", text)
+        if mod_match:
+            modifier = int(mod_match.group(1))
+        mod_match_neg = re.search(r"\-(\d+)", text)
+        if mod_match_neg:
+            modifier = -int(mod_match_neg.group(1))
+
+        if is_debuff:
+            return self.draw_debuff(modifier)
+        return self.draw_buff(modifier)
+
+    # ── Roll 点工具 ──
+
+    def roll_d20(self, modifier: int = 0, difficulty: int | None = None) -> str:
+        """掷 20 面骰子，返回格式化的结果。
+
+        Args:
+            modifier: 属性加成（正值有利，负值不利）
+            difficulty: 难度等级（DC），若提供则判定成功/失败
+
+        Returns:
+            str: 格式化的掷骰结果
+        """
+        roll = random.randint(1, 20)
+        total = roll + modifier
+
+        parts = [f"🎲 掷出 d20: **{roll}**"]
+        if modifier != 0:
+            sign = "+" if modifier > 0 else ""
+            parts.append(f" (修正 {sign}{modifier})")
+        if modifier != 0:
+            parts.append(f" = **{total}**")
+
+        if difficulty is not None:
+            success = total >= difficulty
+            if success:
+                parts.append(f"  ✅ 成功 (DC {difficulty})")
+            else:
+                parts.append(f"  ❌ 失败 (DC {difficulty})")
+        elif roll == 20:
+            parts.append("  🌟 大成功！")
+        elif roll == 1:
+            parts.append("  💀 大失败！")
+
+        return "".join(parts)
+
+    @staticmethod
+    def _is_roll_request(text: str) -> bool:
+        """检测用户输入是否为掷骰请求。"""
+        keywords = [
+            "/roll", "/r", "roll点", "roll d20", "roll d",
+            "投骰子", "掷骰", "掷骰子", "roll一下", "roll 一下",
+            "投个骰子", "扔骰子", "丢骰子",
+            "判定", "过个判定",
+        ]
+        text_lower = text.lower().strip()
+        return any(kw in text_lower for kw in keywords)
+
+    def _handle_roll(self, text: str) -> str:
+        """解析掷骰请求并执行，返回格式化的结果。
+
+        支持格式：
+          /roll           → d20
+          /roll 3         → d20 + 3
+          /roll dc15      → d20 vs DC 15
+          /roll 3 dc15    → d20 + 3 vs DC 15
+          判定 dc15       → d20 vs DC 15
+        """
+        modifier = 0
+        difficulty = None
+
+        # 提取 DC（难度等级）
+        dc_match = re.search(r"dc\s*(\d+)", text, re.IGNORECASE)
+        if dc_match:
+            difficulty = int(dc_match.group(1))
+
+        # 提取修正值：紧邻 dc 前的数字
+        mod_match = re.search(r"(\d+)\s*dc", text, re.IGNORECASE)
+        if mod_match:
+            modifier = int(mod_match.group(1))
+        else:
+            # 无 dc 时的独立数字
+            cleaned = re.sub(r"dc\s*\d+", "", text, flags=re.IGNORECASE)
+            mod_match = re.search(r"(\d+)", cleaned)
+            if mod_match:
+                modifier = int(mod_match.group(1))
+
+        return self.roll_d20(modifier=modifier, difficulty=difficulty)
 
     # ── 选项生成 ──
 
@@ -363,17 +610,59 @@ class GameAgent:
 
         return None
 
+    def _scan_characters(self) -> list[str]:
+        """扫描 data/characters/ 目录，返回角色名列表。
+
+        支持实体文件夹（{name}/index.md）和传统文件（{name}.md）两种模式。
+        """
+        chars = []
+        if not os.path.isdir(self._CHARACTERS_DIR):
+            return chars
+        for entry in os.listdir(self._CHARACTERS_DIR):
+            entry_path = os.path.join(self._CHARACTERS_DIR, entry)
+            # 实体文件夹：目录含 index.md
+            if os.path.isdir(entry_path):
+                if os.path.isfile(os.path.join(entry_path, "index.md")):
+                    chars.append(entry)
+            # 传统文件（向后兼容）
+            elif entry.endswith(".md"):
+                stem = os.path.splitext(entry)[0]
+                if stem not in ("_index", "TEMPLATE"):
+                    chars.append(stem)
+        return chars
+
     def _scan_locations(self) -> dict[str, str]:
-        """扫描 environment/Location/ 目录，构建 {关键词 → 文件名} 映射（仅在 __init__ 调用一次）。"""
+        """扫描 environment/Location/ 目录，构建 {关键词 → 文件名} 映射（仅在 __init__ 调用一次）。
+
+        支持实体文件夹和传统 .md 文件两种模式。
+        """
         known = {}
         base = os.path.join(self._ENV_DIR, "Location")
         if not os.path.isdir(base):
             return known
-        for root, _dirs, files in os.walk(base):
+        for root, dirs, files in os.walk(base):
+            # 实体文件夹
+            for d in dirs:
+                d_full = os.path.join(root, d)
+                index_md = os.path.join(d_full, "index.md")
+                if os.path.isfile(index_md):
+                    known[d] = d
+                    try:
+                        with open(index_md, "r", encoding="utf-8") as fh:
+                            meta = frontmatter.load(fh).metadata
+                        if meta.get("name"):
+                            known[meta["name"]] = d
+                        if meta.get("alias"):
+                            known[meta["alias"]] = d
+                    except Exception:
+                        continue
+            # 传统 .md 文件（向后兼容）
             for f in files:
                 if not f.endswith(".md"):
                     continue
                 stem = os.path.splitext(f)[0]
+                if stem in ("_index", "TEMPLATE", "index"):
+                    continue
                 known[stem] = stem
                 try:
                     with open(os.path.join(root, f), "r", encoding="utf-8") as fh:
@@ -455,6 +744,14 @@ class GameAgent:
         load_msg = self._check_character_load_intent(user_input)
         if load_msg:
             return load_msg
+
+        # Roll 点检测（所有模式下）
+        if self._is_roll_request(user_input):
+            return self._handle_roll(user_input)
+
+        # Buff/Debuff 抽取检测（所有模式下）
+        if self._is_draw_request(user_input):
+            return self._handle_draw(user_input)
 
         # ── 剧情模式：通过 SceneManager 路由 ──
         if self.dialogue_mode == "story" and self.scene_manager.get_active_agent():

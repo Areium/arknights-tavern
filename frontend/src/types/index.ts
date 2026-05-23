@@ -111,7 +111,41 @@ export interface ElectronAPI {
   getBackendUrl: () => Promise<string>;
   getBackendStatus: () => Promise<{ status: string; url: string }>;
   restartBackend: () => Promise<{ status: string }>;
+  openDirectory: (dirPath: string) => Promise<{ success: boolean; error: string }>;
   onBackendStatus: (cb: (status: { status: string; url: string }) => void) => () => void;
+}
+
+/** 任务 */
+export interface Quest {
+  id: string;
+  name: string;
+  type: "main" | "side" | "deep";
+  chapter: string;
+  objective: string;
+  trigger: string;
+  completion: string;
+  reward: string;
+  failure: string;
+  status: "hidden" | "locked" | "visible" | "active" | "completed" | "failed";
+  updated_at: number;
+  task_id?: string;
+  subtype?: string;
+}
+
+/** 任务列表响应 */
+export interface QuestsResponse {
+  plot_id: string | null;
+  quests: Quest[];
+}
+
+/** 可用剧情 */
+export interface PlotInfo {
+  id: string;
+  name: string;
+  category: string;
+  priority: number;
+  trigger_location: string[];
+  trigger_character: string[];
 }
 
 declare global {

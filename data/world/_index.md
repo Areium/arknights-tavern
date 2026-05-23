@@ -15,25 +15,13 @@
 #     summary:  一句话概述
 # ==============================================================================
 index:
-  # 示例条目（实际使用时取消注释并替换）
-  # 01-basic-setting:
-  #   file: "01-basic-setting.md"
-  #   name: "泰拉世界基础设定"
-  #   category: global
-  #   priority: 1
-  #   summary: "源石、天灾、矿石病、移动城邦等核心概念"
-  #
-  # 02-races:
-  #   file: "02-races.md"
-  #   name: "种族详细设定"
-  #   category: global
-  #   priority: 2
-  #   summary: "泰拉主要种族的生理特征和文化背景"
-  #
-  # 03-factions:
-  #   file: "03-factions.md"
-  #   name: "势力概况"
-  #   category: global
-  #   priority: 3
-  #   summary: "泰拉主要势力的组织结构和外交关系"
+  01-basic-setting:
+    file: "01-basic-setting/index.md"
+    name: "泰拉世界基础设定"
+    category: global
+    priority: 1
+    summary: "源石、天灾、矿石病、移动城邦等核心概念"
+
+  # 注：势力、种族详细信息参见 data/factions/ 和 data/races/。
+  # 游戏推理规则（buff/debuff 池、失败后果系统）参见 data/rules/。
 ---

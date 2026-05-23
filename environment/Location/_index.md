@@ -17,37 +17,37 @@
 # ==============================================================================
 index:
   控制中枢:
-    file: "Rhode_Island/Control_Center.md"
+    file: "Rhode_Island/Control_Center/index.md"
     region: "罗德岛"
     summary: "罗德岛舰船的神经中枢，全息投影和战术数据屏环绕的战略指挥中心"
     tags: ["罗德岛", "指挥", "舰桥"]
 
   宿舍:
-    file: "Rhode_Island/Dormitories.md"
+    file: "Rhode_Island/Dormitories/index.md"
     region: "罗德岛"
     summary: "干员们日常休息和生活的私人空间，温馨而放松"
     tags: ["罗德岛", "生活区", "休息"]
 
   制造站:
-    file: "Rhode_Island/Manufacturing_Station.md"
+    file: "Rhode_Island/Manufacturing_Station/index.md"
     region: "罗德岛"
     summary: "罗德岛的工业制造中心，生产作战物资和药品"
     tags: ["罗德岛", "生产", "工业"]
 
   医疗部:
-    file: "Rhode_Island/Medical_Department.md"
+    file: "Rhode_Island/Medical_Department/index.md"
     region: "罗德岛"
     summary: "罗德岛的医疗核心，矿石病研究和干员治疗的主要场所"
     tags: ["罗德岛", "医疗", "后勤"]
 
   训练室:
-    file: "Rhode_Island/Training Room.md"
+    file: "Rhode_Island/Training Room/index.md"
     region: "罗德岛"
     summary: "干员们进行战斗训练和模拟演习的场所"
     tags: ["罗德岛", "训练", "战斗"]
 
   会客室:
-    file: "Rhode_Island/Reception_Room.md"
+    file: "Rhode_Island/Reception_Room/index.md"
     region: "罗德岛"
     summary: "罗德岛接待访客和进行外交会谈的正式场所"
     tags: ["罗德岛", "外交", "接待"]

@@ -7,6 +7,7 @@ import ChatPanel from "./ChatPanel";
 import CharacterBrowser from "./CharacterBrowser";
 import ItemBrowser from "./ItemBrowser";
 import MemoryPanel from "./MemoryPanel";
+import QuestPanel from "./QuestPanel";
 
 export default function ChatView() {
   const [charBrowserOpen, setCharBrowserOpen] = useState(false);
@@ -28,6 +29,7 @@ export default function ChatView() {
         />
         <EnvironmentPanel />
         <MemoryPanel />
+        <QuestPanel />
       </div>
 
       {/* Right: chat */}

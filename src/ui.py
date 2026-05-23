@@ -83,7 +83,7 @@ class OptionsMenu:
             header = f"【剧情模式】{chars}"
 
         lines = [
-            f"{header}  (Tab 切换, ↑↓ 选择, Enter 确认)",
+            f"{header}  (Tab 切换, /roll 掷骰, ↑↓ 选择, Enter 确认)",
             "",
         ]
         for i, opt in enumerate(self._items):
