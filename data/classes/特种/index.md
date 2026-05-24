@@ -1,12 +1,23 @@
 ---
-name: "特种"
-alias: "Specialist"
-category: "战术"
-combat_role: "特殊战术/位移"
-damage_type: mixed
+alias: Specialist
 attack_range: short
-deployment_cost_range: "8-12"
-core_attributes: ["mobility", "combat_skill", "tactical_planning"]
+category: 战术
+combat_role: 特殊战术/位移
+core_attributes:
+- mobility
+- combat_skill
+- tactical_planning
+damage_type: mixed
+deployment_cost_range: 8-12
+imports:
+- attributes/战场机动 | 战场机动
+- attributes/战斗技巧 | 战斗技巧
+- attributes/战术规划 | 战术规划
+- attributes/源石技艺适应性 | 源石技艺适应性
+- attributes/物理强度 | 物理强度
+- attributes/魅力 | 魅力
+- classes/辅助 | 辅助
+name: 特种
 ---
 
 # 特种 / Specialist

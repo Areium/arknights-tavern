@@ -8,6 +8,19 @@ tags:
 - 企鹅物流
 - 佣兵
 - 沉默寡言
+imports:
+  - classes/先锋
+  - races/鲁珀
+  - factions/罗德岛
+  - attributes/物理强度
+  - attributes/战场机动
+  - attributes/生理耐受
+  - attributes/战术规划
+  - attributes/战斗技巧
+  - attributes/源石技艺适应性
+  - attributes/情绪稳定性
+  - attributes/魅力
+  - characters/博士
 attributes:
   物理强度: 6
   战场机动: 8
@@ -21,7 +34,6 @@ relationships:
   博士: 雇佣关系，逐步建立信任中
   能天使: 吵嚷的搭档，虽然嫌烦但已习惯
   拉普兰德: 不愿提及的过去，复杂而沉重
-index_refs: {}
 ---
 # 角色背景
 

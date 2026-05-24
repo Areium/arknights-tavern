@@ -1,12 +1,20 @@
 ---
-name: "术师"
-alias: "Caster"
-category: "输出"
-combat_role: "远程法术输出核心"
-damage_type: arts
+alias: Caster
 attack_range: medium
-deployment_cost_range: "15-35"
-core_attributes: ["originium_arts_assimilation", "tactical_planning"]
+category: 输出
+combat_role: 远程法术输出核心
+core_attributes:
+- originium_arts_assimilation
+- tactical_planning
+damage_type: arts
+deployment_cost_range: 15-35
+imports:
+- attributes/战场机动 | 战场机动
+- attributes/战术规划 | 战术规划
+- attributes/源石技艺适应性 | 源石技艺适应性
+- attributes/生理耐受 | 生理耐受
+- classes/辅助 | 辅助
+name: 术师
 ---
 
 # 术师 / Caster

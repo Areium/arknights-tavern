@@ -109,12 +109,12 @@ export default function App() {
         return <ChatView />;
       case "documents":
         return <DocumentManager />;
-      case "combat":
-        return <CombatView />;
       case "settings":
         return <SettingsPanel />;
+      case "combat":
+        return <CombatView />;
       case "index":
-        return <IndexManager api={api} />;
+        return <IndexManager />;
     }
   };
 

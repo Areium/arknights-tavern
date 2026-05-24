@@ -1,0 +1,41 @@
+# data/ 类别注册表
+# 系统启动时加载此文件，建立 类别ID → 目录 映射。
+# 取代旧 data/_INDEX.md 中的 index + hierarchy 部分。
+categories:
+  characters: data/characters/
+  races: data/races/
+  classes: data/classes/
+  factions: data/factions/
+  items: data/items/
+  locations: environment/Location/
+  weather: environment/weather/
+  plots: data/plots/
+  world: data/world/
+  attributes: data/attributes/
+  enemies: data/enemies/
+  combat_enemies: data/combat/enemies/
+  combat_cards: data/combat/cards/
+  combat_encounters: data/combat/encounters/
+  rules: data/rules/
+
+# 层级定义（用于文档管理界面分组）
+hierarchy:
+  levels:
+    - level: 0
+      label: 世界观
+      categories: [world, rules]
+    - level: 1
+      label: 基础定义
+      categories: [attributes, races, classes, weather]
+    - level: 2
+      label: 世界实体
+      categories: [factions, locations, items]
+    - level: 3
+      label: 行动者
+      categories: [characters]
+    - level: 4
+      label: 叙事
+      categories: [plots, enemies, combat_encounters]
+    - level: 5
+      label: 战斗组件
+      categories: [combat_enemies, combat_cards]

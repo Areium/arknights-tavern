@@ -100,10 +100,16 @@ class SceneManager:
             return True
 
         char_overrides = {}
+        entity_whitelist = None
         if self._overlay:
             char_overrides = self._overlay.get_character_overrides(name)
+            entity_whitelist = self._overlay.get_index_config()
 
-        agent = CharacterAgent(name, self._llm, self._registry, overrides=char_overrides if char_overrides else None)
+        agent = CharacterAgent(
+            name, self._llm, self._registry,
+            overrides=char_overrides if char_overrides else None,
+            entity_whitelist=entity_whitelist,
+        )
         if agent.character is None:
             logger.error("无法加载角色: %s", name)
             return False

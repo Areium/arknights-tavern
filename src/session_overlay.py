@@ -17,6 +17,8 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+import frontmatter
+
 logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -142,6 +144,30 @@ class SessionOverlay:
         merged_content = overrides.get("content") if overrides.get("content") is not None else content
         return merged_meta, merged_content
 
+    # ── 会话索引配置 ──
+
+    def get_index_config(self) -> dict:
+        """获取会话索引配置，不存在返回默认 {mode: "all"}。"""
+        return self._data.get("index_config", {
+            "mode": "all",
+            "enabled_categories": [],
+            "enabled_entities": {},
+        })
+
+    def set_index_config(self, config: dict):
+        """设置会话索引配置。"""
+        self._data["index_config"] = {
+            "mode": config.get("mode", "all"),
+            "enabled_categories": config.get("enabled_categories", []),
+            "enabled_entities": config.get("enabled_entities", {}),
+        }
+        self._save()
+
+    def reset_index_config(self):
+        """重置会话索引配置为默认。"""
+        self._data.pop("index_config", None)
+        self._save()
+
     # ── 战斗模式设置 ──
 
     def get_combat_mode(self) -> str:
@@ -251,7 +277,7 @@ class SessionOverlay:
 
     def to_dict(self) -> dict:
         """返回全部覆盖数据（供 API 使用）。"""
-        return {
+        result = {
             "session_id": self.session_id,
             "plot_id": self._data.get("plot_id"),
             "combat_mode": self.get_combat_mode(),
@@ -261,6 +287,9 @@ class SessionOverlay:
             "quest_states": self._data.get("quest_states", {}),
             "has_plot_context": self.has_plot_context(),
         }
+        if "index_config" in self._data:
+            result["index_config"] = self._data["index_config"]
+        return result
 
     @staticmethod
     def delete_session_overlays(session_id: str, mode: str = "free"):
@@ -273,22 +302,25 @@ class SessionOverlay:
 
 
 def _resolve_plot_dir(plot_id: str) -> str | None:
-    """通过 plots/_index.md 解析 plot_id 对应的目录名。"""
-    import re
-    index_path = _PROJECT_ROOT / "data" / "plots" / "_index.md"
-    if not index_path.exists():
+    """通过扫描 data/plots/ 子目录查找指定 plot_id 对应的目录名。"""
+    base = _PROJECT_ROOT / "data" / "plots"
+    if not base.is_dir():
         return None
-    try:
-        with open(index_path, "r", encoding="utf-8") as f:
-            content = f.read()
-        # 查找 plot_id 对应的 file 字段
-        pattern = rf"{re.escape(plot_id)}:\s*\n\s+file:\s*\"([^\"]+)\""
-        m = re.search(pattern, content)
-        if m:
-            file_path = m.group(1)  # e.g. "near-light/index.md"
-            return file_path.rsplit("/", 1)[0]  # e.g. "near-light"
-    except Exception:
-        pass
+    # 首先直接匹配目录名
+    if (base / plot_id / "index.md").is_file():
+        return plot_id
+    # 扫描所有子目录，匹配 frontmatter id
+    for entry in sorted(base.iterdir()):
+        if entry.is_dir():
+            index_md = entry / "index.md"
+            if index_md.is_file():
+                try:
+                    with open(index_md, "r", encoding="utf-8") as f:
+                        fm = frontmatter.load(f)
+                    if fm.metadata.get("id") == plot_id:
+                        return entry.name
+                except Exception:
+                    continue
     return None
 
 
@@ -299,7 +331,7 @@ def _parse_quests_md(plot_id: str) -> list[dict]:
     # 先尝试直接用 plot_id 作为目录名
     path = _PROJECT_ROOT / "data" / "plots" / plot_id / "quests.md"
     if not path.exists():
-        # 通过 _index.md 解析实际目录名
+        # 通过目录扫描解析实际目录名
         resolved = _resolve_plot_dir(plot_id)
         if resolved:
             path = _PROJECT_ROOT / "data" / "plots" / resolved / "quests.md"

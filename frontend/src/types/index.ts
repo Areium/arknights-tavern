@@ -237,55 +237,66 @@ declare global {
   }
 }
 
-// ── 索引管理 ──
+// ── 索引管理（基于 imports 的新系统） ──
 
-export interface IndexEntity {
+export interface IndexDocSummary {
+  path: string;
   id: string;
   name: string;
-  summary: string;
+  imports: { path: string; name: string }[];
+  imported_by: { path: string; name: string; category: string }[];
 }
 
-export interface IndexEntitiesByCategory {
-  [category: string]: IndexEntity[];
-}
-
-export interface IndexRefs {
-  [category: string]: string[];
-}
-
-export interface DocIndexData {
-  refs: IndexRefs;
-  entities: IndexEntitiesByCategory;
-}
-
-export interface ScanResult {
-  new_matches: IndexEntitiesByCategory;
-  existing_matches: IndexEntitiesByCategory;
-}
-
-// ── 全局索引配置 ──
-
-export interface IndexConfigTreeDoc {
-  id: string;
-  path: string;
-  ref_count: number;
-  refed_by_count: number;
-  refs: IndexRefs;
-  refed_by: Record<string, { id: string; path: string }[]>;
-  in_config?: boolean;
-}
-
-export interface IndexConfigTreeCategory {
+export interface IndexOverviewCategory {
   category: string;
-  doc_count: number;
-  docs: IndexConfigTreeDoc[];
+  label: string;
+  level: number;
+  docs: IndexDocSummary[];
 }
 
-export interface IndexConfigTree {
-  categories: IndexConfigTreeCategory[];
+export interface IndexOverview {
+  categories: IndexOverviewCategory[];
+  hierarchy: { level: number; label: string; categories: string[] }[];
 }
 
-export interface IndexConfigData {
-  config: Record<string, Record<string, string[]>>;
-  entities: IndexEntitiesByCategory;
+export interface IndexGraphNode {
+  id: string;
+  category: string;
+  name: string;
+  level: number;
+}
+
+export interface IndexGraphEdge {
+  source: string;
+  target: string;
+}
+
+export interface IndexGraph {
+  nodes: IndexGraphNode[];
+  edges: IndexGraphEdge[];
+}
+
+export interface SessionIndexConfig {
+  mode: "all" | "whitelist";
+  enabled_categories: string[];
+  enabled_entities: Record<string, string[]>;
+}
+
+export interface BrokenImport {
+  import_path: string;
+  name: string;
+  type?: "missing" | "broken";
+}
+
+export interface BrokenRefDoc {
+  doc_path: string;
+  doc_name: string;
+  broken_imports: BrokenImport[];
+}
+
+export interface IndexVerifyResult {
+  total_docs: number;
+  total_imports: number;
+  broken_refs: BrokenRefDoc[];
+  mode?: string;
 }

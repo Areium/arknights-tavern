@@ -1,15 +1,29 @@
 ---
-name: "乌萨斯军方"
-alias: "Ursus Imperial Army"
-type: nation
-scale: global
+alias: Ursus Imperial Army
 alignment: lawful_evil
-headquarters: "乌萨斯帝国首都"
-leader: ["乌萨斯皇帝"]
-key_members: []
-rivals: ["整合运动", "罗德岛"]
 allies: []
-tags: ["乌萨斯", "军方", "军事", "帝国军队"]
+headquarters: 乌萨斯帝国首都
+imports:
+- classes/近卫 | 近卫
+- races/乌萨斯 | 乌萨斯
+- factions/乌萨斯帝国 | 乌萨斯帝国
+- factions/整合运动 | 整合运动
+- factions/罗德岛 | 罗德岛
+- factions/龙门 | 龙门
+key_members: []
+leader:
+- 乌萨斯皇帝
+name: 乌萨斯军方
+rivals:
+- 整合运动
+- 罗德岛
+scale: global
+tags:
+- 乌萨斯
+- 军方
+- 军事
+- 帝国军队
+type: nation
 ---
 
 # 乌萨斯军方

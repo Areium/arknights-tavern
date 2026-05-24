@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useApi } from "../hooks/useApi";
 import type { DocTreeCategory, DocTreeNode } from "../types";
 
@@ -50,6 +50,10 @@ const CATEGORY_LABELS: Record<string, string> = {
   rules: "规则",
 };
 
+function catLabel(cat: string): string {
+  return CATEGORY_LABELS[cat] || cat;
+}
+
 function getAllFolders(nodes: DocTreeNode[], prefix = ""): string[] {
   const result: string[] = [];
   for (const n of nodes) {
@@ -72,6 +76,7 @@ export default function DocumentManager() {
 
   // ── Tree ──
   const [tree, setTree] = useState<DocTreeCategory[]>([]);
+  const [hierarchy, setHierarchy] = useState<{ level: number; label: string; categories: string[] }[]>([]);
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<{
     x: number; y: number;
@@ -97,6 +102,38 @@ export default function DocumentManager() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  // ── Imports / 依赖管理 ──
+  const [imports, setImports] = useState<{ path: string; name: string }[]>([]);
+  const [missingDeps, setMissingDeps] = useState<Set<string>>(new Set());
+  const [importsDirty, setImportsDirty] = useState(false);
+  const [showImportSearch, setShowImportSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [savingImports, setSavingImports] = useState(false);
+  const [scanResults, setScanResults] = useState<any[] | null>(null);
+  const [scanExisting, setScanExisting] = useState<any[]>([]);
+  const [scanLoading, setScanLoading] = useState(false);
+
+  // ── Batch scan state ──
+  const [batchScanning, setBatchScanning] = useState(false);
+  const [batchConfirm, setBatchConfirm] = useState<{
+    total: number;
+    processed: number;
+    updated: number;
+    updatedDocs: string[];
+    errors: { doc: string; error: string }[];
+    done: boolean;
+  } | null>(null);
+
+  // ── Global broken refs tracking ──
+  const [brokenRefDocs, setBrokenRefDocs] = useState<{
+    docPath: string;
+    docName: string;
+    category: string;
+    brokenImports: { importPath: string; name: string }[];
+  }[]>([]);
+
   // ── Editor tab ──
 
   // ── Toast ──
@@ -114,8 +151,14 @@ export default function DocumentManager() {
   const loadTree = useCallback(async (retries = 2) => {
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
-        const data: DocTreeCategory[] = await apiRef.current.getDocumentTree();
+        const [data, catData] = await Promise.all([
+          apiRef.current.getDocumentTree(),
+          apiRef.current.getDocumentCategories(),
+        ]);
         setTree(data);
+        setHierarchy(catData?.hierarchy || []);
+        // 初始化所有类别为折叠状态
+        setCollapsedNodes(new Set(data.map((c: DocTreeCategory) => c.category)));
         setError("");
         return;
       } catch (err: any) {
@@ -131,6 +174,30 @@ export default function DocumentManager() {
   useEffect(() => {
     loadTree();
   }, [loadTree]);
+
+  // ── Hierarchy helpers ──
+
+  const catLevelMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    const labels: Record<string, string> = {};
+    for (const level of hierarchy) {
+      labels[level.level] = level.label;
+      for (const cat of level.categories) {
+        map[cat] = level.level;
+      }
+    }
+    return { map, labels };
+  }, [hierarchy]);
+
+  const sortCatsByLevel = useCallback(
+    (cats: DocTreeCategory[]) =>
+      [...cats].sort((a, b) => {
+        const la = catLevelMap.map[a.category] ?? 99;
+        const lb = catLevelMap.map[b.category] ?? 99;
+        return la - lb || a.category.localeCompare(b.category);
+      }),
+    [catLevelMap]
+  );
 
   // ── Load images ──
 
@@ -196,11 +263,29 @@ export default function DocumentManager() {
     setEditing(false);
     setLoading(true);
     setError("");
+    setImports([]);
+    setImportsDirty(false);
+    setShowImportSearch(false);
+    setSearchQuery("");
+    setSearchResults([]);
+    setScanResults(null);
+    setScanExisting([]);
     try {
-      const content = await api.readDocument(category, id);
+      const [content, importsData] = await Promise.all([
+        api.readDocument(category, id),
+        api.getDocImports(category, id).catch(() => ({ imports: [] })),
+      ]);
       if (reqId !== currentReq.current) return;
       setDocContent(content);
       setEditContent(content.content);
+      const impList = (importsData.imports || []) as { path: string; name: string }[];
+      setImports(impList);
+      // Also verify imports
+      api.verifyDocImports(category, id).then((vr) => {
+        if (reqId !== currentReq.current) return;
+        const missing = new Set(vr.results.filter((r) => !r.exists).map((r) => r.path));
+        setMissingDeps(missing);
+      }).catch(() => {});
     } catch (err: any) {
       if (reqId !== currentReq.current) return;
       setError(err.message);
@@ -391,6 +476,220 @@ export default function DocumentManager() {
     setModalTarget(parentPath || "");
   };
 
+  // ── Imports / 依赖管理 ──
+
+  const handleSaveImports = async () => {
+    if (!selectedCategory || !selectedPath) return;
+    const docId = docIdFromPath(selectedPath);
+    setSavingImports(true);
+    try {
+      const paths = imports.map((i) => i.path);
+      const result = await api.updateDocImports(selectedCategory, docId, paths);
+      // 更新为保存后返回的结构化数据
+      if (result.imports) {
+        const updated = result.imports as { path: string; name: string }[];
+        setImports(updated);
+      }
+      setImportsDirty(false);
+      showToast("依赖已保存");
+      // Re-verify broken refs for this doc (removes from broken section if all fixed)
+      refreshBrokenRefForDoc(selectedCategory, docId);
+    } catch (err: any) {
+      showToast(err.message || "保存依赖失败", "error");
+    } finally {
+      setSavingImports(false);
+    }
+  };
+
+  const handleRemoveImport = (impPath: string) => {
+    setImports((prev) => prev.filter((p) => p.path !== impPath));
+    setImportsDirty(true);
+  };
+
+  const handleAddImport = (impPath: string, impName?: string) => {
+    if (imports.some((p) => p.path === impPath)) return;
+    setImports((prev) => [...prev, { path: impPath, name: impName || impPath }]);
+    setImportsDirty(true);
+  };
+
+  const handleAddAllScanResults = () => {
+    if (!scanResults) return;
+    setImports((prev) => {
+      const existingPaths = new Set(prev.map((p) => p.path));
+      const newImports = scanResults.filter((r) => !existingPaths.has(r.path));
+      if (newImports.length === 0) return prev;
+      return [
+        ...prev,
+        ...newImports.map((r) => ({ path: r.path, name: r.title || r.path })),
+      ];
+    });
+    setImportsDirty(true);
+  };
+
+  const handleSearchImport = useCallback(async (q: string) => {
+    setSearchQuery(q);
+    if (!q.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    if (!selectedCategory || !selectedPath) return;
+    setSearchLoading(true);
+    try {
+      const docId = docIdFromPath(selectedPath);
+      const results = await apiRef.current.searchDocuments(q, selectedCategory, docId);
+      setSearchResults(results);
+    } catch {
+      setSearchResults([]);
+    } finally {
+      setSearchLoading(false);
+    }
+  }, [selectedCategory, selectedPath]);
+
+  const handleScanImports = async () => {
+    if (!selectedCategory || !selectedPath) return;
+    const docId = docIdFromPath(selectedPath);
+    setScanLoading(true);
+    setScanResults(null);
+    try {
+      const result = await apiRef.current.scanDocImports(selectedCategory, docId);
+      setScanResults(result.suggestions);
+      setScanExisting(result.existing);
+    } catch {
+      setScanResults([]);
+    } finally {
+      setScanLoading(false);
+    }
+  };
+
+  // ── Batch scan all documents ──
+
+  const collectAllDocs = useCallback((): { category: string; id: string }[] => {
+    const docs: { category: string; id: string }[] = [];
+    for (const cat of tree) {
+      const walk = (nodes: DocTreeNode[] | undefined) => {
+        if (!nodes) return;
+        for (const node of nodes) {
+          if (node.type === "document" && node.id) {
+            docs.push({ category: cat.category, id: node.id });
+          }
+          if (node.children) walk(node.children);
+        }
+      };
+      walk(cat.children);
+    }
+    return docs;
+  }, [tree]);
+
+  const handleBatchScan = async () => {
+    const docs = collectAllDocs();
+    if (docs.length === 0) {
+      showToast("无文档可扫描", "error");
+      return;
+    }
+    // Show confirmation first
+    setBatchConfirm({
+      total: docs.length,
+      processed: 0,
+      updated: 0,
+      updatedDocs: [],
+      errors: [],
+      done: false,
+    });
+  };
+
+  const handleBatchScanConfirm = async () => {
+    if (!batchConfirm) return;
+    setBatchScanning(true);
+    setBatchConfirm((prev) => prev ? { ...prev, done: false } : prev);
+
+    const docs = collectAllDocs();
+    let updated = 0;
+    const updatedDocs: string[] = [];
+    const errors: { doc: string; error: string }[] = [];
+
+    for (let i = 0; i < docs.length; i++) {
+      const { category, id } = docs[i];
+      const docKey = `${category}/${id}`;
+      setBatchConfirm((prev) => prev ? { ...prev, processed: i + 1 } : prev);
+
+      try {
+        const result = await apiRef.current.scanDocImports(category, id);
+        const suggestions = result.suggestions || [];
+        if (suggestions.length === 0) continue;
+
+        // Add all suggestions as imports
+        const importPaths = suggestions.map((s: any) => s.path);
+        await apiRef.current.updateDocImports(category, id, importPaths);
+        updated++;
+        updatedDocs.push(docKey);
+      } catch (err: any) {
+        errors.push({ doc: docKey, error: err.message || "未知错误" });
+      }
+    }
+
+    setBatchConfirm((prev) => prev ? {
+      ...prev,
+      processed: docs.length,
+      updated,
+      updatedDocs,
+      errors,
+      done: true,
+    } : prev);
+    setBatchScanning(false);
+
+    // Verify all updated docs for broken refs
+    if (updatedDocs.length > 0) {
+      refreshBrokenRefsForDocs(updatedDocs);
+    }
+
+    showToast(`批量扫描完成：${updated} 个文档已更新${errors.length > 0 ? `，${errors.length} 个错误` : ""}`);
+  };
+
+  const handleBatchScanCancel = () => {
+    setBatchConfirm(null);
+  };
+
+  // ── Broken refs tracking ──
+
+  const refreshBrokenRefsForDocs = async (docKeys: string[]) => {
+    const results: typeof brokenRefDocs = [];
+    for (const docKey of docKeys) {
+      const parts = docKey.split("/");
+      const cat = parts[0];
+      const docId = parts.slice(1).join("/");
+      try {
+        const vr = await apiRef.current.verifyDocImports(cat, docId);
+        const broken = vr.results.filter((r: any) => !r.exists);
+        if (broken.length > 0) {
+          const docName = findDocNameInTree(cat, docId) || docId;
+          results.push({
+            docPath: docKey,
+            docName,
+            category: cat,
+            brokenImports: broken.map((r: any) => ({ importPath: r.path, name: r.name })),
+          });
+        }
+      } catch { /* skip */ }
+    }
+    setBrokenRefDocs((prev) => {
+      // Merge: replace entries for verified docs, keep unverified entries
+      const verified = new Set(docKeys);
+      const filtered = prev.filter((d) => !verified.has(d.docPath));
+      return [...filtered, ...results];
+    });
+  };
+
+  const refreshBrokenRefForDoc = async (category: string, docId: string) => {
+    const docKey = `${category}/${docId}`;
+    await refreshBrokenRefsForDocs([docKey]);
+  };
+
+  // Clear a doc's broken refs after fix (called from handleSaveImports)
+  const clearBrokenRefForDoc = (category: string, docId: string) => {
+    const docKey = `${category}/${docId}`;
+    setBrokenRefDocs((prev) => prev.filter((d) => d.docPath !== docKey));
+  };
+
   // ── Render: tree node ──
 
   const renderTreeNode = (
@@ -516,19 +815,19 @@ export default function DocumentManager() {
     const hasChildren = cat.children && cat.children.length > 0;
 
     return (
-      <div key={cat.category} className="mb-1">
+      <div key={cat.category} className="mb-2">
         <div
-          className="group flex items-center gap-1 cursor-pointer rounded text-xs font-semibold text-gray-500 uppercase tracking-wider py-1 hover:text-gray-300 select-none"
+          className="group flex items-center gap-1 cursor-pointer rounded text-xs font-medium text-gray-400 hover:text-gray-200 py-0.5 select-none"
           onClick={() => toggleCollapse(key)}
           onContextMenu={(e) => handleContextMenu(e, cat.category)}
         >
           <span className="w-3 text-center shrink-0">
             {collapsed ? "▶" : "▼"}
           </span>
-          <span className="truncate">{cat.category}</span>
+          <span className="truncate">{catLabel(cat.category)}</span>
         </div>
         {!collapsed && (
-          <div>
+          <div className="ml-3 border-l border-gray-700/30 pl-2">
             {hasChildren
               ? cat.children!.map((child) =>
                   renderTreeNode(child, cat.category, 1, "")
@@ -547,11 +846,76 @@ export default function DocumentManager() {
     );
   };
 
+  // ── Render: tree with hierarchy grouping ──
+
+  const renderTree = () => {
+    if (tree.length === 0) return null;
+
+    // Group categories by hierarchy level
+    const sorted = sortCatsByLevel(tree);
+    const grouped: { level: number; label: string; cats: DocTreeCategory[] }[] = [];
+    const ungrouped: DocTreeCategory[] = [];
+    let currentLevel = -1;
+    for (const cat of sorted) {
+      const level = catLevelMap.map[cat.category] ?? 99;
+      if (level === 99) {
+        ungrouped.push(cat);
+        continue;
+      }
+      if (level !== currentLevel) {
+        currentLevel = level;
+        grouped.push({
+          level,
+          label: `L${level} ${catLevelMap.labels[level] || `Level ${level}`}`,
+          cats: [],
+        });
+      }
+      grouped[grouped.length - 1].cats.push(cat);
+    }
+
+    return (
+      <div className="space-y-3">
+        {grouped.map((g) => (
+          <div key={`level-${g.level}`}>
+            <div className="text-[10px] font-semibold text-gray-600 uppercase tracking-wider px-1 mb-1">
+              {g.label}
+            </div>
+            {g.cats.map((cat) => renderCategory(cat))}
+          </div>
+        ))}
+        {ungrouped.length > 0 && (
+          <div>
+            <div className="text-[10px] font-semibold text-gray-600 uppercase tracking-wider px-1 mb-1">
+              未分类
+            </div>
+            {ungrouped.map((cat) => renderCategory(cat))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // ── Helpers ──
 
   const docIdFromPath = (path: string) => {
     const idx = path.indexOf("/");
     return idx >= 0 ? path.substring(idx + 1) : path;
+  };
+
+  const findDocNameInTree = (category: string, docId: string): string | undefined => {
+    const cat = tree.find((c) => c.category === category);
+    if (!cat?.children) return undefined;
+    const find = (nodes: DocTreeNode[]): string | undefined => {
+      for (const n of nodes) {
+        if (n.type === "document" && n.id === docId) return n.name;
+        if (n.children) {
+          const found = find(n.children);
+          if (found) return found;
+        }
+      }
+      return undefined;
+    };
+    return find(cat.children);
   };
 
   const getOpenDocNode = (): DocTreeNode | undefined => {
@@ -639,10 +1003,68 @@ export default function DocumentManager() {
           >
             ↻
           </button>
+          {activeTab === "docs" && (
+            <button
+              onClick={handleBatchScan}
+              disabled={batchScanning}
+              className="text-xs text-amber-500 hover:text-amber-400 disabled:text-gray-700 flex items-center gap-0.5"
+              title="遍历所有文档，自动扫描内容并添加 imports 依赖引用"
+            >
+              {batchScanning ? "⏳" : "⚡"}
+              <span className="text-[10px]">批量</span>
+            </button>
+          )}
         </div>
 
         {error && !selectedPath && activeTab === "docs" && (
           <p className="text-red-400 text-xs mb-2">{error}</p>
+        )}
+
+        {/* ── Missing dependencies section ── */}
+        {activeTab === "docs" && brokenRefDocs.length > 0 && (
+          <div className="mb-3">
+            <div className="flex items-center gap-1 text-xs font-medium text-red-400 mb-1 px-1">
+              <span>⚠ 缺失依赖</span>
+              <span className="text-gray-500 font-normal">({brokenRefDocs.reduce((s, d) => s + d.brokenImports.length, 0)} 项)</span>
+            </div>
+            <div className="ml-1 space-y-1">
+              {(() => {
+                // Group by category
+                const grouped: Record<string, typeof brokenRefDocs> = {};
+                for (const doc of brokenRefDocs) {
+                  if (!grouped[doc.category]) grouped[doc.category] = [];
+                  grouped[doc.category].push(doc);
+                }
+                return Object.entries(grouped).map(([cat, docs]) => (
+                  <div key={cat} className="mb-1">
+                    <div className="text-[10px] text-gray-500 mb-0.5 px-1">{catLabel(cat)} ({docs.length})</div>
+                    {docs.map((doc) => (
+                      <div key={doc.docPath} className="ml-2">
+                        <button
+                          className="text-xs text-red-300 hover:text-red-200 truncate block w-full text-left px-1 py-0.5 rounded hover:bg-red-900/20"
+                          onClick={() => {
+                            const parts = doc.docPath.split("/");
+                            handleSelect(parts[0], parts.slice(1).join("/"));
+                          }}
+                          title={doc.docPath}
+                        >
+                          {doc.docName}
+                        </button>
+                        <div className="ml-3 text-[10px] text-gray-600 space-y-0.5">
+                          {doc.brokenImports.map((bi) => (
+                            <div key={bi.importPath}>
+                              ✗ {bi.name}
+                              <span className="text-gray-700 ml-1">({bi.importPath})</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ));
+              })()}
+            </div>
+          </div>
         )}
 
         {/* ── 文档 Tab ── */}
@@ -650,7 +1072,7 @@ export default function DocumentManager() {
           tree.length === 0 ? (
             <p className="text-gray-500 text-sm text-center py-4">加载中...</p>
           ) : (
-            tree.map((cat) => renderCategory(cat))
+            renderTree()
           )
         )}
 
@@ -768,6 +1190,169 @@ export default function DocumentManager() {
               )}
             </div>
 
+            {/* ── 依赖管理 ── */}
+            {!loading && selectedPath && (
+              <div className="border-t border-gray-700">
+                <div className="flex items-center gap-2 px-4 py-2">
+                  <span className="text-xs font-medium text-gray-400">依赖</span>
+                  <span className="text-[10px] text-gray-600">
+                    ({imports.length} 项{missingDeps.size > 0 ? `, ${missingDeps.size} 缺失` : ""})
+                  </span>
+                  <div className="flex-1" />
+                  {importsDirty && (
+                    <button
+                      onClick={handleSaveImports}
+                      disabled={savingImports}
+                      className="text-xs text-blue-400 hover:text-blue-300 disabled:text-gray-600"
+                    >
+                      {savingImports ? "保存中..." : "保存依赖"}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      setShowImportSearch(!showImportSearch);
+                      setSearchQuery("");
+                      setSearchResults([]);
+                    }}
+                    className="text-xs text-gray-500 hover:text-gray-300"
+                  >
+                    {showImportSearch ? "关闭" : "+ 添加"}
+                  </button>
+                  <button
+                    onClick={handleScanImports}
+                    disabled={scanLoading}
+                    className="text-xs text-gray-500 hover:text-gray-300 disabled:text-gray-700"
+                  >
+                    {scanLoading ? "扫描中..." : "扫描"}
+                  </button>
+                </div>
+
+                {showImportSearch && (
+                  <div className="px-4 pb-2">
+                    <input
+                      className="input text-xs w-full mb-2"
+                      placeholder="搜索文档名称..."
+                      value={searchQuery}
+                      onChange={(e) => handleSearchImport(e.target.value)}
+                      autoFocus
+                    />
+                    {searchLoading && (
+                      <p className="text-xs text-gray-500">搜索中...</p>
+                    )}
+                    {!searchLoading && searchQuery && searchResults.length === 0 && (
+                      <p className="text-xs text-gray-600">无匹配结果</p>
+                    )}
+                    {searchResults.length > 0 && (
+                      <div className="max-h-48 overflow-y-auto space-y-0.5">
+                        {searchResults.map((r) => {
+                          const alreadyImported = imports.some((i) => i.path === r.path);
+                          return (
+                            <div
+                              key={r.path}
+                              className={`flex items-center gap-2 text-xs rounded px-2 py-1 ${
+                                alreadyImported
+                                  ? "text-gray-600"
+                                  : "text-gray-300 hover:bg-gray-700/50 cursor-pointer"
+                              }`}
+                              onClick={() => {
+                                if (!alreadyImported) {
+                                  handleAddImport(r.path, r.title);
+                                }
+                              }}
+                            >
+                              <span className="text-gray-500 shrink-0">L{r.level}</span>
+                              <span className="truncate">{r.path}</span>
+                              <span className="text-gray-600 shrink-0">{catLabel(r.category)}</span>
+                              {alreadyImported && (
+                                <span className="text-gray-600 shrink-0">已添加</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ── 扫描结果 ── */}
+                {scanResults !== null && (
+                  <div className="px-4 pb-2">
+                    {scanResults.length === 0 ? (
+                      <p className="text-xs text-gray-600">未发现新的可导入依赖</p>
+                    ) : (
+                      <div className="space-y-0.5">
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-xs text-gray-500">扫描到 {scanResults.length} 个可能需要的依赖：</p>
+                          <button
+                            onClick={handleAddAllScanResults}
+                            className="text-xs px-2 py-0.5 rounded bg-blue-600/20 text-blue-400 hover:bg-blue-600/40 transition-colors"
+                          >
+                            一键添加所有
+                          </button>
+                        </div>
+                        {scanResults.map((r) => {
+                          const alreadyImported = imports.some((i) => i.path === r.path);
+                          return (
+                            <div
+                              key={r.path}
+                              className={`flex items-center gap-2 text-xs rounded px-2 py-1 ${
+                                alreadyImported
+                                  ? "text-gray-600"
+                                  : "text-gray-300 hover:bg-gray-700/50 cursor-pointer"
+                              }`}
+                              onClick={() => {
+                                if (!alreadyImported) handleAddImport(r.path, r.title);
+                              }}
+                            >
+                              <span className="text-gray-500 shrink-0">L{r.level}</span>
+                              <span className="truncate flex-1">{r.path}</span>
+                              <span className="text-gray-600 shrink-0">{catLabel(r.category)}</span>
+                              {alreadyImported ? (
+                                <span className="text-gray-600 shrink-0">已添加</span>
+                              ) : (
+                                <span className="text-blue-400 shrink-0">+ 添加</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {imports.length > 0 && (
+                  <div className="px-4 pb-2 space-y-0.5">
+                    {imports.map((imp) => (
+                      <div
+                        key={imp.path}
+                        className={`flex items-center gap-2 text-xs rounded px-1 py-0.5 ${
+                          missingDeps.has(imp.path)
+                            ? "text-red-400 bg-red-900/10"
+                            : "text-gray-400"
+                        }`}
+                      >
+                        <span className="text-gray-600 shrink-0">{imp.name}</span>
+                        <span className="text-gray-600 truncate">{imp.path}</span>
+                        {missingDeps.has(imp.path) && (
+                          <span className="text-red-500 shrink-0 text-[10px]">缺失</span>
+                        )}
+                        <button
+                          onClick={() => handleRemoveImport(imp.path)}
+                          className="text-gray-600 hover:text-red-400 shrink-0"
+                          title="移除依赖"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {imports.length === 0 && !showImportSearch && (
+                  <div className="px-4 pb-2 text-xs text-gray-600">暂无依赖</div>
+                )}
+              </div>
+            )}
+
             {/* Metadata footer */}
             {docContent?.metadata && Object.keys(docContent.metadata).length > 0 && (
               <div className="px-4 py-2 border-t border-gray-700 text-xs text-gray-500">
@@ -782,6 +1367,89 @@ export default function DocumentManager() {
         )
       }
       </div>
+
+      {/* ── Batch scan confirmation / results ── */}
+      {batchConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={handleBatchScanCancel}>
+          <div
+            className="bg-gray-800 border border-gray-600 rounded-lg shadow-xl w-[480px] max-h-[70vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700 shrink-0">
+              <h3 className="text-sm font-medium text-gray-200">
+                {batchConfirm.done ? "批量扫描完成" : "批量扫描确认"}
+              </h3>
+              <button onClick={handleBatchScanCancel} className="text-gray-500 hover:text-gray-300">✕</button>
+            </div>
+
+            {!batchConfirm.done ? (
+              /* Confirmation */
+              <div className="p-4 space-y-3">
+                <p className="text-sm text-gray-300">
+                  将扫描全部 <span className="text-amber-400 font-bold">{batchConfirm.total}</span> 个文档，
+                  自动添加扫描到的依赖引用并保存。
+                </p>
+                <div className="p-3 rounded bg-amber-900/20 border border-amber-700/30 text-xs text-amber-400">
+                  ⚠ 此操作会影响所有文档的 imports 配置。建议先备份数据。
+                </div>
+                <p className="text-xs text-gray-500">
+                  扫描依据：遍历文档内容，匹配其他文档标题，自动添加匹配项为 imports 引用。
+                </p>
+              </div>
+            ) : (
+              /* Results */
+              <div className="p-4 overflow-y-auto space-y-2">
+                <div className="flex gap-4 text-xs text-gray-400">
+                  <span>总计: {batchConfirm.total}</span>
+                  <span className="text-green-400">已更新: {batchConfirm.updated}</span>
+                  {batchConfirm.errors.length > 0 && (
+                    <span className="text-red-400">错误: {batchConfirm.errors.length}</span>
+                  )}
+                </div>
+                {batchConfirm.errors.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="text-xs text-red-400 font-medium">错误详情：</p>
+                    {batchConfirm.errors.map((e, i) => (
+                      <div key={i} className="text-xs text-gray-400 ml-2">
+                        <span className="text-red-400">✗</span> {e.doc}
+                        <span className="text-gray-600 ml-1">({e.error})</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {batchConfirm.updated === 0 && batchConfirm.errors.length === 0 && (
+                  <p className="text-xs text-gray-500">所有文档均无新的可导入依赖。</p>
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 px-4 py-3 border-t border-gray-700 shrink-0">
+              {!batchConfirm.done ? (
+                <>
+                  <button onClick={handleBatchScanCancel} className="btn-ghost text-sm">
+                    取消
+                  </button>
+                  <button
+                    onClick={handleBatchScanConfirm}
+                    disabled={batchScanning}
+                    className="btn-primary text-sm"
+                  >
+                    {batchScanning ? (
+                      <span className="flex items-center gap-1">
+                        <span className="animate-pulse">⏳</span> 处理中... ({batchConfirm.processed}/{batchConfirm.total})
+                      </span>
+                    ) : "确认执行"}
+                  </button>
+                </>
+              ) : (
+                <button onClick={handleBatchScanCancel} className="btn-primary text-sm">
+                  关闭
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Context menu ── */}
       {contextMenu && (

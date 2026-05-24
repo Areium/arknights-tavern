@@ -1,12 +1,24 @@
 ---
-name: "先锋"
-alias: "Vanguard"
-category: "支援"
-combat_role: "费用回复/前线侦察"
-damage_type: physical
+alias: Vanguard
 attack_range: melee
-deployment_cost_range: "8-12"
-core_attributes: ["mobility", "charisma", "tactical_planning"]
+category: 支援
+combat_role: 费用回复/前线侦察
+core_attributes:
+- mobility
+- charisma
+- tactical_planning
+damage_type: physical
+deployment_cost_range: 8-12
+imports:
+- attributes/情绪稳定性 | 情绪稳定性
+- attributes/战场机动 | 战场机动
+- attributes/战斗技巧 | 战斗技巧
+- attributes/战术规划 | 战术规划
+- attributes/物理强度 | 物理强度
+- attributes/魅力 | 魅力
+- classes/辅助 | 辅助
+- classes/重装 | 重装
+name: 先锋
 ---
 
 # 先锋 / Vanguard

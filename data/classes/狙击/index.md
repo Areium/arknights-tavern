@@ -1,12 +1,22 @@
 ---
-name: "狙击"
-alias: "Sniper"
-category: "输出"
-combat_role: "远程物理输出"
-damage_type: physical
+alias: Sniper
 attack_range: long
-deployment_cost_range: "10-20"
-core_attributes: ["mobility", "combat_skill"]
+category: 输出
+combat_role: 远程物理输出
+core_attributes:
+- mobility
+- combat_skill
+damage_type: physical
+deployment_cost_range: 10-20
+imports:
+- attributes/战场机动 | 战场机动
+- attributes/战斗技巧 | 战斗技巧
+- attributes/战术规划 | 战术规划
+- attributes/物理强度 | 物理强度
+- attributes/生理耐受 | 生理耐受
+- classes/辅助 | 辅助
+- classes/重装 | 重装
+name: 狙击
 ---
 
 # 狙击 / Sniper

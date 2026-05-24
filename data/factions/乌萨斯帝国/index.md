@@ -1,15 +1,27 @@
 ---
-name: "乌萨斯帝国"
-alias: "Ursus Empire"
-type: nation
-scale: global
+alias: Ursus Empire
 alignment: lawful_evil
-headquarters: "圣骏堡"
-leader: ["皇帝"]
-key_members: ["凛冬", "真理", "古米"]
-rivals: ["整合运动", "龙门"]
 allies: []
-tags: ["帝国", "军国主义", "感染者压迫"]
+headquarters: 圣骏堡
+imports:
+- races/乌萨斯 | 乌萨斯
+- factions/整合运动 | 整合运动
+key_members:
+- 凛冬
+- 真理
+- 古米
+leader:
+- 皇帝
+name: 乌萨斯帝国
+rivals:
+- 整合运动
+- 龙门
+scale: global
+tags:
+- 帝国
+- 军国主义
+- 感染者压迫
+type: nation
 ---
 
 # 乌萨斯帝国 / Ursus Empire

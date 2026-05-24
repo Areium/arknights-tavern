@@ -1,12 +1,24 @@
 ---
-name: "近卫"
-alias: "Guard"
-category: "输出"
-combat_role: "近战物理输出"
-damage_type: physical
+alias: Guard
 attack_range: melee
-deployment_cost_range: "12-20"
-core_attributes: ["physical_strength", "combat_skill", "physiological_tolerance"]
+category: 输出
+combat_role: 近战物理输出
+core_attributes:
+- physical_strength
+- combat_skill
+- physiological_tolerance
+damage_type: physical
+deployment_cost_range: 12-20
+imports:
+- attributes/战场机动 | 战场机动
+- attributes/战斗技巧 | 战斗技巧
+- attributes/战术规划 | 战术规划
+- attributes/源石技艺适应性 | 源石技艺适应性
+- attributes/物理强度 | 物理强度
+- attributes/生理耐受 | 生理耐受
+- classes/辅助 | 辅助
+- classes/重装 | 重装
+name: 近卫
 ---
 
 # 近卫 / Guard
