@@ -16,36 +16,34 @@
 
 ## 更新记录
 
-### 2026-05-24 — 共享回合制 + 共享卡池重构
+### 2026-05-24 — 全局索引管理系统 + 等距网格优化
 
-**修改动机**：原系统采用逐角色轮替的回合模型（SPD 排序，每角色独立行动后切换），不符合"全队共享回合、玩家自由选择角色行动"的设计目标。卡牌系统也需从独立卡池改为全队共享抽牌堆。
+**修改动机**：原有索引分散在文档 frontmatter 中，缺乏全局管理视图和可视化引用树。战斗网格需要等距 3D 效果和小精灵覆盖层优化。
 
-**修改内容**：
+**修改内容（本地）**：
 
 | 模块 | 变更 |
 |------|------|
-| `engine.py` | 移除 `_turns_remaining`、`_next_turn()`、`end_current_turn()`；新增 `end_player_round()` 批量执行敌方回合后推进轮次；`_start_round()` 直接进入 `PLAYER_TURN`；`get_active_unit()` 返回 `None`；敌方回合前自动抽牌 |
-| `combat_session.py` | `handle_action()` 按卡牌 owner 查找施法单位（不再依赖 active unit）；move 操作接收 `unit_id` 参数；移除自动结束回合和 `_auto_enemy_turns()`；`end_turn()` 调用 `end_player_round()` |
-| `CombatView.tsx` | 移除"当前: {角色名}"显示；手牌禁用条件改为仅在敌方回合；move 操作附带 `unit_id`；简化高亮逻辑 |
-| `types/index.ts` | `CombatAction` 新增 `unit_id?` 字段 |
+| `src/index_manager.py` | 新增全局索引配置管理器：CRUD、反向引用树构建、会话级配置、YAML 导入/导出、全量树合并（含未配置文档） |
+| `frontend/src/components/IndexManager.tsx` | 新增索引管理组件：三栏布局（配置文件列表 + 文档树 \| 详情引用编辑 \| 实体选择添加）、引用树全屏视图、类别筛选、YAML 导入/导出、会话配置切换 |
+| `frontend/src/components/DocumentManager.tsx` | 移除逐文档索引编辑面板，索引管理统一由 IndexManager 处理 |
+| `frontend/src/components/Sidebar.tsx` | 新增"🔗 索引"导航项 |
+| `frontend/src/App.tsx` | 注册索引视图路由 |
+| `frontend/src/stores/appStore.ts` | `currentView` 类型扩展 `"index"` |
+| `frontend/src/types/index.ts` | 新增索引配置树类型定义 |
+| `frontend/src/hooks/useApi.ts` | 新增索引配置 API 方法（全量树、添加/移除文档、来源列表） |
+| `src/app.py` | 新增索引配置 REST 路由 |
 
-**回合流程（新）**：
+**修改内容（远程）**：
 
-```
-ROUND_START → PLAYER_TURN（玩家自由行动，可多次出牌/移动）
-           → 点击"结束回合"
-           → ENEMY_TURN（所有敌方依次行动）
-           → 轮次+1 → ROUND_START → ...
-```
-
-**卡牌流程（新）**：
-
-```
-初始：所有角色卡牌 → 抽牌堆（洗牌）
-每轮开始：弃掉手牌 → 从抽牌堆抽6张 → 角色保底检测
-玩家出牌：从共享手牌出牌 → basic 牌进弃牌堆 / elite 牌进消耗堆
-抽牌堆空：弃牌堆洗入抽牌堆
-```
+| 模块 | 变更 |
+|------|------|
+| `CombatGrid.tsx` | 等距 3D 网格渲染、小精灵覆盖层叠加 |
+| `GridCell.tsx` | 单元格交互优化、反选支持 |
+| `CombatView.tsx` | 交互逻辑重构、状态管理优化 |
+| `AttackArrow.tsx` | 攻击箭头简化重构 |
+| `CombatParticles.tsx` | 粒子特效优化 |
+| `gridUtils.ts` | 新增网格工具模块 |
 
 ### 2026-05-23 — 角色悬浮提示 + 会话覆盖战斗集成
 
@@ -177,18 +175,25 @@ ROUND_START → PLAYER_TURN（玩家自由行动，可多次出牌/移动）
 
 ```
 frontend/src/
-├── components/combat/
-│   ├── CombatView.tsx          — 战斗主视图（状态管理、事件中枢）
-│   ├── CombatGrid.tsx          — 网格渲染（3D 透视、拖放、单元格）
-│   ├── GridCell.tsx            — 单个单元格（单位显示、小精灵、高亮）
-│   ├── ChibiSprite.tsx         — 角色小精灵（纯展示，pointer-events-none）
-│   ├── CombatHand.tsx          — 手牌扇形布局
-│   ├── CombatCard.tsx          — 单张卡牌（拖拽源、渐变、AP 消耗）
-│   ├── UnitStatusPanel.tsx     — 角色状态面板（HP/AP/属性摘要）
-│   ├── CombatUnitTooltip.tsx   — 角色悬浮提示（Portal，属性+数值）
-│   ├── CombatEventLog.tsx      — 战斗事件日志
-│   ├── CombatParticles.tsx     — Canvas 粒子特效
-│   └── DeckViewer.tsx          — 卡组查看器（按角色/牌堆分组）
+├── components/
+│   ├── ChatView.tsx             — 对话视图
+│   ├── Sidebar.tsx              — 主导航栏
+│   ├── DocumentManager.tsx      — 文档管理（树/内容编辑器）
+│   ├── IndexManager.tsx         — 全局索引配置管理（三栏布局 + 引用树）
+│   ├── SettingsPanel.tsx        — 设置面板
+│   └── combat/
+│       ├── CombatView.tsx          — 战斗主视图（状态管理、事件中枢）
+│       ├── CombatGrid.tsx          — 网格渲染（等距 3D、拖放、单元格）
+│       ├── GridCell.tsx            — 单个单元格（单位显示、小精灵、高亮）
+│       ├── ChibiSprite.tsx         — 角色小精灵（纯展示，pointer-events-none）
+│       ├── CombatHand.tsx          — 手牌扇形布局
+│       ├── CombatCard.tsx          — 单张卡牌（拖拽源、渐变、AP 消耗）
+│       ├── UnitStatusPanel.tsx     — 角色状态面板（HP/AP/属性摘要）
+│       ├── CombatUnitTooltip.tsx   — 角色悬浮提示（Portal，属性+数值）
+│       ├── CombatEventLog.tsx      — 战斗事件日志
+│       ├── CombatParticles.tsx     — Canvas 粒子特效
+│       ├── gridUtils.tsx           — 网格工具函数
+│       └── DeckViewer.tsx          — 卡组查看器（按角色/牌堆分组）
 ├── hooks/
 │   └── useApi.ts               — API 客户端（REST + SSE）
 ├── stores/
@@ -202,10 +207,11 @@ frontend/src/
 
 ```
 src/
-├── app.py                      — Flask 应用入口、路由注册
+├── app.py                      — Flask 应用入口、路由注册（含索引配置接口）
 ├── session_manager.py          — 会话生命周期管理
 ├── scene_manager.py            — 场景角色加载/切换
 ├── session_overlay.py          — 会话层数据覆盖（overrides.json）
+├── index_manager.py            — 全局索引配置管理（CRUD、反向引用树、会话级配置）
 ├── combat_session.py           — 战斗会话封装（CombatEngine → REST/SSE）
 ├── combat_data_loader.py       — 战斗数据加载（遭遇/敌人/角色）
 ├── combat_engine/
