@@ -10,14 +10,24 @@ interface Props {
   onCardClick: (index: number) => void;
   onCardDragStart?: (index: number) => void;
   onCardDragEnd?: () => void;
+  cardWidth?: number;
+  cardHeight?: number;
+  fanMarginTop?: number;
 }
 
-export default function CombatHand({ cards, activeAp, selectedIndex, disabled, highlightOwner, onCardClick, onCardDragStart, onCardDragEnd }: Props) {
+export default function CombatHand({ cards, activeAp, selectedIndex, disabled, highlightOwner, onCardClick, onCardDragStart, onCardDragEnd, cardWidth, cardHeight, fanMarginTop }: Props) {
   const fanAngle = 3.5;
   const fanY = 8;
 
   return (
-    <div className="combat-hand-fan">
+    <div
+      className="combat-hand-fan"
+      style={{
+        ...(cardWidth ? { "--card-width": `${cardWidth}px` } : {}),
+        ...(cardHeight ? { "--card-height": `${cardHeight}px` } : {}),
+        ...(fanMarginTop !== undefined ? { marginTop: fanMarginTop } : {}),
+      } as React.CSSProperties}
+    >
       {cards.length === 0 && (
         <span className="text-gray-600 text-sm italic px-4 self-center">手牌为空</span>
       )}

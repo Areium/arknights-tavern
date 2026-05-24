@@ -1,9 +1,6 @@
 import hashlib
 import re
 
-import chromadb
-from chromadb.config import Settings
-
 
 class VectorMemory:
     """向量记忆：近期滑动窗口 + 远期语义检索。
@@ -33,6 +30,8 @@ class VectorMemory:
         self.character_name = character_name
         self.embed_fn = embed_fn
 
+        import chromadb
+        from chromadb.config import Settings
         self.client = chromadb.PersistentClient(
             path=persist_dir,
             settings=Settings(anonymized_telemetry=False),

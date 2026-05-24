@@ -6,10 +6,10 @@ encounter_id: "enc_template"
 name: "遭遇名称"
 category: "story"
 difficulty: 2
-grid_size: 8
+grid_size: 7
 deploy_zones:
   player: [[2, 0], [4, 2]]
-  enemy: [[2, 3], [5, 7]]
+  enemy: [[2, 3], [5, 6]]
   enemy_random_shift: true
 waves:
   - enemies:

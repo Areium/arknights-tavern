@@ -14,7 +14,6 @@ import threading
 from pathlib import Path
 from typing import Optional
 
-from GameAgent import GameAgent
 from SceneManager import SceneManager
 from environment_state import EnvironmentState
 from registry_manager import RegistryManager
@@ -25,6 +24,17 @@ logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _SESSIONS_DIR = _PROJECT_ROOT / "data" / "memory" / "sessions"
+
+# Shared registry — all sessions share the same entity index
+_registry: Optional[RegistryManager] = None
+
+
+def _get_registry() -> RegistryManager:
+    global _registry
+    if _registry is None:
+        _registry = RegistryManager()
+        _registry.validate()
+    return _registry
 
 
 class Session:
@@ -43,15 +53,10 @@ class Session:
         self.overlay = SessionOverlay(session_id, mode)
 
         # 共享组件
-        self.registry = RegistryManager()
-        self.registry.validate()
+        self.registry = _get_registry()
 
-        # 按需选择 LLM
-        llm, _ = llm_backend_manager.get_llm()
-        if llm is None:
-            logger.error("无可用 LLM 后端，会话 %s 创建但不可用", session_id)
-
-        self._llm = llm
+        # LLM 延迟检测 — 首次 get_llm() 调用时才探测后端
+        self._llm = None
         self.scene_manager = SceneManager(self._llm, self.registry, overlay=self.overlay)
         self.environment = EnvironmentState()
         self.environment.load_default()
@@ -80,7 +85,9 @@ class Session:
         return self._llm is not None
 
     def get_llm(self):
-        """获取当前 LLM 实例（可能为 None）。"""
+        """获取当前 LLM 实例，首次调用时自动探测后端。"""
+        if self._llm is None:
+            self.refresh_llm()
         return self._llm
 
     def refresh_llm(self) -> bool:

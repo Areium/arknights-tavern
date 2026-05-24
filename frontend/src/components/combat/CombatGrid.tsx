@@ -3,8 +3,6 @@ import type { CombatUnitDTO } from "../../types";
 import GridCell from "./GridCell";
 import { getCellCenter } from "./gridUtils";
 
-const CELL = 56; // px
-
 /** Find the closest cell by comparing mouse position to precomputed cell screen centers */
 function findClosestByCenters(
   clientX: number, clientY: number,
@@ -33,6 +31,7 @@ function findClosestByCenters(
 
 interface Props {
   gridSize: number;
+  cellSize?: number;
   units: CombatUnitDTO[];
   grid: Record<string, string>;
   validTargets: [number, number][];
@@ -52,7 +51,7 @@ interface Props {
 }
 
 export default function CombatGrid({
-  gridSize, units, grid, validTargets, validMoves,
+  gridSize, cellSize = 64, units, grid, validTargets, validMoves,
   moveHighlights, rangeHighlights, selectedUnitId, uiMode, cursor,
   dragCell, onCellClick, onCellHover, onCellLeave, onCellDrop, onGridDragMove, onGridMount,
 }: Props) {
@@ -96,6 +95,7 @@ export default function CombatGrid({
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();  // don't bubble to parent overlay handler
     e.dataTransfer.dropEffect = "move";
     const cell = findClosestByCenters(e.clientX, e.clientY, cellCentersRef.current, gridSize);
     onGridDragMove(cell, e.clientX, e.clientY);
@@ -103,6 +103,7 @@ export default function CombatGrid({
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();  // don't bubble to parent overlay handler
     const cell = findClosestByCenters(e.clientX, e.clientY, cellCentersRef.current, gridSize);
     if (cell) onCellDrop(cell[0], cell[1]);
     onGridDragMove(null);
@@ -168,12 +169,12 @@ export default function CombatGrid({
         >
           {/* Column labels */}
           <div className="flex gap-0.5 mb-0.5">
-            <div style={{ width: CELL }} />
+            <div style={{ width: cellSize }} />
             {Array.from({ length: gridSize }, (_, c) => (
               <div
                 key={c}
                 className="text-center text-[9px] text-gray-600 font-mono"
-                style={{ width: CELL }}
+                style={{ width: cellSize }}
               >
                 {c}
               </div>
@@ -183,7 +184,7 @@ export default function CombatGrid({
             <div key={i} className="flex gap-0.5 items-center">
               <div
                 className="text-center text-[9px] text-gray-600 font-mono"
-                style={{ width: CELL }}
+                style={{ width: cellSize }}
               >
                 {i}
               </div>

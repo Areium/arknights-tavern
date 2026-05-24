@@ -49,6 +49,7 @@ export default function CombatView() {
   const [hoveredUnitId, setHoveredUnitId] = useState<string | null>(null);
   const [hoveredUnitRect, setHoveredUnitRect] = useState<DOMRect | null>(null);
   const [showDeckViewer, setShowDeckViewer] = useState(false);
+  const [deckFilterMode, setDeckFilterMode] = useState<"all" | "deck" | "discard">("all");
   const [resizeTick, setResizeTick] = useState(0);
   const [unitPositions, setUnitPositions] = useState<Record<string, { x: number; y: number } | null>>({});
   const [isFullscreen, setIsFullscreen] = useState(
@@ -1128,7 +1129,7 @@ export default function CombatView() {
           <div className="flex-1" />
           <button
             className="px-3 py-1.5 text-xs bg-surface-hover hover:bg-gray-700 text-gray-300 rounded-lg transition-all border border-combat-border font-display tracking-wider"
-            onClick={() => setShowDeckViewer(true)}
+            onClick={() => { setDeckFilterMode("all"); setShowDeckViewer(true); }}
           >
             卡组
           </button>
@@ -1200,11 +1201,40 @@ export default function CombatView() {
         </div>
       )}
 
+      {/* Floating deck/discard pile buttons */}
+      {combatState && combatState.phase === "PLAYER_TURN" && !combatState.battle_over && (
+        <>
+          <button
+            className="fixed left-60 bottom-24 z-30 flex items-center gap-2 px-3 py-2 bg-surface-card/90 hover:bg-surface-card border border-combat-border rounded-xl shadow-lg transition-all backdrop-blur-sm pointer-events-auto"
+            onClick={() => { setDeckFilterMode("deck"); setShowDeckViewer(true); }}
+            title="抽牌堆"
+          >
+            <span className="text-lg">🂠</span>
+            <span className="text-[11px] text-gray-300 font-display tracking-wider">抽牌堆</span>
+            <span className="text-xs text-cyan-300 font-mono bg-cyan-950/50 px-1.5 py-0.5 rounded">
+              {combatState.shared_pool?.deck?.length ?? 0}
+            </span>
+          </button>
+          <button
+            className="fixed right-4 bottom-24 z-30 flex items-center gap-2 px-3 py-2 bg-surface-card/90 hover:bg-surface-card border border-combat-border rounded-xl shadow-lg transition-all backdrop-blur-sm pointer-events-auto"
+            onClick={() => { setDeckFilterMode("discard"); setShowDeckViewer(true); }}
+            title="弃牌堆"
+          >
+            <span className="text-[11px] text-gray-300 font-display tracking-wider">弃牌堆</span>
+            <span className="text-xs text-amber-300 font-mono bg-amber-950/50 px-1.5 py-0.5 rounded">
+              {combatState.shared_pool?.discard?.length ?? 0}
+            </span>
+            <span className="text-lg">🗂</span>
+          </button>
+        </>
+      )}
+
       {/* Deck viewer modal */}
       {showDeckViewer && combatState && (
         <DeckViewer
           units={combatState.units}
           sharedPool={combatState.shared_pool ?? { deck: [], hand: [], discard: [], exhaust: [] }}
+          filterMode={deckFilterMode}
           onClose={() => setShowDeckViewer(false)}
         />
       )}

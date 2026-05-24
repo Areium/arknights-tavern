@@ -1636,8 +1636,6 @@ def delete_environment_override(session_id: str):
 # 11.  Combat — 战斗系统
 # ══════════════════════════════════════════════════════
 
-from combat_session import CombatSession  # noqa: E402
-
 
 @app.route("/api/sessions/<session_id>/combat/start", methods=["POST"])
 def combat_start(session_id: str):
@@ -1646,6 +1644,7 @@ def combat_start(session_id: str):
     未提供角色列表时，使用场景中已加载的角色。
     会话中编辑过的角色属性（overrides）会自动应用到战斗数值。
     """
+    from combat_session import CombatSession  # lazy import — combat is infrequent
     session = session_manager.get_session(session_id)
     if not session:
         return _json_error("会话不存在", 404)
@@ -1873,6 +1872,7 @@ def combat_test_start():
 
     test_id = uuid.uuid4().hex[:12]
     try:
+        from combat_session import CombatSession  # lazy import
         combat = CombatSession(test_id)
         state = combat.start(encounter_id, character_names=character_names,
                             enemies_override=enemies_override)

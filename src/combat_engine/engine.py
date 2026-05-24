@@ -214,7 +214,7 @@ class CombatEngine:
                     # Replace a random card in hand
                     idx = random.randrange(len(self.shared_pool.hand))
                     old = self.shared_pool.hand[idx]
-                    self.shared_pool.discard.append(old)
+                    self.shared_pool.deck.insert(0, old)
                     self.shared_pool.hand[idx] = replacement
                     # Remove replacement from its source pile
                     if replacement in self.shared_pool.deck:

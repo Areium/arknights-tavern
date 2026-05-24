@@ -1,8 +1,8 @@
 """
 Grid system for combat positioning.
 
-- Player zone: 9 rows × 3 cols (left side, cols 0-2)
-- Enemy zone: 9 rows × 5 cols (right side, cols 3-7)
+- Player zone: 7 rows × 3 cols (left side, cols 0-2)
+- Enemy zone: 7 rows × 4 cols (right side, cols 3-6)
 - Chebyshev distance: max(|dx|, |dy|)
 """
 
@@ -19,9 +19,9 @@ ENEMY_COLS = 3
 PLAYER_COL_START = 0
 PLAYER_COL_END = 2
 ENEMY_COL_START = 3
-ENEMY_COL_END = 7
-TOTAL_COLS = 8
-TOTAL_ROWS = 9
+ENEMY_COL_END = 6
+TOTAL_COLS = 7
+TOTAL_ROWS = 7
 
 
 def is_player_zone(col: int) -> bool:

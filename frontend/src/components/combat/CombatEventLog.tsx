@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface CombatEvent {
   type: string;
@@ -90,29 +90,46 @@ function eventStyle(type: string): string {
 
 export default function CombatEventLog({ events }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [collapsed, setCollapsed] = useState(true);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [events.length]);
+    if (!collapsed) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [events.length, collapsed]);
 
   return (
-    <div className="h-32 overflow-y-auto border border-combat-border rounded-lg bg-surface-dark/90 p-2">
-      <div className="text-[10px] text-gray-600 uppercase tracking-widest mb-1 font-display">
-        Combat Log
-      </div>
-      {events.length === 0 && (
-        <div className="text-[11px] text-gray-700 italic">等待战斗事件...</div>
+    <div className="border border-combat-border rounded-lg bg-surface-dark/90 overflow-hidden">
+      {/* Header — sticky, clickable toggle */}
+      <button
+        className="w-full flex items-center justify-between px-2 py-1.5 bg-surface-dark hover:bg-surface-hover transition-colors sticky top-0 z-10"
+        onClick={() => setCollapsed((c) => !c)}
+      >
+        <span className="text-[10px] text-gray-600 uppercase tracking-widest font-display">
+          Combat Log
+        </span>
+        <span className="text-[10px] text-gray-500">
+          {collapsed ? `▶ ${events.length} events` : "▼"}
+        </span>
+      </button>
+
+      {!collapsed && (
+        <div className="h-32 overflow-y-auto p-2">
+          {events.length === 0 && (
+            <div className="text-[11px] text-gray-700 italic">等待战斗事件...</div>
+          )}
+          {events.slice(-80).map((ev, i) => {
+            const { icon, text } = formatEvent(ev);
+            return (
+              <div key={i} className={`combat-log-entry text-[11px] font-mono leading-relaxed ${eventStyle(ev.type)}`}>
+                <span className="log-icon text-[10px]">{icon}</span>
+                <span>{text}</span>
+              </div>
+            );
+          })}
+          <div ref={bottomRef} />
+        </div>
       )}
-      {events.slice(-80).map((ev, i) => {
-        const { icon, text } = formatEvent(ev);
-        return (
-          <div key={i} className={`combat-log-entry text-[11px] font-mono leading-relaxed ${eventStyle(ev.type)}`}>
-            <span className="log-icon text-[10px]">{icon}</span>
-            <span>{text}</span>
-          </div>
-        );
-      })}
-      <div ref={bottomRef} />
     </div>
   );
 }
