@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 
 /*
  * Lightweight Canvas-based particle effects for combat.
@@ -33,17 +33,47 @@ const EMITTER_DEFAULTS: Record<string, { count: number; speed: number; size: num
   victory: { count: 30, speed: 2, size: 4, life: 60, colors: ["#ffd700", "#f0c060", "#ffa040", "#fff"] },
 };
 
+const PAD = 1.35; // extra canvas size multiplier for isometric overflow
+
 interface Props {
-  width: number;
-  height: number;
+  width?: number;
+  height?: number;
   emitters: { id: string; config: EmitterConfig }[];
   onEmitterDone?: (id: string) => void;
 }
 
-export default function CombatParticles({ width, height, emitters, onEmitterDone }: Props) {
+export default function CombatParticles({ width: propWidth, height: propHeight, emitters, onEmitterDone }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const particlesRef = useRef<Particle[]>([]);
   const animRef = useRef<number>(0);
+  const [containerSize, setContainerSize] = useState<{ w: number; h: number } | null>(null);
+
+  // ResizeObserver to track parent container dimensions
+  useEffect(() => {
+    const el = containerRef.current?.parentElement;
+    if (!el || propWidth) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (width > 0 && height > 0) {
+          setContainerSize((prev) => {
+            if (prev && prev.w === width && prev.h === height) return prev;
+            return { w: width, h: height };
+          });
+        }
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [propWidth]);
+
+  // Effective dimensions with generous padding for isometric diagonal overflow
+  const effW = propWidth ?? (containerSize ? Math.round(containerSize.w * PAD) : 600);
+  const effH = propHeight ?? (containerSize ? Math.round(containerSize.h * PAD) : 600);
+  // Particles use parent-relative coords; canvas is larger and centered via negative margins
+  const padX = propWidth ? 0 : containerSize ? Math.round((effW - containerSize.w) / 2) : 0;
+  const padY = propHeight ? 0 : containerSize ? Math.round((effH - containerSize.h) / 2) : 0;
 
   const spawnParticles = useCallback((config: EmitterConfig) => {
     const def = EMITTER_DEFAULTS[config.type];
@@ -76,17 +106,17 @@ export default function CombatParticles({ width, height, emitters, onEmitterDone
     if (!ctx) return;
 
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
-    ctx.scale(dpr, dpr);
+    canvas.width = effW * dpr;
+    canvas.height = effH * dpr;
+    canvas.style.width = `${effW}px`;
+    canvas.style.height = `${effH}px`;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     let running = true;
 
     function tick() {
       if (!running || !ctx) return;
-      ctx.clearRect(0, 0, width, height);
+      ctx.clearRect(0, 0, effW, effH);
 
       const particles = particlesRef.current;
       for (let i = particles.length - 1; i >= 0; i--) {
@@ -94,18 +124,15 @@ export default function CombatParticles({ width, height, emitters, onEmitterDone
         p.x += p.vx;
         p.y += p.vy;
 
-        // Heal and victory particles float upward
         p.life--;
         p.alpha = Math.max(0, p.life / p.maxLife);
 
-        // Draw particle
         ctx.globalAlpha = p.alpha;
         ctx.fillStyle = p.color;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size * p.alpha, 0, Math.PI * 2);
+        ctx.arc(p.x + padX, p.y + padY, p.size * p.alpha, 0, Math.PI * 2);
         ctx.fill();
 
-        // Remove dead particles
         if (p.life <= 0) {
           particles.splice(i, 1);
         }
@@ -121,7 +148,7 @@ export default function CombatParticles({ width, height, emitters, onEmitterDone
       running = false;
       cancelAnimationFrame(animRef.current);
     };
-  }, [width, height]);
+  }, [effW, effH, padX, padY]);
 
   // Spawn new emitters
   const prevEmittersRef = useRef<Set<string>>(new Set());
@@ -132,7 +159,6 @@ export default function CombatParticles({ width, height, emitters, onEmitterDone
     for (const emitter of emitters) {
       if (!prevIds.has(emitter.id)) {
         spawnParticles(emitter.config);
-        // Notify done after a short delay
         if (onEmitterDone) {
           setTimeout(() => onEmitterDone(emitter.id), EMITTER_DEFAULTS[emitter.config.type].life * 35);
         }
@@ -143,9 +169,16 @@ export default function CombatParticles({ width, height, emitters, onEmitterDone
   }, [emitters, spawnParticles, onEmitterDone]);
 
   return (
-    <canvas
-      ref={canvasRef}
-      className="absolute inset-0 pointer-events-none z-20"
-    />
+    <div ref={containerRef} className="absolute inset-0 pointer-events-none z-20" style={{ overflow: "visible" }}>
+      <canvas
+        ref={canvasRef}
+        style={{
+          position: "absolute",
+          left: padX ? `-${padX}px` : 0,
+          top: padY ? `-${padY}px` : 0,
+          pointerEvents: "none",
+        }}
+      />
+    </div>
   );
 }

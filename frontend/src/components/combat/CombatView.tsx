@@ -11,6 +11,8 @@ import CombatParticles from "./CombatParticles";
 import CombatCard from "./CombatCard";
 import DeckViewer from "./DeckViewer";
 import AttackArrow from "./AttackArrow";
+import ChibiSprite from "./ChibiSprite";
+import { getCellParentRelative } from "./gridUtils";
 
 const CELL = 56; // px — must match CSS .combat-cell size
 
@@ -48,12 +50,14 @@ export default function CombatView() {
   const [hoveredUnitId, setHoveredUnitId] = useState<string | null>(null);
   const [hoveredUnitRect, setHoveredUnitRect] = useState<DOMRect | null>(null);
   const [showDeckViewer, setShowDeckViewer] = useState(false);
+  const [resizeTick, setResizeTick] = useState(0);
   const writingBackRef = useRef(false);
   const sseRef = useRef<{ close: () => void } | null>(null);
   const stateRef = useRef(combatState);
   stateRef.current = combatState;
   const gridElRef = useRef<HTMLDivElement | null>(null);
   const relativeRef = useRef<HTMLDivElement | null>(null);
+  const dragMouseRef = useRef<{ clientX: number; clientY: number } | null>(null);
 
   // Damage numbers for floating text effects
   const [damageNumbers, setDamageNumbers] = useState<
@@ -81,9 +85,18 @@ export default function CombatView() {
   const spawnParticles = useCallback(
     (type: "spark" | "heal" | "death" | "victory", pos: [number, number], count?: number) => {
       const id = `emitter_${++emitterIdRef.current}`;
-      const gap = 2;
-      const x = CELL + 5 + pos[1] * (CELL + gap) + CELL / 2;
-      const y = CELL - 12 + pos[0] * (CELL + gap) + CELL / 2;
+      const center = gridElRef.current && relativeRef.current
+        ? getCellParentRelative(gridElRef.current, relativeRef.current, pos[0], pos[1])
+        : null;
+      let x: number, y: number;
+      if (center) {
+        x = center.x;
+        y = center.y;
+      } else {
+        const gap = 2;
+        x = CELL + 5 + pos[1] * (CELL + gap) + CELL / 2;
+        y = CELL - 12 + pos[0] * (CELL + gap) + CELL / 2;
+      }
       setParticleEmitters((prev) => [...prev.slice(-30), { id, config: { type, x, y, count } }]);
     },
     []
@@ -155,6 +168,13 @@ export default function CombatView() {
       sseRef.current?.close();
     };
   }, [fetchState, connectSSE]);
+
+  // Re-render chibi overlay on window resize (positions shift with perspective)
+  useEffect(() => {
+    const handler = () => setResizeTick((t) => t + 1);
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
+  }, []);
 
   const handleStartBattle = useCallback(async () => {
     if (!sessionId || startChars.length === 0) return;
@@ -243,6 +263,7 @@ export default function CombatView() {
     }
     const mobility = selectedUnit.mobility || 1;
     const [r0, c0] = selectedUnit.pos;
+    const gs = combatState?.grid_size ?? 9;
     const cells = new Set<string>();
     for (let dr = -mobility; dr <= mobility; dr++) {
       for (let dc = -mobility; dc <= mobility; dc++) {
@@ -250,7 +271,7 @@ export default function CombatView() {
         if (Math.abs(dr) > mobility || Math.abs(dc) > mobility) continue;
         const r = r0 + dr;
         const c = c0 + dc;
-        if (r >= 0 && r < 9 && c >= 0 && c <= 2) {
+        if (r >= 0 && r < gs && c >= 0 && c < gs) {
           const key = `${r},${c}`;
           if (!combatState?.grid?.[key]) {
             cells.add(key);
@@ -273,9 +294,11 @@ export default function CombatView() {
     const maxRange = card.range;
     const cells = new Set<string>();
 
+    const gs = combatState?.grid_size ?? 9;
+
     if (maxRange < 0) {
-      for (let r = 0; r < 9; r++) {
-        for (let c = 3; c < 8; c++) {
+      for (let r = 0; r < gs; r++) {
+        for (let c = 0; c < gs; c++) {
           cells.add(`${r},${c}`);
         }
       }
@@ -287,7 +310,7 @@ export default function CombatView() {
         if (dr === 0 && dc === 0) continue;
         const r = r0 + dr;
         const c = c0 + dc;
-        if (r >= 0 && r < 9 && c >= 3 && c < 8) {
+        if (r >= 0 && r < gs && c >= 0 && c < gs) {
           cells.add(`${r},${c}`);
         }
       }
@@ -306,6 +329,21 @@ export default function CombatView() {
 
       // TARGETING: play card
       if (combatUIMode === "TARGETING" && selectedCardIndex !== null) {
+        // Validate target is within the card's range
+        if (!rangeHighlights.has(`${row},${col}`)) {
+          const unitAtCell = combatState.units.find(
+            (u) => u.is_alive && u.pos[0] === row && u.pos[1] === col && u.team === "enemy"
+          );
+          if (unitAtCell) {
+            setError("目标不在攻击范围内，无法选中");
+          } else {
+            setSelectedCardIndex(null);
+            setSelectedUnitId(null);
+            setCombatUIMode("VIEWING");
+          }
+          return;
+        }
+
         setLoading(true);
         try {
           await doAction({
@@ -341,9 +379,9 @@ export default function CombatView() {
         return;
       }
 
-      // Click on a player unit → select it
+      // Click on any unit → select it (player or enemy)
       const unit = combatState.units.find(
-        (u) => u.is_alive && u.pos[0] === row && u.pos[1] === col && u.team === "player"
+        (u) => u.is_alive && u.pos[0] === row && u.pos[1] === col
       );
       if (unit) {
         setSelectedUnitId(selectedUnitId === unit.unit_id ? null : unit.unit_id);
@@ -359,7 +397,7 @@ export default function CombatView() {
       setSelectedCardIndex(null);
       setCursor([row, col]);
     },
-    [effectiveId, combatTestId, sessionId, combatState, combatUIMode, selectedCardIndex, selectedUnitId, moveHighlights, api, fetchState, setSelectedCardIndex, setCombatUIMode, setSelectedUnitId]
+    [effectiveId, combatTestId, sessionId, combatState, combatUIMode, selectedCardIndex, selectedUnitId, moveHighlights, rangeHighlights, api, fetchState, setSelectedCardIndex, setCombatUIMode, setSelectedUnitId]
   );
 
   const handleCardClick = useCallback(
@@ -367,12 +405,25 @@ export default function CombatView() {
       if (combatUIMode === "TARGETING" && selectedCardIndex === index) {
         setSelectedCardIndex(null);
         setCombatUIMode("VIEWING");
+        setSelectedUnitId(null);
         return;
       }
       setSelectedCardIndex(index);
       setCombatUIMode("TARGETING");
+      const state = stateRef.current;
+      if (state) {
+        const card = state.shared_hand[index];
+        if (card?.owner) {
+          const ownerUnit = state.units.find(
+            (u) => u.team === "player" && u.is_alive && u.name === card.owner
+          );
+          if (ownerUnit) {
+            setSelectedUnitId(ownerUnit.unit_id);
+          }
+        }
+      }
     },
-    [combatUIMode, selectedCardIndex, setSelectedCardIndex, setCombatUIMode]
+    [combatUIMode, selectedCardIndex, setSelectedCardIndex, setCombatUIMode, setSelectedUnitId]
   );
 
   const handleEndTurn = useCallback(async () => {
@@ -443,6 +494,15 @@ export default function CombatView() {
     setCurrentView("chat");
   }, [combatTestId, sessionId, combatState, encounterId, api, setCombatState, setCombatTestId, setSelectedUnitId, setCurrentView]);
 
+  // Click on empty area of the grid container → deselect all
+  const handleGridBackgroundClick = useCallback(() => {
+    setSelectedUnitId(null);
+    setSelectedCardIndex(null);
+    setCombatUIMode("VIEWING");
+    setCursor(null);
+    setError(null);
+  }, [setSelectedUnitId, setSelectedCardIndex, setCombatUIMode]);
+
   const handleCardDragStart = useCallback((index: number) => {
     setDragCardIndex(index);
     setSelectedCardIndex(index);
@@ -452,15 +512,40 @@ export default function CombatView() {
   const handleCardDragEnd = useCallback(() => {
     setDragCardIndex(null);
     setDragCell(null);
-  }, []);
+    setSelectedCardIndex(null);
+    setSelectedUnitId(null);
+    setCombatUIMode("VIEWING");
+  }, [setSelectedCardIndex, setSelectedUnitId, setCombatUIMode]);
 
-  const handleGridDragMove = useCallback((cell: [number, number] | null) => {
+  const handleGridDragMove = useCallback((cell: [number, number] | null, clientX?: number, clientY?: number) => {
     setDragCell(cell);
+    if (clientX !== undefined && clientY !== undefined) {
+      dragMouseRef.current = { clientX, clientY };
+    } else {
+      dragMouseRef.current = null;
+    }
   }, []);
 
   const handleGridDrop = useCallback(
     async (row: number, col: number) => {
       if (!effectiveId || !combatState || dragCardIndex === null) return;
+
+      // Validate target is within the card's range
+      if (!rangeHighlights.has(`${row},${col}`)) {
+        const unitAtCell = combatState.units.find(
+          (u) => u.is_alive && u.pos[0] === row && u.pos[1] === col && u.team === "enemy"
+        );
+        if (unitAtCell) {
+          setError("目标不在攻击范围内，无法选中");
+        }
+        setDragCardIndex(null);
+        setDragCell(null);
+        setSelectedCardIndex(null);
+        setSelectedUnitId(null);
+        setCombatUIMode("VIEWING");
+        return;
+      }
+
       setLoading(true);
       try {
         const doAction = (action: { action: string; card_index?: number; target: [number, number] }) =>
@@ -484,7 +569,7 @@ export default function CombatView() {
         setDragCell(null);
       }
     },
-    [effectiveId, combatTestId, sessionId, combatState, dragCardIndex, api, fetchState, setSelectedCardIndex, setCombatUIMode, setSelectedUnitId]
+    [effectiveId, combatTestId, sessionId, combatState, dragCardIndex, rangeHighlights, api, fetchState, setSelectedCardIndex, setCombatUIMode, setSelectedUnitId]
   );
 
   const handleUnitClick = useCallback((unitId: string) => {
@@ -624,7 +709,7 @@ export default function CombatView() {
   const sharedApMax = combatState.shared_ap_max ?? 6;
 
   return (
-    <div className="flex flex-col h-full bg-combat-bg relative">
+    <div className="flex flex-col h-full bg-combat-bg relative" onDragOver={(e) => e.preventDefault()}>
       {/* Error toast */}
       {error && (
         <div className="absolute top-3 right-3 z-50 bg-red-950/95 border border-red-800 text-red-200 px-4 py-2 rounded-lg text-sm shadow-lg">
@@ -634,9 +719,9 @@ export default function CombatView() {
       )}
 
       {/* Main area: status panels + grid */}
-      <div className="flex-1 flex items-start justify-center p-4 gap-4 relative">
+      <div className="flex-1 flex items-start justify-between px-2 gap-2 relative select-none" onClick={handleGridBackgroundClick}>
         {/* Player status — left panel */}
-        <div className="w-56 flex-shrink-0 max-h-[calc(100vh-320px)] overflow-y-auto bg-surface-card/90 border border-combat-border rounded-xl p-3 backdrop-blur-sm">
+        <div className="w-56 flex-shrink-0 max-h-[calc(100vh-320px)] overflow-y-auto bg-surface-card/90 border border-combat-border rounded-xl p-3 backdrop-blur-sm" onClick={(e) => e.stopPropagation()}>
           <UnitStatusPanel
             units={combatState.units}
             activeUnitId={combatState.active_unit_id}
@@ -660,7 +745,7 @@ export default function CombatView() {
             <span className={`ml-3 text-xs font-bold ${
               combatState.phase === "PLAYER_TURN" ? "text-combat-player" : "text-combat-enemy"
             }`}>
-              {combatState.phase === "PLAYER_TURN" ? "我方行动" : "敌方行动"}
+              {combatState.phase === "PLAYER_TURN" ? "Player Turn" : "Enemy Turn"}
             </span>
           </div>
 
@@ -686,39 +771,83 @@ export default function CombatView() {
               onGridMount={(el) => { gridElRef.current = el; }}
             />
 
+            {/* Chibi sprite overlay — rendered flat so characters face the camera */}
+            {gridElRef.current && relativeRef.current && combatState.units
+              .filter((u) => u.is_alive)
+              .map((u) => {
+                const center = getCellParentRelative(
+                  gridElRef.current!,
+                  relativeRef.current!,
+                  u.pos[0],
+                  u.pos[1],
+                );
+                if (!center) return null;
+                return (
+                  <div
+                    key={u.unit_id}
+                    className="chibi-overlay"
+                    style={{
+                      position: "absolute",
+                      left: center.x - 24,
+                      top: center.y - 30,
+                      zIndex: 25,
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCellClick(u.pos[0], u.pos[1]);
+                    }}
+                    onMouseEnter={(e) =>
+                      handleCellHover(u, (e.currentTarget as HTMLElement).getBoundingClientRect())
+                    }
+                    onMouseLeave={handleHoverLeave}
+                  >
+                    <ChibiSprite unit={u} />
+                  </div>
+                );
+              })}
+
             {/* Damage numbers */}
-            {damageNumbers.map((d) => (
-              <span
-                key={d.id}
-                className={`damage-number ${d.type === "heal" ? "heal" : d.type === "arts" ? "arts" : "physical"}`}
-                style={{
-                  position: "absolute",
-                  left: `${CELL + d.pos[1] * (CELL + 2)}px`,
-                  top: `${d.pos[0] * (CELL + 2)}px`,
-                  zIndex: 100,
-                }}
-              >
-                {d.type === "heal" ? `+${d.value}` : `-${d.value}`}
-              </span>
-            ))}
+            {damageNumbers.map((d) => {
+              const center = gridElRef.current && relativeRef.current
+                ? getCellParentRelative(gridElRef.current, relativeRef.current, d.pos[0], d.pos[1])
+                : null;
+              return (
+                <span
+                  key={d.id}
+                  className={`damage-number ${d.type === "heal" ? "heal" : d.type === "arts" ? "arts" : "physical"}`}
+                  style={{
+                    position: "absolute",
+                    left: center ? `${center.x - 14}px` : `${CELL + d.pos[1] * (CELL + 2)}px`,
+                    top: center ? `${center.y - 14}px` : `${d.pos[0] * (CELL + 2)}px`,
+                    zIndex: 100,
+                  }}
+                >
+                  {d.type === "heal" ? `+${d.value}` : `-${d.value}`}
+                </span>
+              );
+            })}
 
             {/* Particle effects */}
             <CombatParticles
-              width={8 * (CELL + 2) + CELL}
-              height={9 * (CELL + 2) + 20}
               emitters={particleEmitters}
               onEmitterDone={removeEmitter}
             />
 
             {/* Attack arrow during card drag */}
-            {arrowFrom && dragCell && gridElRef.current && relativeRef.current && (
-              <AttackArrow
-                from={arrowFrom}
-                to={dragCell}
-                gridEl={gridElRef.current}
-                parentEl={relativeRef.current}
-              />
-            )}
+            {arrowFrom && dragCell && gridElRef.current && relativeRef.current && (() => {
+              const m = dragMouseRef.current;
+              const pr = relativeRef.current.getBoundingClientRect();
+              const toPoint = m ? { x: m.clientX - pr.left, y: m.clientY - pr.top } : null;
+              return (
+                <AttackArrow
+                  from={arrowFrom}
+                  to={dragCell}
+                  toPoint={toPoint}
+                  gridEl={gridElRef.current!}
+                  parentEl={relativeRef.current}
+                />
+              );
+            })()}
           </div>
 
           {/* Action hint */}
@@ -738,7 +867,7 @@ export default function CombatView() {
         </div>
 
         {/* Enemy status — right panel */}
-        <div className="w-56 flex-shrink-0 max-h-[calc(100vh-320px)] overflow-y-auto bg-surface-card/90 border border-combat-border rounded-xl p-3 backdrop-blur-sm">
+        <div className="w-56 flex-shrink-0 max-h-[calc(100vh-320px)] overflow-y-auto bg-surface-card/90 border border-combat-border rounded-xl p-3 backdrop-blur-sm" onClick={(e) => e.stopPropagation()}>
           <UnitStatusPanel
             units={combatState.units}
             activeUnitId={combatState.active_unit_id}

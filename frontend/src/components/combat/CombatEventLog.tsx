@@ -35,7 +35,7 @@ function formatEvent(ev: CombatEvent): { icon: string; text: string } {
     case "round_start":
       return { icon, text: `第 ${ev.data.round || "?"} 回合` };
     case "turn_start": {
-      const team = ev.data.team === "player" ? "我方" : "敌方";
+      const team = ev.data.team === "player" ? "Player" : "Enemy";
       return { icon, text: `${ev.data.name || "?"}（${team}）行动` };
     }
     case "damage": {

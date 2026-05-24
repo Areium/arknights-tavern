@@ -1,4 +1,4 @@
-type Point = { x: number; y: number };
+import { type Point, getCellCenter } from "./gridUtils";
 
 function qBezier(p0: Point, p1: Point, p2: Point, t: number): Point {
   const mt = 1 - t;
@@ -16,25 +16,6 @@ function qBezierTangent(p0: Point, p1: Point, p2: Point, t: number): Point {
   };
 }
 
-/** Get the screen-space center of a grid cell by walking the DOM */
-function getCellCenter(
-  gridEl: HTMLElement,
-  row: number,
-  col: number,
-): Point | null {
-  try {
-    const rowEl = gridEl.children[row + 1]; // +1 skip column-labels row
-    if (!rowEl) return null;
-    // rowEl.children: [0]=row label, [1]=cell at col 0, [2]=cell at col 1, ...
-    const cellEl = rowEl.children[col + 1] as HTMLElement | undefined;
-    if (!cellEl) return null;
-    const r = cellEl.getBoundingClientRect();
-    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-  } catch {
-    return null;
-  }
-}
-
 const TRIM_START = 0.18;
 const TRIM_END = 0.82;
 const ARC_STEPS = 48;
@@ -42,24 +23,25 @@ const ARC_STEPS = 48;
 interface Props {
   from: [number, number]; // [row, col]
   to: [number, number];   // [row, col]
+  toPoint?: Point | null; // parent-relative override - draws arrow to exact mouse position
   gridEl: HTMLElement;
   parentEl: HTMLElement;
 }
 
-export default function AttackArrow({ from, to, gridEl, parentEl }: Props) {
+export default function AttackArrow({ from, to, toPoint, gridEl, parentEl }: Props) {
   const pFrom = getCellCenter(gridEl, from[0], from[1]);
   const pTo = getCellCenter(gridEl, to[0], to[1]);
 
   // 调试：检查坐标是否成功获取
-  if (!pFrom || !pTo) {
-    console.warn('[AttackArrow] Failed to get cell centers', { pFrom, pTo, from, to });
+  if (!pFrom || (!pTo && !toPoint)) {
+    console.warn('[AttackArrow] Failed to get cell centers', { pFrom, pTo, toPoint, from, to });
     return null;
   }
 
   // Convert screen-space to parent-relative
   const pr = parentEl.getBoundingClientRect();
   const relFrom: Point = { x: pFrom.x - pr.left, y: pFrom.y - pr.top };
-  const relTo: Point = { x: pTo.x - pr.left, y: pTo.y - pr.top };
+  const relTo: Point = toPoint || { x: pTo!.x - pr.left, y: pTo!.y - pr.top };
 
   const dx = relTo.x - relFrom.x;
   const dy = relTo.y - relFrom.y;
@@ -106,14 +88,6 @@ export default function AttackArrow({ from, to, gridEl, parentEl }: Props) {
   const hx = -tuy * headW;
   const hy = tux * headW;
 
-  const pad = 40;
-  const minX = Math.min(relFrom.x, relTo.x, cp.x) - pad;
-  const minY = Math.min(relFrom.y, relTo.y, cp.y) - pad;
-  const maxX = Math.max(relFrom.x, relTo.x, cp.x) + pad;
-  const maxY = Math.max(relFrom.y, relTo.y, cp.y) + pad;
-  const vbW = maxX - minX;
-  const vbH = maxY - minY;
-
   return (
     <svg
       className="attack-arrow-svg"
@@ -127,10 +101,7 @@ export default function AttackArrow({ from, to, gridEl, parentEl }: Props) {
         pointerEvents: "none",
         overflow: "visible",
       }}
-      width={parentEl.clientWidth}
-      height={parentEl.clientHeight}
-      preserveAspectRatio="none"
-      viewBox={`${minX} ${minY} ${vbW} ${vbH}`}
+      viewBox={`0 0 ${parentEl.clientWidth} ${parentEl.clientHeight}`}
     >
       <g className="attack-arrow-group">
         <polyline
