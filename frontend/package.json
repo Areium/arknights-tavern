@@ -12,15 +12,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "d3-force": "^3.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-markdown": "^9.0.0",
     "react-router-dom": "^6.26.0",
     "zustand": "^4.5.0"
   },
   "devDependencies": {
-    "@types/d3-force": "^3.0.10",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.0",

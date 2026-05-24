@@ -38,6 +38,19 @@ export default function CombatView() {
 
   const [events, setEvents] = useState<CombatEventDTO[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (error) {
+      errorTimerRef.current = setTimeout(() => setError(null), 5000);
+    }
+    return () => {
+      if (errorTimerRef.current) {
+        clearTimeout(errorTimerRef.current);
+        errorTimerRef.current = null;
+      }
+    };
+  }, [error]);
   const [result, setResult] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [cursor, setCursor] = useState<[number, number] | null>(null);
@@ -998,9 +1011,6 @@ export default function CombatView() {
               gridSize={combatState.grid_size}
               cellSize={cfg.cellSize}
               units={combatState.units}
-              grid={combatState.grid ?? {}}
-              validTargets={combatState.valid_targets ?? []}
-              validMoves={[]}
               moveHighlights={moveHighlights}
               rangeHighlights={rangeHighlights}
               selectedUnitId={selectedUnitId}

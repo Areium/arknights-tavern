@@ -92,8 +92,6 @@
 缺失属性默认值：**5**（标准成人水平）。
 
 > 代码位置：`src/combat_engine/entity.py` → `CombatUnit.from_character_metadata()`
-> 
-> 集成到后端时需加入属性 key 兼容层（见 [差距分析](./combat-integration-gap-analysis.md#一属性系统变化关键demo-公式需要更新)）。
 
 #### d20 修正系统（可选集成）
 
@@ -579,34 +577,28 @@ class CardPool:
 5. 使用项目已有的 `frontmatter` 库加载
 6. 字段 key 使用英文，显示用中文
 
-### 当前数据目录结构（已创建）
+### 当前数据目录结构
+
+卡牌数据已由 `src/combat_engine/card_data.py` 硬编码管理（按职业定义卡牌池 + `get_starting_deck()`），不再使用 markdown 文件存储卡牌。
 
 ```
 data/
-├── _INDEX.md                  ← 已注册 enemies, attributes, combat 分类
 ├── combat/
-│   ├── _index.md              ← 战斗系统总索引
 │   ├── TEMPLATE_enemy.md      ← 敌人模板
-│   ├── TEMPLATE_card.md       ← 卡牌模板
 │   ├── TEMPLATE_encounter.md  ← 遭遇模板
+│   ├── TEMPLATE_card.md       ← 卡牌模板（归档，实际数据在 card_data.py）
 │   ├── enemies/
 │   │   ├── 整合运动士兵.md
 │   │   ├── 整合运动狙击手.md
 │   │   ├── 整合运动术师.md
 │   │   ├── 整合运动盾卫.md
 │   │   └── ...
-│   ├── cards/
-│   │   ├── 术师/    (8 张卡)
-│   │   ├── 近卫/    (8 张卡)
-│   │   ├── 狙击/    (8 张卡)
-│   │   ├── 重装/    (8 张卡)
-│   │   ├── 先锋/    (8 张卡)
-│   │   ├── 医疗/    (8 张卡)
-│   │   ├── 辅助/    (8 张卡)
-│   │   ├── 特种/    (8 张卡)
-│   │   └── 战术指挥/(8 张卡)
 │   └── encounters/
-│       └── 初遇整合运动.md
+│       ├── 初遇整合运动.md
+│       ├── enc_defense.md
+│       ├── enc_elite_hunt.md
+│       ├── enc_mixed_assault.md
+│       └── enc_training.md
 ├── enemies/                   ← 叙事敌人（RP 场景用）
 ├── rules/                     ← 规则定义
 ├── attributes/                ← 属性详解（每属性独立文件）
@@ -683,9 +675,9 @@ xp_reward: 50              # 击败经验值
 | `drop_rate` | float | 掉落概率 |
 | `xp_reward` | int | 击败经验值 |
 
-### 卡牌 markdown 模板
+### 卡牌数据定义
 
-文件路径示例：`data/combat/cards/术师/能量弹.md`
+卡牌数据在 `src/combat_engine/card_data.py` 中以硬编码字典定义，按职业组织。模板文件 `TEMPLATE_card.md` 保留作为字段参考。
 
 ```markdown
 ---
@@ -794,10 +786,10 @@ trigger_plot: "plot_first_encounter"
 
 ### Phase 1: 数据层（P0 — 不修改引擎）
 
-- [x] 创建 `data/combat/` 目录结构（`enemies/`、`cards/`、`encounters/`）
+- [x] 创建 `data/combat/` 目录结构（`enemies/`、`encounters/`）
 - [x] 编写敌人模板 `TEMPLATE_enemy.md` 和卡牌模板 `TEMPLATE_card.md`
-- [x] 将现有的敌人转为 markdown 文件（4 个战斗敌人 + 9 个叙事敌人）
-- [x] 将 72 张卡牌定义转为 markdown 文件（按职业分目录，9 职业 × 8 张）
+- [x] 将现有的敌人转为 markdown 文件（4 个战斗敌人）
+- [x] 卡牌数据迁移至 `card_data.py` 硬编码（更灵活、可编程生成）
 - [x] 创建 `data/classes/战术指挥/index.md` 职业定义
 - [ ] 补全博士的 8 属性
 - [x] 在 `data/_INDEX.md` 注册新分类（combat_enemies, combat_cards, combat_encounters, enemies, attributes, rules）
@@ -1271,16 +1263,11 @@ frontend/src/
 └── style.css                   — 战斗样式（粒子动画、网格 3D、手牌扇形）
 
 data/combat/
-├── _index.md
 ├── TEMPLATE_enemy.md
-├── TEMPLATE_card.md
+├── TEMPLATE_card.md              ← 字段参考（实际卡牌数据在 card_data.py）
 ├── TEMPLATE_encounter.md
 ├── enemies/
 │   └── *.md                     # 敌人数据
-├── cards/
-│   ├── 术师/*.md
-│   ├── 近卫/*.md
-│   └── ...
 └── encounters/
     └── *.md                     # 战斗遭遇
 ```
@@ -1290,7 +1277,7 @@ data/combat/
 | 需求 | 实现 |
 |------|------|
 | 敌人数据 | `CombatDataLoader.load_enemy()` → `data/combat/enemies/` |
-| 卡牌数据 | `get_starting_deck(class)` / `CombatDataLoader.load_cards_for_class()` |
+| 卡牌数据 | `get_starting_deck(class)` → `src/combat_engine/card_data.py` |
 | 战斗遭遇 | `CombatDataLoader.load_encounter()` → `data/combat/encounters/` |
 | 角色属性 | `CombatUnit.from_character_metadata()` + `_ATTR_KEY_MAP` 兼容层 |
 | 用户界面 | React `CombatView.tsx` 组件树 |

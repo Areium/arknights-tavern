@@ -16,6 +16,17 @@
 
 ## 更新记录
 
+### 2026-05-24 — 代码与数据冗余清理
+
+- 移除未使用的 npm 依赖（react-markdown、d3-force、@types/d3-force）
+- 删除前端死代码：`getCellSize`/`getCardSize`（combatConfig）、`getIndexGraph`/`getOverrides`/`listDocuments`（useApi）、`"MOVING"` UI 模式（appStore）
+- 删除 CombatGrid 未使用的 props（`grid`、`validTargets`、`validMoves`）
+- 删除后端死代码：`combat_data_loader.py` 中未使用的卡牌加载方法、`engine.py` 中 3 个未使用方法（`get_unit_hand`/`get_active_unit`/`to_dict`）、`index_manager.py` 中未使用的会话配置函数
+- 清理死数据：删除 `data/combat/cards/` 下 55 个卡牌 markdown 文件（卡牌数据已由 `card_data.py` 硬编码管理）
+- `engine.py` 中 `execute_enemy_turn` 重命名为 `_execute_enemy_turn`（仅内部调用）
+- 修复 `app.py` 中 `_project_root` 变量名遮蔽导致战斗测试 500 错误
+- 战斗错误提示增加 5 秒自动消失
+
 ### 2026-05-24 — 全局索引管理系统 + 等距网格优化
 
 **修改动机**：原有索引分散在文档 frontmatter 中，缺乏全局管理视图和可视化引用树。战斗网格需要等距 3D 效果和小精灵覆盖层优化。
@@ -213,7 +224,7 @@ src/
 ├── session_overlay.py          — 会话层数据覆盖（overrides.json）
 ├── index_manager.py            — 全局索引配置管理（CRUD、反向引用树、会话级配置）
 ├── combat_session.py           — 战斗会话封装（CombatEngine → REST/SSE）
-├── combat_data_loader.py       — 战斗数据加载（遭遇/敌人/角色）
+├── combat_data_loader.py       — 战斗数据加载（遭遇/敌人）
 ├── combat_engine/
 │   ├── __init__.py
 │   ├── engine.py               — 战斗状态机、回合管理、敌方 AI

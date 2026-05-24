@@ -145,7 +145,7 @@ BASE_URL=https://api.deepseek.com/v1
 
 **战斗界面布局**：
 - 左侧：我方角色状态面板（HP 条、AP 点、头像）
-- 中央：9×8 俯视网格地图（CSS 3D 透视效果），角色小人 + 特效粒子
+- 中央：7×7 等距 3D 网格地图（CSS 3D 透视效果），角色小人 + 特效粒子
 - 右侧：敌方角色状态面板
 - 底部：手牌区（弧形排列）+ 操作栏 + 事件日志
 
@@ -182,7 +182,7 @@ arknights-tavern/
 │   ├── session_manager.py        # 多会话管理
 │   ├── session_overlay.py        # 会话覆盖层
 │   ├── combat_session.py         # 战斗会话管理
-│   ├── combat_data_loader.py     # 战斗数据加载器
+│   ├── combat_data_loader.py     # 战斗数据加载器（遭遇战/敌人）
 │   ├── combat_engine/            # 战斗引擎
 │   │   ├── engine.py             # 核心战斗逻辑
 │   │   ├── entity.py             # 战斗实体
@@ -219,14 +219,14 @@ arknights-tavern/
 │       └── style.css             # 全局样式
 ├── data/                         # 数据文件（角色/物品/世界观等）
 │   ├── combat/                   # 战斗数据
-│   │   ├── cards/                # 卡牌数据
 │   │   ├── enemies/              # 敌人数据
 │   │   └── encounters/           # 遭遇战配置
 │   └── ...
 ├── docs/                         # 设计文档
 │   ├── combat-design.md          # 战斗引擎设计
-│   └── combat-ui-design.md       # 战斗 UI 设计
+│   ├── combat-numerical-design.md # 战斗数值设计
+│   ├── combat-ui-design.md       # 战斗 UI 设计
+│   └── system-update-log.md      # 系统更新日志
 ├── environment/                  # 环境预设（地点/天气）
-├── requirements.txt
-└── .env.example
+└── requirements.txt
 ```

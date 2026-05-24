@@ -13,7 +13,6 @@ from combat_engine.grid import (Grid, PLAYER_COL_START, PLAYER_COL_END, ENEMY_CO
                    ENEMY_COL_END, TOTAL_ROWS, TOTAL_COLS, range_between,
                    resolve_targets, is_player_zone, is_enemy_zone)
 from combat_engine.card import Card, CardPool
-from combat_engine.card_data import get_starting_deck
 from combat_engine.dice import check_hit, compute_damage, HitResult, DamageResult
 
 
@@ -247,7 +246,7 @@ class CombatEngine:
         for enemy in enemy_units:
             if self.is_battle_over():
                 break
-            self.execute_enemy_turn(enemy.unit_id)
+            self._execute_enemy_turn(enemy.unit_id)
             self._check_battle_end()
 
         if not self.is_battle_over():
@@ -394,7 +393,7 @@ class CombatEngine:
 
     # ── Enemy AI ──
 
-    def execute_enemy_turn(self, unit_id: str) -> list[DamageResult]:
+    def _execute_enemy_turn(self, unit_id: str) -> list[DamageResult]:
         """Simple AI: find nearest player, play best card if in range, else move closer."""
         unit = self.units[unit_id]
         pool = self.enemy_pools.get(unit_id)
@@ -444,21 +443,6 @@ class CombatEngine:
 
     # ── Query ──
 
-    def get_unit_hand(self, unit_id: str) -> list[Card]:
-        """Get the hand for a given unit. Player units use the shared hand;
-        enemy units use their per-unit pool."""
-        unit = self.units.get(unit_id)
-        if unit and unit.team == "player":
-            return self.shared_pool.hand if self.shared_pool else []
-        return self.enemy_pools[unit_id].hand if unit_id in self.enemy_pools else []
-
-    def get_active_unit(self) -> Optional[CombatUnit]:
-        """Return the first alive player unit, or None if none remain."""
-        for u in self.units.values():
-            if u.team == "player" and u.is_alive:
-                return u
-        return None
-
     def _check_battle_end(self) -> bool:
         """Check if the battle has ended (all players or all enemies dead).
         Returns True if the battle ended."""
@@ -480,14 +464,3 @@ class CombatEngine:
     def is_battle_over(self) -> bool:
         return self.state.phase == "END"
 
-    def to_dict(self) -> dict:
-        return {
-            "round": self.state.round_num,
-            "phase": self.state.phase,
-            "winner": self.state.winner,
-            "units": [u.to_dict() for u in self.units.values()],
-            "shared_pool": self.shared_pool.to_dict() if self.shared_pool else {},
-            "enemy_pools": {uid: p.to_dict() for uid, p in self.enemy_pools.items()},
-            "events": [{"type": e.type, "data": e.data}
-                       for e in self.state.events],
-        }

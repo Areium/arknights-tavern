@@ -33,9 +33,6 @@ interface Props {
   gridSize: number;
   cellSize?: number;
   units: CombatUnitDTO[];
-  grid: Record<string, string>;
-  validTargets: [number, number][];
-  validMoves: [number, number][];
   moveHighlights: Set<string>;
   rangeHighlights: Set<string>;
   selectedUnitId: string | null;
@@ -51,7 +48,7 @@ interface Props {
 }
 
 export default function CombatGrid({
-  gridSize, cellSize = 64, units, grid, validTargets, validMoves,
+  gridSize, cellSize = 64, units,
   moveHighlights, rangeHighlights, selectedUnitId, uiMode, cursor,
   dragCell, onCellClick, onCellHover, onCellLeave, onCellDrop, onGridDragMove, onGridMount,
 }: Props) {

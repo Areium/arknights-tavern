@@ -34,11 +34,3 @@ export function getCombatConfig(mode: LayoutMode) {
   return config[mode];
 }
 
-// ── Derived helpers ──
-export function getCellSize(mode: LayoutMode): number {
-  return config[mode].cellSize;
-}
-
-export function getCardSize(mode: LayoutMode): { w: number; h: number } {
-  return { w: config[mode].cardWidth, h: config[mode].cardHeight };
-}

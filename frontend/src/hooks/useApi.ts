@@ -166,8 +166,6 @@ export function useApi() {
     // ── 文档 ──
     getDocumentTree: () => request<any[]>("/api/documents/tree"),
     getDocumentCategories: () => request<{ categories: any[]; hierarchy: { level: number; label: string; categories: string[] }[] }>("/api/documents/categories"),
-    listDocuments: (category: string) =>
-      request<any[]>(`/api/documents/${category}`),
     readDocument: (category: string, id: string) =>
       request<any>(`/api/documents/${category}/${encodeURIComponent(id)}`),
     saveDocument: (
@@ -215,8 +213,6 @@ export function useApi() {
     // ── 索引管理（基于 imports 的新系统） ──
     getIndexOverview: () =>
       request<import("../types").IndexOverview>("/api/index/overview"),
-    getIndexGraph: () =>
-      request<import("../types").IndexGraph>("/api/index/graph"),
     getSessionIndexConfig: (sessionId: string) =>
       request<import("../types").SessionIndexConfig>(`/api/sessions/${sessionId}/index-config`),
     saveSessionIndexConfig: (sessionId: string, config: import("../types").SessionIndexConfig) =>
@@ -297,8 +293,6 @@ export function useApi() {
       ),
 
     // ── 会话覆盖 ──
-    getOverrides: (sessionId: string) =>
-      request<any>(`/api/sessions/${sessionId}/overrides`),
     getCharacterMerged: (sessionId: string, name: string) =>
       request<any>(`/api/sessions/${sessionId}/overrides/characters/${encodeURIComponent(name)}`),
     setCharacterOverride: (sessionId: string, name: string, overrides: Record<string, any>) =>

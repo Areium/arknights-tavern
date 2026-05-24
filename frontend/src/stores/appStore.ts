@@ -59,8 +59,8 @@ interface AppState {
   // 战斗
   combatState: CombatStateDTO | null;
   setCombatState: (state: CombatStateDTO | null) => void;
-  combatUIMode: "VIEWING" | "TARGETING" | "MOVING";
-  setCombatUIMode: (mode: "VIEWING" | "TARGETING" | "MOVING") => void;
+  combatUIMode: "VIEWING" | "TARGETING";
+  setCombatUIMode: (mode: "VIEWING" | "TARGETING") => void;
   selectedCardIndex: number | null;
   setSelectedCardIndex: (index: number | null) => void;
   combatTestId: string | null;

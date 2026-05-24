@@ -1415,15 +1415,11 @@ def verify_doc_imports(category: str, doc_id: str):
 # ══════════════════════════════════════════════════════
 
 
-def _project_root() -> str:
-    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-
 @app.route("/api/index/overview", methods=["GET"])
 def get_index_overview():
     """获取所有文档的分组概览，包含前向引用和反向引用。"""
     try:
-        data = idxmgr.build_overview(os.path.join(_project_root(), "data"), doc_manager)
+        data = idxmgr.build_overview(os.path.join(_project_root, "data"), doc_manager)
         return jsonify(data)
     except Exception as e:
         logger.error("构建索引概览失败: %s", e)
@@ -1434,7 +1430,7 @@ def get_index_overview():
 def get_index_graph():
     """获取依赖关系图的节点和边数据。"""
     try:
-        data = idxmgr.build_graph_data(os.path.join(_project_root(), "data"), doc_manager)
+        data = idxmgr.build_graph_data(os.path.join(_project_root, "data"), doc_manager)
         return jsonify(data)
     except Exception as e:
         logger.error("构建索引图失败: %s", e)
@@ -1488,7 +1484,7 @@ def reset_session_index_config(session_id: str):
 def export_index_yaml():
     """将所有文档的 imports 依赖关系导出为 YAML。"""
     try:
-        data_root = os.path.join(_project_root(), "data")
+        data_root = os.path.join(_project_root, "data")
         overview = idxmgr.build_overview(data_root, doc_manager)
         documents = []
         for cat in overview.get("categories", []):
@@ -1524,7 +1520,7 @@ def import_index_yaml():
     if not docs:
         return _json_error("YAML 中没有找到 index.documents")
 
-    data_root = os.path.join(_project_root(), "data")
+    data_root = os.path.join(_project_root, "data")
 
     # Phase 1: Dry-run 校验
     errors = []
@@ -1584,7 +1580,7 @@ def import_index_yaml():
 def verify_index_integrity():
     """扫描所有文档的 imports，检查断裂引用（引用了不存在的文档）。"""
     try:
-        data_root = os.path.join(_project_root(), "data")
+        data_root = os.path.join(_project_root, "data")
         overview = idxmgr.build_overview(data_root, doc_manager)
     except Exception as e:
         return _json_error(str(e), 500)
@@ -1637,7 +1633,7 @@ def verify_session_index(session_id: str):
 
     try:
         config = session.overlay.get_index_config()
-        data_root = os.path.join(_project_root(), "data")
+        data_root = os.path.join(_project_root, "data")
         overview = idxmgr.build_overview(data_root, doc_manager)
 
         # Build enabled entity paths from config
