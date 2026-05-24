@@ -69,7 +69,7 @@ export default function UnitStatusPanel({
 }: Props) {
   const filtered = team ? units.filter((u) => u.team === team) : units;
   const isPlayer = team === "player";
-  const label = isPlayer ? "我方" : "敌方";
+  const label = isPlayer ? "Player" : "Enemy";
   const labelColor = isPlayer ? "text-combat-player" : "text-combat-enemy";
 
   return (
@@ -80,7 +80,7 @@ export default function UnitStatusPanel({
 
       {isPlayer && sharedAp !== undefined && sharedApMax !== undefined && (
         <div className="flex items-center gap-2 px-1">
-          <span className="text-[9px] text-gray-500 w-10">共用</span>
+          <span className="text-[9px] text-gray-500 w-10">Shared</span>
           <APDots current={sharedAp} max={sharedApMax} color="#ffffff" />
         </div>
       )}

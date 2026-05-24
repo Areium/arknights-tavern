@@ -1,26 +1,34 @@
-import React from "react";
+import React, { useRef, useCallback, useEffect } from "react";
 import type { CombatUnitDTO } from "../../types";
 import GridCell from "./GridCell";
+import { getCellCenter } from "./gridUtils";
 
 const CELL = 56; // px
 
-/* ── Drag-drop helper ── */
-function findClosestCell(
+/** Find the closest cell by comparing mouse position to precomputed cell screen centers */
+function findClosestByCenters(
   clientX: number, clientY: number,
-  gridEl: HTMLElement, gridSize: number
+  centers: ({ x: number; y: number } | null)[][],
+  gridSize: number,
 ): [number, number] | null {
-  const gridRect = gridEl.getBoundingClientRect();
-  const relX = clientX - gridRect.left;
-  // Subtract column-labels row height so row 0 aligns with data row 0
-  const labelRowEl = gridEl.children[0] as HTMLElement | undefined;
-  const labelRowH = labelRowEl?.getBoundingClientRect().height ?? 0;
-  const relY = clientY - gridRect.top - labelRowH - 2; // 2 = gap
-  const col = Math.round((relX - CELL) / (CELL + 2));
-  const row = Math.round(relY / (CELL + 2));
-  if (row >= 0 && row < gridSize && col >= 0 && col < gridSize) {
-    return [row, col];
+  let best: [number, number] | null = null;
+  let bestDist = Infinity;
+  for (let r = 0; r < gridSize; r++) {
+    const row = centers[r];
+    if (!row) continue;
+    for (let c = 0; c < gridSize; c++) {
+      const pt = row[c];
+      if (!pt) continue;
+      const dx = clientX - pt.x;
+      const dy = clientY - pt.y;
+      const dist = dx * dx + dy * dy;
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = [r, c];
+      }
+    }
   }
-  return null;
+  return best;
 }
 
 interface Props {
@@ -39,7 +47,7 @@ interface Props {
   onCellHover?: (unit: CombatUnitDTO, rect: DOMRect) => void;
   onCellLeave?: () => void;
   onCellDrop: (row: number, col: number) => void;
-  onGridDragMove: (cell: [number, number] | null) => void;
+  onGridDragMove: (cell: [number, number] | null, clientX?: number, clientY?: number) => void;
   onGridMount?: (el: HTMLDivElement) => void;
 }
 
@@ -55,9 +63,32 @@ export default function CombatGrid({
     }
   }
 
-  const gridRef = React.useRef<HTMLDivElement>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const cellCentersRef = useRef<({ x: number; y: number } | null)[][]>([]);
 
-  React.useEffect(() => {
+  // Recompute cell screen centers from DOM (handles margins, gaps, 3D perspective)
+  const recomputeCenters = useCallback(() => {
+    const g = gridRef.current;
+    if (!g) return;
+    const centers: ({ x: number; y: number } | null)[][] = [];
+    for (let r = 0; r < gridSize; r++) {
+      const rowCenters: ({ x: number; y: number } | null)[] = [];
+      for (let c = 0; c < gridSize; c++) {
+        rowCenters.push(getCellCenter(g, r, c));
+      }
+      centers.push(rowCenters);
+    }
+    cellCentersRef.current = centers;
+  }, [gridSize]);
+
+  useEffect(() => {
+    recomputeCenters();
+    const onResize = () => recomputeCenters();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [recomputeCenters]);
+
+  useEffect(() => {
     if (gridRef.current && onGridMount) {
       onGridMount(gridRef.current);
     }
@@ -66,18 +97,14 @@ export default function CombatGrid({
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
-    if (gridRef.current) {
-      const cell = findClosestCell(e.clientX, e.clientY, gridRef.current, gridSize);
-      onGridDragMove(cell);
-    }
+    const cell = findClosestByCenters(e.clientX, e.clientY, cellCentersRef.current, gridSize);
+    onGridDragMove(cell, e.clientX, e.clientY);
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
-    if (gridRef.current) {
-      const cell = findClosestCell(e.clientX, e.clientY, gridRef.current, gridSize);
-      if (cell) onCellDrop(cell[0], cell[1]);
-    }
+    const cell = findClosestByCenters(e.clientX, e.clientY, cellCentersRef.current, gridSize);
+    if (cell) onCellDrop(cell[0], cell[1]);
     onGridDragMove(null);
   };
 
@@ -91,16 +118,18 @@ export default function CombatGrid({
     for (let c = 0; c < gridSize; c++) {
       const key = `${r},${c}`;
       const unit = posToUnit[key] || null;
-      let highlight: "" | "cursor" | "target" | "move" = "";
+      let highlight: "" | "cursor" | "target" | "move" | "selected" | "range" = "";
 
       if (dragCell && dragCell[0] === r && dragCell[1] === c) {
         highlight = "target";
       } else if (cursor && cursor[0] === r && cursor[1] === c) {
         highlight = "cursor";
       } else if (uiMode === "TARGETING" && rangeHighlights.has(key)) {
-        highlight = "target";
+        highlight = "range";
       } else if (uiMode === "VIEWING" && moveHighlights.has(key)) {
         highlight = "move";
+      } else if (selectedUnitId && unit && unit.unit_id === selectedUnitId) {
+        highlight = "selected";
       }
 
       cells.push(
