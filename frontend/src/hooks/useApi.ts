@@ -165,7 +165,7 @@ export function useApi() {
 
     // ── 文档 ──
     getDocumentTree: () => request<any[]>("/api/documents/tree"),
-    getDocumentCategories: () => request<any[]>("/api/documents/categories"),
+    getDocumentCategories: () => request<{ categories: any[]; hierarchy: { level: number; label: string; categories: string[] }[] }>("/api/documents/categories"),
     listDocuments: (category: string) =>
       request<any[]>(`/api/documents/${category}`),
     readDocument: (category: string, id: string) =>
@@ -191,71 +191,53 @@ export function useApi() {
       const params = categories?.length ? `?categories=${categories.join(",")}` : "";
       return request<any>(`/api/entities${params}`);
     },
-    getDocIndex: (category: string, id: string) =>
-      request<any>(`/api/documents/${category}/${encodeURIComponent(id)}/index`),
-    updateDocIndex: (category: string, id: string, refs: any, expectedHash?: string) =>
-      request<any>(`/api/documents/${category}/${encodeURIComponent(id)}/index`, {
+
+    // ── 文档依赖导入 ──
+    searchDocuments: (q: string, category: string, docId: string) =>
+      request<any[]>(`/api/documents/search?q=${encodeURIComponent(q)}&category=${encodeURIComponent(category)}&doc_id=${encodeURIComponent(docId)}`),
+    getDocImports: (category: string, id: string) =>
+      request<{ imports: { path: string; name: string }[] }>(`/api/documents/${category}/${encodeURIComponent(id)}/imports`),
+    updateDocImports: (category: string, id: string, imports: string[]) =>
+      request<{ imports: { path: string; name: string }[] }>(`/api/documents/${category}/${encodeURIComponent(id)}/imports`, {
         method: "PUT",
-        body: JSON.stringify({ refs, expected_hash: expectedHash }),
+        body: JSON.stringify({ imports }),
       }),
-    scanDocContent: (category: string, id: string) =>
-      request<any>(`/api/documents/${category}/${encodeURIComponent(id)}/index/scan`, {
+    scanDocImports: (category: string, id: string) =>
+      request<{ suggestions: any[]; existing: any[] }>(`/api/documents/${category}/${encodeURIComponent(id)}/imports/scan`, {
         method: "POST",
       }),
+    verifyDocImports: (category: string, id: string) =>
+      request<{ results: { path: string; name: string; exists: boolean }[] }>(`/api/documents/${category}/${encodeURIComponent(id)}/imports/verify`),
+
     getAssetImages: () => request<any[]>("/api/assets/images"),
     getDataDir: () => request<{ path: string }>("/api/assets/data-dir"),
 
-    // ── 全局索引配置 ──
-    getIndexConfig: () => request<any>("/api/index-config"),
-    updateIndexConfig: (config: Record<string, Record<string, string[]>>) =>
-      request<any>("/api/index-config", {
+    // ── 索引管理（基于 imports 的新系统） ──
+    getIndexOverview: () =>
+      request<import("../types").IndexOverview>("/api/index/overview"),
+    getIndexGraph: () =>
+      request<import("../types").IndexGraph>("/api/index/graph"),
+    getSessionIndexConfig: (sessionId: string) =>
+      request<import("../types").SessionIndexConfig>(`/api/sessions/${sessionId}/index-config`),
+    saveSessionIndexConfig: (sessionId: string, config: import("../types").SessionIndexConfig) =>
+      request<any>(`/api/sessions/${sessionId}/index-config`, {
         method: "PUT",
-        body: JSON.stringify({ config }),
+        body: JSON.stringify(config),
       }),
-    updateDocRefs: (docPath: string, refs: Record<string, string[]>) =>
-      request<any>("/api/index-config/doc", {
-        method: "PUT",
-        body: JSON.stringify({ doc_path: docPath, refs }),
+    resetSessionIndexConfig: (sessionId: string) =>
+      request<any>(`/api/sessions/${sessionId}/index-config`, {
+        method: "DELETE",
       }),
-    getIndexTree: () => request<any>("/api/index-config/tree"),
-    scanAllIndex: () =>
-      request<any>("/api/index-config/scan", { method: "POST" }),
-    migrateIndexConfig: () =>
-      request<any>("/api/index-config/migrate", { method: "POST" }),
-
-    // ── 全量树 & 文档管理 ──
-    getFullIndexTree: () => request<any>("/api/index-config/full-tree"),
-    addDocToConfig: (docPath: string) =>
-      request<any>("/api/index-config/add-doc", {
-        method: "POST",
-        body: JSON.stringify({ doc_path: docPath }),
-      }),
-    removeDocFromConfig: (docPath: string) =>
-      request<any>("/api/index-config/remove-doc", {
-        method: "POST",
-        body: JSON.stringify({ doc_path: docPath }),
-      }),
-
-    // ── 索引配置源 (全局 + 会话级) ──
-    listIndexSources: () => request<any>("/api/index-config/sources"),
-    exportIndexConfig: () => request<{ yaml: string }>("/api/index-config/export"),
-    importIndexConfig: (yaml: string) =>
-      request<any>("/api/index-config/import", {
+    exportIndexYaml: () => request<{ yaml: string }>("/api/index/export"),
+    importIndexYaml: (yaml: string) =>
+      request<any>("/api/index/import", {
         method: "POST",
         body: JSON.stringify({ yaml }),
       }),
-    buildIndexTree: (config: Record<string, Record<string, string[]>>) =>
-      request<any>("/api/index-config/build-tree", {
-        method: "POST",
-        body: JSON.stringify({ config }),
-      }),
-    getSessionIndexConfig: (sessionId: string) =>
-      request<any>(`/api/sessions/${sessionId}/index-config`),
-    saveSessionIndexConfig: (sessionId: string, config: Record<string, Record<string, string[]>>) =>
-      request<any>(`/api/sessions/${sessionId}/index-config`, {
-        method: "PUT",
-        body: JSON.stringify({ config }),
-      }),
+    verifyIndex: () =>
+      request<import("../types").IndexVerifyResult>("/api/index/verify"),
+    verifySessionIndex: (sessionId: string) =>
+      request<import("../types").IndexVerifyResult>(`/api/sessions/${sessionId}/index/verify`),
 
     // ── LLM ──
     getLLMStatus: () => request<any>("/api/llm/status"),

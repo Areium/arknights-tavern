@@ -1,369 +1,369 @@
 """
-索引配置管理器 — 全局索引配置的 CRUD 和树结构构建。
+索引管理 — 全局依赖聚合 + 缓存管理。
 
-将分散在文档 frontmatter 中的 index_refs 集中管理到
-data/_index_config.yaml，并提供反向引用计算和树结构输出。
+职责：
+- 提供 build_overview / build_graph_data 聚合器（基于每文档 imports frontmatter）
+- 提供 invalidate_cache 显式失效
+- 提供 import 辅助函数（从旧 app.py 移入）
 """
 
-import json
 import os
+import json
+import time
+import logging
 import yaml
-from typing import Dict, List, Optional, Tuple
+import frontmatter
 
-class IndexConfig:
-    """全局索引配置。
+logger = logging.getLogger(__name__)
 
-    data 格式:
-        { "category/doc_id": { "ref_category": ["entity_id", ...] } }
+# ── 缓存 ──
+
+_cache: dict = {"overview": None, "graph": None, "timestamp": 0.0}
+_CACHE_TTL = 30  # seconds
+
+
+def invalidate_cache():
+    """写操作后主动清空缓存。"""
+    global _cache
+    _cache = {"overview": None, "graph": None, "timestamp": 0.0}
+
+
+def _cache_valid() -> bool:
+    return bool(_cache["overview"] and time.time() - _cache["timestamp"] < _CACHE_TTL)
+
+
+# ── Import 辅助函数（从 app.py 移入） ──
+
+
+def read_imports_from_file(filepath: str) -> list:
+    """从单个文档 frontmatter 提取 imports 依赖路径列表。
+
+    支持两种格式：
+    - imports: [characters/博士, factions/罗德岛]      # 新格式
+    - index_refs: {characters: [博士], factions: [罗德岛]}  # 旧格式
+
+    同时存在时两种合并。
     """
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            post = frontmatter.load(f)
+    except Exception:
+        return []
 
-    def __init__(self, data: Optional[Dict[str, Dict[str, List[str]]]] = None):
-        self.data: Dict[str, Dict[str, List[str]]] = data or {}
+    fm = post.metadata
+    dep_paths = []
 
-    def get_doc_refs(self, doc_path: str) -> Dict[str, List[str]]:
-        return self.data.get(doc_path, {})
+    # 新格式
+    imports_raw = fm.get("imports", [])
+    if isinstance(imports_raw, list):
+        for item in imports_raw:
+            if isinstance(item, str) and item.strip():
+                path, _ = parse_import_entry(item.strip())
+                dep_paths.append(path)
 
-    def set_doc_refs(self, doc_path: str, refs: Dict[str, List[str]]):
-        self.data[doc_path] = refs
+    # 旧格式
+    index_refs = fm.get("index_refs", {})
+    if isinstance(index_refs, dict):
+        for ref_cat, ref_ids in index_refs.items():
+            if isinstance(ref_ids, list):
+                for ref_id in ref_ids:
+                    if isinstance(ref_id, str) and ref_id.strip():
+                        dep_paths.append(f"{ref_cat}/{ref_id.strip()}")
 
-    def remove_doc(self, doc_path: str):
-        self.data.pop(doc_path, None)
-
-    def to_dict(self) -> Dict:
-        return {"docs": self.data}
-
-
-def parse_doc_path(doc_path: str) -> Tuple[str, str]:
-    """从 'characters/博士' 解析出 (category, doc_id)。"""
-    parts = doc_path.split("/", 1)
-    return (parts[0], parts[1]) if len(parts) == 2 else (parts[0], parts[0])
+    return dep_paths
 
 
-class IndexManager:
-    """全局索引配置管理器。"""
+def parse_import_entry(entry: str) -> tuple[str, str]:
+    """解析 'path | name' 格式，返回 (path, name)。兼容纯路径格式。"""
+    entry = entry.strip()
+    if " | " in entry:
+        parts = entry.split(" | ", 1)
+        return parts[0].strip(), parts[1].strip()
+    return entry, ""
 
-    def __init__(self, data_dir: str):
-        self._config_path = os.path.join(data_dir, "_index_config.yaml")
-        self.config: IndexConfig = IndexConfig()
-        self._load()
 
-    # ── 内部 I/O ──
-
-    def _load(self):
-        """从磁盘加载配置。"""
-        if os.path.isfile(self._config_path):
-            try:
-                with open(self._config_path, "r", encoding="utf-8") as f:
-                    raw = yaml.safe_load(f) or {}
-                self.config = IndexConfig(raw.get("docs", {}))
-            except Exception:
-                self.config = IndexConfig({})
-        else:
-            self.config = IndexConfig({})
-
-    def save(self):
-        """写入磁盘。"""
-        os.makedirs(os.path.dirname(self._config_path), exist_ok=True)
-        with open(self._config_path, "w", encoding="utf-8") as f:
-            yaml.dump(self.config.to_dict(), f,
-                      allow_unicode=True, sort_keys=False,
-                      default_flow_style=False)
-
-    # ── 查询 ──
-
-    def get_all_refs(self) -> Dict[str, Dict[str, List[str]]]:
-        return self.config.data
-
-    def get_doc_refs(self, doc_path: str) -> Dict[str, List[str]]:
-        return self.config.get_doc_refs(doc_path)
-
-    # ── 修改 ──
-
-    def set_doc_refs(self, doc_path: str, refs: Dict[str, List[str]]):
-        self.config.set_doc_refs(doc_path, refs)
-
-    def remove_doc(self, doc_path: str):
-        self.config.remove_doc(doc_path)
-
-    def add_ref(self, doc_path: str, ref_category: str, entity_id: str):
-        refs = self.config.data.setdefault(doc_path, {})
-        refs.setdefault(ref_category, [])
-        if entity_id not in refs[ref_category]:
-            refs[ref_category].append(entity_id)
-
-    def remove_ref(self, doc_path: str, ref_category: str, entity_id: str):
-        refs = self.config.data.get(doc_path, {})
-        cat_refs = refs.get(ref_category, [])
-        if entity_id in cat_refs:
-            cat_refs.remove(entity_id)
-            if not cat_refs:
-                del refs[ref_category]
-        if not refs:
-            del self.config.data[doc_path]
-
-    # ── 构建反向引用 & 树结构 ──
-
-    def build_tree(self, all_entities: Dict[str, List[Dict]]) -> Dict:
-        """构建带反向引用的索引树。
-
-        all_entities 格式: { "characters": [{id, name, summary}, ...] }
-        由 app._load_all_entities() 提供。
-
-        返回:
-            {
-                "categories": [
-                    {
-                        "category": "characters",
-                        "doc_count": 3,
-                        "docs": [
-                            {
-                                "id": "博士",
-                                "path": "characters/博士",
-                                "ref_count": 5,
-                                "refed_by_count": 1,
-                                "refs": {"attributes": ["情绪稳定性", ...]},
-                                "refed_by": {
-                                    "plots": [{"id": "near-light", "name": "近夜"}]
-                                }
-                            }
-                        ]
-                    }
-                ]
-            }
-        """
-        # Step 1: 构建反向引用映射 entity -> [(doc_path, category)]
-        # 对于每个文档的每个 ref，记录哪个文档引用了这个实体
-        reverse_map: Dict[str, List[Tuple[str, str]]] = {}  # entity_id -> [(doc_path, cat)]
-
-        for doc_path, refs in self.config.data.items():
-            for ref_cat, entity_ids in refs.items():
-                for eid in entity_ids:
-                    reverse_map.setdefault(eid, []).append((doc_path, ref_cat))
-
-        # Step 2: 对每个类别下的文档，计算正向/反向引用
-        categories: Dict[str, Dict] = {}  # category -> category dict
-
-        for doc_path, refs in self.config.data.items():
-            cat_name, doc_id = parse_doc_path(doc_path)
-
-            if cat_name not in categories:
-                categories[cat_name] = {
-                    "category": cat_name,
-                    "doc_count": 0,
-                    "docs": [],
-                }
-
-            # 反向引用：哪些文档引用了当前文档对应的实体
-            refed_by_cats: Dict[str, List[Dict]] = {}
-            referrers = reverse_map.get(doc_id, [])
-            for ref_doc_path, _ in referrers:
-                if ref_doc_path == doc_path:
-                    continue  # skip self
-                ref_doc_cat, ref_doc_id = parse_doc_path(ref_doc_path)
-                refed_by_cats.setdefault(ref_doc_cat, [])
-                if not any(r["id"] == ref_doc_id for r in refed_by_cats[ref_doc_cat]):
-                    refed_by_cats[ref_doc_cat].append({
-                        "id": ref_doc_id,
-                        "path": ref_doc_path,
-                    })
-
-            total_ref_count = sum(len(v) for v in refs.values())
-            total_refed_by_count = sum(len(v) for v in refed_by_cats.values())
-
-            categories[cat_name]["docs"].append({
-                "id": doc_id,
-                "path": doc_path,
-                "ref_count": total_ref_count,
-                "refed_by_count": total_refed_by_count,
-                "refs": refs,
-                "refed_by": refed_by_cats,
-            })
-
-        # Step 3: 排序 & 计数
-        result_cats = sorted(categories.values(), key=lambda c: c["category"])
-        for cat in result_cats:
-            cat["doc_count"] = len(cat["docs"])
-            cat["docs"].sort(key=lambda d: d["id"])
-
-        return {"categories": result_cats}
-
-    # ── 导出 / 导入 ──
-
-    def export_yaml(self) -> str:
-        """将配置导出为 YAML 字符串。"""
-        return yaml.dump(self.config.to_dict(), allow_unicode=True, sort_keys=False)
-
-    def import_yaml(self, yaml_str: str) -> int:
-        """从 YAML 字符串导入配置，保存并返回文档数。"""
-        data = yaml.safe_load(yaml_str)
-        if not isinstance(data, dict):
-            raise ValueError("无效的 YAML 格式")
-        docs = data.get("docs", {})
-        if not isinstance(docs, dict):
-            raise ValueError("缺少 docs 字段或格式不正确")
-        self.config = IndexConfig(docs)
-        self.save()
-        return len(docs)
-
-    # ── 会话级配置 ──
-
-    def session_config_path(self, session_id: str, mode: str) -> str:
-        """会话级索引配置文件的路径。"""
-        config_dir = os.path.dirname(self._config_path)
-        return os.path.join(
-            config_dir, "memory", "sessions", mode, session_id, "index_config.json"
-        )
-
-    def load_session_config(self, session_id: str, mode: str) -> dict:
-        """加载会话的索引配置，不存在则返回空 dict。"""
-        path = self.session_config_path(session_id, mode)
-        if os.path.isfile(path):
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception:
-                return {}
-        return {}
-
-    def save_session_config(self, session_id: str, mode: str, config: dict):
-        """保存会话的索引配置。"""
-        path = self.session_config_path(session_id, mode)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump({"config": config}, f, ensure_ascii=False, indent=2)
-            f.write("\n")
-
-    def build_tree_from_config(self, config: dict, all_entities: dict) -> dict:
-        """从给定的配置构建树，不修改当前加载的配置。"""
-        from copy import deepcopy
-        saved = deepcopy(self.config.data)
-        self.config.data = config
+def resolve_doc_display_name(doc_path: str, doc_manager=None) -> str:
+    """从文档路径 'category/id' 获取显示名称（frontmatter 中的 name 字段）。"""
+    if "/" not in doc_path:
+        return doc_path
+    category, doc_id = doc_path.split("/", 1)
+    if doc_manager:
         try:
-            return self.build_tree(all_entities)
-        finally:
-            self.config.data = saved
+            doc = doc_manager.read_document(category, doc_id)
+            meta = doc.get("metadata", {})
+            return meta.get("name", doc_id)
+        except Exception:
+            return doc_id
+    return doc_id
 
-    # ── 全量树（含未配置文档） ──
 
-    def build_full_tree(self, doc_manager, all_entities: dict) -> dict:
-        """构建包含未配置文档的全量树。
+def write_imports_to_file(filepath: str, imports: list, doc_manager=None):
+    """将 imports 路径列表以 'path | name' 格式写入文档 frontmatter。"""
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            post = frontmatter.load(f)
+    except Exception:
+        return
 
-        将文件系统中存在的所有文档与 _index_config.yaml 的配置合并，
-        未配置的文档标记 in_config=False，方便前端展示和添加。
-        """
-        # 1. 构建已配置的树
-        config_tree = self.build_tree(all_entities)
+    cleaned = list(dict.fromkeys(p for p in imports if p and "/" in p))
+    formatted = []
+    for imp in cleaned:
+        name = resolve_doc_display_name(imp, doc_manager)
+        formatted.append(f"{imp} | {name}" if name else imp)
+    post.metadata["imports"] = formatted
+    post.metadata.pop("index_refs", None)
 
-        # 2. 查找已配置的文档 ID
-        configured: dict = {}
-        for cat in config_tree["categories"]:
-            configured[cat["category"]] = {d["id"] for d in cat["docs"]}
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(frontmatter.dumps(post))
 
-        # 3. 从文件系统获取所有文档，按类别归并
-        all_cats = doc_manager.list_all_documents()
 
-        # 4. 构建结果
-        result = []
-        config_docs_map: dict = {}
-        for cat in config_tree["categories"]:
-            config_docs_map[cat["category"]] = {d["id"]: d for d in cat["docs"]}
+# ── 目录扫描辅助 ──
 
-        seen_categories = set()
-        for cat_data in all_cats:
-            cat_name = cat_data["category"]
-            seen_categories.add(cat_name)
-            flat_ids = self._flatten_docs_tree(cat_data.get("children", []))
 
-            existing = config_docs_map.get(cat_name, {})
-            merged = {**existing}  # copy configured docs
+def _categories_and_hierarchy(data_root: str) -> tuple[dict, list]:
+    """读取 categories.yaml，返回 (categories_dict, hierarchy_list)。"""
+    yaml_path = os.path.join(data_root, "categories.yaml")
+    if not os.path.isfile(yaml_path):
+        return {}, []
+    try:
+        with open(yaml_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        categories = data.get("categories", {})
+        hierarchy = data.get("hierarchy", {}).get("levels", [])
+        hierarchy.sort(key=lambda x: x["level"])
+        return categories, hierarchy
+    except Exception as e:
+        logger.error("读取 categories.yaml 失败: %s", e)
+        return {}, []
 
-            for doc_id in flat_ids:
-                if doc_id not in merged:
-                    merged[doc_id] = {
-                        "id": doc_id,
-                        "path": f"{cat_name}/{doc_id}",
-                        "ref_count": 0,
-                        "refed_by_count": 0,
-                        "refs": {},
-                        "refed_by": {},
-                        "in_config": False,
-                    }
-                else:
-                    merged[doc_id]["in_config"] = True
 
-            docs_list = sorted(merged.values(), key=lambda d: d["id"])
-            result.append({
-                "category": cat_name,
-                "doc_count": len(docs_list),
-                "configured_count": sum(1 for d in docs_list if d.get("in_config")),
-                "docs": docs_list,
-            })
-
-        # 5. 追加仅有配置但文件可能已被删除的类别
-        for cat in config_tree["categories"]:
-            if cat["category"] not in seen_categories:
-                docs_list = [
-                    {**d, "in_config": True}
-                    for d in cat["docs"]
-                ]
-                result.append({
-                    "category": cat["category"],
-                    "doc_count": len(docs_list),
-                    "configured_count": len(docs_list),
-                    "docs": docs_list,
+def _scan_docs_in_category(category_dir: str) -> list[dict]:
+    """扫描实体文件夹，返回 [{path, id, name}]。"""
+    if not os.path.isdir(category_dir):
+        return []
+    docs = []
+    for item in sorted(os.listdir(category_dir)):
+        item_path = os.path.join(category_dir, item)
+        index_md = os.path.join(item_path, "index.md")
+        if os.path.isdir(item_path) and os.path.isfile(index_md):
+            try:
+                with open(index_md, "r", encoding="utf-8") as f:
+                    fm_data = frontmatter.load(f)
+                docs.append({
+                    "id": item,
+                    "name": fm_data.metadata.get("name", item),
+                    "path": index_md,
                 })
-
-        result.sort(key=lambda c: c["category"])
-        return {"categories": result}
-
-    @staticmethod
-    def _flatten_docs_tree(children: list) -> list:
-        """从 DocTreeNode 列表中提取所有文档 ID。"""
-        ids = []
-        for child in children:
-            if child.get("type") == "document" and child.get("id"):
-                ids.append(child["id"])
-
-        return ids
-
-    # ── 迁移 ──
-
-    def migrate_from_frontmatter(self, doc_manager) -> int:
-        """从文档 frontmatter 中的 index_refs 迁移到全局配置。
-
-        doc_manager: DocumentManager 实例
-        返回迁移的文档数。
-        """
-        # 查找所有文档及其 index_refs
-        migrated = 0
-        cat_dirs = self._list_categories()
-
-        for cat_name in cat_dirs:
-            doc_items = doc_manager.list_documents(cat_name)
-            for item in doc_items:
-                doc_id = item["id"]
+            except Exception:
+                continue
+        else:
+            # 兼容传统单文件模式
+            legacy = os.path.join(category_dir, f"{item}.md")
+            if os.path.isfile(legacy):
                 try:
-                    doc = doc_manager.read_document(cat_name, doc_id)
+                    with open(legacy, "r", encoding="utf-8") as f:
+                        fm_data = frontmatter.load(f)
+                    docs.append({
+                        "id": item,
+                        "name": fm_data.metadata.get("name", item),
+                        "path": legacy,
+                    })
                 except Exception:
                     continue
-                refs = doc.get("metadata", {}).get("index_refs", {})
-                if refs:
-                    doc_path = f"{cat_name}/{doc_id}"
-                    self.config.set_doc_refs(doc_path, refs)
-                    migrated += 1
+    return docs
 
-        if migrated > 0:
-            self.save()
-        return migrated
 
-    def _list_categories(self) -> List[str]:
-        """从 _INDEX.md 列出所有类别。"""
-        from frontmatter import load as fm_load
-        master_path = os.path.join(
-            os.path.dirname(self._config_path), "_INDEX.md"
-        )
-        if not os.path.isfile(master_path):
-            return []
-        with open(master_path, "r", encoding="utf-8") as f:
-            master = fm_load(f)
-        return list(master.metadata.get("index", {}).keys())
+# ── 聚合器 ──
+
+
+def build_overview(data_root: str, doc_manager=None) -> dict:
+    """构建所有文档的分组概览，包含前向引用（imports）和反向引用（imported_by）。
+
+    Returns:
+        {categories: [{category, label, level, docs: [{path, id, name, imports, imported_by}]}],
+         hierarchy: [...]}
+    """
+    global _cache
+    if _cache_valid():
+        return _cache["overview"]
+
+    categories, hierarchy = _categories_and_hierarchy(data_root)
+    if not categories:
+        return {"categories": [], "hierarchy": []}
+
+    # 构建 level->label 映射
+    level_labels = {h["level"]: h["label"] for h in hierarchy}
+
+    # Phase 1: 扫描所有文档
+    cat_docs = {}  # {category: [{id, name, path, import_paths}]}
+    doc_index = {}  # {path_key: {category, id, name}}  (path_key = "category/id")
+
+    for cat_name, dir_rel in categories.items():
+        dir_path = dir_rel if isinstance(dir_rel, str) else dir_rel.get("dir", "")
+        if dir_path.startswith("data/"):
+            dir_path = dir_path[5:]
+        full_dir = os.path.join(data_root, dir_path) if not os.path.isabs(dir_path) else dir_path
+        docs = _scan_docs_in_category(full_dir)
+        cat_docs[cat_name] = []
+        for d in docs:
+            import_paths = read_imports_from_file(d["path"])
+            cat_docs[cat_name].append({
+                "id": d["id"],
+                "name": d["name"],
+                "import_paths": import_paths,
+            })
+            path_key = f"{cat_name}/{d['id']}"
+            doc_index[path_key] = {"category": cat_name, "name": d["name"]}
+
+    # Phase 2: 构建反向引用
+    reverse_index = {}  # path_key -> [{category, name}]
+    for cat_name, docs in cat_docs.items():
+        for d in docs:
+            for imp in d["import_paths"]:
+                if imp not in reverse_index:
+                    reverse_index[imp] = []
+                reverse_index[imp].append({
+                    "category": cat_name,
+                    "name": d["name"],
+                    "path": f"{cat_name}/{d['id']}",
+                })
+
+    # Phase 3: 构建最终输出
+    cat_level_map = {}
+    for h in hierarchy:
+        for c in h.get("categories", []):
+            cat_level_map[c] = (h["level"], h["label"])
+
+    result_categories = []
+    for cat_name, docs in cat_docs.items():
+        level, label = cat_level_map.get(cat_name, (99, ""))
+        doc_list = []
+        for d in docs:
+            path_key = f"{cat_name}/{d['id']}"
+            # imports 带名称
+            imports_info = []
+            for imp in d["import_paths"]:
+                info = doc_index.get(imp, {"name": imp.split("/")[-1] if "/" in imp else imp})
+                imports_info.append({
+                    "path": imp,
+                    "name": info["name"],
+                })
+            # imported_by 带名称
+            imported_by = []
+            for ref in reverse_index.get(path_key, []):
+                imported_by.append({
+                    "path": ref["path"],
+                    "name": ref["name"],
+                    "category": ref["category"],
+                })
+            doc_list.append({
+                "path": path_key,
+                "id": d["id"],
+                "name": d["name"],
+                "imports": imports_info,
+                "imported_by": imported_by,
+            })
+
+        result_categories.append({
+            "category": cat_name,
+            "label": label,
+            "level": level,
+            "docs": doc_list,
+        })
+
+    result_categories.sort(key=lambda c: (c["level"], c["category"]))
+    result = {"categories": result_categories, "hierarchy": hierarchy}
+
+    _cache = {"overview": result, "graph": None, "timestamp": time.time()}
+    return result
+
+
+def build_graph_data(data_root: str, doc_manager=None) -> dict:
+    """构建依赖关系图数据。
+
+    Returns:
+        {nodes: [{id, category, name, level}], edges: [{source, target}]}
+        edges[source->target] 表示 source 导入了 target。
+    """
+    global _cache
+    if _cache_valid() and _cache["graph"]:
+        return _cache["graph"]
+
+    categories, hierarchy = _categories_and_hierarchy(data_root)
+    if not categories:
+        return {"nodes": [], "edges": []}
+
+    cat_level_map = {}
+    for h in hierarchy:
+        for c in h.get("categories", []):
+            cat_level_map[c] = h["level"]
+
+    nodes = []
+    edges = []
+    seen_nodes = set()
+
+    for cat_name, dir_rel in categories.items():
+        dir_path = dir_rel if isinstance(dir_rel, str) else dir_rel.get("dir", "")
+        if dir_path.startswith("data/"):
+            dir_path = dir_path[5:]
+        full_dir = os.path.join(data_root, dir_path) if not os.path.isabs(dir_path) else dir_path
+        docs = _scan_docs_in_category(full_dir)
+        for d in docs:
+            node_id = f"{cat_name}/{d['id']}"
+            if node_id not in seen_nodes:
+                nodes.append({
+                    "id": node_id,
+                    "category": cat_name,
+                    "name": d["name"],
+                    "level": cat_level_map.get(cat_name, 99),
+                })
+                seen_nodes.add(node_id)
+            import_paths = read_imports_from_file(d["path"])
+            for imp in import_paths:
+                edges.append({"source": node_id, "target": imp})
+
+    result = {"nodes": nodes, "edges": edges}
+
+    _cache = {"overview": _cache.get("overview"), "graph": result, "timestamp": time.time()}
+    return result
+
+
+# ── 会话索引配置路径 ──
+
+
+def _sessions_root(data_root: str) -> str:
+    return os.path.join(data_root, "memory", "sessions")
+
+
+def session_config_path(data_root: str, session_id: str, mode: str) -> str:
+    return os.path.join(
+        _sessions_root(data_root), mode, session_id, "index_config.json"
+    )
+
+
+def load_session_config(data_root: str, session_id: str, mode: str) -> dict:
+    """加载会话索引配置，不存在返回默认 {mode: "all"}。"""
+    path = session_config_path(data_root, session_id, mode)
+    if os.path.isfile(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {"mode": "all", "enabled_categories": [], "enabled_entities": {}}
+    return {"mode": "all", "enabled_categories": [], "enabled_entities": {}}
+
+
+def save_session_config(data_root: str, session_id: str, mode: str, config: dict):
+    """保存会话索引配置。"""
+    path = session_config_path(data_root, session_id, mode)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(config, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+
+
+def reset_session_config(data_root: str, session_id: str, mode: str):
+    """删除会话索引配置，回退到默认。"""
+    path = session_config_path(data_root, session_id, mode)
+    if os.path.isfile(path):
+        os.remove(path)

@@ -4,6 +4,20 @@ class: "近卫"
 race: "鲁珀"
 faction: "龙门"
 tags: ["警官", "近卫", "龙门", "感染者"]
+imports:
+  - classes/近卫
+  - races/鲁珀
+  - factions/龙门
+  - attributes/物理强度
+  - attributes/战场机动
+  - attributes/生理耐受
+  - attributes/战术规划
+  - attributes/战斗技巧
+  - attributes/源石技艺适应性
+  - attributes/情绪稳定性
+  - attributes/魅力
+  - characters/博士
+  - characters/阿米娅
 attributes:
   物理强度: 8
   战场机动: 9

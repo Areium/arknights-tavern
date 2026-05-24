@@ -19,12 +19,13 @@ _ENV_RULE = """
 
 
 class CharacterAgent:
-    def __init__(self, character_name, llm, registry=None, overrides: dict = None):
+    def __init__(self, character_name, llm, registry=None, overrides: dict = None, entity_whitelist: dict = None):
         self.character_name = character_name
         self.llm = llm
         self.registry = registry
         self.metadata = {}
         self._overrides = overrides or {}
+        self._entity_whitelist = entity_whitelist
         self.character = self.load_character(character_name, self._overrides)
         self.memory = VectorMemory(
             character_name=character_name,
@@ -123,7 +124,7 @@ class CharacterAgent:
         # 通过 RegistryManager 注入种族/职业/势力/物品的层级引用
         registry_context = ""
         if self.registry and self.metadata:
-            registry_context = self.registry.build_character_context(self.metadata)
+            registry_context = self.registry.build_character_context(self.metadata, self._entity_whitelist)
 
         system_content = (
             self.character

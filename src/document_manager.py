@@ -2,7 +2,7 @@
 文档管理器：对所有 Markdown 数据文件的 CRUD 操作 + 哈希冲突检测。
 
 设计：
-- 从 data/_INDEX.md 自动发现文档类别和路径
+- 从 data/categories.yaml 自动发现文档类别和路径
 - 读文件时返回 SHA256 哈希，写文件时校验哈希以检测冲突
 - 支持类别子目录（如 Location/Rhode_Island/）
 - 可选集成 Git 自动提交
@@ -44,23 +44,16 @@ class ConflictError(Exception):
 
 
 class DocumentCategory:
-    """一个文档类别（对应 _INDEX.md 中的一个条目）。"""
+    """一个文档类别（对应 categories.yaml 中的一个条目）。"""
 
-    def __init__(self, category_id: str, index_path: str, directory: str,
-                 ref_by: list[str], refs: list[str]):
+    def __init__(self, category_id: str, directory: str):
         self.id = category_id
-        self.index_path = index_path
         self.directory = directory
-        self.ref_by = ref_by
-        self.refs = refs
 
     def to_dict(self) -> dict:
         return {
             "id": self.id,
-            "index_path": self.index_path,
             "directory": self.directory,
-            "ref_by": self.ref_by,
-            "refs": self.refs,
         }
 
 
@@ -113,32 +106,33 @@ class DocumentManager:
             self._root = root_dir
 
         self._categories: dict[str, DocumentCategory] = {}
+        self._hierarchy: list[dict] = []
         self._load_index()
 
     # ── 索引加载 ──
 
     def _load_index(self):
-        """加载 data/_INDEX.md 注册表。"""
-        index_path = os.path.join(self._root, "data", "_INDEX.md")
-        if not os.path.isfile(index_path):
-            logger.warning("主索引文件不存在: %s", index_path)
+        """加载 data/categories.yaml 注册表。"""
+        yaml_path = os.path.join(self._root, "data", "categories.yaml")
+        if not os.path.isfile(yaml_path):
+            logger.warning("categories.yaml 不存在: %s", yaml_path)
             return
 
         try:
-            with open(index_path, "r", encoding="utf-8") as f:
-                meta = frontmatter.load(f).metadata
-            index_data = meta.get("index", {})
-            for cat_id, cat_info in index_data.items():
+            with open(yaml_path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+            cat_data = data.get("categories", {})
+            for cat_id, cat_info in cat_data.items():
+                dir_path = cat_info if isinstance(cat_info, str) else cat_info.get("dir", "")
                 self._categories[cat_id] = DocumentCategory(
                     category_id=cat_id,
-                    index_path=os.path.join(self._root, cat_info["index"]),
-                    directory=os.path.join(self._root, cat_info["dir"]),
-                    ref_by=cat_info.get("ref_by", []),
-                    refs=cat_info.get("refs", []),
+                    directory=os.path.join(self._root, dir_path),
                 )
+            h_data = data.get("hierarchy", {})
+            self._hierarchy = h_data.get("levels", [])
             logger.info("加载了 %d 个文档类别", len(self._categories))
         except Exception as e:
-            logger.error("加载主索引失败: %s", e)
+            logger.error("加载 categories.yaml 失败: %s", e)
 
     # ── 类别查询 ──
 
@@ -148,6 +142,9 @@ class DocumentManager:
 
     def get_category(self, category_id: str) -> Optional[DocumentCategory]:
         return self._categories.get(category_id)
+
+    def get_hierarchy(self) -> list[dict]:
+        return self._hierarchy
 
     # ── 文档列举 ──
 

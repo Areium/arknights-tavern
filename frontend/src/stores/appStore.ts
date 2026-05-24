@@ -52,6 +52,10 @@ interface AppState {
   sceneSwitchKey: number;
   triggerSceneSwitch: () => void;
 
+  // 索引管理跳转（从会话列表跳转到索引管理器并选中指定会话）
+  indexSessionId: string | null;
+  setIndexSessionId: (id: string | null) => void;
+
   // 战斗
   combatState: CombatStateDTO | null;
   setCombatState: (state: CombatStateDTO | null) => void;
@@ -113,6 +117,10 @@ export const useAppStore = create<AppState>((set) => ({
   // 场景切换触发器
   sceneSwitchKey: 0,
   triggerSceneSwitch: () => set((state) => ({ sceneSwitchKey: state.sceneSwitchKey + 1 })),
+
+  // 索引管理跳转
+  indexSessionId: null,
+  setIndexSessionId: (id) => set({ indexSessionId: id }),
 
   // 战斗
   combatState: null,

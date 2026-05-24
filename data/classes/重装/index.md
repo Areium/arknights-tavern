@@ -1,12 +1,24 @@
 ---
-name: "重装"
-alias: "Defender"
-category: "防御"
-combat_role: "前排坦克/治疗"
-damage_type: mixed
+alias: Defender
 attack_range: melee
-deployment_cost_range: "18-30"
-core_attributes: ["physical_strength", "physiological_tolerance", "emotional_stability"]
+category: 防御
+combat_role: 前排坦克/治疗
+core_attributes:
+- physical_strength
+- physiological_tolerance
+- emotional_stability
+damage_type: mixed
+deployment_cost_range: 18-30
+imports:
+- attributes/情绪稳定性 | 情绪稳定性
+- attributes/战场机动 | 战场机动
+- attributes/战术规划 | 战术规划
+- attributes/源石技艺适应性 | 源石技艺适应性
+- attributes/物理强度 | 物理强度
+- attributes/生理耐受 | 生理耐受
+- attributes/魅力 | 魅力
+- classes/辅助 | 辅助
+name: 重装
 ---
 
 # 重装 / Defender

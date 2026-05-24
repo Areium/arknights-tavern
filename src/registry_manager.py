@@ -2,6 +2,7 @@ import os
 import re
 import logging
 
+import yaml
 import frontmatter
 
 logger = logging.getLogger(__name__)
@@ -67,7 +68,7 @@ class RegistryManager:
     """层级索引管理器：按深度加载 Markdown 数据文件，控制 token 注入量。
 
     核心概念：
-      summary — 来自 _index.md 的 one-liner（始终注入，~30 token/条）
+      summary — 来自文档 frontmatter 的 one-liner（始终注入，~30 token/条）
       core    — 文件中的关键章节（角色加载时注入，~150 token/条）
       full    — 完整文件内容（玩家显式检视时注入，~400 token/条）
 
@@ -132,50 +133,64 @@ class RegistryManager:
         """快捷方法：获取一项的全文（玩家检视物品时调用）。"""
         return self.resolve(type_, key, "full")
 
-    def build_character_context(self, metadata: dict) -> str:
+    def build_character_context(self, metadata: dict, entity_whitelist: dict = None) -> str:
         """为角色构建引用上下文，注入到 system prompt。
 
         Args:
-            metadata: 角色卡的 frontmatter 字典，需含 race / class / faction / key_items 字段。
+            metadata: 角色卡的 frontmatter 字典。
+            entity_whitelist: 可选，会话索引配置 {mode, enabled_categories, enabled_entities}。
+                mode="whitelist" 时仅注入白名单内的实体；None 或 mode="all" 时不限制。
 
         Returns:
-            格式化的上下文文本，可直接拼接到 system prompt。
+            格式化的上下文文本。
         """
         if not metadata:
             return ""
 
+        def _is_entity_allowed(category: str, key: str) -> bool:
+            """检查实体是否在 whitelist 中。"""
+            if entity_whitelist is None:
+                return True
+            if entity_whitelist.get("mode") != "whitelist":
+                return True
+            cats = entity_whitelist.get("enabled_categories", [])
+            ents = entity_whitelist.get("enabled_entities", {})
+            if category in cats:
+                return True  # 整个类别启用
+            cat_ents = ents.get(category, [])
+            return key in cat_ents
+
         parts = []
 
         race = metadata.get("race", "")
-        if race:
+        if race and _is_entity_allowed("races", race):
             text = self.resolve("races", race, "core")
             if text:
                 parts.append(f"【种族：{race}】\n{text}")
 
         class_ = metadata.get("class", "")
-        if class_:
+        if class_ and _is_entity_allowed("classes", class_):
             text = self.resolve("classes", class_, "core")
             if text:
                 parts.append(f"【职业：{class_}】\n{text}")
 
         faction = metadata.get("faction", "")
-        if faction:
+        if faction and _is_entity_allowed("factions", faction):
             text = self.resolve("factions", faction, "summary")
             if text:
                 parts.append(f"【所属势力：{faction}】\n{text}")
 
-        # 角色自身的关键物品注入 core 深度
         key_items = metadata.get("key_items", [])
         if key_items:
             item_texts = []
             for item_name in key_items:
-                text = self.resolve("items", item_name, "core")
-                if text:
-                    item_texts.append(f"「{item_name}」：{text}")
+                if _is_entity_allowed("items", item_name):
+                    text = self.resolve("items", item_name, "core")
+                    if text:
+                        item_texts.append(f"「{item_name}」：{text}")
             if item_texts:
                 parts.append("【关键物品】\n" + "\n".join(item_texts))
 
-        # 角色属性注入 core 深度（每个属性提取对应等级的完整描述）
         attrs = metadata.get("attributes", {})
         if attrs:
             attr_texts = self.build_character_attributes_context(attrs)
@@ -291,55 +306,83 @@ class RegistryManager:
     # ── 内部方法 ──
 
     def _load(self):
-        """加载 data/_INDEX.md 及各子索引。"""
-        master_path = os.path.join(self._root, "data", "_INDEX.md")
-        if not os.path.isfile(master_path):
-            logger.warning("总索引文件未找到: %s", master_path)
+        """加载 categories.yaml 并通过扫描目录发现实体。"""
+        yaml_path = os.path.join(self._root, "data", "categories.yaml")
+        if not os.path.isfile(yaml_path):
+            logger.warning("categories.yaml 未找到: %s", yaml_path)
             return
 
         try:
-            with open(master_path, "r", encoding="utf-8") as f:
-                master = frontmatter.load(f)
+            with open(yaml_path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
         except Exception as e:
-            logger.error("加载总索引失败: %s", e)
+            logger.error("加载 categories.yaml 失败: %s", e)
             return
 
-        categories = master.metadata.get("index", {})
-        for cat_name, cat_info in categories.items():
-            index_rel = cat_info.get("index", "")
-            dir_rel = cat_info.get("dir", "")
-            if not index_rel:
+        cat_data = data.get("categories", {})
+        for cat_name, cat_info in cat_data.items():
+            dir_path = cat_info if isinstance(cat_info, str) else cat_info.get("dir", "")
+            full_dir = os.path.join(self._root, dir_path)
+            if os.path.isdir(full_dir):
+                self._load_category_from_disk(cat_name, full_dir)
+            else:
+                logger.debug("类别目录不存在，跳过: %s", full_dir)
+
+    def _load_category_from_disk(self, cat_name: str, dir_path: str):
+        """扫描实体目录，从各文档 frontmatter 构建 key→{file, summary} 映射。"""
+        entries = {}
+
+        # Phase 1: 实体文件夹（含 index.md 的目录）
+        for item in sorted(os.listdir(dir_path)):
+            item_path = os.path.join(dir_path, item)
+            index_md = os.path.join(item_path, "index.md")
+            if os.path.isdir(item_path) and os.path.isfile(index_md):
+                try:
+                    with open(index_md, "r", encoding="utf-8") as f:
+                        fm = frontmatter.load(f)
+                    key = fm.metadata.get("name", item)
+                    entries[key] = {
+                        "file": index_md,
+                        "summary": fm.metadata.get("summary", self._first_line(fm.content)),
+                    }
+                except Exception:
+                    continue
+
+        # Phase 2: 独立 .md 文件
+        for fn in sorted(os.listdir(dir_path)):
+            if not fn.endswith(".md"):
+                continue
+            if fn in ("_index.md", "_INDEX.md", "README.md", "TEMPLATE.md"):
+                continue
+            filepath = os.path.join(dir_path, fn)
+            if not os.path.isfile(filepath):
+                continue
+            # 跳过 Phase 1 已处理的实体
+            if filepath in {e["file"] for e in entries.values()}:
+                continue
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    fm = frontmatter.load(f)
+                key = fm.metadata.get("name", os.path.splitext(fn)[0])
+                entries[key] = {
+                    "file": filepath,
+                    "summary": fm.metadata.get("summary", self._first_line(fm.content)),
+                }
+            except Exception:
                 continue
 
-            index_path = os.path.join(self._root, index_rel)
-            dir_path = os.path.join(self._root, dir_rel) if dir_rel else ""
+        if entries:
+            self._indexes[cat_name] = entries
+            logger.info("已加载索引 [%s]: %d 个条目 (目录扫描)", cat_name, len(entries))
 
-            if os.path.isfile(index_path):
-                self._load_category(cat_name, index_path, dir_path)
-            else:
-                logger.debug("子索引尚未创建，跳过: %s", index_path)
-
-    def _load_category(self, cat_name: str, index_path: str, dir_path: str):
-        """加载单个类别的 _index.md，构建 key→{file, summary, ...} 映射。"""
-        try:
-            with open(index_path, "r", encoding="utf-8") as f:
-                data = frontmatter.load(f)
-        except Exception as e:
-            logger.error("加载子索引失败 %s: %s", index_path, e)
-            return
-
-        entries = data.metadata.get("index") or {}
-        self._indexes[cat_name] = {}
-
-        for key, entry in entries.items():
-            file_rel = entry.get("file", "")
-            self._indexes[cat_name][key] = {
-                "file": os.path.join(dir_path, file_rel) if file_rel and dir_path else "",
-                "summary": entry.get("summary", ""),
-                **{k: v for k, v in entry.items() if k not in ("file", "summary")},
-            }
-
-        logger.info("已加载索引 [%s]: %d 个条目", cat_name, len(self._indexes[cat_name]))
+    @staticmethod
+    def _first_line(content: str) -> str:
+        """从正文提取第一行非空内容作为 summary 回退。"""
+        for line in content.strip().split("\n"):
+            line = line.strip().strip("#").strip()
+            if line:
+                return line[:80]
+        return ""
 
     def _read_file(self, type_: str, key: str, filepath: str) -> str:
         """读取详细 Markdown 文件，带缓存。

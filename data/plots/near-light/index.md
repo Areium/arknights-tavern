@@ -49,19 +49,6 @@ effects:
   - 焰尾
   - 托兰
 repeatable: false
-index_refs:
-  characters:
-  - 临光
-  - 瑕光
-  - 砾
-  - 玛恩纳·临光
-  factions:
-  - 商业联合会
-  - 无胄盟
-  - 监证会
-  - 红松骑士团
-  locations:
-  - 大骑士领卡瓦莱利亚基
 ---
 # 长夜临光
 

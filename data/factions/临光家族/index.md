@@ -1,15 +1,29 @@
 ---
-name: "临光家族"
-alias: "House Nearl"
-type: organization
-scale: small
+alias: House Nearl
 alignment: lawful_good
-headquarters: "卡瓦莱利亚基——临光家族宅邸"
-leader: []
-key_members: ["临光（玛嘉烈）", "瑕光（玛莉娅）", "玛恩纳·临光", "佐菲娅"]
-rivals: ["商业联合会"]
 allies: []
-tags: ["卡西米尔", "骑士家族", "旧贵族", "没落"]
+headquarters: 卡瓦莱利亚基——临光家族宅邸
+imports:
+- factions/卡西米尔 | 卡西米尔
+- factions/商业联合会 | 商业联合会
+- factions/监证会 | 监证会
+- factions/罗德岛 | 罗德岛
+key_members:
+- 临光（玛嘉烈）
+- 瑕光（玛莉娅）
+- 玛恩纳·临光
+- 佐菲娅
+leader: []
+name: 临光家族
+rivals:
+- 商业联合会
+scale: small
+tags:
+- 卡西米尔
+- 骑士家族
+- 旧贵族
+- 没落
+type: organization
 ---
 
 # 临光家族

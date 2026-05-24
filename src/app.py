@@ -34,7 +34,7 @@ from flask_cors import CORS
 from llm_backend_manager import LLMBackendManager
 from session_manager import SessionManager
 from document_manager import DocumentManager, ConflictError, DocumentNotFoundError
-from index_manager import IndexManager, parse_doc_path
+import index_manager as idxmgr
 
 # ── 初始化 ──
 
@@ -45,9 +45,6 @@ CORS(app)
 llm_backend = LLMBackendManager()
 session_manager = SessionManager(llm_backend)
 doc_manager = DocumentManager()
-index_manager = IndexManager(
-    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
-)
 
 logger = logging.getLogger(__name__)
 
@@ -166,13 +163,32 @@ def create_session():
     mode = data.get("mode", "free")
     if mode not in ("free", "story"):
         return _json_error("mode 必须是 'free' 或 'story'")
+
+    plot_id = data.get("plot_id", "").strip()
+    plot_name = ""
+    if plot_id and mode == "story":
+        from session_overlay import _resolve_plot_dir
+        resolved = _resolve_plot_dir(plot_id) or plot_id
+        import os as _os2
+        plot_dir = _os2.path.join(_os2.path.dirname(__file__), "..", "data", "plots", resolved)
+        plot_index = _os2.path.join(plot_dir, "index.md")
+        if _os2.path.isfile(plot_index):
+            try:
+                with open(plot_index, "r", encoding="utf-8") as _pf:
+                    import frontmatter
+                    _pfm = frontmatter.load(_pf)
+                    plot_name = _pfm.metadata.get("name", resolved)
+            except Exception:
+                plot_name = resolved
+        else:
+            plot_name = resolved
+
     session = session_manager.create_session(
         name=data.get("name", ""),
         mode=mode,
+        plot_name=plot_name if not data.get("name") else "",
     )
 
-    # 可选：创建时绑定剧情
-    plot_id = data.get("plot_id", "").strip()
     if plot_id and mode == "story":
         from session_overlay import _resolve_plot_dir
         resolved = _resolve_plot_dir(plot_id) or plot_id
@@ -224,27 +240,31 @@ def rename_session(session_id: str):
 
 @app.route("/api/plots", methods=["GET"])
 def list_plots():
-    """列出所有可用剧情（从 plots/_index.md 解析）。"""
-    import os as _os3
-    import frontmatter as _fm
-    index_path = _os3.path.join(_os3.path.dirname(__file__), "..", "data", "plots", "_index.md")
-    if not _os3.path.isfile(index_path):
+    """列出所有可用剧情（从 data/plots/ 子目录扫描）。"""
+    plots_dir = os.path.join(os.path.dirname(__file__), "..", "data", "plots")
+    if not os.path.isdir(plots_dir):
         return jsonify([])
 
-    with open(index_path, "r", encoding="utf-8") as f:
-        data = _fm.load(f)
-
     plots = []
-    for pid, info in data.metadata.get("index", {}).items():
-        plots.append({
-            "id": pid,
-            "name": info.get("name", pid),
-            "category": info.get("category", "main"),
-            "priority": info.get("priority", 5),
-            "trigger_location": info.get("trigger_location", []),
-            "trigger_character": info.get("trigger_character", []),
-        })
-    # 按 priority 降序
+    for entry in sorted(os.listdir(plots_dir)):
+        entry_path = os.path.join(plots_dir, entry)
+        index_md = os.path.join(entry_path, "index.md")
+        if not os.path.isdir(entry_path) or not os.path.isfile(index_md):
+            continue
+        try:
+            with open(index_md, "r", encoding="utf-8") as f:
+                data = frontmatter.load(f)
+            meta = data.metadata
+            plots.append({
+                "id": meta.get("id", entry),
+                "name": meta.get("name", entry),
+                "category": meta.get("category", "main"),
+                "priority": meta.get("priority", 5),
+                "trigger_location": meta.get("trigger", {}).get("location", []),
+                "trigger_character": meta.get("trigger", {}).get("character", []),
+            })
+        except Exception:
+            continue
     plots.sort(key=lambda p: p["priority"], reverse=True)
     return jsonify(plots)
 
@@ -745,21 +765,26 @@ def get_environment_presets():
     """返回可用的环境预设（地点、天气、时间）。"""
     import frontmatter
 
-    # 解析地点索引
+    # 解析地点索引（扫描实体目录）
     locations = []
-    index_path = os.path.join(os.path.dirname(__file__), "..", "environment", "Location", "_index.md")
-    try:
-        with open(index_path, "r", encoding="utf-8") as f:
-            index_data = frontmatter.load(f)
-        for name, info in index_data.metadata.get("index", {}).items():
-            locations.append({
-                "name": name,
-                "region": info.get("region", ""),
-                "summary": info.get("summary", ""),
-                "tags": info.get("tags", []),
-            })
-    except Exception as e:
-        logger.warning("解析地点索引失败: %s", e)
+    loc_dir = os.path.join(os.path.dirname(__file__), "..", "environment", "Location")
+    if os.path.isdir(loc_dir):
+        for entry in sorted(os.listdir(loc_dir)):
+            entry_path = os.path.join(loc_dir, entry)
+            index_md = os.path.join(entry_path, "index.md")
+            if os.path.isdir(entry_path) and os.path.isfile(index_md):
+                try:
+                    with open(index_md, "r", encoding="utf-8") as f:
+                        fm_data = frontmatter.load(f)
+                    meta = fm_data.metadata
+                    locations.append({
+                        "name": meta.get("name", entry),
+                        "region": meta.get("region", ""),
+                        "summary": meta.get("summary", ""),
+                        "tags": meta.get("tags", []),
+                    })
+                except Exception:
+                    pass
 
     # 解析天气预设
     weathers = []
@@ -877,8 +902,11 @@ def document_tree():
 
 @app.route("/api/documents/categories", methods=["GET"])
 def document_categories():
-    """获取文档类别列表。"""
-    return jsonify(doc_manager.list_categories())
+    """获取文档类别列表及层级分组。"""
+    return jsonify({
+        "categories": doc_manager.list_categories(),
+        "hierarchy": doc_manager.get_hierarchy(),
+    })
 
 
 @app.route("/api/documents/<category>", methods=["GET"])
@@ -928,6 +956,7 @@ def save_document(category: str, doc_id: str):
                 os.path.join(doc_manager._root, result["path"]),
                 message=data.get("commit_message"),
             )
+        idxmgr.invalidate_cache()
         return jsonify(result)
     except ConflictError as e:
         return jsonify({
@@ -1052,47 +1081,68 @@ _entities_cache: dict = {"data": None, "timestamp": 0.0}
 
 
 def _load_all_entities() -> dict:
-    """读取所有 _index.md，返回 {category: [{id, name, summary}]}，带 30s 缓存。"""
+    """扫描所有实体目录，返回 {category: [{id, name, summary}]}，带 30s 缓存。"""
     global _entities_cache
     now = time.time()
     if _entities_cache["data"] and now - _entities_cache["timestamp"] < 30:
         return _entities_cache["data"]
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    master_path = os.path.join(root, "data", "_INDEX.md")
-    if not os.path.isfile(master_path):
+    yaml_path = os.path.join(root, "data", "categories.yaml")
+    if not os.path.isfile(yaml_path):
         return {}
 
-    with open(master_path, "r", encoding="utf-8") as f:
-        master = frontmatter.load(f)
-
-    categories = master.metadata.get("index", {})
+    with open(yaml_path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    categories = data.get("categories", {})
     entities: dict = {}
 
     for cat_name, cat_info in categories.items():
-        index_rel = cat_info.get("index", "")
-        index_path = os.path.join(root, index_rel)
-        if not os.path.isfile(index_path):
+        dir_path = cat_info if isinstance(cat_info, str) else cat_info.get("dir", "")
+        full_dir = os.path.join(root, dir_path)
+        if not os.path.isdir(full_dir):
             continue
-        try:
-            with open(index_path, "r", encoding="utf-8") as f:
-                data = frontmatter.load(f)
-            entries = data.metadata.get("index", {})
-            cat_list = []
-            for key, entry in entries.items():
-                cat_list.append({
-                    "id": key,
-                    "name": entry.get("name", key),
-                    "summary": entry.get("summary", ""),
-                })
-            if cat_list:
-                cat_list.sort(key=lambda e: e["name"])
-                entities[cat_name] = cat_list
-        except Exception:
-            continue
+
+        cat_list = []
+        # 实体文件夹
+        for item in sorted(os.listdir(full_dir)):
+            item_path = os.path.join(full_dir, item)
+            index_md = os.path.join(item_path, "index.md")
+            if os.path.isdir(item_path) and os.path.isfile(index_md):
+                try:
+                    with open(index_md, "r", encoding="utf-8") as f:
+                        fm_data = frontmatter.load(f)
+                    cat_list.append({
+                        "id": item,
+                        "name": fm_data.metadata.get("name", item),
+                        "summary": fm_data.metadata.get("summary", ""),
+                    })
+                except Exception:
+                    continue
+
+        if cat_list:
+            cat_list.sort(key=lambda e: e["name"])
+            entities[cat_name] = cat_list
 
     _entities_cache = {"data": entities, "timestamp": now}
     return entities
+
+
+def _load_hierarchy() -> list:
+    """从 categories.yaml 读取索引层级定义，返回 levels 列表。"""
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    yaml_path = os.path.join(root, "data", "categories.yaml")
+    if not os.path.isfile(yaml_path):
+        return []
+    try:
+        with open(yaml_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        hierarchy = data.get("hierarchy", {})
+        levels = hierarchy.get("levels", [])
+        levels.sort(key=lambda x: x["level"])
+        return levels
+    except Exception:
+        return []
 
 
 @app.route("/api/entities", methods=["GET"])
@@ -1106,364 +1156,566 @@ def list_entities():
     return jsonify(entities)
 
 
-@app.route("/api/documents/<category>/<path:doc_id>/index", methods=["GET"])
-def get_doc_index(category: str, doc_id: str):
-    """获取文档的 index_refs + 可用实体列表。"""
-    try:
-        doc = doc_manager.read_document(category, doc_id)
-    except DocumentNotFoundError:
-        return _json_error("文档不存在", 404)
-    except Exception as e:
-        return _json_error(str(e), 500)
-
-    refs = doc.get("metadata", {}).get("index_refs", {})
-    entities = _load_all_entities()
-    return jsonify({"refs": refs, "entities": entities})
-
-
-@app.route("/api/documents/<category>/<path:doc_id>/index", methods=["PUT"])
-def update_doc_index(category: str, doc_id: str):
-    """更新文档的 index_refs（写入 frontmatter + 清理旧 可检索条目）。"""
-    data = request.json or {}
-    new_refs = data.get("refs", {})
-
-    try:
-        doc = doc_manager.read_document(category, doc_id)
-    except DocumentNotFoundError:
-        return _json_error("文档不存在", 404)
-    except Exception as e:
-        return _json_error(str(e), 500)
-
-    metadata = doc.get("metadata", {})
-    content = doc.get("content", "")
-
-    # 从正文中剥离旧的 可检索条目 段落
-    cleaned = re.sub(
-        r"# 可检索条目.*?(?=\n# |\Z)", "",
-        content, flags=re.DOTALL
-    ).strip()
-
-    # 写入 index_refs 到 frontmatter
-    metadata["index_refs"] = new_refs
-
-    try:
-        result = doc_manager.save_document(
-            category, doc_id,
-            content=cleaned,
-            metadata=metadata,
-            expected_hash=data.get("expected_hash"),
-        )
-        return jsonify(result)
-    except ConflictError as e:
-        return jsonify({
-            "error": "文件已被修改",
-            "current_hash": e.current_hash,
-            "expected_hash": e.expected_hash,
-            "current_content": e.current_content,
-        }), 409
-    except Exception as e:
-        return _json_error(str(e), 500)
-
-
-@app.route("/api/documents/<category>/<path:doc_id>/index/scan", methods=["POST"])
-def scan_doc_index(category: str, doc_id: str):
-    """扫描文档内容，返回已知实体名称匹配结果。
-
-    返回按 新匹配 / 已收录 分组的实体列表。
-    """
-    try:
-        doc = doc_manager.read_document(category, doc_id)
-    except DocumentNotFoundError:
-        return _json_error("文档不存在", 404)
-    except Exception as e:
-        return _json_error(str(e), 500)
-
-    content = doc.get("content", "")
-    current_refs = doc.get("metadata", {}).get("index_refs", {})
-
-    # 已收录实体的 ID 集合
-    current_set: set = set()
-    for names in current_refs.values():
-        for n in names:
-            current_set.add(n)
-
-    # 拉平所有实体，按名称长度降序（长名称优先匹配）
-    entities = _load_all_entities()
-    flat: list[tuple[str, str, str]] = []
-    for cat, elist in entities.items():
-        for e in elist:
-            flat.append((cat, e["id"], e.get("name", e["id"])))
-    flat.sort(key=lambda x: len(x[2]), reverse=True)
-
-    new_matches: dict = {}
-    existing_matches: dict = {}
-    matched_names: set = set()
-
-    for cat, eid, name in flat:
-        if name in matched_names:
-            continue
-        # 简单子串匹配（对中文足够）
-        if name in content:
-            matched_names.add(name)
-            entry = {"id": eid, "name": name}
-            if name in current_set or eid in current_set:
-                existing_matches.setdefault(cat, []).append(entry)
-            else:
-                new_matches.setdefault(cat, []).append(entry)
-
-    return jsonify({
-        "new_matches": new_matches,
-        "existing_matches": existing_matches,
-    })
-
-
 # ══════════════════════════════════════════════════════
-# 12. 全局索引配置管理
+# 12a. 文档依赖导入（imports 管理）
 # ══════════════════════════════════════════════════════
 
 
-@app.route("/api/index-config", methods=["GET"])
-def get_index_config():
-    """获取全局索引配置（所有文档的交叉引用）。"""
-    config = index_manager.get_all_refs()
-    entities = _load_all_entities()
-    return jsonify({
-        "config": config,
-        "entities": entities,
-    })
+@app.route("/api/documents/search", methods=["GET"])
+def search_documents():
+    """搜索同级别或更高级别的文档，用于依赖导入。
 
-
-@app.route("/api/index-config", methods=["PUT"])
-def update_index_config():
-    """替换全局索引配置。"""
-    data = request.json or {}
-    new_config = data.get("config", {})
-    index_manager.config.data = new_config
-    index_manager.save()
-    return jsonify({"message": "索引配置已保存"})
-
-
-@app.route("/api/index-config/doc", methods=["PUT"])
-def update_doc_refs():
-    """更新单个文档的索引引用。"""
-    data = request.json or {}
-    doc_path = data.get("doc_path", "")
-    refs = data.get("refs", {})
-    if not doc_path:
-        return _json_error("doc_path 不能为空")
-    index_manager.set_doc_refs(doc_path, refs)
-    index_manager.save()
-    return jsonify({"message": "文档索引已更新"})
-
-
-@app.route("/api/index-config/tree", methods=["GET"])
-def get_index_tree():
-    """构建带反向引用的索引树。"""
-    entities = _load_all_entities()
-    tree = index_manager.build_tree(entities)
-    return jsonify(tree)
-
-
-@app.route("/api/index-config/scan", methods=["POST"])
-def scan_all_index():
-    """扫描所有文档内容，返回跨文档的实体匹配建议。
-
-    类似单文档的 index/scan，但扫描所有配置中存在的文档。
+    查询参数：
+    - q: 搜索关键词（匹配文档 ID 或标题）
+    - category: 来源文档类别（用于限定可导入的级别范围）
+    - doc_id: 来源文档 ID（排除自身）
     """
-    all_entities = _load_all_entities()
-    flat: list[tuple[str, str, str]] = []
-    for cat, elist in all_entities.items():
-        for e in elist:
-            flat.append((cat, e["id"], e.get("name", e["id"])))
-    flat.sort(key=lambda x: len(x[2]), reverse=True)
+    q = request.args.get("q", "").strip()
+    category = request.args.get("category", "").strip()
+    doc_id = request.args.get("doc_id", "").strip()
 
-    docs_to_scan = index_manager.get_all_refs()
-    results: dict[str, dict] = {}
+    hierarchy = _load_hierarchy()
+    cat_level = {}
+    for h in hierarchy:
+        for c in h.get("categories", []):
+            cat_level[c] = h["level"]
 
-    for doc_path in docs_to_scan:
-        cat_name, doc_id = parse_doc_path(doc_path)
+    source_level = cat_level.get(category, 99)
+
+    allowed_cats = set()
+    for h in hierarchy:
+        if h["level"] <= source_level:
+            for c in h.get("categories", []):
+                allowed_cats.add(c)
+
+    results = []
+    for cat_name in allowed_cats:
         try:
-            doc = doc_manager.read_document(cat_name, doc_id)
-        except Exception:
+            docs = doc_manager.list_documents(cat_name, include_content=False)
+        except (ValueError, Exception):
             continue
-        content = doc.get("content", "")
-        current_refs = index_manager.get_doc_refs(doc_path)
-        current_ids: set = set()
-        for ids in current_refs.values():
-            current_ids.update(ids)
-
-        doc_new: dict[str, list] = {}
-        doc_existing: dict[str, list] = {}
-        matched: set = set()
-
-        for e_cat, eid, name in flat:
-            if name in matched:
+        for doc in docs:
+            doc_path = f"{cat_name}/{doc['id']}"
+            if cat_name == category and doc["id"] == doc_id:
                 continue
-            if name in content:
-                matched.add(name)
-                entry = {"id": eid, "name": name}
-                if name in current_ids or eid in current_ids:
-                    doc_existing.setdefault(e_cat, []).append(entry)
-                else:
-                    doc_new.setdefault(e_cat, []).append(entry)
+            if q:
+                match_id = q.lower() in doc.get("id", "").lower()
+                match_title = q.lower() in doc.get("title", doc.get("id", "")).lower()
+                if not match_id and not match_title:
+                    continue
+            results.append({
+                "path": doc_path,
+                "category": cat_name,
+                "id": doc["id"],
+                "title": doc.get("title", doc["id"]),
+                "level": cat_level.get(cat_name, 99),
+            })
 
-        if doc_new or doc_existing:
-            results[doc_path] = {
-                "new_matches": doc_new,
-                "existing_matches": doc_existing,
-            }
+    results.sort(key=lambda r: (r["level"], r["path"]))
+    return jsonify(results)
+
+
+@app.route("/api/documents/<category>/<path:doc_id>/imports", methods=["GET"])
+def get_doc_imports(category: str, doc_id: str):
+    """读取文档 frontmatter 中的 imports 依赖列表。"""
+    try:
+        doc = doc_manager.read_document(category, doc_id)
+    except DocumentNotFoundError:
+        return _json_error("文档不存在", 404)
+    except Exception as e:
+        return _json_error(str(e), 500)
+
+    filepath = doc.get("filepath", "")
+    if not filepath or not os.path.isfile(filepath):
+        return _json_error("文档文件不存在", 404)
+
+    # 读取原始 frontmatter 以获取完整的 "path | name" 格式
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            post = frontmatter.load(f)
+    except Exception:
+        return jsonify({"imports": []})
+
+    raw_imports = post.metadata.get("imports", [])
+    result = []
+    seen_paths = set()
+    for entry in raw_imports:
+        if isinstance(entry, str) and entry.strip():
+            path, name = idxmgr.parse_import_entry(entry.strip())
+            if path in seen_paths:
+                continue
+            seen_paths.add(path)
+            if not name:
+                name = idxmgr.resolve_doc_display_name(path, doc_manager)
+            result.append({"path": path, "name": name})
+
+    return jsonify({"imports": result})
+
+
+@app.route("/api/documents/<category>/<path:doc_id>/imports", methods=["PUT"])
+def update_doc_imports(category: str, doc_id: str):
+    """更新文档 frontmatter 中的 imports 依赖列表。"""
+    data = request.json or {}
+    new_imports = data.get("imports", [])
+
+    if not isinstance(new_imports, list):
+        return _json_error("imports 必须是一个列表")
+
+    try:
+        doc = doc_manager.read_document(category, doc_id)
+    except DocumentNotFoundError:
+        return _json_error("文档不存在", 404)
+    except Exception as e:
+        return _json_error(str(e), 500)
+
+    filepath = doc.get("filepath", "")
+    if not filepath or not os.path.isfile(filepath):
+        return _json_error("文档文件不存在", 404)
+
+    idxmgr.write_imports_to_file(filepath, new_imports, doc_manager)
+    idxmgr.invalidate_cache()
+
+    # 返回结构化数据
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            post = frontmatter.load(f)
+    except Exception:
+        return jsonify({"imports": [{"path": p, "name": p} for p in new_imports]})
+
+    raw_imports = post.metadata.get("imports", [])
+    result = []
+    seen = set()
+    for entry in raw_imports:
+        if isinstance(entry, str) and entry.strip():
+            path, name = idxmgr.parse_import_entry(entry.strip())
+            if path in seen:
+                continue
+            seen.add(path)
+            result.append({"path": path, "name": name or idxmgr.resolve_doc_display_name(path, doc_manager)})
+    return jsonify({"imports": result})
+
+
+@app.route("/api/documents/<category>/<path:doc_id>/imports/scan", methods=["POST"])
+def scan_doc_imports(category: str, doc_id: str):
+    """扫描文档内容，推荐可能需要导入的同级/上级文档。"""
+    try:
+        doc = doc_manager.read_document(category, doc_id)
+    except DocumentNotFoundError:
+        return _json_error("文档不存在", 404)
+    except Exception as e:
+        return _json_error(str(e), 500)
+
+    content = doc.get("content", "")
+    current_imports = set(idxmgr.read_imports_from_file(doc.get("filepath", "")))
+
+    hierarchy = _load_hierarchy()
+    cat_level = {}
+    for h in hierarchy:
+        for c in h.get("categories", []):
+            cat_level[c] = h["level"]
+
+    source_level = cat_level.get(category, 99)
+    allowed_cats = set()
+    for h in hierarchy:
+        if h["level"] <= source_level:
+            for c in h.get("categories", []):
+                allowed_cats.add(c)
+
+    # 收集所有可导入文档的 title 和 path
+    candidates: list[dict] = []
+    for cat_name in allowed_cats:
+        try:
+            docs = doc_manager.list_documents(cat_name, include_content=True)
+        except (ValueError, Exception):
+            continue
+        for d in docs:
+            cand_path = f"{cat_name}/{d['id']}"
+            if cand_path == f"{category}/{doc_id}":
+                continue
+            candidates.append({
+                "path": cand_path,
+                "category": cat_name,
+                "id": d["id"],
+                "title": d.get("title", d["id"]),
+                "level": cat_level.get(cat_name, 99),
+            })
+
+    # 按标题长度降序（长名称优先匹配避免短名误匹配）
+    candidates.sort(key=lambda x: len(x["title"]), reverse=True)
+
+    new_suggestions: list[dict] = []
+    existing_imports: list[dict] = []
+    matched_titles: set = set()
+
+    for cand in candidates:
+        title = cand["title"]
+        if title in matched_titles:
+            continue
+        if title in content:
+            matched_titles.add(title)
+            if cand["path"] in current_imports:
+                existing_imports.append(cand)
+            else:
+                new_suggestions.append(cand)
+
+    # 按级别排序
+    new_suggestions.sort(key=lambda x: (x["level"], x["path"]))
+    existing_imports.sort(key=lambda x: (x["level"], x["path"]))
+
+    return jsonify({
+        "suggestions": new_suggestions,
+        "existing": existing_imports,
+    })
+
+
+@app.route("/api/documents/<category>/<path:doc_id>/imports/verify", methods=["GET"])
+def verify_doc_imports(category: str, doc_id: str):
+    """验证文档的所有 imports 依赖是否指向存在的文档。"""
+    try:
+        doc = doc_manager.read_document(category, doc_id)
+    except DocumentNotFoundError:
+        return _json_error("文档不存在", 404)
+    except Exception as e:
+        return _json_error(str(e), 500)
+
+    filepath = doc.get("filepath", "")
+    raw_imports = []
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            post = frontmatter.load(f)
+        raw_imports = post.metadata.get("imports", [])
+    except Exception:
+        pass
+
+    results = []
+    for entry in raw_imports:
+        if not isinstance(entry, str) or not entry.strip():
+            continue
+        path, name = idxmgr.parse_import_entry(entry.strip())
+        if "/" not in path:
+            continue
+        imp_cat, imp_id = path.split("/", 1)
+        exists = False
+        try:
+            doc_manager.read_document(imp_cat, imp_id)
+            exists = True
+        except Exception:
+            exists = False
+        results.append({
+            "path": path,
+            "name": name or idxmgr.resolve_doc_display_name(path, doc_manager),
+            "exists": exists,
+        })
 
     return jsonify({"results": results})
 
 
-@app.route("/api/index-config/migrate", methods=["POST"])
-def migrate_index_config():
-    """从文档 frontmatter 迁移索引到全局配置。"""
-    count = index_manager.migrate_from_frontmatter(doc_manager)
-    return jsonify({
-        "message": f"已迁移 {count} 个文档的索引",
-        "migrated_count": count,
-    })
+# ══════════════════════════════════════════════════════
+# 12b. 索引管理（基于 imports 的全局依赖聚合）
+# ══════════════════════════════════════════════════════
 
 
-@app.route("/api/index-config/sources", methods=["GET"])
-def list_index_sources():
-    """列出所有索引配置源（全局 + 各会话）。"""
-    sources = []
-    # 全局配置
-    sources.append({
-        "id": "global",
-        "name": "全局索引",
-        "type": "global",
-        "doc_count": len(index_manager.get_all_refs()),
-    })
-    # 会话级配置
-    for s in session_manager.list_sessions():
-        sid = s["id"]
-        mode = s.get("mode", "free")
-        fpath = index_manager.session_config_path(sid, mode)
-        doc_count = 0
-        if os.path.isfile(fpath):
-            try:
-                with open(fpath, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                doc_count = len(data.get("config", {}))
-            except Exception:
-                pass
-        sources.append({
-            "id": sid,
-            "name": s.get("name", sid),
-            "type": "session",
-            "mode": mode,
-            "doc_count": doc_count,
-        })
-    return jsonify({"sources": sources})
+def _project_root() -> str:
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-@app.route("/api/index-config/export", methods=["GET"])
-def export_index_config():
-    """导出全局索引配置为 YAML 字符串。"""
-    yaml_str = index_manager.export_yaml()
-    return jsonify({"yaml": yaml_str})
-
-
-@app.route("/api/index-config/import", methods=["POST"])
-def import_index_config():
-    """导入 YAML 替换全局索引配置。"""
-    data = request.json or {}
-    yaml_str = data.get("yaml", "")
-    if not yaml_str:
-        return _json_error("需要 yaml 字段")
+@app.route("/api/index/overview", methods=["GET"])
+def get_index_overview():
+    """获取所有文档的分组概览，包含前向引用和反向引用。"""
     try:
-        count = index_manager.import_yaml(yaml_str)
-        return jsonify({"message": f"已导入 {count} 个文档的索引配置", "count": count})
+        data = idxmgr.build_overview(os.path.join(_project_root(), "data"), doc_manager)
+        return jsonify(data)
     except Exception as e:
-        return _json_error(f"导入失败: {e}", 400)
+        logger.error("构建索引概览失败: %s", e)
+        return _json_error(str(e), 500)
 
 
-@app.route("/api/index-config/build-tree", methods=["POST"])
-def build_index_tree():
-    """从提供的配置构建索引树（用于会话级配置）。"""
-    data = request.json or {}
-    config = data.get("config", {})
-    entities = _load_all_entities()
-    tree = index_manager.build_tree_from_config(config, entities)
-    return jsonify(tree)
-
-
-@app.route("/api/index-config/full-tree", methods=["GET"])
-def get_full_index_tree():
-    """构建包含所有文档的全量树（含未配置文档）。"""
-    all_entities = _load_all_entities()
-    tree = index_manager.build_full_tree(doc_manager, all_entities)
-    return jsonify(tree)
-
-
-@app.route("/api/index-config/add-doc", methods=["POST"])
-def add_doc_to_config():
-    """将一个文档添加到索引配置。"""
-    data = request.json or {}
-    doc_path = data.get("doc_path", "").strip()
-    if not doc_path:
-        return _json_error("需要 doc_path 参数")
-    if "/" not in doc_path:
-        return _json_error("doc_path 格式应为 category/doc_id")
-    index_manager.set_doc_refs(doc_path, {})
-    index_manager.save()
-    return jsonify({"message": f"已添加 {doc_path} 到索引配置", "doc_path": doc_path})
-
-
-@app.route("/api/index-config/remove-doc", methods=["POST"])
-def remove_doc_from_config():
-    """从索引配置中移除一个文档。"""
-    data = request.json or {}
-    doc_path = data.get("doc_path", "").strip()
-    if not doc_path:
-        return _json_error("需要 doc_path 参数")
-    index_manager.remove_doc(doc_path)
-    index_manager.save()
-    return jsonify({"message": f"已从索引配置移除 {doc_path}"})
+@app.route("/api/index/graph", methods=["GET"])
+def get_index_graph():
+    """获取依赖关系图的节点和边数据。"""
+    try:
+        data = idxmgr.build_graph_data(os.path.join(_project_root(), "data"), doc_manager)
+        return jsonify(data)
+    except Exception as e:
+        logger.error("构建索引图失败: %s", e)
+        return _json_error(str(e), 500)
 
 
 @app.route("/api/sessions/<session_id>/index-config", methods=["GET"])
 def get_session_index_config(session_id: str):
-    """获取会话的索引配置（不存在时回退到全局配置）。"""
-    session = _get_session(session_id)
+    """获取会话的索引配置。"""
+    session = session_manager.get_session(session_id)
     if not session:
         return _json_error("会话不存在", 404)
-
-    config_data = index_manager.load_session_config(session_id, session.mode)
-    entities = _load_all_entities()
-
-    if config_data and "config" in config_data and config_data["config"]:
-        return jsonify({
-            "config": config_data["config"],
-            "entities": entities,
-            "source": "session",
-        })
-
-    # 回退到全局
-    return jsonify({
-        "config": index_manager.get_all_refs(),
-        "entities": entities,
-        "source": "global",
-    })
+    try:
+        config = session.overlay.get_index_config()
+        return jsonify(config)
+    except Exception as e:
+        logger.error("读取会话索引配置失败: %s", e)
+        return _json_error(str(e), 500)
 
 
 @app.route("/api/sessions/<session_id>/index-config", methods=["PUT"])
 def save_session_index_config(session_id: str):
     """保存会话的索引配置。"""
-    session = _get_session(session_id)
+    session = session_manager.get_session(session_id)
     if not session:
         return _json_error("会话不存在", 404)
     data = request.json or {}
-    config = data.get("config", {})
-    index_manager.save_session_config(session_id, session.mode, config)
-    return jsonify({"message": "会话索引配置已保存"})
+    try:
+        session.overlay.set_index_config(data)
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        logger.error("保存会话索引配置失败: %s", e)
+        return _json_error(str(e), 500)
 
 
+@app.route("/api/sessions/<session_id>/index-config", methods=["DELETE"])
+def reset_session_index_config(session_id: str):
+    """重置会话的索引配置为默认。"""
+    session = session_manager.get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+    try:
+        session.overlay.reset_index_config()
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        logger.error("重置会话索引配置失败: %s", e)
+        return _json_error(str(e), 500)
 
-# ══════════════════════════════════════════════════════
+
+@app.route("/api/index/export", methods=["GET"])
+def export_index_yaml():
+    """将所有文档的 imports 依赖关系导出为 YAML。"""
+    try:
+        data_root = os.path.join(_project_root(), "data")
+        overview = idxmgr.build_overview(data_root, doc_manager)
+        documents = []
+        for cat in overview.get("categories", []):
+            for doc in cat.get("docs", []):
+                imports_list = [f"{imp['path']} | {imp['name']}" if imp.get('name') else imp['path']
+                                for imp in doc.get("imports", [])]
+                documents.append({
+                    "path": doc["path"],
+                    "imports": imports_list,
+                })
+        yaml_str = yaml.dump({"index": {"documents": documents}},
+                             allow_unicode=True, default_flow_style=False, sort_keys=False)
+        return jsonify({"yaml": yaml_str})
+    except Exception as e:
+        logger.error("导出索引 YAML 失败: %s", e)
+        return _json_error(str(e), 500)
+
+
+@app.route("/api/index/import", methods=["POST"])
+def import_index_yaml():
+    """从 YAML 批量更新文档 imports。支持 Dry-run/POST 两阶段写入。"""
+    data = request.json or {}
+    yaml_str = data.get("yaml", "")
+    if not yaml_str:
+        return _json_error("需要 yaml 字段")
+
+    try:
+        parsed = yaml.safe_load(yaml_str)
+        docs = parsed.get("index", {}).get("documents", [])
+    except Exception as e:
+        return _json_error(f"YAML 解析失败: {e}")
+
+    if not docs:
+        return _json_error("YAML 中没有找到 index.documents")
+
+    data_root = os.path.join(_project_root(), "data")
+
+    # Phase 1: Dry-run 校验
+    errors = []
+    validated = []
+    for entry in docs:
+        doc_path = entry.get("path", "").strip()
+        if not doc_path or "/" not in doc_path:
+            errors.append(f"无效路径: {doc_path}")
+            continue
+        cat, doc_id = doc_path.split("/", 1)
+        # 查找文件（多种可能路径）
+        candidate_dirs = [
+            os.path.join(data_root, "data", cat, doc_id, "index.md"),
+            os.path.join(data_root, "data", cat, f"{doc_id}.md"),
+            os.path.join(data_root, cat, doc_id, "index.md"),
+            os.path.join(data_root, cat, f"{doc_id}.md"),
+        ]
+        resolved = None
+        for cd in candidate_dirs:
+            if os.path.isfile(cd):
+                resolved = cd
+                break
+        if not resolved:
+            errors.append(f"文件未找到: {doc_path}")
+            continue
+        # 校验 frontmatter 可解析
+        try:
+            with open(resolved, "r", encoding="utf-8") as f:
+                frontmatter.load(f)
+        except Exception:
+            errors.append(f"Frontmatter 解析失败: {doc_path}")
+            continue
+        raw_imports = entry.get("imports", [])
+        validated.append((resolved, raw_imports))
+
+    if errors:
+        return jsonify({"status": "validation_error", "errors": errors}), 422
+
+    # Phase 2: 批量写入
+    write_errors = []
+    for filepath, imports_list in validated:
+        try:
+            idxmgr.write_imports_to_file(filepath, imports_list, doc_manager)
+        except Exception as e:
+            write_errors.append(f"{os.path.basename(os.path.dirname(filepath))}: {e}")
+
+    idxmgr.invalidate_cache()
+
+    if write_errors:
+        return jsonify({"status": "partial", "errors": write_errors,
+                        "success_count": len(validated) - len(write_errors)}), 207
+
+    return jsonify({"status": "ok", "count": len(validated)})
+
+
+@app.route("/api/index/verify", methods=["GET"])
+def verify_index_integrity():
+    """扫描所有文档的 imports，检查断裂引用（引用了不存在的文档）。"""
+    try:
+        data_root = os.path.join(_project_root(), "data")
+        overview = idxmgr.build_overview(data_root, doc_manager)
+    except Exception as e:
+        return _json_error(str(e), 500)
+
+    broken_refs = []
+    total_imports = 0
+
+    for cat in overview.get("categories", []):
+        for doc in cat.get("docs", []):
+            doc_broken = []
+            for imp in doc.get("imports", []):
+                total_imports += 1
+                imp_path = imp.get("path", "")
+                if not imp_path or "/" not in imp_path:
+                    continue
+                imp_cat, imp_id = imp_path.split("/", 1)
+                try:
+                    doc_manager.read_document(imp_cat, imp_id)
+                except DocumentNotFoundError:
+                    doc_broken.append({
+                        "import_path": imp_path,
+                        "name": imp.get("name", imp_path),
+                    })
+            if doc_broken:
+                broken_refs.append({
+                    "doc_path": doc["path"],
+                    "doc_name": doc.get("name", doc["path"]),
+                    "broken_imports": doc_broken,
+                })
+
+    total_docs = sum(len(c.get("docs", [])) for c in overview.get("categories", []))
+
+    return jsonify({
+        "total_docs": total_docs,
+        "total_imports": total_imports,
+        "broken_refs": broken_refs,
+    })
+
+
+@app.route("/api/sessions/<session_id>/index/verify", methods=["GET"])
+def verify_session_index(session_id: str):
+    """验证会话白名单依赖树的完整性。
+
+    根据会话的索引配置（白名单），检查已启用的实体是否完整包含其 imports 依赖。
+    返回可补全的依赖（存在但未启用）和断裂的依赖（不存在）。
+    """
+    session = session_manager.get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+
+    try:
+        config = session.overlay.get_index_config()
+        data_root = os.path.join(_project_root(), "data")
+        overview = idxmgr.build_overview(data_root, doc_manager)
+
+        # Build enabled entity paths from config
+        enabled_paths = set()
+        all_entity_paths = set()
+        for cat in overview.get("categories", []):
+            for doc in cat.get("docs", []):
+                all_entity_paths.add(doc["path"])
+
+        if config.get("mode") == "all":
+            # All entities enabled — same as global verify
+            enabled_paths = all_entity_paths
+        else:
+            # Whitelist mode
+            enabled_cats = config.get("enabled_categories", [])
+            enabled_entities = config.get("enabled_entities", {})
+
+            for cat in overview.get("categories", []):
+                if cat["category"] in enabled_cats:
+                    for doc in cat["docs"]:
+                        enabled_paths.add(doc["path"])
+
+            for cat_name, doc_ids in enabled_entities.items():
+                for doc_id in doc_ids:
+                    enabled_paths.add(f"{cat_name}/{doc_id}")
+
+        # Build path -> doc info lookup
+        path_to_doc = {}
+        for cat in overview.get("categories", []):
+            for doc in cat.get("docs", []):
+                path_to_doc[doc["path"]] = doc
+
+        # Verify each enabled entity's imports
+        broken_refs = []
+        total_imports = 0
+        total_docs = len(enabled_paths)
+
+        for doc_path in enabled_paths:
+            doc = path_to_doc.get(doc_path)
+            if not doc:
+                continue
+            doc_broken = []
+            for imp in doc.get("imports", []):
+                total_imports += 1
+                imp_path = imp.get("path", "")
+                if not imp_path or "/" not in imp_path:
+                    continue
+                if imp_path in enabled_paths:
+                    continue  # dependency is already enabled
+                # Check if it exists globally
+                if imp_path in all_entity_paths:
+                    doc_broken.append({
+                        "import_path": imp_path,
+                        "name": imp.get("name", imp_path),
+                        "type": "missing",
+                    })
+                else:
+                    doc_broken.append({
+                        "import_path": imp_path,
+                        "name": imp.get("name", imp_path),
+                        "type": "broken",
+                    })
+            if doc_broken:
+                broken_refs.append({
+                    "doc_path": doc_path,
+                    "doc_name": doc.get("name", doc_path),
+                    "broken_imports": doc_broken,
+                })
+
+        return jsonify({
+            "total_docs": total_docs,
+            "total_imports": total_imports,
+            "broken_refs": broken_refs,
+            "mode": config.get("mode", "all"),
+        })
+    except Exception as e:
+        logger.error("验证会话索引失败: %s", e)
+        return _json_error(str(e), 500)
 # 11. 会话覆盖（角色/物品/环境的会话级修改）
 # ══════════════════════════════════════════════════════
 

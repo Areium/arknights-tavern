@@ -4,8 +4,8 @@
 
 ```
 data/
-├── _INDEX.md              ← 总索引（机器可读注册表）
-├── README.md              ← 本文件（人类可读说明）
+├── categories.yaml          ← 类别注册表（类别 ID → 目录映射 + 层级定义）
+├── README.md                ← 本文件（人类可读说明）
 │
 ├── attributes/            ← 属性等级参考（1-10 级详解，每属性一个文件）
 ├── characters/            ← 角色定义
@@ -64,9 +64,9 @@ data/
                     └──────────────┘
 
                     ┌──────────────┐
-                    │  environment/ │  ← 项目根目录下的环境数据（经 _INDEX.md 注册）
+                    │  environment/ │  ← 项目根目录下的环境数据（经 categories.yaml 注册）
                     │  Location/   │      locations / weather 由 SceneManager 管理
-                    │  weather/    │      不在 data/ 内但通过 _INDEX.md 注册到系统
+                    │  weather/    │      不在 data/ 内但通过 categories.yaml 注册到系统
                     └──────────────┘
 
                     ┌──────────────┐
@@ -113,29 +113,25 @@ data/
 | `combat/encounters/` | 战斗启动 | 遭遇配置 | full |
 | `rules/` | 按需加载 | 系统规则参考 | summary |
 
-## 如何添加新条目
+## 引用方式
 
-以添加一个新角色为例，按顺序检查：
+所有文档通过在 frontmatter 中声明 `imports` 字段来引用其他文档：
 
-1. **角色文件** → `data/characters/新角色/index.md`（必须）
-2. **角色索引** → 在 `data/characters/_index.md` 中注册
-3. **种族引用** → 确认 `race` 值在 `data/races/_index.md` 的 keys 中已存在
-   - 若不存在 → 需先创建对应种族文件和索引条目
-4. **职业引用** → 确认 `class` 值在 `data/classes/_index.md` 的 keys 中已存在
-   - 若不存在 → 需先创建对应职业文件和索引条目
-5. **势力引用** → 确认 `faction` 值在 `data/factions/_index.md` 的 keys 中已存在
-   - 若不存在 → 需先创建对应势力文件和索引条目
-6. **物品引用** → 确认 `key_items` 中每个值在 `data/items/_index.md` 中已存在
-   - 若不存在 → 需先创建对应物品文件和索引条目
-7. **属性数值** → 确认 attributes 字段值在 1-10 范围内
-   - 各等级含义参考 `data/attributes/` 中各属性定义
+```yaml
+imports:
+  - classes/术师
+  - factions/罗德岛
+  - characters/博士 | 博士
+```
+
+格式为 `类别/文档ID`，可选 ` | 显示名称`。系统据此自动构建全局引用图和索引树。
 
 添加战斗数据：
 
 1. **战斗敌人** → `data/combat/enemies/敌人名称.md`（使用 TEMPLATE_enemy.md）
 2. **卡牌** → `data/combat/cards/职业名/卡牌名称.md`（使用 TEMPLATE_card.md）
 3. **遭遇战** → `data/combat/encounters/遭遇id.md`（使用 TEMPLATE_encounter.md）
-4. 所有战斗文件在 `data/combat/_index.md` 中自动注册
+4. 添加后系统自动通过目录扫描发现新文档
 
 ## 三级加载深度
 
@@ -143,7 +139,7 @@ data/
 
 | 深度 | 来源 | 典型 token | 触发时机 |
 |-----|------|-----------|---------|
-| **summary** | `_index.md` 的 summary 字段 | ~30 | 角色列表、场景物品一览 |
+| **summary** | 文档 frontmatter 的 summary 字段 | ~30 | 角色列表、场景物品一览 |
 | **core** | 详细文件的特定章节（如 `## 生理特征` 前 3 段） | ~150 | 角色加载、地点/天气切换 |
 | **full** | 完整 Markdown 文件 | ~400 | 玩家显式检视/询问时 |
 

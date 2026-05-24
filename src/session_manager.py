@@ -34,7 +34,7 @@ class Session:
                  name: str = "", mode: str = "free"):
         self.id = session_id
         mode_label = "剧情" if mode == "story" else "自由"
-        self.name = name or f"{mode_label}对话 · {time.strftime('%m/%d %H:%M', time.localtime())}"
+        self.name = name or f"{mode_label}对话"
         self.mode = mode  # "free" | "story"
         self.created_at = time.time()
         self._llm_backend = llm_backend_manager
@@ -397,9 +397,24 @@ class SessionManager:
         self._next_id = 0
         self._restore_sessions()
 
-    def create_session(self, name: str = "", mode: str = "free") -> Session:
+    def create_session(self, name: str = "", mode: str = "free", plot_name: str = "") -> Session:
         """创建新会话。"""
         session_id = self._generate_id()
+        if not name:
+            if plot_name:
+                base = plot_name
+            else:
+                mode_label = "剧情" if mode == "story" else "自由"
+                base = f"{mode_label}对话"
+            existing = {
+                s.name for s in self._sessions.values()
+                if s.mode == mode and s.name and s.name.startswith(base)
+            }
+            counter = 1
+            name = f"{base}·{counter}"
+            while name in existing:
+                counter += 1
+                name = f"{base}·{counter}"
         session = Session(session_id, self._llm_backend, name=name, mode=mode)
         with self._lock:
             self._sessions[session_id] = session

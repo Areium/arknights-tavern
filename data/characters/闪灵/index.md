@@ -4,6 +4,20 @@ class: "医疗"
 race: "萨卡兹"
 faction: "罗德岛"
 tags: ["医生", "萨卡兹", "赦罪师", "神秘"]
+imports:
+  - classes/医疗
+  - races/萨卡兹
+  - factions/罗德岛
+  - attributes/物理强度
+  - attributes/战场机动
+  - attributes/生理耐受
+  - attributes/战术规划
+  - attributes/战斗技巧
+  - attributes/源石技艺适应性
+  - attributes/情绪稳定性
+  - attributes/魅力
+  - characters/博士
+  - characters/临光
 attributes:
   物理强度: 5
   战场机动: 6

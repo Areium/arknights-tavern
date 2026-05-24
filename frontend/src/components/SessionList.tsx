@@ -4,7 +4,7 @@ import { useApi } from "../hooks/useApi";
 import type { PlotInfo } from "../types";
 
 export default function SessionList() {
-  const { sessions, activeSessionId, chatMode, setSessions, setActiveSession } =
+  const { sessions, activeSessionId, chatMode, setSessions, setActiveSession, setCurrentView, setIndexSessionId } =
     useAppStore();
   const api = useApi();
   const [creating, setCreating] = useState(false);
@@ -277,20 +277,41 @@ export default function SessionList() {
                     {s.name || "未命名会话"}
                   </div>
                 )}
-                <div className="text-xs text-gray-500">
-                  {s.mode === "story" ? "剧情" : "自由"} ·{" "}
+                <div className="text-[10px] text-gray-600">
                   {new Date(s.created_at * 1000).toLocaleString("zh-CN")}
                 </div>
               </div>
             </div>
             {selectedIds.size === 0 && (
-              <button
-                onClick={(e) => handleDelete(s.id, e)}
-                className="text-gray-600 hover:text-red-400 ml-2 shrink-0"
-                title="删除"
-              >
-                ✕
-              </button>
+              <div className="flex items-center gap-1">
+                {s.mode === "story" && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIndexSessionId(s.id);
+                      setCurrentView("index");
+                    }}
+                    className="px-1.5 py-1 text-gray-500 hover:text-amber-400 hover:bg-amber-600/10 rounded shrink-0 text-sm transition-colors"
+                    title="索引配置"
+                  >
+                    ⚙
+                  </button>
+                )}
+                <button
+                  onClick={(e) => startRename(s.id, s.name || "", e)}
+                  className="px-1.5 py-1 text-gray-500 hover:text-blue-400 hover:bg-blue-600/10 rounded shrink-0 text-sm transition-colors"
+                  title="重命名"
+                >
+                  ✎
+                </button>
+                <button
+                  onClick={(e) => handleDelete(s.id, e)}
+                  className="px-1.5 py-1 text-gray-500 hover:text-red-400 hover:bg-red-600/10 rounded shrink-0 text-sm transition-colors"
+                  title="删除"
+                >
+                  ✕
+                </button>
+              </div>
             )}
           </div>
         ))}

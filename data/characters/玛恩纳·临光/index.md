@@ -4,6 +4,21 @@ class: "近卫"
 race: "库兰塔"
 faction: "临光家族"
 tags: ["临光家族", "前骑士", "沉默", "守护者", "卡西米尔"]
+imports:
+  - classes/近卫
+  - races/库兰塔
+  - factions/临光家族
+  - attributes/物理强度
+  - attributes/战场机动
+  - attributes/生理耐受
+  - attributes/战术规划
+  - attributes/战斗技巧
+  - attributes/源石技艺适应性
+  - attributes/情绪稳定性
+  - attributes/魅力
+  - characters/临光
+  - characters/瑕光
+  - characters/博士
 attributes:
   物理强度: 9
   战场机动: 7
