@@ -151,12 +151,12 @@ html.light .text-green-300 { color: rgb(21 128 61); }
 
 /* ── 格子样式 ── */
 .combat-cell {
-  width: 56px;
-  height: 56px;
+  width: var(--cell-size, 64px);
+  height: var(--cell-size, 64px);
   background: rgba(15, 20, 35, 0.6);
   border: 1px solid rgba(100, 120, 160, 0.25);
   background-image: radial-gradient(circle at center, rgba(60, 80, 120, 0.12) 0%, transparent 70%);
-  transition: all 0.2s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
   position: relative;
 }
 
@@ -207,14 +207,17 @@ html.light .text-green-300 { color: rgb(21 128 61); }
   justify-content: center;
   align-items: flex-end;
   gap: 0;
-  padding: 8px 0 4px;
+  padding: 2px 0 4px;
   min-height: 210px;
   perspective: 800px;
+  position: relative;
+  z-index: 20;
+  pointer-events: none;
 }
-
 .combat-hand-fan .hand-card-wrapper {
   transition: transform 0.2s ease, z-index 0s;
   margin: 0 -6px;
+  pointer-events: auto;
 }
 
 .combat-hand-fan .hand-card-wrapper:hover {
@@ -224,15 +227,15 @@ html.light .text-green-300 { color: rgb(21 128 61); }
 
 /* ── 卡牌样式 ── */
 .combat-card {
-  width: 140px;
-  height: 190px;
+  width: var(--card-width, 154px);
+  height: var(--card-height, 210px);
   border-radius: 8px;
   background: linear-gradient(160deg, #16192b 0%, #111827 50%, #0d1525 100%);
   border: 2px solid #2a3a5e;
   position: relative;
   overflow: hidden;
   cursor: pointer;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: border-color 0.25s ease, box-shadow 0.25s ease, background-color 0.25s ease, transform 0.25s ease;
   text-align: left;
 }
 

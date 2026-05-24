@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import { useEffect, useLayoutEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useAppStore } from "../../stores/appStore";
 import { useApi, createCombatSSE, createCombatTestSSE } from "../../hooks/useApi";
 import type { CombatEventDTO, CombatStateDTO, CardDTO } from "../../types";
@@ -13,8 +13,7 @@ import DeckViewer from "./DeckViewer";
 import AttackArrow from "./AttackArrow";
 import ChibiSprite from "./ChibiSprite";
 import { getCellParentRelative } from "./gridUtils";
-
-const CELL = 56; // px — must match CSS .combat-cell size
+import { getCombatConfig, type LayoutMode } from "./combatConfig";
 
 const DEFAULT_CHARACTERS = ["阿米娅", "博士", "银灰", "霜星"];
 const DEFAULT_ENCOUNTER = "初遇整合运动";
@@ -51,6 +50,12 @@ export default function CombatView() {
   const [hoveredUnitRect, setHoveredUnitRect] = useState<DOMRect | null>(null);
   const [showDeckViewer, setShowDeckViewer] = useState(false);
   const [resizeTick, setResizeTick] = useState(0);
+  const [unitPositions, setUnitPositions] = useState<Record<string, { x: number; y: number } | null>>({});
+  const [isFullscreen, setIsFullscreen] = useState(
+    () => window.innerWidth / screen.availWidth > 0.9 && window.innerHeight / screen.availHeight > 0.85
+  );
+  const layoutMode: LayoutMode = isFullscreen ? "fullscreen" : "windowed";
+  const cfg = getCombatConfig(layoutMode);
   const writingBackRef = useRef(false);
   const sseRef = useRef<{ close: () => void } | null>(null);
   const stateRef = useRef(combatState);
@@ -58,6 +63,8 @@ export default function CombatView() {
   const gridElRef = useRef<HTMLDivElement | null>(null);
   const relativeRef = useRef<HTMLDivElement | null>(null);
   const dragMouseRef = useRef<{ clientX: number; clientY: number } | null>(null);
+  const overlayCentersRef = useRef<({ x: number; y: number } | null)[][]>([]);
+  const lastHoveredCellRef = useRef<string | null>(null);
 
   // Damage numbers for floating text effects
   const [damageNumbers, setDamageNumbers] = useState<
@@ -94,12 +101,13 @@ export default function CombatView() {
         y = center.y;
       } else {
         const gap = 2;
-        x = CELL + 5 + pos[1] * (CELL + gap) + CELL / 2;
-        y = CELL - 12 + pos[0] * (CELL + gap) + CELL / 2;
+        const sz = cfg.cellSize;
+        x = sz + 5 + pos[1] * (sz + gap) + sz / 2;
+        y = sz - 12 + pos[0] * (sz + gap) + sz / 2;
       }
       setParticleEmitters((prev) => [...prev.slice(-30), { id, config: { type, x, y, count } }]);
     },
-    []
+    [cfg.cellSize]
   );
 
   const removeEmitter = useCallback((id: string) => {
@@ -171,10 +179,52 @@ export default function CombatView() {
 
   // Re-render chibi overlay on window resize (positions shift with perspective)
   useEffect(() => {
-    const handler = () => setResizeTick((t) => t + 1);
+    const handler = () => {
+      setResizeTick((t) => t + 1);
+      setIsFullscreen(
+        window.innerWidth / screen.availWidth > 0.9 &&
+        window.innerHeight / screen.availHeight > 0.85
+      );
+    };
     window.addEventListener("resize", handler);
     return () => window.removeEventListener("resize", handler);
   }, []);
+
+  // Precompute cell screen centers for overlay drag handling
+  const recomputeOverlayCenters = useCallback(() => {
+    const g = gridElRef.current;
+    const rel = relativeRef.current;
+    if (!g || !rel) return;
+    const size = combatState?.grid_size ?? 7;
+    const centers: ({ x: number; y: number } | null)[][] = [];
+    for (let r = 0; r < size; r++) {
+      const row: ({ x: number; y: number } | null)[] = [];
+      for (let c = 0; c < size; c++) {
+        row.push(getCellParentRelative(g, rel, r, c));
+      }
+      centers.push(row);
+    }
+    overlayCentersRef.current = centers;
+  }, [combatState?.grid_size]);
+
+  useEffect(() => {
+    recomputeOverlayCenters();
+  }, [recomputeOverlayCenters, resizeTick]);
+
+  // Sync unit positions (chibi, damage numbers) after DOM commits — handles cellSize / layout changes
+  useLayoutEffect(() => {
+    const g = gridElRef.current;
+    const rel = relativeRef.current;
+    if (!g || !rel) return;
+    const positions: Record<string, { x: number; y: number } | null> = {};
+    for (const u of combatState?.units ?? []) {
+      if (u.is_alive) {
+        positions[u.unit_id] = getCellParentRelative(g, rel, u.pos[0], u.pos[1]);
+      }
+    }
+    setUnitPositions(positions);
+    recomputeOverlayCenters();
+  }, [combatState?.units, cfg.cellSize, resizeTick]);
 
   const handleStartBattle = useCallback(async () => {
     if (!sessionId || startChars.length === 0) return;
@@ -263,7 +313,7 @@ export default function CombatView() {
     }
     const mobility = selectedUnit.mobility || 1;
     const [r0, c0] = selectedUnit.pos;
-    const gs = combatState?.grid_size ?? 9;
+    const gs = combatState?.grid_size ?? 7;
     const cells = new Set<string>();
     for (let dr = -mobility; dr <= mobility; dr++) {
       for (let dc = -mobility; dc <= mobility; dc++) {
@@ -294,7 +344,7 @@ export default function CombatView() {
     const maxRange = card.range;
     const cells = new Set<string>();
 
-    const gs = combatState?.grid_size ?? 9;
+    const gs = combatState?.grid_size ?? 7;
 
     if (maxRange < 0) {
       for (let r = 0; r < gs; r++) {
@@ -329,18 +379,26 @@ export default function CombatView() {
 
       // TARGETING: play card
       if (combatUIMode === "TARGETING" && selectedCardIndex !== null) {
+        const card = displayedHand[selectedCardIndex];
         // Validate target is within the card's range
         if (!rangeHighlights.has(`${row},${col}`)) {
           const unitAtCell = combatState.units.find(
-            (u) => u.is_alive && u.pos[0] === row && u.pos[1] === col && u.team === "enemy"
+            (u) => u.is_alive && u.pos[0] === row && u.pos[1] === col
           );
-          if (unitAtCell) {
+          if (unitAtCell && unitAtCell.team === "enemy") {
             setError("目标不在攻击范围内，无法选中");
+          } else if (unitAtCell && unitAtCell.team === "player") {
+            setError("无法对己方角色使用攻击卡牌");
           } else {
             setSelectedCardIndex(null);
             setSelectedUnitId(null);
             setCombatUIMode("VIEWING");
           }
+          return;
+        }
+        // AP check
+        if (card && (combatState.shared_ap ?? 0) < card.cost) {
+          setError(`AP 不足 (${combatState.shared_ap ?? 0} / ${card.cost})`);
           return;
         }
 
@@ -363,20 +421,41 @@ export default function CombatView() {
         return;
       }
 
-      // Unit selected + clicked a move-highlighted cell → move
-      if (selectedUnitId && moveHighlights.has(`${row},${col}`)) {
-        setLoading(true);
-        try {
-          await doAction({ action: "move", unit_id: selectedUnitId, target: [row, col] });
-          setSelectedUnitId(null);
+      // Unit selected + clicked a cell → move or show error
+      if (selectedUnitId) {
+        const unitAtCell = combatState.units.find(
+          (u) => u.is_alive && u.pos[0] === row && u.pos[1] === col
+        );
+        // Clicked an occupied cell that's not in move range
+        if (unitAtCell && !moveHighlights.has(`${row},${col}`)) {
+          if (unitAtCell.unit_id === selectedUnitId) {
+            setSelectedUnitId(null);
+          } else {
+            setSelectedUnitId(unitAtCell.unit_id);
+          }
           setCombatUIMode("VIEWING");
-          await fetchState();
-        } catch (e: any) {
-          setError(e?.message || "移动失败");
-        } finally {
-          setLoading(false);
+          setSelectedCardIndex(null);
+          setCursor([row, col]);
+          return;
         }
-        return;
+        // Clicked a move-highlighted cell
+        if (moveHighlights.has(`${row},${col}`)) {
+          if ((combatState.shared_ap ?? 0) < 1) {
+            setError("AP 不足，无法移动 (需要 1 AP)");
+            return;
+          }
+          setLoading(true);
+          try {
+            await doAction({ action: "move", unit_id: selectedUnitId, target: [row, col] });
+            setCursor([row, col]);
+            await fetchState();
+          } catch (e: any) {
+            setError(e?.message || "移动失败");
+          } finally {
+            setLoading(false);
+          }
+          return;
+        }
       }
 
       // Click on any unit → select it (player or enemy)
@@ -397,7 +476,7 @@ export default function CombatView() {
       setSelectedCardIndex(null);
       setCursor([row, col]);
     },
-    [effectiveId, combatTestId, sessionId, combatState, combatUIMode, selectedCardIndex, selectedUnitId, moveHighlights, rangeHighlights, api, fetchState, setSelectedCardIndex, setCombatUIMode, setSelectedUnitId]
+    [effectiveId, combatTestId, sessionId, combatState, combatUIMode, selectedCardIndex, selectedUnitId, moveHighlights, rangeHighlights, displayedHand, api, fetchState, setSelectedCardIndex, setCombatUIMode, setSelectedUnitId]
   );
 
   const handleCardClick = useCallback(
@@ -494,20 +573,68 @@ export default function CombatView() {
     setCurrentView("chat");
   }, [combatTestId, sessionId, combatState, encounterId, api, setCombatState, setCombatTestId, setSelectedUnitId, setCurrentView]);
 
-  // Click on empty area of the grid container → deselect all
-  const handleGridBackgroundClick = useCallback(() => {
-    setSelectedUnitId(null);
-    setSelectedCardIndex(null);
-    setCombatUIMode("VIEWING");
-    setCursor(null);
-    setError(null);
-  }, [setSelectedUnitId, setSelectedCardIndex, setCombatUIMode]);
+  // Click on main area → map to grid cell or deselect.
+  // Cell mapping handles 3D-transformed cells (rows 4-8) that don't
+  // receive events directly because of browser 3D hit-testing quirks.
+  const handleGridBackgroundClick = useCallback(
+    (e: React.MouseEvent) => {
+      const rel = relativeRef.current;
+      if (rel && combatState) {
+        const rect = rel.getBoundingClientRect();
+        const rx = e.clientX - rect.left;
+        const ry = e.clientY - rect.top;
+        const centers = overlayCentersRef.current;
+        const gs = combatState.grid_size;
+        let best: [number, number] | null = null;
+        let bestDist = Infinity;
+        for (let r = 0; r < gs; r++) {
+          const row = centers[r];
+          if (!row) continue;
+          for (let c = 0; c < gs; c++) {
+            const pt = row[c];
+            if (!pt) continue;
+            const dx = rx - pt.x;
+            const dy = ry - pt.y;
+            const dist = dx * dx + dy * dy;
+            if (dist < bestDist) {
+              bestDist = dist;
+              best = [r, c];
+            }
+          }
+        }
+        // Only treat as cell click if within ~45px of cell center (cell half-diagonal)
+        if (best && bestDist <= 2000) {
+          handleCellClick(best[0], best[1]);
+          return;
+        }
+      }
+      // Background click — deselect
+      setSelectedUnitId(null);
+      setSelectedCardIndex(null);
+      setCombatUIMode("VIEWING");
+      setCursor(null);
+      setError(null);
+    },
+    [combatState, handleCellClick, setSelectedUnitId, setSelectedCardIndex, setCombatUIMode],
+  );
 
   const handleCardDragStart = useCallback((index: number) => {
     setDragCardIndex(index);
     setSelectedCardIndex(index);
     setCombatUIMode("TARGETING");
-  }, [setSelectedCardIndex, setCombatUIMode]);
+    const state = stateRef.current;
+    if (state) {
+      const card = state.shared_hand[index];
+      if (card?.owner) {
+        const ownerUnit = state.units.find(
+          (u) => u.team === "player" && u.is_alive && u.name === card.owner
+        );
+        if (ownerUnit) {
+          setSelectedUnitId(ownerUnit.unit_id);
+        }
+      }
+    }
+  }, [setSelectedCardIndex, setCombatUIMode, setSelectedUnitId]);
 
   const handleCardDragEnd = useCallback(() => {
     setDragCardIndex(null);
@@ -530,19 +657,29 @@ export default function CombatView() {
     async (row: number, col: number) => {
       if (!effectiveId || !combatState || dragCardIndex === null) return;
 
+      const card = displayedHand[dragCardIndex];
       // Validate target is within the card's range
       if (!rangeHighlights.has(`${row},${col}`)) {
         const unitAtCell = combatState.units.find(
-          (u) => u.is_alive && u.pos[0] === row && u.pos[1] === col && u.team === "enemy"
+          (u) => u.is_alive && u.pos[0] === row && u.pos[1] === col
         );
-        if (unitAtCell) {
+        if (unitAtCell && unitAtCell.team === "enemy") {
           setError("目标不在攻击范围内，无法选中");
+        } else if (unitAtCell && unitAtCell.team === "player") {
+          setError("无法对己方角色使用攻击卡牌");
         }
         setDragCardIndex(null);
         setDragCell(null);
         setSelectedCardIndex(null);
         setSelectedUnitId(null);
         setCombatUIMode("VIEWING");
+        return;
+      }
+      // AP check
+      if (card && (combatState.shared_ap ?? 0) < card.cost) {
+        setError(`AP 不足 (${combatState.shared_ap ?? 0} / ${card.cost})`);
+        setDragCardIndex(null);
+        setDragCell(null);
         return;
       }
 
@@ -569,7 +706,7 @@ export default function CombatView() {
         setDragCell(null);
       }
     },
-    [effectiveId, combatTestId, sessionId, combatState, dragCardIndex, rangeHighlights, api, fetchState, setSelectedCardIndex, setCombatUIMode, setSelectedUnitId]
+    [effectiveId, combatTestId, sessionId, combatState, dragCardIndex, rangeHighlights, displayedHand, api, fetchState, setSelectedCardIndex, setCombatUIMode, setSelectedUnitId]
   );
 
   const handleUnitClick = useCallback((unitId: string) => {
@@ -710,16 +847,8 @@ export default function CombatView() {
 
   return (
     <div className="flex flex-col h-full bg-combat-bg relative" onDragOver={(e) => e.preventDefault()}>
-      {/* Error toast */}
-      {error && (
-        <div className="absolute top-3 right-3 z-50 bg-red-950/95 border border-red-800 text-red-200 px-4 py-2 rounded-lg text-sm shadow-lg">
-          {error}
-          <button className="ml-2 text-red-400 hover:text-red-200" onClick={() => setError(null)}>×</button>
-        </div>
-      )}
-
       {/* Main area: status panels + grid */}
-      <div className="flex-1 flex items-start justify-between px-2 gap-2 relative select-none" onClick={handleGridBackgroundClick}>
+      <div className="flex-1 flex items-start justify-between px-2 gap-2 relative z-10 select-none" onClick={handleGridBackgroundClick}>
         {/* Player status — left panel */}
         <div className="w-56 flex-shrink-0 max-h-[calc(100vh-320px)] overflow-y-auto bg-surface-card/90 border border-combat-border rounded-xl p-3 backdrop-blur-sm" onClick={(e) => e.stopPropagation()}>
           <UnitStatusPanel
@@ -735,10 +864,10 @@ export default function CombatView() {
           />
         </div>
 
-        {/* Grid area */}
-        <div className="flex flex-col items-center">
-          {/* Turn info */}
-          <div className="mb-4 text-center">
+        {/* Grid area — positioned with relative+top to avoid layout conflicts with bottom bar */}
+        <div className="flex flex-col items-center relative" style={{ top: `${cfg.gridMarginTop}px` }}>
+          {/* Turn info + error toast (error uses absolute positioning to avoid pushing grid) */}
+          <div className="relative mb-2 text-center" style={{ marginTop: isFullscreen ? '-28px' : undefined }}>
             <span className="text-sm text-gray-300 font-display tracking-wider">
               ROUND {combatState.round_num}
             </span>
@@ -747,12 +876,126 @@ export default function CombatView() {
             }`}>
               {combatState.phase === "PLAYER_TURN" ? "Player Turn" : "Enemy Turn"}
             </span>
+            {error && (
+              <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1 z-50 bg-red-950/95 border border-red-800 text-red-200 px-4 py-1.5 rounded-lg text-xs shadow-lg animate-pulse whitespace-nowrap">
+                {error}
+                <button className="ml-2 text-red-400 hover:text-red-200" onClick={() => setError(null)}>×</button>
+              </div>
+            )}
           </div>
 
           {/* Grid with damage numbers overlay */}
-          <div className="relative" ref={relativeRef}>
+          <div className="relative" ref={relativeRef} style={{ "--cell-size": `${cfg.cellSize}px` } as React.CSSProperties}
+            onMouseMove={(e) => {
+              const rel = relativeRef.current;
+              if (!rel) return;
+              const rect = rel.getBoundingClientRect();
+              const rx = e.clientX - rect.left;
+              const ry = e.clientY - rect.top;
+              const centers = overlayCentersRef.current;
+              const gs = combatState.grid_size;
+              let best: [number, number] | null = null;
+              let bestDist = Infinity;
+              for (let r = 0; r < gs; r++) {
+                const row = centers[r];
+                if (!row) continue;
+                for (let c = 0; c < gs; c++) {
+                  const pt = row[c];
+                  if (!pt) continue;
+                  const dx = rx - pt.x;
+                  const dy = ry - pt.y;
+                  const dist = dx * dx + dy * dy;
+                  if (dist < bestDist) {
+                    bestDist = dist;
+                    best = [r, c];
+                  }
+                }
+              }
+              const cellKey = best ? `${best[0]},${best[1]}` : null;
+              if (cellKey === lastHoveredCellRef.current) return;
+              lastHoveredCellRef.current = cellKey;
+              if (best && combatState) {
+                const unit = combatState.units.find(
+                  (u) => u.is_alive && u.pos[0] === best![0] && u.pos[1] === best![1]
+                );
+                if (unit) {
+                  const c = centers[best[0]]?.[best[1]];
+                  setHoveredUnitId(unit.unit_id);
+                  setHoveredUnitRect(c
+                    ? new DOMRect(rect.left + c.x - 28, rect.top + c.y - 28, 56, 56)
+                    : new DOMRect(0, 0, 0, 0));
+                } else {
+                  setHoveredUnitId(null);
+                  setHoveredUnitRect(null);
+                }
+              } else {
+                setHoveredUnitId(null);
+                setHoveredUnitRect(null);
+              }
+            }}
+            onMouseLeave={() => {
+              lastHoveredCellRef.current = null;
+              setHoveredUnitId(null);
+              setHoveredUnitRect(null);
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+              const centers = overlayCentersRef.current;
+              const gs = combatState.grid_size;
+              let best: [number, number] | null = null;
+              let bestDist = Infinity;
+              for (let r = 0; r < gs; r++) {
+                const row = centers[r];
+                if (!row) continue;
+                for (let c = 0; c < gs; c++) {
+                  const pt = row[c];
+                  if (!pt) continue;
+                  const relRect = relativeRef.current?.getBoundingClientRect();
+                  const sx = pt.x + (relRect?.left ?? 0);
+                  const sy = pt.y + (relRect?.top ?? 0);
+                  const dx = e.clientX - sx;
+                  const dy = e.clientY - sy;
+                  const dist = dx * dx + dy * dy;
+                  if (dist < bestDist) {
+                    bestDist = dist;
+                    best = [r, c];
+                  }
+                }
+              }
+              handleGridDragMove(best, e.clientX, e.clientY);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              const centers = overlayCentersRef.current;
+              const gs = combatState.grid_size;
+              let best: [number, number] | null = null;
+              let bestDist = Infinity;
+              for (let r = 0; r < gs; r++) {
+                const row = centers[r];
+                if (!row) continue;
+                for (let c = 0; c < gs; c++) {
+                  const pt = row[c];
+                  if (!pt) continue;
+                  const relRect = relativeRef.current?.getBoundingClientRect();
+                  const sx = pt.x + (relRect?.left ?? 0);
+                  const sy = pt.y + (relRect?.top ?? 0);
+                  const dx = e.clientX - sx;
+                  const dy = e.clientY - sy;
+                  const dist = dx * dx + dy * dy;
+                  if (dist < bestDist) {
+                    bestDist = dist;
+                    best = [r, c];
+                  }
+                }
+              }
+              if (best) handleGridDrop(best[0], best[1]);
+              handleGridDragMove(null);
+            }}
+          >
             <CombatGrid
               gridSize={combatState.grid_size}
+              cellSize={cfg.cellSize}
               units={combatState.units}
               grid={combatState.grid ?? {}}
               validTargets={combatState.valid_targets ?? []}
@@ -771,16 +1014,11 @@ export default function CombatView() {
               onGridMount={(el) => { gridElRef.current = el; }}
             />
 
-            {/* Chibi sprite overlay — rendered flat so characters face the camera */}
-            {gridElRef.current && relativeRef.current && combatState.units
+            {/* Chibi sprite overlay — uses pre-computed positions from useLayoutEffect */}
+            {combatState.units
               .filter((u) => u.is_alive)
               .map((u) => {
-                const center = getCellParentRelative(
-                  gridElRef.current!,
-                  relativeRef.current!,
-                  u.pos[0],
-                  u.pos[1],
-                );
+                const center = unitPositions[u.unit_id];
                 if (!center) return null;
                 return (
                   <div
@@ -791,15 +1029,8 @@ export default function CombatView() {
                       left: center.x - 24,
                       top: center.y - 30,
                       zIndex: 25,
+                      pointerEvents: "none",
                     }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleCellClick(u.pos[0], u.pos[1]);
-                    }}
-                    onMouseEnter={(e) =>
-                      handleCellHover(u, (e.currentTarget as HTMLElement).getBoundingClientRect())
-                    }
-                    onMouseLeave={handleHoverLeave}
                   >
                     <ChibiSprite unit={u} />
                   </div>
@@ -817,9 +1048,10 @@ export default function CombatView() {
                   className={`damage-number ${d.type === "heal" ? "heal" : d.type === "arts" ? "arts" : "physical"}`}
                   style={{
                     position: "absolute",
-                    left: center ? `${center.x - 14}px` : `${CELL + d.pos[1] * (CELL + 2)}px`,
-                    top: center ? `${center.y - 14}px` : `${d.pos[0] * (CELL + 2)}px`,
+                    left: center ? `${center.x - 14}px` : `${cfg.cellSize + d.pos[1] * (cfg.cellSize + 2)}px`,
+                    top: center ? `${center.y - 14}px` : `${d.pos[0] * (cfg.cellSize + 2)}px`,
                     zIndex: 100,
+                    pointerEvents: "none",
                   }}
                 >
                   {d.type === "heal" ? `+${d.value}` : `-${d.value}`}
@@ -851,7 +1083,7 @@ export default function CombatView() {
           </div>
 
           {/* Action hint */}
-          <div className="mt-3 flex gap-4 text-xs text-gray-600 min-h-[20px]">
+          <div className="mt-3 flex gap-4 text-xs text-gray-600 min-h-[20px]" onClick={(e) => e.stopPropagation()}>
             {combatUIMode === "TARGETING" && (
               <span className="text-dmg-physical">点击目标格子使用卡牌 · Esc 取消</span>
             )}
@@ -881,9 +1113,9 @@ export default function CombatView() {
       </div>
 
       {/* Bottom: hand + controls + event log */}
-      <div className="border-t border-combat-divider bg-surface-dark/80 backdrop-blur-sm">
+      <div className="border-t border-combat-divider bg-surface-dark/80 pointer-events-none" style={{ marginTop: cfg.bottomBarMarginTop }}>
         {/* Action bar */}
-        <div className="flex items-center gap-3 px-4 py-2">
+        <div className="flex items-center gap-3 px-4 py-1 relative z-20 pointer-events-auto">
           <span className="text-xs text-gray-500 font-display">
             手牌: {displayedHand.length}
             {selectedUnit && (
@@ -935,10 +1167,13 @@ export default function CombatView() {
           onCardClick={handleCardClick}
           onCardDragStart={handleCardDragStart}
           onCardDragEnd={handleCardDragEnd}
+          cardWidth={cfg.cardWidth}
+          cardHeight={cfg.cardHeight}
+          fanMarginTop={cfg.handFanMarginTop}
         />
 
         {/* Event log */}
-        <div className="px-3 pb-3">
+        <div className="px-3 pb-3 pointer-events-auto">
           <CombatEventLog events={events} />
         </div>
       </div>
