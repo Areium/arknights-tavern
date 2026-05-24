@@ -32,6 +32,24 @@ function getNodePath(node: DocTreeNode): string {
   return node.id || node.name;
 }
 
+const CATEGORY_LABELS: Record<string, string> = {
+  characters: "角色",
+  factions: "势力",
+  items: "物品",
+  locations: "地点",
+  plots: "剧情",
+  races: "种族",
+  classes: "职业",
+  enemies: "叙事敌人",
+  combat_enemies: "战斗敌人",
+  combat_cards: "卡牌",
+  combat_encounters: "遭遇战",
+  weather: "天气",
+  world: "世界观",
+  attributes: "属性",
+  rules: "规则",
+};
+
 function getAllFolders(nodes: DocTreeNode[], prefix = ""): string[] {
   const result: string[] = [];
   for (const n of nodes) {
@@ -78,6 +96,8 @@ export default function DocumentManager() {
   const [editContent, setEditContent] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // ── Editor tab ──
 
   // ── Toast ──
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -217,6 +237,8 @@ export default function DocumentManager() {
       setLoading(false);
     }
   };
+
+  // ── Index handlers ──
 
   // ── Validation ──
 
@@ -757,7 +779,8 @@ export default function DocumentManager() {
               </div>
             )}
           </>
-        )}
+        )
+      }
       </div>
 
       {/* ── Context menu ── */}

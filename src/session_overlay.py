@@ -187,6 +187,27 @@ class SessionOverlay:
         self._save()
         logger.info("会话 %s: 剧情绑定为 %s", self.session_id, plot_id)
 
+    # ── 剧情开场上下文 ──
+
+    def set_plot_context(self, context: str):
+        """存储剧情开场上下文（首次叙述时注入）。"""
+        self._data["plot_context"] = context
+        self._save()
+        logger.info("会话 %s: 剧情开场上下文已存储 (%d 字)", self.session_id, len(context))
+
+    def get_plot_context(self) -> str | None:
+        """获取剧情开场上下文。"""
+        return self._data.get("plot_context")
+
+    def has_plot_context(self) -> bool:
+        """是否有待注入的开场上下文。"""
+        return "plot_context" in self._data
+
+    def clear_plot_context(self):
+        """清除开场上下文（首次叙述注入后调用）。"""
+        self._data.pop("plot_context", None)
+        self._save()
+
     def get_quest_states(self) -> dict:
         """获取所有任务状态 {quest_id: {status, updated_at}}。"""
         return self._data.get("quest_states", {})
@@ -238,6 +259,7 @@ class SessionOverlay:
             "items": self._data.get("items", {}),
             "environment": self._data.get("environment", {}),
             "quest_states": self._data.get("quest_states", {}),
+            "has_plot_context": self.has_plot_context(),
         }
 
     @staticmethod

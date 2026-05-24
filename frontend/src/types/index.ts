@@ -236,3 +236,56 @@ declare global {
     electronAPI?: ElectronAPI;
   }
 }
+
+// ── 索引管理 ──
+
+export interface IndexEntity {
+  id: string;
+  name: string;
+  summary: string;
+}
+
+export interface IndexEntitiesByCategory {
+  [category: string]: IndexEntity[];
+}
+
+export interface IndexRefs {
+  [category: string]: string[];
+}
+
+export interface DocIndexData {
+  refs: IndexRefs;
+  entities: IndexEntitiesByCategory;
+}
+
+export interface ScanResult {
+  new_matches: IndexEntitiesByCategory;
+  existing_matches: IndexEntitiesByCategory;
+}
+
+// ── 全局索引配置 ──
+
+export interface IndexConfigTreeDoc {
+  id: string;
+  path: string;
+  ref_count: number;
+  refed_by_count: number;
+  refs: IndexRefs;
+  refed_by: Record<string, { id: string; path: string }[]>;
+  in_config?: boolean;
+}
+
+export interface IndexConfigTreeCategory {
+  category: string;
+  doc_count: number;
+  docs: IndexConfigTreeDoc[];
+}
+
+export interface IndexConfigTree {
+  categories: IndexConfigTreeCategory[];
+}
+
+export interface IndexConfigData {
+  config: Record<string, Record<string, string[]>>;
+  entities: IndexEntitiesByCategory;
+}

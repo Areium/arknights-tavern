@@ -7,6 +7,7 @@ import ChatView from "./components/ChatView";
 import CombatView from "./components/combat/CombatView";
 import DocumentManager from "./components/DocumentManager";
 import SettingsPanel from "./components/SettingsPanel";
+import IndexManager from "./components/IndexManager";
 
 export default function App() {
   const { currentView, setBackendStatus, setLLMStatus, setSessions, theme, setTheme, setEditBeforeSend } =
@@ -112,6 +113,8 @@ export default function App() {
         return <CombatView />;
       case "settings":
         return <SettingsPanel />;
+      case "index":
+        return <IndexManager api={api} />;
     }
   };
 

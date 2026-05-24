@@ -26,6 +26,7 @@ if _project_root not in sys.path:
 
 import yaml
 import random
+import re
 import frontmatter
 from flask import Flask, jsonify, request, Response, stream_with_context, send_from_directory
 from flask_cors import CORS
@@ -33,6 +34,7 @@ from flask_cors import CORS
 from llm_backend_manager import LLMBackendManager
 from session_manager import SessionManager
 from document_manager import DocumentManager, ConflictError, DocumentNotFoundError
+from index_manager import IndexManager, parse_doc_path
 
 # ── 初始化 ──
 
@@ -43,6 +45,9 @@ CORS(app)
 llm_backend = LLMBackendManager()
 session_manager = SessionManager(llm_backend)
 doc_manager = DocumentManager()
+index_manager = IndexManager(
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+)
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +71,66 @@ def _require_usable(session):
 
 def _json_error(message: str, status: int = 400):
     return jsonify({"error": message}), status
+
+
+def _load_plot_opening(session, plot_id: str):
+    """加载剧情的开场配置到会话中。
+
+    解析 opening.md，设置环境、加载初始角色、存储开场上下文，
+    使首次叙述调用能生成匹配剧情的开场描述。
+    """
+    from session_overlay import _resolve_plot_dir
+    import os as _os3
+
+    resolved = _resolve_plot_dir(plot_id) or plot_id
+    plot_dir = _os3.path.join(_os3.path.dirname(__file__), "..", "data", "plots", resolved)
+    opening_path = _os3.path.join(plot_dir, "opening.md")
+    if not _os3.path.isfile(opening_path):
+        logger.debug("剧情 %s 无 opening.md，跳过开场加载", plot_id)
+        return
+
+    try:
+        with open(opening_path, "r", encoding="utf-8") as f:
+            post = frontmatter.load(f)  # noqa
+        meta = post.metadata
+
+        # 1. 设置环境
+        location = meta.get("initial_location", "")
+        time_val = meta.get("initial_time", "")
+        atmosphere = meta.get("initial_atmosphere", "")
+        if location:
+            session.environment.location = location
+        if time_val:
+            session.environment.time_of_day = time_val
+        if atmosphere:
+            session.environment.atmosphere = atmosphere
+
+        # 2. 加载初始角色（跳过不存在的角色 & 博士=玩家）
+        player_identities = {"博士"}
+        for char_name in meta.get("initial_characters", []):
+            name = char_name.strip()
+            if name and name not in player_identities:
+                ok = session.scene_manager.load_character(name)
+                if ok:
+                    logger.debug("开场加载角色: %s", name)
+
+        # 3. 设置默认对话目标（第一个非玩家角色）
+        if not session.scene_manager.active:
+            chars = session.scene_manager.get_scene_characters()
+            if chars:
+                session.scene_manager.active = chars[0]
+
+        # 4. 存储开场上下文（首次叙述注入用）
+        scene_desc = meta.get("opening_scene", "").strip()
+        if not scene_desc:
+            scene_desc = post.content.strip()[:500]
+        if scene_desc:
+            session.overlay.set_plot_context(scene_desc)
+
+        logger.info("剧情 %s 开场已加载: loc=%s time=%s chars=%d",
+                     plot_id, location, time_val, len(session.scene_manager.get_scene_characters()))
+    except Exception as e:
+        logger.warning("加载剧情开场失败 %s: %s", plot_id, e)
 
 
 # ══════════════════════════════════════════════════════
@@ -115,6 +180,7 @@ def create_session():
         plot_dir = _os2.path.join(_os2.path.dirname(__file__), "..", "data", "plots", resolved)
         if _os2.path.isdir(plot_dir):
             session.overlay.load_quests_from_plot(plot_id)
+            _load_plot_opening(session, plot_id)
 
     return jsonify(session.to_dict()), 201
 
@@ -979,7 +1045,426 @@ def move_folder(category: str, folder_path: str):
 
 
 # ══════════════════════════════════════════════════════
-# 10. 会话覆盖（角色/物品/环境的会话级修改）
+# 10. 实体索引 / 文档引用管理
+# ══════════════════════════════════════════════════════
+
+_entities_cache: dict = {"data": None, "timestamp": 0.0}
+
+
+def _load_all_entities() -> dict:
+    """读取所有 _index.md，返回 {category: [{id, name, summary}]}，带 30s 缓存。"""
+    global _entities_cache
+    now = time.time()
+    if _entities_cache["data"] and now - _entities_cache["timestamp"] < 30:
+        return _entities_cache["data"]
+
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    master_path = os.path.join(root, "data", "_INDEX.md")
+    if not os.path.isfile(master_path):
+        return {}
+
+    with open(master_path, "r", encoding="utf-8") as f:
+        master = frontmatter.load(f)
+
+    categories = master.metadata.get("index", {})
+    entities: dict = {}
+
+    for cat_name, cat_info in categories.items():
+        index_rel = cat_info.get("index", "")
+        index_path = os.path.join(root, index_rel)
+        if not os.path.isfile(index_path):
+            continue
+        try:
+            with open(index_path, "r", encoding="utf-8") as f:
+                data = frontmatter.load(f)
+            entries = data.metadata.get("index", {})
+            cat_list = []
+            for key, entry in entries.items():
+                cat_list.append({
+                    "id": key,
+                    "name": entry.get("name", key),
+                    "summary": entry.get("summary", ""),
+                })
+            if cat_list:
+                cat_list.sort(key=lambda e: e["name"])
+                entities[cat_name] = cat_list
+        except Exception:
+            continue
+
+    _entities_cache = {"data": entities, "timestamp": now}
+    return entities
+
+
+@app.route("/api/entities", methods=["GET"])
+def list_entities():
+    """列出所有已知实体，按类别分组。可选 ?categories=characters,factions 过滤。"""
+    entities = _load_all_entities()
+    cats = request.args.get("categories", "")
+    if cats:
+        wanted = set(c.strip() for c in cats.split(",") if c.strip())
+        entities = {k: v for k, v in entities.items() if k in wanted}
+    return jsonify(entities)
+
+
+@app.route("/api/documents/<category>/<path:doc_id>/index", methods=["GET"])
+def get_doc_index(category: str, doc_id: str):
+    """获取文档的 index_refs + 可用实体列表。"""
+    try:
+        doc = doc_manager.read_document(category, doc_id)
+    except DocumentNotFoundError:
+        return _json_error("文档不存在", 404)
+    except Exception as e:
+        return _json_error(str(e), 500)
+
+    refs = doc.get("metadata", {}).get("index_refs", {})
+    entities = _load_all_entities()
+    return jsonify({"refs": refs, "entities": entities})
+
+
+@app.route("/api/documents/<category>/<path:doc_id>/index", methods=["PUT"])
+def update_doc_index(category: str, doc_id: str):
+    """更新文档的 index_refs（写入 frontmatter + 清理旧 可检索条目）。"""
+    data = request.json or {}
+    new_refs = data.get("refs", {})
+
+    try:
+        doc = doc_manager.read_document(category, doc_id)
+    except DocumentNotFoundError:
+        return _json_error("文档不存在", 404)
+    except Exception as e:
+        return _json_error(str(e), 500)
+
+    metadata = doc.get("metadata", {})
+    content = doc.get("content", "")
+
+    # 从正文中剥离旧的 可检索条目 段落
+    cleaned = re.sub(
+        r"# 可检索条目.*?(?=\n# |\Z)", "",
+        content, flags=re.DOTALL
+    ).strip()
+
+    # 写入 index_refs 到 frontmatter
+    metadata["index_refs"] = new_refs
+
+    try:
+        result = doc_manager.save_document(
+            category, doc_id,
+            content=cleaned,
+            metadata=metadata,
+            expected_hash=data.get("expected_hash"),
+        )
+        return jsonify(result)
+    except ConflictError as e:
+        return jsonify({
+            "error": "文件已被修改",
+            "current_hash": e.current_hash,
+            "expected_hash": e.expected_hash,
+            "current_content": e.current_content,
+        }), 409
+    except Exception as e:
+        return _json_error(str(e), 500)
+
+
+@app.route("/api/documents/<category>/<path:doc_id>/index/scan", methods=["POST"])
+def scan_doc_index(category: str, doc_id: str):
+    """扫描文档内容，返回已知实体名称匹配结果。
+
+    返回按 新匹配 / 已收录 分组的实体列表。
+    """
+    try:
+        doc = doc_manager.read_document(category, doc_id)
+    except DocumentNotFoundError:
+        return _json_error("文档不存在", 404)
+    except Exception as e:
+        return _json_error(str(e), 500)
+
+    content = doc.get("content", "")
+    current_refs = doc.get("metadata", {}).get("index_refs", {})
+
+    # 已收录实体的 ID 集合
+    current_set: set = set()
+    for names in current_refs.values():
+        for n in names:
+            current_set.add(n)
+
+    # 拉平所有实体，按名称长度降序（长名称优先匹配）
+    entities = _load_all_entities()
+    flat: list[tuple[str, str, str]] = []
+    for cat, elist in entities.items():
+        for e in elist:
+            flat.append((cat, e["id"], e.get("name", e["id"])))
+    flat.sort(key=lambda x: len(x[2]), reverse=True)
+
+    new_matches: dict = {}
+    existing_matches: dict = {}
+    matched_names: set = set()
+
+    for cat, eid, name in flat:
+        if name in matched_names:
+            continue
+        # 简单子串匹配（对中文足够）
+        if name in content:
+            matched_names.add(name)
+            entry = {"id": eid, "name": name}
+            if name in current_set or eid in current_set:
+                existing_matches.setdefault(cat, []).append(entry)
+            else:
+                new_matches.setdefault(cat, []).append(entry)
+
+    return jsonify({
+        "new_matches": new_matches,
+        "existing_matches": existing_matches,
+    })
+
+
+# ══════════════════════════════════════════════════════
+# 12. 全局索引配置管理
+# ══════════════════════════════════════════════════════
+
+
+@app.route("/api/index-config", methods=["GET"])
+def get_index_config():
+    """获取全局索引配置（所有文档的交叉引用）。"""
+    config = index_manager.get_all_refs()
+    entities = _load_all_entities()
+    return jsonify({
+        "config": config,
+        "entities": entities,
+    })
+
+
+@app.route("/api/index-config", methods=["PUT"])
+def update_index_config():
+    """替换全局索引配置。"""
+    data = request.json or {}
+    new_config = data.get("config", {})
+    index_manager.config.data = new_config
+    index_manager.save()
+    return jsonify({"message": "索引配置已保存"})
+
+
+@app.route("/api/index-config/doc", methods=["PUT"])
+def update_doc_refs():
+    """更新单个文档的索引引用。"""
+    data = request.json or {}
+    doc_path = data.get("doc_path", "")
+    refs = data.get("refs", {})
+    if not doc_path:
+        return _json_error("doc_path 不能为空")
+    index_manager.set_doc_refs(doc_path, refs)
+    index_manager.save()
+    return jsonify({"message": "文档索引已更新"})
+
+
+@app.route("/api/index-config/tree", methods=["GET"])
+def get_index_tree():
+    """构建带反向引用的索引树。"""
+    entities = _load_all_entities()
+    tree = index_manager.build_tree(entities)
+    return jsonify(tree)
+
+
+@app.route("/api/index-config/scan", methods=["POST"])
+def scan_all_index():
+    """扫描所有文档内容，返回跨文档的实体匹配建议。
+
+    类似单文档的 index/scan，但扫描所有配置中存在的文档。
+    """
+    all_entities = _load_all_entities()
+    flat: list[tuple[str, str, str]] = []
+    for cat, elist in all_entities.items():
+        for e in elist:
+            flat.append((cat, e["id"], e.get("name", e["id"])))
+    flat.sort(key=lambda x: len(x[2]), reverse=True)
+
+    docs_to_scan = index_manager.get_all_refs()
+    results: dict[str, dict] = {}
+
+    for doc_path in docs_to_scan:
+        cat_name, doc_id = parse_doc_path(doc_path)
+        try:
+            doc = doc_manager.read_document(cat_name, doc_id)
+        except Exception:
+            continue
+        content = doc.get("content", "")
+        current_refs = index_manager.get_doc_refs(doc_path)
+        current_ids: set = set()
+        for ids in current_refs.values():
+            current_ids.update(ids)
+
+        doc_new: dict[str, list] = {}
+        doc_existing: dict[str, list] = {}
+        matched: set = set()
+
+        for e_cat, eid, name in flat:
+            if name in matched:
+                continue
+            if name in content:
+                matched.add(name)
+                entry = {"id": eid, "name": name}
+                if name in current_ids or eid in current_ids:
+                    doc_existing.setdefault(e_cat, []).append(entry)
+                else:
+                    doc_new.setdefault(e_cat, []).append(entry)
+
+        if doc_new or doc_existing:
+            results[doc_path] = {
+                "new_matches": doc_new,
+                "existing_matches": doc_existing,
+            }
+
+    return jsonify({"results": results})
+
+
+@app.route("/api/index-config/migrate", methods=["POST"])
+def migrate_index_config():
+    """从文档 frontmatter 迁移索引到全局配置。"""
+    count = index_manager.migrate_from_frontmatter(doc_manager)
+    return jsonify({
+        "message": f"已迁移 {count} 个文档的索引",
+        "migrated_count": count,
+    })
+
+
+@app.route("/api/index-config/sources", methods=["GET"])
+def list_index_sources():
+    """列出所有索引配置源（全局 + 各会话）。"""
+    sources = []
+    # 全局配置
+    sources.append({
+        "id": "global",
+        "name": "全局索引",
+        "type": "global",
+        "doc_count": len(index_manager.get_all_refs()),
+    })
+    # 会话级配置
+    for s in session_manager.list_sessions():
+        sid = s["id"]
+        mode = s.get("mode", "free")
+        fpath = index_manager.session_config_path(sid, mode)
+        doc_count = 0
+        if os.path.isfile(fpath):
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                doc_count = len(data.get("config", {}))
+            except Exception:
+                pass
+        sources.append({
+            "id": sid,
+            "name": s.get("name", sid),
+            "type": "session",
+            "mode": mode,
+            "doc_count": doc_count,
+        })
+    return jsonify({"sources": sources})
+
+
+@app.route("/api/index-config/export", methods=["GET"])
+def export_index_config():
+    """导出全局索引配置为 YAML 字符串。"""
+    yaml_str = index_manager.export_yaml()
+    return jsonify({"yaml": yaml_str})
+
+
+@app.route("/api/index-config/import", methods=["POST"])
+def import_index_config():
+    """导入 YAML 替换全局索引配置。"""
+    data = request.json or {}
+    yaml_str = data.get("yaml", "")
+    if not yaml_str:
+        return _json_error("需要 yaml 字段")
+    try:
+        count = index_manager.import_yaml(yaml_str)
+        return jsonify({"message": f"已导入 {count} 个文档的索引配置", "count": count})
+    except Exception as e:
+        return _json_error(f"导入失败: {e}", 400)
+
+
+@app.route("/api/index-config/build-tree", methods=["POST"])
+def build_index_tree():
+    """从提供的配置构建索引树（用于会话级配置）。"""
+    data = request.json or {}
+    config = data.get("config", {})
+    entities = _load_all_entities()
+    tree = index_manager.build_tree_from_config(config, entities)
+    return jsonify(tree)
+
+
+@app.route("/api/index-config/full-tree", methods=["GET"])
+def get_full_index_tree():
+    """构建包含所有文档的全量树（含未配置文档）。"""
+    all_entities = _load_all_entities()
+    tree = index_manager.build_full_tree(doc_manager, all_entities)
+    return jsonify(tree)
+
+
+@app.route("/api/index-config/add-doc", methods=["POST"])
+def add_doc_to_config():
+    """将一个文档添加到索引配置。"""
+    data = request.json or {}
+    doc_path = data.get("doc_path", "").strip()
+    if not doc_path:
+        return _json_error("需要 doc_path 参数")
+    if "/" not in doc_path:
+        return _json_error("doc_path 格式应为 category/doc_id")
+    index_manager.set_doc_refs(doc_path, {})
+    index_manager.save()
+    return jsonify({"message": f"已添加 {doc_path} 到索引配置", "doc_path": doc_path})
+
+
+@app.route("/api/index-config/remove-doc", methods=["POST"])
+def remove_doc_from_config():
+    """从索引配置中移除一个文档。"""
+    data = request.json or {}
+    doc_path = data.get("doc_path", "").strip()
+    if not doc_path:
+        return _json_error("需要 doc_path 参数")
+    index_manager.remove_doc(doc_path)
+    index_manager.save()
+    return jsonify({"message": f"已从索引配置移除 {doc_path}"})
+
+
+@app.route("/api/sessions/<session_id>/index-config", methods=["GET"])
+def get_session_index_config(session_id: str):
+    """获取会话的索引配置（不存在时回退到全局配置）。"""
+    session = _get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+
+    config_data = index_manager.load_session_config(session_id, session.mode)
+    entities = _load_all_entities()
+
+    if config_data and "config" in config_data and config_data["config"]:
+        return jsonify({
+            "config": config_data["config"],
+            "entities": entities,
+            "source": "session",
+        })
+
+    # 回退到全局
+    return jsonify({
+        "config": index_manager.get_all_refs(),
+        "entities": entities,
+        "source": "global",
+    })
+
+
+@app.route("/api/sessions/<session_id>/index-config", methods=["PUT"])
+def save_session_index_config(session_id: str):
+    """保存会话的索引配置。"""
+    session = _get_session(session_id)
+    if not session:
+        return _json_error("会话不存在", 404)
+    data = request.json or {}
+    config = data.get("config", {})
+    index_manager.save_session_config(session_id, session.mode, config)
+    return jsonify({"message": "会话索引配置已保存"})
+
+
+
+# ══════════════════════════════════════════════════════
+# 11. 会话覆盖（角色/物品/环境的会话级修改）
 # ══════════════════════════════════════════════════════
 
 

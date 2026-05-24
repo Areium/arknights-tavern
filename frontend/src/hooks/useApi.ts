@@ -186,9 +186,76 @@ export function useApi() {
         }),
       }),
 
-    // ── 资产（图像等）──
+    // ── 索引管理 ──
+    getEntities: (categories?: string[]) => {
+      const params = categories?.length ? `?categories=${categories.join(",")}` : "";
+      return request<any>(`/api/entities${params}`);
+    },
+    getDocIndex: (category: string, id: string) =>
+      request<any>(`/api/documents/${category}/${encodeURIComponent(id)}/index`),
+    updateDocIndex: (category: string, id: string, refs: any, expectedHash?: string) =>
+      request<any>(`/api/documents/${category}/${encodeURIComponent(id)}/index`, {
+        method: "PUT",
+        body: JSON.stringify({ refs, expected_hash: expectedHash }),
+      }),
+    scanDocContent: (category: string, id: string) =>
+      request<any>(`/api/documents/${category}/${encodeURIComponent(id)}/index/scan`, {
+        method: "POST",
+      }),
     getAssetImages: () => request<any[]>("/api/assets/images"),
     getDataDir: () => request<{ path: string }>("/api/assets/data-dir"),
+
+    // ── 全局索引配置 ──
+    getIndexConfig: () => request<any>("/api/index-config"),
+    updateIndexConfig: (config: Record<string, Record<string, string[]>>) =>
+      request<any>("/api/index-config", {
+        method: "PUT",
+        body: JSON.stringify({ config }),
+      }),
+    updateDocRefs: (docPath: string, refs: Record<string, string[]>) =>
+      request<any>("/api/index-config/doc", {
+        method: "PUT",
+        body: JSON.stringify({ doc_path: docPath, refs }),
+      }),
+    getIndexTree: () => request<any>("/api/index-config/tree"),
+    scanAllIndex: () =>
+      request<any>("/api/index-config/scan", { method: "POST" }),
+    migrateIndexConfig: () =>
+      request<any>("/api/index-config/migrate", { method: "POST" }),
+
+    // ── 全量树 & 文档管理 ──
+    getFullIndexTree: () => request<any>("/api/index-config/full-tree"),
+    addDocToConfig: (docPath: string) =>
+      request<any>("/api/index-config/add-doc", {
+        method: "POST",
+        body: JSON.stringify({ doc_path: docPath }),
+      }),
+    removeDocFromConfig: (docPath: string) =>
+      request<any>("/api/index-config/remove-doc", {
+        method: "POST",
+        body: JSON.stringify({ doc_path: docPath }),
+      }),
+
+    // ── 索引配置源 (全局 + 会话级) ──
+    listIndexSources: () => request<any>("/api/index-config/sources"),
+    exportIndexConfig: () => request<{ yaml: string }>("/api/index-config/export"),
+    importIndexConfig: (yaml: string) =>
+      request<any>("/api/index-config/import", {
+        method: "POST",
+        body: JSON.stringify({ yaml }),
+      }),
+    buildIndexTree: (config: Record<string, Record<string, string[]>>) =>
+      request<any>("/api/index-config/build-tree", {
+        method: "POST",
+        body: JSON.stringify({ config }),
+      }),
+    getSessionIndexConfig: (sessionId: string) =>
+      request<any>(`/api/sessions/${sessionId}/index-config`),
+    saveSessionIndexConfig: (sessionId: string, config: Record<string, Record<string, string[]>>) =>
+      request<any>(`/api/sessions/${sessionId}/index-config`, {
+        method: "PUT",
+        body: JSON.stringify({ config }),
+      }),
 
     // ── LLM ──
     getLLMStatus: () => request<any>("/api/llm/status"),

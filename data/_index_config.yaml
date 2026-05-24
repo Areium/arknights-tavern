@@ -1,0 +1,153 @@
+docs:
+  characters/博士:
+    attributes:
+    - 情绪稳定性
+    - 战场机动
+    - 战术规划
+    - 魅力
+    characters:
+    - 阿米娅
+    - 博士
+    classes:
+    - 战术指挥
+    - 辅助
+    - 重装
+    factions:
+    - 罗德岛
+    items:
+    - 博士的战术终端
+    - 战术地图
+  characters/阿米娅:
+    attributes:
+    - 情绪稳定性
+    - 战场机动
+    - 战斗技巧
+    - 战术规划
+    - 源石技艺适应性
+    - 物理强度
+    - 生理耐受
+    - 魅力
+    characters:
+    - 临光
+    - 博士
+    - 德克萨斯
+    - 玛恩纳·临光
+    - 瑕光
+    - 砾
+    - 银灰
+    - 闪灵
+    - 阿米娅
+    - 陈
+    - 霜星
+    classes:
+    - 先锋
+    - 医疗
+    - 战术指挥
+    - 术师
+    - 特种
+    - 狙击
+    - 辅助
+    - 近卫
+    - 重装
+    combat_cards:
+    - cards
+    - encounters
+    - enemies
+    combat_encounters:
+    - cards
+    - encounters
+    - enemies
+    combat_enemies:
+    - cards
+    - encounters
+    - enemies
+    enemies:
+    - 乌萨斯盾卫
+    - 整合运动士兵
+    - 整合运动术师
+    - 整合运动突袭者
+    - 整合运动队长
+    - 无胄盟清洗小队
+    - 武装佣兵
+    - 源石虫
+    - 灰狐
+    - 锈铜骑士
+    factions:
+    - 临光家族
+    - 乌萨斯军方
+    - 乌萨斯帝国
+    - 卡西米尔
+    - 商业联合会
+    - 整合运动
+    - 无胄盟
+    - 独立势力
+    - 监证会
+    - 红松骑士团
+    - 维多利亚
+    - 罗德岛
+    - 莱茵生命
+    - 野生
+    - 银枪天马
+    - 龙门
+    items:
+    - 临光的旧铠甲
+    - 博士的战术终端
+    - 商业联合会内部会议纪要
+    - 商业联合会内部清洗的证据
+    - 感染者合同数据
+    - 战术地图
+    - 托兰的雇佣证明
+    - 抑制戒指
+    - 指挥官护甲
+    - 源石结晶
+    - 焰尾的感染者合同数据
+    - 瑕光工坊外的监视照片
+    - 罗德岛干员证
+    locations:
+    - 会客室
+    - 制造站
+    - 医疗部
+    - 宿舍
+    - 控制中枢
+    - 训练室
+    plots:
+    - near_light
+    races:
+    - 乌萨斯
+    - 卡特斯
+    - 奇美拉
+    - 库兰塔
+    - 菲林
+    - 萨卡兹
+    - 鲁珀
+    - 黎博利
+    rules:
+    - buff-pool
+    - deviation-states
+    - combat-system
+    - rarity-system
+    - debuff-system
+    weather:
+    - 多云
+    - 大雨
+    - 小雨
+    - 晴天
+    - 雪
+    - 雷暴
+    - 雾
+    world:
+    - 01-basic-setting
+  plots/near-light:
+    characters:
+    - 临光
+    - 瑕光
+    - 砾
+    - 玛恩纳·临光
+    factions:
+    - 商业联合会
+    - 无胄盟
+    - 监证会
+    - 红松骑士团
+    locations:
+    - 大骑士领卡瓦莱利亚基
+  attributes/情绪稳定性: {}

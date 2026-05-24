@@ -1,9 +1,12 @@
 ---
-name: "博士"
-class: "战术指挥"
-race: "未知"
-faction: "罗德岛"
-tags: ["指挥官", "失忆者", "战略家"]
+name: 博士
+class: 战术指挥
+race: 未知
+faction: 罗德岛
+tags:
+- 指挥官
+- 失忆者
+- 战略家
 attributes:
   物理强度: 5
   战场机动: 6
@@ -14,18 +17,28 @@ attributes:
   情绪稳定性: 8
   魅力: 7
 relationships:
-  "阿米娅": "最信任的副官与保护对象"
-  "凯尔希": "互相尊重但常有分歧的同事"
-  "PRTS": "依赖的辅助系统"
+  阿米娅: 最信任的副官与保护对象
+  凯尔希: 互相尊重但常有分歧的同事
+  PRTS: 依赖的辅助系统
+index_refs:
+  attributes:
+  - 情绪稳定性
+  - 战场机动
+  - 战术规划
+  - 魅力
+  characters:
+  - 阿米娅
+  - 博士
+  classes:
+  - 战术指挥
+  - 辅助
+  - 重装
+  factions:
+  - 罗德岛
+  items:
+  - 博士的战术终端
+  - 战术地图
 ---
-
-# 可检索条目
-
-character（data/characters/）：<阿米娅>、<凯尔希>
-faction（data/factions/）：<罗德岛>
-item（data/items/）：<博士的战术终端>
-location（environment/Location/）：<罗德岛>、<切尔诺伯格废墟>
-
 # 角色背景
 
 博士是罗德岛的战术指挥官，在切尔诺伯格事件中被阿米娅从石棺中唤醒，失去了大部分记忆。虽然不记得过去，但展现出惊人的战术指挥才能，带领罗德岛渡过多次危机。其真实身份和背景仍是谜团。

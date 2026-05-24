@@ -89,11 +89,9 @@ ROUND_START → PLAYER_TURN（玩家自由行动，可多次出牌/移动）
 
 - [ ] 敌方 AI 简单（仅攻击最近目标，无策略）
 - [ ] 无角色死亡后的卡组清理
-- [ ] 无战斗内角色切换/增援
 - [ ] 精英牌消耗后无法回收
 - [ ] 无 buff/debuff 系统
 - [ ] 网格移动无碰撞检测（单位不可重叠但可穿越）
-- [ ] SSE 断线重连未完善
 
 ---
 
@@ -248,18 +246,6 @@ Markdown 数据 ──→ CombatDataLoader ──→ CombatEngine
    CombatView ◄── React State ◄── JSON
 ```
 
-### API 路由
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/sessions/<id>/combat/start` | 启动战斗（加载遭遇+角色，应用 overrides） |
-| GET | `/api/sessions/<id>/combat/state` | 获取战斗状态快照 |
-| POST | `/api/sessions/<id>/combat/action` | 提交玩家操作（play_card / move） |
-| POST | `/api/sessions/<id>/combat/end-turn` | 结束回合（敌方行动 + 抽牌） |
-| POST | `/api/sessions/<id>/combat/complete` | 战斗结算（写入 overrides） |
-| GET | `/api/sessions/<id>/combat/events` | SSE 事件流 |
-| POST | `/api/combat/test/start` | 测试模式启动 |
-| GET/POST | `/api/combat/test/<id>/...` | 测试模式对应端点 |
 
 ### 战斗状态机
 

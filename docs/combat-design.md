@@ -3,6 +3,9 @@
 > Arknights Tavern — 回合制卡牌战斗的底层逻辑、数据结构、与项目集成方案
 >
 > 引擎代码：`src/combat_engine/` | 当前版本：v1.0
+>
+> **状态说明**：本文档包含已实现功能和未来规划设计两部分。章节标题旁标注
+> ✅ = 已实现，📐 = 设计中/未实现。代码以 `src/combat_engine/` 和 `frontend/src/components/combat/` 为准。
 
 ---
 
@@ -29,15 +32,25 @@
 
 战斗系统采用 **回合制卡牌** 模式，受 Slay the Spire 启发：
 
-- **4 人小队**，站位在 3×3 玩家方阵，敌方 4×5 方阵
-- 每个角色拥有基于 **职业** 的个人卡池，获取角色 / 升级时从卡池抽牌
+✅ **已实现**：
+- **4 人小队**，站位在 9×8 网格（玩家区左侧 3 列，敌方区右侧 5 列）
+- 每个角色拥有基于 **职业** 的卡池（每职业 5 基础 + 3 精英 = 8 张）
+- 全队 **共享卡池**（28 张 = 4 角色 × 7 张），每轮补满至 6 张共享手牌
+- **共享回合制**（全队同时行动，玩家自由选择角色出牌）
+- **共享 AP** 池，由队伍最高战术规划属性决定上限
 - 卡牌伤害为 **范围值**，由掷骰（d20）和角色基础属性决定
-- **AP（行动点）** 每回合恢复，卡牌消耗 AP，移动消耗 AP
-- 回合顺序由 **SPD（速度）** 决定，速度高者先行动
+- 角色 **个人 AP** 由 mobility 属性决定（当前仅供敌方使用）
+- **角色保底** 机制（每轮每角色至少 1 张可用牌）
+
+📐 **设计中的扩展**：
+- 个人 AP 出牌消耗（当前统一消耗共享 AP）
+- 移动效率与 mobility 挂钩
+- 拦截/挡刀系统
+- 遗物/物品被动效果
 
 整个战斗引擎在 `src/combat_engine/` 中以纯 Python 实现，前端使用 React + TypeScript 的 Web 界面。
 
-**目标架构**：将战斗引擎集成到项目的 **Flask 后端 + React 前端** 架构中。Flask 提供 REST + SSE 接口驱动战斗状态机，React 负责渲染网格、手牌和战斗事件。详见 [Web 架构设计](#web-架构设计) 章节。
+战斗引擎已集成到项目的 **Flask 后端 + React 前端** 架构中。Flask 提供 REST + SSE 接口驱动战斗状态机，React 负责渲染网格、手牌和战斗事件。详见 [Web 架构设计](#web-架构设计) 章节。
 
 ---
 
@@ -104,10 +117,10 @@
 
 | AP 池 | 来源 | 用途 | 每轮重置 |
 |-------|------|------|---------|
-| **个人 AP** | 每个角色的 `mobility`（战场机动） | 打出该角色的**专属牌**和**职业牌** | 是 |
-| **共用 AP** | 队伍中最高 `tactical_planning`（战术规划） | 打出**通用牌**（class_required="any"） | 是 |
+| **个人 AP** | 每个角色的 `mobility`（战场机动） | 敌方单位使用，玩家角色个人 AP 暂未使用 | 是 |
+| **共用 AP** | 队伍中最高 `tactical_planning`（战术规划） | 所有玩家行动（出牌 + 移动） | 是 |
 
-共用 AP 消耗规则：先用共用 AP → 共用 AP 不足时，可用当前行动角色的个人 AP 补足 → 仍不足则无法打出。
+> **当前实现（2026-05-24）**：所有玩家行动统一消耗共享 AP。个人 AP 已在 `CombatUnit` 中计算并存储，但仅用于敌方单位的消耗。后续将实现"专属/职业牌消耗个人 AP，通用牌消耗共享 AP"的完整模型。
 
 #### 个人 AP 公式
 
@@ -132,34 +145,31 @@ mobility 10    → 4 AP  (极速)
 
 > 共用 AP 来源与具体角色解耦。无论玩家扮演谁，只要队伍中有人擅长战术规划，就能获得共用 AP。
 
-#### SPD（mobility）的角色（重设计）
+#### SPD（mobility）的角色
 
-SPD **不再决定回合顺序**。改为三个用途：
+SPD **不再决定回合顺序**。改为以下用途：
 
-| 用途 | 说明 |
-|------|------|
-| **初始 AP 值** | 高 mobility → 更多个人 AP（见上表） |
-| **移动效率** | mobility ≥ 7 → 1 AP 可移动 2 格；mobility ≥ 10 → 3 格/AP；其余 1 格/AP |
-| **拦截机会** | mobility ≥ 7 → 每轮 1 次主动拦截；mobility ≥ 9 → 2 次。敌方回合可选挡刀 |
+| 用途 | 说明 | 状态 |
+|------|------|------|
+| **个人 AP 值** | 高 mobility → 更多个人 AP（见上表） | ✅ 已实现 |
+| **移动效率** | mobility ≥ 7 → 1 AP 可移动 2 格；mobility ≥ 10 → 3 格/AP | 📐 未实现 |
+| **拦截机会** | mobility ≥ 7 → 每轮 1 次主动拦截；mobility ≥ 9 → 2 次 | 📐 未实现 |
 
-#### 回合顺序（卡牌驱动）
+> 当前移动统一消耗 1 AP/格，无 mobility 效率加成。
 
-回合顺序**不是由玩家自由选择角色**，而是**由卡牌决定谁行动**：
+#### 回合顺序（共享回合制 ✅）
+
+当前实现使用**共享回合模型**，而非卡牌驱动：
 
 ```
-共享手牌(6张)
-  ├─ 陈专属牌 → 陈的卡牌 → 陈行动（消耗陈的个人 AP）
-  ├─ 术师职业牌 → 阿米娅/霜星可用的卡牌 → 选中者行动
-  ├─ 通用牌 → 任何人可用 → 消耗共用 AP
-  └─ ...
+共享手牌(6张) → 所有角色共享
+  ├─ 玩家自由选择任意卡牌打出
+  ├─ 专属牌 → 查找 owner 对应角色（自动绑定）
+  ├─ 所有行动消耗共享 AP
+  └─ 点击"结束回合"进入敌方阶段
 
-玩家点击一张卡牌 → 系统自动确定：
-  ① 谁行动（专属牌=固定，职业牌=同职业中选，通用牌=任意人）
-  ② AP 消耗来源（个人 vs 共用）
-  ③ 若 AP 不足 → 卡牌灰显，无法选择
-```
+玩家连续出牌/移动，直到共享 AP 耗尽或手动结束回合。
 
-**结果**：手牌本身就是"行动菜单"。可打出的牌亮起，打不出的灰显。玩家不需要先选角色再找牌，流程更自然。同一角色有多张可打出的牌时，玩家可以连续打多张，直到该角色个人 AP 耗尽或无可用的牌。
 
 #### 重装挡刀被动
 
@@ -231,28 +241,23 @@ final       = max(1, round(raw × 2)) if crit else max(1, round(raw))
 
 专属牌相比同类职业牌 ATK 倍率高 20-30%，体现角色专属的价值。
 
-### 共享手牌 + 牌库模型
+### 共享手牌 + 牌库模型（✅ 已实现）
 
 ```
 共享牌库 (28张 = 4角色 × 7张)
        │
-       ▼ 每轮补满至 6 张
+       ▼ 每轮弃手牌 → 补满至 6 张
 共享手牌 (6张)
        │
-       ▼ 玩家选择角色行动
-角色A(个人AP) 打专属牌/职业牌
-角色B(个人AP) 打专属牌/职业牌
-任意角色     打通用牌(消耗共用AP)
+       ▼ 玩家选择出牌（所有行动消耗共享 AP）
 ```
 
 | 参数 | 值 | 说明 |
 |------|-----|------|
 | 每位角色携带牌数 | 7 张 | 组成共享牌库 |
 | 共享牌库总量 | 28 张（4 人） | |
-| 共享手牌上限 | **6 张** | 始终可见，支持提前规划 |
-| 每轮抽牌 | 补满至 6 张 | 手牌跨轮保留 |
-| 每轮手牌刷新率 | ~70%（4-5 张新牌） | 保留 1-2 张未用的旧牌 |
-| 完整牌库循环 | ~6-7 轮 | 匹配 4-13 轮典型战斗长度 |
+| 共享手牌上限 | **6 张** | `CombatEngine.SHARED_HAND_SIZE = 6` |
+| 每轮抽牌 | 弃旧手牌 → 补满至 6 张 | 不跨轮保留 |
 | 角色保底 | 若某存活角色手牌中无可用牌，强制换入 1 张该角色随机牌 | 避免"全程没牌可出" |
 
 ### 卡牌数据结构
@@ -330,7 +335,7 @@ class Card:
 
 ---
 
-## 遗物系统（物品被动）
+## 遗物系统（物品被动）📐 设计中 — 尚未实现
 
 物品在战斗中作为**被动遗物**生效，类似于 Slay the Spire 的遗物机制——战前配置，战斗全程自动生效，不需要主动使用。
 
@@ -386,54 +391,40 @@ combat_passive:
 
 ### n×n 网格
 
-战场为 n×n 的正方形网格，大小由遭遇类型决定：
+战场为固定 **9×8** 网格（9 行 × 8 列）。
 
-| 遭遇规模 | 网格 | 适用场景 |
-|---------|------|---------|
-| 小型 | 6×6 | 狭路相逢、室内战斗 |
-| 标准 | 8×8 | 大多数遭遇 |
-| 大型 | 10×10 | Boss 战、大规模冲突 |
+#### 部署区
 
-### 部署区
-
-玩家部署区固定为**左侧正中间 3×3**，敌方部署区为**右侧正中间 4×5**（横向位置随机微调）：
-
-```yaml
-# 遭遇 markdown 示例
-grid_size: 8
-deploy_zones:
-  player: [[2, 0], [4, 2]]          # 左中 3×3（rows 2-4, cols 0-2）
-  enemy:  [[2, 3], [5, 7]]          # 右中 4×5（rows 2-5, cols 3-7）
-  enemy_random_shift: true           # 敌方 4×5 横向可在 ±1 列范围内随机偏移
-```
+玩家部署区为左侧 **3 列**（cols 0-2），敌方部署区为右侧 **5 列**（cols 3-7）：
 
 ```
-8×8 网格示意:
+9×8 网格示意:
   0 1 2 3 4 5 6 7
-0 . . . . . . . .
-1 . . . . . . . .
-2 █ █ █ . ▓ ▓ ▓ ▓ ▓     █ = 玩家部署区 (3×3) — 固定左中
-3 █ █ █ . ▓ ▓ ▓ ▓ ▓     ▓ = 敌方部署区 (4×5) — 右中，横向随机 ±1
-4 █ █ █ . ▓ ▓ ▓ ▓ ▓
-5 . . . . ▓ ▓ ▓ ▓ ▓
-6 . . . . . . . .
-7 . . . . . . . .
+0 █ . . . ▓ ▓ ▓ ▓ ▓     █ = 玩家区 (cols 0-2) — 左侧 3 列
+1 █ . . . ▓ ▓ ▓ ▓ ▓     ▓ = 敌方区 (cols 3-7) — 右侧 5 列
+2 █ . . . ▓ ▓ ▓ ▓ ▓
+3 █ . . . ▓ ▓ ▓ ▓ ▓
+4 █ . . . ▓ ▓ ▓ ▓ ▓
+5 █ . . . ▓ ▓ ▓ ▓ ▓
+6 █ . . . ▓ ▓ ▓ ▓ ▓
+7 █ . . . ▓ ▓ ▓ ▓ ▓
+8 █ . . . ▓ ▓ ▓ ▓ ▓
 ```
 
-- **玩家**：始终 3×3，左侧正中间（8×8 下为 rows 2-4, cols 0-2）
-- **敌方**：4 行 × 5 列，右侧正中间（8×8 下为 rows 2-5, cols 3-7），`enemy_random_shift` 控制起点的 ±1 随机偏移
-- col 2-3 之间为天然分界线，两方初始距离最近仅 1 列
+- **玩家**：可部署在 cols 0-2 任意行（当前默认位置为 rows 3-5, cols 0-2 的 4 个位置）
+- **敌方**：可部署在 cols 3-7 任意行，支持自动随机放置
+- col 2-3 之间为天然分界线
 
-### 移动规则
+#### 移动规则（✅ / 📐）
 
-- 移动消耗 **1 AP 每格**（基础）
-- **移动效率加成**：mobility ≥ 7 → 1 AP 移动 2 格；mobility ≥ 10 → 3 格/AP
+- 移动消耗 **1 AP 每格**（当前实现，无 mobility 效率加成）
+- 📐 移动效率加成（mobility ≥ 7 → 2 格/AP）为规划中
 - 移动使用**曼哈顿距离**（上下左右，不可斜走）
 - 目标格不能有其他单位占据
 - 移动范围不受阵营限制——角色可以移动到棋盘上任何空位
 - 经过敌方单位邻格时无惩罚（无"借机攻击"概念）
 
-### 距离计算
+#### 距离计算
 
 距离使用**切比雪夫距离**：`max(|row_diff|, |col_diff|)`
 
@@ -445,48 +436,45 @@ deploy_zones:
 
 ## 回合制状态机
 
-### 状态流转
+### 状态流转（✅ 已实现）
 
 ```
-INIT → ROUND_START → PLAYER_PHASE (卡牌驱动) → ENEMY_TURN → ROUND_END
-         ↑                │                          │            │
-         │    共享手牌→点击卡牌→自动确定角色              │            │
-         │    专属牌→该角色  职业牌→同职业选一              │            │
-         │    通用牌→任意人(扣共用AP)                    │            │
-         │         全部角色AP耗尽或手动结束 ←───────────┘            │
-         │    敌方攻击时触发拦截判定 ←──────────────────────────────┘
-         └─────────────────────────────────────────────────────────┘
+INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++) → ROUND_START
+         ↑                                                  │
+         └──────────────────────────────────────────────────┘
+                                       │
+                                    ROUND_END → END
 ```
 
 ### 各阶段详解
 
 | 阶段 | 行为 |
 |------|------|
-| `INIT` | 读入遭遇数据 → 创建 n×n 网格 → 部署单位 → 组建共享牌库(28张) → 洗牌 |
-| `ROUND_START` | 全体重置个人AP + 共用AP → 共享手牌补满至6张 |
-| `PLAYER_PHASE` | 共享手牌展示可打出的牌（AP不足者灰显）；玩家**点击卡牌**→ 自动确定行动角色→ 打出；全部角色AP耗尽或手动结束 |
-| `ENEMY_TURN` | AI 依次行动，每次攻击前检查拦截条件（重装被动挡刀 + 高SPD主动拦截提示） |
-| `ROUND_END` | 检查胜负条件 |
-| `END` | 结算画面 |
+| `INIT` | 读入遭遇数据 → 创建 9×8 网格 → 部署单位 → 组建共享牌库(28张) → 洗牌 |
+| `ROUND_START` | 弃掉手牌 → 从抽牌堆抽6张 → 角色保底检测 → 重置个人AP + 共用AP → 进入 Player Turn |
+| `PLAYER_TURN` | 玩家自由行动（出牌/移动），所有行动消耗共享 AP；点击"结束回合"进入 Enemy Turn |
+| `ENEMY_TURN` | 所有存活敌方依次行动（每单位抽1张牌 → 判断能否出牌 → 不能则向最近玩家移动） |
+| `ROUND_END` | 检查胜负条件（循环内自动执行）→ 未结束则轮次+1 → 进入 ROUND_START |
+| `END` | 战斗结束，记录 winner |
 
-### 事件系统
+### 事件系统 ✅
 
-引擎通过 `CombatEvent` 回调通知 UI，新增拦截相关事件：
+引擎通过 `CombatEvent` 回调通知：
 
-| 事件类型 | 触发时机 | 关键字段 |
-|---------|---------|---------|
-| `battle_start` | 战斗开始 | `round` |
-| `round_start` | 新回合开始 | `round` |
-| `turn_start` | 角色被激活行动 | `unit_id`, `name`, `team`, `personal_ap`, `shared_ap` |
-| `damage` | 造成伤害 | `caster`, `target`, `damage`, `hit_result`, `card` |
-| `heal` | 治疗 | `caster`, `target`, `amount`, `card` |
-| `block_attempt` | 挡刀判定触发 | `defender`, `target`, `attacker` |
-| `block_success` | 挡刀成功 | `defender`, `redirected_damage` |
-| `block_fail` | 挡刀失败 | `defender` |
-| `intercept_prompt` | 主动拦截机会 | `available_units` (可拦截的角色列表) |
-| `death` | 单位死亡 | `unit_id`, `name`, `team` |
-| `battle_end` | 战斗结束 | `winner`, `reason` |
-| `error` | 操作失败 | `unit_id`, `msg` |
+| 事件类型 | 触发时机 | 关键字段 | 状态 |
+|---------|---------|---------|------|
+| `battle_start` | 战斗开始 | `round` | ✅ |
+| `round_start` | 新回合开始 | `round` | ✅ |
+| `card_played` | 打出卡牌 | `unit_id`, `caster`, `card`, `target`, `results` | ✅ |
+| `damage` | 造成伤害 | `caster`, `target`, `damage`, `hit_result`, `card` | ✅ |
+| `heal` | 治疗 | `caster`, `target`, `amount`, `card` | ✅ |
+| `move` | 单位移动 | `unit_id`, `name`, `from_pos`, `to_pos` | ✅ |
+| `death` | 单位死亡 | `unit_id`, `name`, `team` | ✅ |
+| `battle_end` | 战斗结束 | `winner`, `reason` | ✅ |
+| `error` | 操作失败 | `unit_id`, `msg` | ✅ |
+| `block_attempt` | 挡刀判定触发 | 📐 未实现 | 📐 |
+| `block_success` | 挡刀成功 | 📐 未实现 | 📐 |
+| `intercept_prompt` | 主动拦截机会 | 📐 未实现 | 📐 |
 
 > 代码位置：`src/combat_engine/engine.py` → `CombatEngine`
 
@@ -567,11 +555,14 @@ class CombatUnit:
 @dataclass
 class CardPool:
     deck: list[Card]       # 牌库（待抽）
-    hand: list[Card]       # 手牌（最多 7 张）
+    hand: list[Card]       # 手牌
     discard: list[Card]    # 弃牌堆（普通卡用后进入）
     exhaust: list[Card]    # 耗尽堆（精英卡用后永久移除）
-    hand_size: int = 7
+    hand_size: int = 7     # 默认值 7，引擎中共享手牌设为 6
 ```
+
+> 注意：`CardPool.hand_size` 默认值为 7，但 `CombatEngine.SHARED_HAND_SIZE = 6`。
+> 创建共享卡池时引擎显式传入 `hand_size=6`。敌方可使用独立手牌容量（默认 5）。
 
 ---
 
@@ -588,24 +579,39 @@ class CardPool:
 5. 使用项目已有的 `frontmatter` 库加载
 6. 字段 key 使用英文，显示用中文
 
-### 建议新增的数据目录结构
+### 当前数据目录结构（已创建）
 
 ```
 data/
-├── _INDEX.md                  ← 新增 "enemies", "combat_cards" 分类
+├── _INDEX.md                  ← 已注册 enemies, attributes, combat 分类
 ├── combat/
 │   ├── _index.md              ← 战斗系统总索引
 │   ├── TEMPLATE_enemy.md      ← 敌人模板
 │   ├── TEMPLATE_card.md       ← 卡牌模板
+│   ├── TEMPLATE_encounter.md  ← 遭遇模板
 │   ├── enemies/
-│   │   ├── _index.md          ← 敌人索引
 │   │   ├── 整合运动士兵.md
+│   │   ├── 整合运动狙击手.md
 │   │   ├── 整合运动术师.md
-│   │   ├── 萨卡兹百夫长.md
+│   │   ├── 整合运动盾卫.md
 │   │   └── ...
-│   └── cards/
-│       ├── _index.md          ← 卡牌索引（按职业分类）
-│       ├── 术师/
+│   ├── cards/
+│   │   ├── 术师/    (8 张卡)
+│   │   ├── 近卫/    (8 张卡)
+│   │   ├── 狙击/    (8 张卡)
+│   │   ├── 重装/    (8 张卡)
+│   │   ├── 先锋/    (8 张卡)
+│   │   ├── 医疗/    (8 张卡)
+│   │   ├── 辅助/    (8 张卡)
+│   │   ├── 特种/    (8 张卡)
+│   │   └── 战术指挥/(8 张卡)
+│   └── encounters/
+│       └── 初遇整合运动.md
+├── enemies/                   ← 叙事敌人（RP 场景用）
+├── rules/                     ← 规则定义
+├── attributes/                ← 属性详解（每属性独立文件）
+└── memory/sessions/           ← 会话持久化数据
+```
 │       │   └── ... (每张卡一个 .md)
 │       └── ...
 ```
@@ -773,25 +779,14 @@ trigger_plot: "plot_first_encounter"
 ---
 ```
 
-### 集成到现有的数据加载管线
+### 集成到现有的数据加载管线 ✅
 
-1. **注册新分类**：在 `data/_INDEX.md` 的 `index` 中添加：
-```yaml
-combat_enemies:
-  directory: "data/combat/enemies"
-  _index: "data/combat/_index.md"
-combat_cards:
-  directory: "data/combat/cards"
-  _index: "data/combat/_index.md"
-```
+已完成以下集成步骤：
 
-2. **注册子索引**：创建 `data/combat/_index.md`，包含 enemies 和 cards 的子索引
-
-3. **扩展 RegistryManager**：在 `_CORE_SECTIONS` 中添加核心段落提取规则，并新增 `load_enemy()` / `load_card()` / `build_enemy_context()` 方法
-
-4. **扩展 API**：在 `app.py` 中添加 REST 端点（可选，如不与前端交互则不需要）
-
-5. **创建 EnemyFactory**：在引擎中新增 `EnemyFactory.from_markdown(path)` 替代当前的 `CombatUnit.create_enemy()` 硬编码
+1. **注册新分类**：在 `data/_INDEX.md` 中添加了 `combat_enemies`、`combat_cards`、`combat_encounters`、`enemies`、`attributes`、`rules` 等分类
+2. **注册子索引**：创建了 `data/combat/_index.md`，包含 enemies、cards、encounters 的子索引
+3. **扩展 API**：在 `app.py` 中添加了战斗 REST + SSE 端点
+4. **创建 CombatDataLoader**：提供 `load_enemy()`、`load_card()`、`load_encounter()`、`build_starting_deck()` 等方法
 
 ---
 
@@ -799,55 +794,59 @@ combat_cards:
 
 ### Phase 1: 数据层（P0 — 不修改引擎）
 
-- [ ] 创建 `data/combat/` 目录结构（`enemies/`、`cards/`、`encounters/`）
-- [ ] 编写敌人模板 `TEMPLATE_enemy.md` 和卡牌模板 `TEMPLATE_card.md`
-- [x] 将现有的 4 个 demo 敌人转为 markdown 文件
-- [ ] 将 64 张卡牌定义转为 markdown 文件（按职业分目录）
-- [ ] 创建 `data/classes/战术指挥/index.md` 职业定义
+- [x] 创建 `data/combat/` 目录结构（`enemies/`、`cards/`、`encounters/`）
+- [x] 编写敌人模板 `TEMPLATE_enemy.md` 和卡牌模板 `TEMPLATE_card.md`
+- [x] 将现有的敌人转为 markdown 文件（4 个战斗敌人 + 9 个叙事敌人）
+- [x] 将 72 张卡牌定义转为 markdown 文件（按职业分目录，9 职业 × 8 张）
+- [x] 创建 `data/classes/战术指挥/index.md` 职业定义
 - [ ] 补全博士的 8 属性
-- [ ] 在 `data/_INDEX.md` 注册新分类
-- [ ] 创建 `data/combat/_index.md`
+- [x] 在 `data/_INDEX.md` 注册新分类（combat_enemies, combat_cards, combat_encounters, enemies, attributes, rules）
+- [x] 创建 `data/combat/_index.md`
+- [x] 创建 `encounters/初遇整合运动.md` 首个遭遇配置
 
 ### Phase 2: 属性兼容 + 加载管线（P0/P1）
 
-- [ ] 更新 `entity.py` 的属性 key 映射表：
+- [x] 更新 `entity.py` 的属性 key 映射表：
   - 旧 key → 新 key（`strength` → `physical_strength` 等）
   - 中文 key → 英文 key（`物理强度` → `physical_strength` 等）
   - 缺失属性默认值 5
-- [ ] 创建 `CombatDataLoader` 类：
-  - `from_enemy_md(path) → CombatUnit`
-  - `from_card_md(path) → Card`
-  - `from_encounter_md(path) → encounter_config`
-- [ ] 扩展 `RegistryManager` 以支持战斗数据类型
+- [x] 创建 `CombatDataLoader` 类：
+  - `load_enemy(name) → CombatUnit`
+  - `load_card(class, name) → Card`
+  - `load_encounter(id) → encounter_config`
 - [x] 将 `combat_engine/` 从 demo 目录迁移到 `src/` 后端可引用的位置
 
 ### Phase 3: 后端 API 层
 
-- [ ] 实现 `CombatSession` 类（服务端战斗会话管理）
-- [ ] 实现 `CombatDataLoader`（从 markdown 加载敌人/卡牌/遭遇）
-- [ ] 在 `app.py` 中添加战斗 API 端点：
+- [x] 实现 `CombatSession` 类（服务端战斗会话管理）
+- [x] 实现 `CombatDataLoader`（从 markdown 加载敌人/卡牌/遭遇）
+- [x] 在 `app.py` 中添加战斗 API 端点：
   - `POST /api/sessions/<id>/combat/start`
   - `GET /api/sessions/<id>/combat/state`
   - `POST /api/sessions/<id>/combat/action`
   - `POST /api/sessions/<id>/combat/end-turn`
   - `GET /api/sessions/<id>/combat/events` (SSE)
-- [ ] 在 `Session` 类中集成 `CombatSession`
-- [ ] 实现战斗状态的序列化/反序列化（存档/读档）
+  - `POST /api/sessions/<id>/combat/complete`
+- [x] 在 `Session` 类中集成 `CombatSession`
+- [x] 实现战斗状态的序列化/反序列化（存档/读档）
 - [ ] 添加等级缩放：`final_stat = base_stat × level_multiplier(level)`
-- [ ] Buff/Debuff 战斗效果映射（利用 `data/rules/04-debuff-system/` 和 `05-buff-pool/` 的数据）
+- [ ] Buff/Debuff 战斗效果映射（利用 `data/rules/` 的数据）
 
 ### Phase 4: 前端 React 组件
 
-- [ ] 创建 `CombatView` 页面组件（挂载在会话的 combat 路由下）
-- [ ] 实现 `CombatGrid` + `GridCell` 组件（4×8 网格，点击交互）
-- [ ] 实现 `CombatCard` + `CombatHand` 组件（手牌展示、选择、AP 不足灰显）
-- [ ] 实现 `UnitStatusPanel`（所有单位 HP/AP 状态条）
-- [ ] 实现 `CombatEventLog`（SSE 事件实时滚动展示）
-- [ ] 实现 `TargetingOverlay`（目标高亮、范围预览）
-- [ ] 在 Zustand store 中新增 `combatSlice`
-- [ ] 键盘快捷键支持（`1-7` 选牌、`F` 结束回合、`Esc` 取消）
-- [ ] CSS 动画（伤害数字、单位移动、卡牌打出效果）
+- [x] 创建 `CombatView` 页面组件（挂载在 combat 路由下）
+- [x] 实现 `CombatGrid` + `GridCell` 组件（9×8 网格，3D 透视，拖放）
+- [x] 实现 `CombatCard` + `CombatHand` 组件（手牌扇形布局，拖拽出牌，AP 不足灰显）
+- [x] 实现 `UnitStatusPanel`（HP/AP/属性/职业标签）
+- [x] 实现 `CombatEventLog`（Timeline 风格 SSE 事件展示）
+- [x] 实现 `DeckViewer`（卡组查看器，按角色/牌堆分组）
+- [x] 实现 `CombatUnitTooltip`（Portal 悬浮属性面板）
+- [x] 实现 `CombatParticles`（Canvas 粒子特效）
+- [x] 在 Zustand store 中集成 combat state
+- [x] 键盘快捷键支持（`1-6` 选牌、`F` 结束回合、`Esc` 取消）
+- [x] CSS 动画（伤害数字、浮动粒子、卡牌打出、受击震动）
 - [ ] 战斗结算画面（胜利/失败 + 奖励展示）
+- [ ] 攻击弹道/冲击动画
 
 ### Phase 5: 剧情集成 + 遭遇系统（远期）
 
@@ -855,7 +854,7 @@ combat_cards:
 - [ ] 战斗胜负影响剧情分支
 - [ ] 战斗后的 buff/debuff 延续到后续场景
 - [ ] 角色升级与经验系统集成
-- [ ] 物品/武器对战斗数值的加成
+- [ ] 物品/武器对战斗数值的加成（遗物系统）
 - [ ] 天气/环境对战斗的影响
 
 ---
@@ -901,17 +900,17 @@ combat_cards:
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| `POST` | `/combat/start` | 开始一场战斗。请求体：`{ "encounter_id": "enc_first_reunion" }` 或自定义敌人配置 |
+| `POST` | `/combat/start` | 开始一场战斗。请求体：`{ "encounter_id": "...", "character_names": ["阿米娅",...] }` |
 | `GET` | `/combat/state` | 获取当前战斗的完整状态快照（JSON） |
 | `POST` | `/combat/action` | 提交玩家操作。请求体见下方 |
-| `POST` | `/combat/end-turn` | 结束当前单位回合 |
+| `POST` | `/combat/end-turn` | 结束玩家回合，进入敌方阶段 |
+| `POST` | `/combat/complete` | 战斗结算，结果写回到会话覆盖层 |
 | `GET` | `/combat/events` | **SSE 流**：订阅战斗事件推送 |
 
 #### 操作请求体（`POST /combat/action`）
 
 ```json
 {
-  "unit_id": "amiya_001",       // 当前行动的角色
   "action": "play_card",
   "card_index": 2,              // 共享手牌中的索引 (0-based)
   "target": [3, 5]              // 目标格子 [row, col]
@@ -920,17 +919,9 @@ combat_cards:
 
 ```json
 {
-  "unit_id": "silverash_001",
   "action": "move",
+  "unit_id": "银灰",            // 移动角色的 unit_id
   "target": [1, 3]
-}
-```
-
-```json
-{
-  "unit_id": "chen_001",
-  "action": "intercept",        // 主动拦截
-  "target_unit": "amiya_001"    // 被攻击的友方单位
 }
 ```
 
@@ -939,27 +930,31 @@ combat_cards:
 ```json
 {
   "round_num": 3,
-  "phase": "PLAYER_PHASE",
-  "grid_size": 8,
+  "phase": "PLAYER_TURN",
+  "grid_size": 9,
   "winner": null,
-  "shared_ap": 3, "max_shared_ap": 4,
-  "available_units": ["chen_001", "silverash_001", "amiya_001"],  // 尚未行动
-  "acted_units": ["shining_001"],                                   // 已行动
+  "shared_ap": 3, "shared_ap_max": 4,
   "units": [
     {
-      "unit_id": "amiya_001", "name": "阿米娅",
+      "unit_id": "阿米娅", "name": "阿米娅",
       "team": "player", "char_class": "术师",
       "hp": 85, "max_hp": 110,
       "personal_ap": 2, "max_personal_ap": 2,
       "patk": 22, "matk": 38, "def": 8, "res": 12,
-      "pos": [1, 1], "mobility": 5
+      "spd": 16, "hit": 14, "eva": 8,
+      "pos": [3, 0], "mobility": 5,
+      "is_alive": true,
+      "attributes": { "physical_strength": 6, ... }
     }
   ],
-  "grid": { /* n×n 网格，每格 unit_id | null */ },
+  "grid": { "3,0": "阿米娅", "4,0": "银灰", ... },
   "shared_hand": [ /* 共享手牌 (6张) */ ],
-  "valid_targets": [],
+  "player_hands": { "阿米娅": [ /* 该角色拥有的手牌子集 */ ] },
+  "shared_pool": { "deck": [...], "discard": [...], "exhaust": [...] },
+  "valid_targets": [[3,5], [4,6]],
   "valid_moves": [],
-  "can_intercept": ["silverash_001"]  // 有拦截机会的角色
+  "active_unit_id": "阿米娅",
+  "battle_over": false
 }
 ```
 
@@ -969,23 +964,29 @@ combat_cards:
 event: round_start
 data: {"round":3,"shared_ap":4,"personal_ap":{"chen_001":3,...}}
 
-event: turn_start
-data: {"unit_id":"amiya_001","name":"阿米娅","personal_ap":2}
-
 event: damage
 data: {"caster":"阿米娅","target":"整合运动士兵","damage":18,"hit_result":"hit","card":"能量弹"}
 
-event: intercept_prompt
-data: {"attacker":"整合运动术师","target":"闪灵","available_interceptors":["银灰","陈"]}
+event: heal
+data: {"caster":"闪灵","target":"银灰","amount":12,"card":"治疗术"}
 
-event: block_attempt
-data: {"defender":"闪灵(重装)","target":"阿米娅","attacker":"整合运动士兵","chance":0.7}
+event: move
+data: {"unit_id":"chen","name":"陈","from_pos":[3,0],"to_pos":[3,1]}
 
-event: block_success
-data: {"defender":"闪灵","redirected_damage":3}
+event: card_played
+data: {"unit_id":"amiya","caster":"阿米娅","card":"能量弹","target":[3,5]}
+
+event: death
+data: {"unit_id":"rebel_01","name":"整合运动士兵","team":"enemy"}
 
 event: battle_end
-data: {"winner":"player","reason":"all enemies dead"}
+data: {"winner":"player","reason":"所有敌人已消灭"}
+
+<!-- 📐 以下事件尚未实现（规划中）：
+event: intercept_prompt
+event: block_attempt
+event: block_success
+-->
 ```
 
 #### 选择方案：REST+SSE vs WebSocket
@@ -1023,9 +1024,7 @@ CombatView
 3. **目标选择**：卡牌选中后进入 TARGETING 模式，网格高亮有效目标 → 点击格子确认
 4. **移动**：点击 UnitStatusBar 中角色 → 点击"移动"按钮 → 高亮可达范围（考虑 mobility 效率）→ 点击目标格
 5. **连续出牌**：同一角色有多张可打出的牌时连续打出，直到 AP 耗尽或无可用的牌
-6. **敌方回合**：禁用交互，SSE 推送敌方行动。攻击前：
-   - 重装被动挡刀自动判定 → `block_attempt/success/fail`
-   - 高 SPD 角色拦截机会 → 弹出 `InterceptModal`
+6. **敌方回合**：禁用交互，SSE 推送敌方行动。攻击前检查胜负条件。拦截/挡刀系统为规划中功能。
 7. **键盘快捷键**：`1-6` 选牌，`F` 结束阶段，`Esc` 取消选择
 
 #### 状态管理（Zustand Store）
@@ -1037,34 +1036,27 @@ interface CombatState {
   gridSize: number;
 
   roundNum: number;
-  phase: 'INIT' | 'ROUND_START' | 'PLAYER_PHASE' | 'ENEMY_TURN' | 'END';
+  phase: 'INIT' | 'ROUND_START' | 'PLAYER_TURN' | 'ENEMY_TURN' | 'END';
   winner: 'player' | 'enemy' | null;
 
-  // 双 AP 池
+  // 共享 AP
   sharedAp: number;  maxSharedAp: number;
-  units: CombatUnitDTO[];                // 含 personal_ap, mobility
-
-  // 卡牌决定谁行动 — 角色 AP 用尽则其专属/职业牌自动灰显
-  unitsWithAp: string[];                 // 尚有个人AP的角色
+  units: CombatUnitDTO[];
 
   // 共享手牌 + 网格
   sharedHand: CardDTO[];
-  grid: (string | null)[][];
+  playerHands: Record<string, CardDTO[]>;     // 按角色分组的手牌
+  grid: Record<string, string>;                // "row,col" → unit_id
   validTargets: [number, number][];
   validMoves: [number, number][];
 
-  // 拦截
-  interceptPrompt: { attacker: string; target: string; available: string[] } | null;
-
   // UI
   selectedCardIndex: number | null;
-  uiMode: 'VIEWING' | 'TARGETING' | 'MOVING' | 'INTERCEPT';
+  uiMode: 'VIEWING' | 'TARGETING';
 
-  // 操作 — 无需 activateUnit，card 自身携带 owner/class_required
-  selectCard: (index: number) => void;          // 点击卡牌 → 自动确定角色+AP来源
+  selectCard: (index: number) => void;
   submitAction: (action: CombatAction) => Promise<void>;
-  respondIntercept: (unitId: string | null) => Promise<void>;
-  endPhase: () => Promise<void>;
+  endTurn: () => Promise<void>;
 }
 ```
 
@@ -1183,10 +1175,10 @@ interface CombatUnitDTO {
   mobility: number;
   patk: number;  matk: number;
   def: number;  res: number;
+  spd: number;  hit: number;  eva: number;
   pos: [number, number];
-  can_intercept: boolean;          // mobility ≥ 7
-  is_defender: boolean;            // 重装职业 → 挡刀被动
   is_alive: boolean;
+  attributes: Record<string, number>;
 }
 ```
 
@@ -1213,34 +1205,29 @@ interface CardDTO {
 
 ```typescript
 type CombatEventDTO =
-  | { type: "round_start"; data: { round: number; shared_ap: number; personal_ap: Record<string,number> } }
-  | { type: "turn_start"; data: { unit_id: string; name: string; personal_ap: number } }
+  | { type: "round_start"; data: { round: number; shared_ap: number } }
+  | { type: "card_played"; data: { unit_id: string; caster: string; card: string; target: number[]; results: number[] } }
   | { type: "damage"; data: { caster: string; target: string; damage: number; hit_result: string; card: string } }
   | { type: "heal"; data: { caster: string; target: string; amount: number; card: string } }
-  | { type: "block_attempt"; data: { defender: string; target: string; attacker: string; chance: number } }
-  | { type: "block_success"; data: { defender: string; redirected_damage: number } }
-  | { type: "block_fail"; data: { defender: string } }
-  | { type: "intercept_prompt"; data: { attacker: string; target: string; available_interceptors: string[] } }
-  | { type: "intercept_result"; data: { interceptor: string; damage_taken: number } }
+  | { type: "move"; data: { unit_id: string; from_pos: number[]; to_pos: number[] } }
   | { type: "death"; data: { unit_id: string; name: string; team: string } }
-  | { type: "move"; data: { unit_id: string; from: [number,number]; to: [number,number] } }
-  | { type: "battle_end"; data: { winner: "player" | "enemy"; reason: string } }
-  | { type: "error"; data: { msg: string } };
+  | { type: "battle_end"; data: { winner: string; reason: string } }
+  | { type: "error"; data: { msg: string } }
+  // 📐 以下为规划中事件类型：
+  // | { type: "block_attempt"; data: { defender, target, attacker, chance } }
+  // | { type: "block_success"; data: { defender, redirected_damage } }
+  // | { type: "intercept_prompt"; data: { attacker, target, available_interceptors } };
 ```
 
 ### 博士在战斗中的定位
 
-当前问题：博士只有 3/8 属性，职业 `战术指挥` 不在 8 个有效职业中。
+当前，博士的 `class` 设置为 `战术指挥`，拥有独立的 8 张卡牌（5 基础 + 3 精英）。战术指挥职业的卡牌特色：全局射程、支援 + 打击混合、战术指令。
 
-**方案 A — 指挥官模式（推荐）**：博士不直接上场，而是提供全局战术 buff。例如每回合可以选择一个 buff 施加给队友（ATK + 2、DEF + 2、SPD + 2）。博士的 `tactical_planning: 10` 驱动 buff 强度。
+当前存在两个问题：
+1. 博士缺少完整的 8 属性数据（只有 3/8），战斗数值使用默认值 5
+2. 博士作为普通单位上场但缺少剧情上的合理解释
 
-**方案 B — 补全属性**：给博士补全 8 属性，让博士作为普通单位上场。
-
-**方案 C — 特殊卡池**：博士上场但使用 `战术指挥` 专属卡池（buff/debuff 为主，少量直接伤害，全局射程）。
-
-在 Web 架构中，方案 A 最容易实现且最适合博士的角色设定。实现方式：
-- 在 CombatEngine 的 `_start_round()` 中，如果玩家方包含博士，额外触发一个"战术指挥"阶段
-- 前端显示 buff 选择面板
+**推荐方案 — 指挥官模式（规划中）**：博士不直接上场，而是提供全局战术 buff。每回合可选择 buff 施加给队友。博士的 `tactical_planning: 10` 驱动 buff 强度。此方案需实现 buff/debuff 系统后才能完整落地。
 
 ---
 
@@ -1263,17 +1250,25 @@ src/
 └── app.py                       # combat API 端点
 
 frontend/src/
-├── components/
-│   └── combat/
-│       ├── CombatView.tsx        # 战斗主视图
-│       ├── CombatGrid.tsx        # 网格
-│       ├── GridCell.tsx          # 单格
-│       ├── CombatCard.tsx        # 卡牌组件
-│       ├── CombatHand.tsx        # 手牌栏
-│       ├── UnitStatusPanel.tsx   # 单位状态面板
-│       └── CombatEventLog.tsx    # 事件日志（SSE 消费）
-└── stores/
-    └── appStore.ts              # Zustand store（含 combat state）
+├── components/combat/
+│   ├── CombatView.tsx          — 战斗主视图（状态管理、事件中枢）
+│   ├── CombatGrid.tsx          — 网格渲染（3D 透视、拖放、单元格）
+│   ├── GridCell.tsx            — 单个单元格（单位显示、小精灵、高亮）
+│   ├── ChibiSprite.tsx         — 角色小精灵（纯展示，pointer-events-none）
+│   ├── CombatHand.tsx          — 手牌扇形布局
+│   ├── CombatCard.tsx          — 单张卡牌（拖拽源、渐变、AP 消耗）
+│   ├── UnitStatusPanel.tsx     — 角色状态面板（HP/AP/属性摘要）
+│   ├── CombatUnitTooltip.tsx   — 角色悬浮提示（Portal，属性+数值）
+│   ├── CombatEventLog.tsx      — 战斗事件日志
+│   ├── CombatParticles.tsx     — Canvas 粒子特效
+│   └── DeckViewer.tsx          — 卡组查看器（按角色/牌堆分组）
+├── hooks/
+│   └── useApi.ts               — API 客户端（REST + SSE）
+├── stores/
+│   └── appStore.ts             — Zustand 全局状态（含 combat state）
+├── types/
+│   └── index.ts                — TypeScript 类型定义
+└── style.css                   — 战斗样式（粒子动画、网格 3D、手牌扇形）
 
 data/combat/
 ├── _index.md

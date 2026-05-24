@@ -308,6 +308,15 @@ class SceneManager:
             char_summaries.append(f"- {name}{tag_str}{active_mark}")
 
         context_parts = ["【场景状态】", env_context or "当前场景"]
+
+        # 注入剧情开场上下文（仅首次叙述，注入后清除）
+        if self._overlay and self._overlay.has_plot_context():
+            opening = self._overlay.get_plot_context()
+            if opening:
+                context_parts.append(f"\n【开场场景】\n{opening}")
+                logger.info("已注入开场上下文到首次叙述")
+            self._overlay.clear_plot_context()
+
         context_parts.append("\n【场景角色】")
         context_parts.extend(char_summaries)
         context_parts.append(f"\n【玩家身份】{identity}")
