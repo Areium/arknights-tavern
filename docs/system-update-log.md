@@ -16,6 +16,11 @@
 
 ## 更新记录
 
+### 2026-05-25 — 战斗触发流程修复
+
+- CombatView 接入 `combatSessionId`：LLM 触发战斗时自动加载已启动的会话（`useEffect` 监听 → `fetchState` + `connectSSE`）
+- `chat.py` `_handle_combat_trigger` 不再通过私有属性 `_overlay` 获取 overlay，改为 `session.overlay`
+
 ### 2026-05-25 — LLM 触发战斗系统 + 9 角色叙事卡牌扩展
 
 **LLM 触发战斗系统**：
