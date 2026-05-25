@@ -34,6 +34,8 @@ export default function CombatView() {
     selectedUnitId,
     setSelectedUnitId,
     setCurrentView,
+    combatSessionId,
+    setCombatSessionId,
   } = useAppStore();
   const api = useApi();
 
@@ -129,7 +131,7 @@ export default function CombatView() {
     setParticleEmitters((prev) => prev.filter((e) => e.id !== id));
   }, []);
 
-  const sessionId = activeSessionId || (sessions.length > 0 ? sessions[0].id : null);
+  const sessionId = combatSessionId || activeSessionId || (sessions.length > 0 ? sessions[0].id : null);
   const effectiveId = combatTestId || sessionId;
 
   const fetchState = useCallback(async () => {
@@ -183,6 +185,17 @@ export default function CombatView() {
       ? createCombatTestSSE(combatTestId, handlers)
       : createCombatSSE(sessionId!, handlers);
   }, [effectiveId, combatTestId, sessionId, fetchState, addDamageNumber, spawnParticles]);
+
+  // Auto-fetch when entering via LLM combat trigger (combat already started externally)
+  useEffect(() => {
+    if (combatSessionId && !combatState && !loading) {
+      setLoading(true);
+      fetchState().then(() => {
+        setLoading(false);
+        connectSSE();
+      }).catch(() => setLoading(false));
+    }
+  }, [combatSessionId]);
 
   useEffect(() => {
     fetchState();
@@ -584,9 +597,10 @@ export default function CombatView() {
 
     setCombatState(null);
     setCombatTestId(null);
+    setCombatSessionId(null);
     setSelectedUnitId(null);
     setCurrentView("chat");
-  }, [combatTestId, sessionId, combatState, encounterId, api, setCombatState, setCombatTestId, setSelectedUnitId, setCurrentView]);
+  }, [combatTestId, sessionId, combatState, encounterId, api, setCombatState, setCombatTestId, setCombatSessionId, setSelectedUnitId, setCurrentView]);
 
   // Click on main area → map to grid cell or deselect.
   // Cell mapping handles 3D-transformed cells (rows 4-8) that don't
@@ -787,8 +801,12 @@ export default function CombatView() {
       <div className="flex items-center justify-center h-full bg-combat-bg">
         <div className="bg-surface-card border border-combat-border rounded-xl p-6 w-96 shadow-2xl">
           <h2 className="text-lg font-bold text-gray-200 mb-4 font-display tracking-wide">
-            开始战斗
+            {combatSessionId && loading ? "加载战斗中..." : "开始战斗"}
           </h2>
+
+          {combatSessionId && loading && (
+            <p className="text-sm text-gray-400 mb-3">正在加载已触发的战斗...</p>
+          )}
 
           {!sessionId && (
             <p className="text-sm text-combat-gold/80 mb-3">

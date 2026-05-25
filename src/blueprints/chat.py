@@ -42,7 +42,7 @@ _COMBAT_MARKER_RE = re.compile(r'\n?\[COMBAT:([^\]]+)\]\n?')
 _SAFE_COMBAT_MARKER_RE = re.compile(r'\[COMBAT:([^\]]+)\]')
 
 
-def _handle_combat_trigger(session, narrative, stream_id, overlay):
+def _handle_combat_trigger(session, narrative, stream_id):
     """检测并处理战斗触发标记 [COMBAT:encounter_id]。
 
     Returns:
@@ -55,6 +55,7 @@ def _handle_combat_trigger(session, narrative, stream_id, overlay):
     encounter_id = match.group(1).strip()
     cleaned = _COMBAT_MARKER_RE.sub("", narrative).strip()
 
+    overlay = getattr(session, 'overlay', None)
     combat_mode = overlay.get_combat_mode() if overlay else "narrative"
     if combat_mode != "tactical":
         return cleaned, None
@@ -250,7 +251,7 @@ def register(app, managers):
 
                     # 检测战斗触发标记 [COMBAT:encounter_id]
                     narrative, combat_triggered = _handle_combat_trigger(
-                        session, narrative, stream_id, session.scene_manager._overlay
+                        session, narrative, stream_id
                     )
                     if combat_triggered:
                         yield combat_triggered
@@ -269,7 +270,7 @@ def register(app, managers):
 
                     # 检测战斗触发标记 [COMBAT:encounter_id]（先剥离再发送字符）
                     narrative, combat_triggered = _handle_combat_trigger(
-                        session, narrative, stream_id, session.scene_manager._overlay
+                        session, narrative, stream_id
                     )
                     if combat_triggered:
                         yield combat_triggered
