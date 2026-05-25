@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface Props {
   characterName: string;
@@ -6,6 +6,10 @@ interface Props {
 
 export default function CharacterIllustration({ characterName }: Props) {
   const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [characterName]);
 
   if (imgError) return null;
 

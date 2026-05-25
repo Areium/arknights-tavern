@@ -38,6 +38,12 @@ export interface Session {
     time: string;
   };
   scene_log: string[];
+  narration_count?: number;
+  total_usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
 }
 
 /** 文档类别 */

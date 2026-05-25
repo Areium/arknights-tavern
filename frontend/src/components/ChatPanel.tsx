@@ -517,8 +517,28 @@ export default function ChatPanel() {
     );
   }
 
+  const activeSession = sessions.find((s) => s.id === activeSessionId);
+  const sessionTokens = activeSession?.total_usage;
+
   return (
     <div className="flex flex-col h-full">
+      {/* Header bar — 会话信息 + token 统计 */}
+      {activeSession && (
+        <div className="flex items-center justify-between px-4 py-1.5 border-b border-gray-700/50 bg-gray-850/30 shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-xs text-gray-400 truncate">{activeSession.name}</span>
+            <span className="text-[10px] text-gray-600">第{activeSession.narration_count ?? narrationCount}轮</span>
+          </div>
+          {sessionTokens && sessionTokens.total_tokens > 0 && (
+            <div className="text-[10px] text-gray-500 select-none shrink-0">
+              {sessionTokens.total_tokens.toLocaleString()} tokens
+              <span className="text-gray-600">
+                {" "}(入 {sessionTokens.prompt_tokens.toLocaleString()} + 出 {sessionTokens.completion_tokens.toLocaleString()})
+              </span>
+            </div>
+          )}
+        </div>
+      )}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
         {initialLoading && messages.length === 0 && (
           <div className="flex items-center justify-center h-full text-gray-500">

@@ -101,6 +101,7 @@ def register(app, managers):
             response, env_updates, usage = session.scene_manager.chat(
                 user_input, player_info, env_context
             )
+            session.accumulate_usage(usage)
             session.environment.apply_update(env_updates)
             result = {
                 "response": response,
@@ -138,6 +139,7 @@ def register(app, managers):
             results, total_usage = session.scene_manager.group_chat(
                 user_input, player_info, env_context
             )
+            session.accumulate_usage(total_usage)
             for r in results:
                 session.environment.apply_update(r.get("env_updates", {}))
             resp = {"responses": results}
@@ -196,6 +198,7 @@ def register(app, managers):
                             yield f"data: {json.dumps({'type': 'text', 'data': {'token': data, 'stream_id': stream_id}})}\n\n"
                         elif event_type == "done":
                             narrative, env_updates, usage = data
+                            session.accumulate_usage(usage)
                             break
 
                     # 检测结构化 JSON（LLM 即使非 structured 模式也可能输出 JSON）
@@ -209,6 +212,7 @@ def register(app, managers):
                         player_info, context_with_memory,
                         user_action=user_action, structured=True
                     )
+                    session.accumulate_usage(usage)
 
                     if narrative.strip().startswith(("[", "```")):
                         dialogue_segments, stream_text = session.scene_manager.parse_structured(narrative)
@@ -294,6 +298,7 @@ def register(app, managers):
                 user_action=data.get("action", ""),
                 structured=bubble_mode,
             )
+            session.accumulate_usage(usage)
             session.environment.apply_update(env_updates)
 
             # 检测并解析结构化 JSON 输出
@@ -360,6 +365,7 @@ def register(app, managers):
                 user_action=prompt,
                 structured=bubble_mode,
             )
+            session.accumulate_usage(usage)
             response = {"narrative": narrative}
             if usage:
                 response["usage"] = usage

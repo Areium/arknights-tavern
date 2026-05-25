@@ -86,6 +86,10 @@ class Session:
         self._narration_history: list[dict] = []   # 完整叙述历史 [{round, text, action}]
         self._last_memory_end = 0
         self._memories: list[dict] = []
+
+        # Token 用量累计
+        self.total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
         self._load_memories()
 
     @property
@@ -126,6 +130,13 @@ class Session:
                 self._narration_history = data.get("narration_history", [])
                 self.narration_count = data.get("narration_count", len(self._narration_history))
                 self._last_memory_end = data.get("last_memory_end", 0)
+                saved_usage = data.get("total_usage")
+                if saved_usage and isinstance(saved_usage, dict):
+                    self.total_usage = {
+                        "prompt_tokens": saved_usage.get("prompt_tokens", 0),
+                        "completion_tokens": saved_usage.get("completion_tokens", 0),
+                        "total_tokens": saved_usage.get("total_tokens", 0),
+                    }
             except Exception:
                 self._memories = []
 
@@ -138,8 +149,17 @@ class Session:
                 "narration_history": self._narration_history,
                 "narration_count": self.narration_count,
                 "last_memory_end": self._last_memory_end,
+                "total_usage": self.total_usage,
             }, f, ensure_ascii=False, indent=2)
             f.write("\n")
+
+    def accumulate_usage(self, usage: dict | None):
+        """累加一次 LLM 调用的 token 用量到会话总计。"""
+        if not usage:
+            return
+        for k in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            if usage.get(k):
+                self.total_usage[k] = self.total_usage.get(k, 0) + usage[k]
 
     def get_memories(self) -> list[dict]:
         return list(self._memories)
@@ -405,6 +425,7 @@ class Session:
             "overridden_characters": overridden_chars,
             "overridden_items": overridden_items,
             "narration_count": self.narration_count,
+            "total_usage": self.total_usage,
             "in_combat": self.combat is not None,
             "combat": self.combat.get_state() if self.combat else None,
         }

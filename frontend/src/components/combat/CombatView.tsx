@@ -881,7 +881,7 @@ export default function CombatView() {
 
         {/* Character illustration — shown when a player unit is selected */}
         {selectedUnit && selectedUnit.team === "player" && (
-          <CharacterIllustration characterName={selectedUnit.name} />
+          <CharacterIllustration key={selectedUnit.name} characterName={selectedUnit.name} />
         )}
 
         {/* Grid area — positioned with relative+top to avoid layout conflicts with bottom bar */}
