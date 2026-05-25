@@ -38,7 +38,7 @@ export default function DialogueBubble({ text, speaker, color }: DialogueBubbleP
 
       <div className="flex flex-col max-w-[75%]">
         {speaker && (
-          <span className="text-xs font-bold mb-0.5 ml-1" style={nameStyle}>
+          <span className="text-sm font-bold mb-0.5 ml-1" style={nameStyle}>
             {speaker}
           </span>
         )}

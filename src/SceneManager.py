@@ -399,7 +399,9 @@ speaker 必须从【场景角色】列表中选择。无法判断说话人时用
             if preloaded_text:
                 context_parts.append(preloaded_text)
         if self._wiki_manager:
-            catalog = self._wiki_manager.format_catalog_summary()
+            catalog = self._wiki_manager.format_catalog_summary(
+                self._wiki_manager.NARRATIVE_CATALOG_CATS
+            )
             if catalog:
                 context_parts.append(catalog)
 

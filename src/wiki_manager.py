@@ -407,16 +407,29 @@ class WikiManager:
 
     # ── 目录摘要 ──
 
-    def format_catalog_summary(self) -> str:
-        """格式化轻量目录 (~500 tokens)，按类别分组，供 system prompt 注入。"""
+    # 剧情叙述模式下注入的文档目录类别
+    NARRATIVE_CATALOG_CATS = {"characters", "factions", "locations", "items", "world"}
+
+    def format_catalog_summary(self, categories: set[str] | None = None) -> str:
+        """格式化轻量目录，按类别分组，供 system prompt 注入。
+
+        Args:
+            categories: 要包含的类别集合。为 None 时包含全部类别。
+        """
+        if categories is not None and not isinstance(categories, set):
+            categories = set(categories)
+
         lines = ["【可用文档目录】"]
         category_order = [
-            ("characters", "角色"), ("races", "种族"), ("classes", "职业"),
-            ("factions", "势力"), ("items", "物品"), ("locations", "地点"),
-            ("weather", "天气"), ("enemies", "敌人"), ("attributes", "属性"),
-            ("world", "世界设定"), ("rules", "规则"), ("plots", "剧情"),
+            ("characters", "角色"), ("world", "世界设定"),
+            ("factions", "势力"), ("locations", "地点"),
+            ("items", "物品"), ("races", "种族"), ("classes", "职业"),
+            ("attributes", "属性"), ("weather", "天气"), ("enemies", "敌人"),
+            ("rules", "规则"), ("plots", "剧情"),
         ]
         for cat_name, cat_label in category_order:
+            if categories is not None and cat_name not in categories:
+                continue
             ids = self._by_category.get(cat_name, [])
             if not ids:
                 continue

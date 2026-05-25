@@ -11,8 +11,7 @@ CORE_SECTIONS: dict[str, list[tuple[str, int | None]]] = {
         ("## 角色扮演提示", None),
     ],
     "classes": [
-        ("## 战斗定位", 3),
-        ("## 子职业一览", 1),
+        ("## 战斗定位", 1),
         ("## 角色扮演提示", None),
     ],
     "factions": [

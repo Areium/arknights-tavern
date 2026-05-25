@@ -662,7 +662,7 @@ export default function ChatPanel() {
                   }`}
                 >
                   {msg.character && !dialogueBubbleMode && (
-                    <div className="text-xs font-bold text-purple-300 mb-1">{msg.character}</div>
+                    <div className="text-sm font-bold text-purple-300 mb-1">{msg.character}</div>
                   )}
 
                   {isEditing ? (
