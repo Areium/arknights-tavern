@@ -16,6 +16,19 @@
 
 ## 更新记录
 
+### 2026-05-25 — 数据清理 + Prompt 上下文重排 + 默认图片系统 + 子文档扫描
+
+- **数据清理**：全部角色/职业/势力文档的 `imports` 去除冗余 `| name` 后缀，移除废弃的 `# 可检索条目` 章节
+- `index_manager.py` 写 imports 前先剥离已有后缀防重复堆积
+- `near-light` 剧情 frontmatter 重构：规范字段排列，新增 sub-document imports（narrative/pacing/opening/quests/scenes/setting）
+- **Prompt 上下文重排**：SceneManager 注入顺序从 "状态→开场→叙事→预加载→角色→动态" 改为 "状态→角色→玩家→动态→开场→进度→背景"
+- 以 `get_narrative_overview()` 剧情概览（概要+章节结构）替代全文注入，避免具体场景描写引导 LLM 重复叙述
+- **默认图片系统**：新增 `GET/PUT /api/assets/<category>/<entity>/default-image` API，读写 index.md frontmatter 中的 `default_avatar`/`default_skin`
+- 前端图片面板新增预览大图、设为默认头像/立绘、子目录分组、默认标记（★）
+- **子文档扫描**：`document_manager.py` 第三遍扫描收集实体目录内的非 index.md 子文档，复合 doc_id 支持
+- `documents.py` 搜索扩展匹配 doc_id 和完整路径（`category/doc_id`）
+- 前端依赖面板可折叠、验证改用 `valid` 替代 `exists`
+
 ### 2026-05-25 — 节拍引导简化 + 图片资产管理 + 跨分类搜索
 
 - **节拍引导简化**：`get_beat_context()` 移除当前节拍详细内容和指令性语言，仅保留路线图定位 + 下一节拍方向提示
