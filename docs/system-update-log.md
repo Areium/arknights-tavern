@@ -16,6 +16,16 @@
 
 ## 更新记录
 
+### 2026-05-25 — 剧情节拍跟踪系统
+
+- `session_overlay.py` 新增 `init_beat_state` / `get_beat_context` / `advance_beat` / `record_narration_on_beat` 等方法
+- 解析 `data/plots/<id>/narrative.md` 章节/节拍结构（`_parse_narrative_beats`），注入 LLM prompt 引导剧情推进
+- LLM 输出 `[BEAT_COMPLETE]` 标记时自动推进到下一节拍，跨章节自动处理
+- 超过 8 轮叙述未完成当前节拍时强制自动推进
+- `SceneManager.py` 新增第 6/7 条系统规则（遵循节拍指引 + 输出完成标记），注入节拍上下文和剧情参考文档
+- `chat.py` 流式/气泡/请求三条路径均集成 `_handle_beat_complete` 和 `record_narration_on_beat`
+- 会话创建时自动初始化节拍状态（`sessions.py`）
+
 ### 2026-05-25 — 角色立绘全屏限制 + 位置优化
 
 - CharacterIllustration 仅在 `isFullscreen` 时渲染，避免非全屏下遮挡战斗界面
