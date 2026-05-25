@@ -19,6 +19,7 @@ imports:
 - classes/辅助 | 辅助
 - classes/重装 | 重装
 name: 近卫
+summary: "近卫干员是罗德岛近战进攻核心，拥有多种子职业与物理输出卡牌池。"
 ---
 
 # 近卫 / Guard

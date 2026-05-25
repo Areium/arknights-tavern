@@ -30,6 +30,7 @@ export interface Session {
   created_at: number;
   usable: boolean;
   characters: string[];
+  character_colors: Record<string, string>;
   active_character: string | null;
   environment: {
     location: string;

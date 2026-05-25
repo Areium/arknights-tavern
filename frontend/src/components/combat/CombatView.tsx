@@ -12,6 +12,7 @@ import CombatCard from "./CombatCard";
 import DeckViewer from "./DeckViewer";
 import AttackArrow from "./AttackArrow";
 import ChibiSprite from "./ChibiSprite";
+import CharacterIllustration from "./CharacterIllustration";
 import { getCellParentRelative } from "./gridUtils";
 import { getCombatConfig, type LayoutMode } from "./combatConfig";
 
@@ -877,6 +878,11 @@ export default function CombatView() {
             onUnitLeave={handleHoverLeave}
           />
         </div>
+
+        {/* Character illustration — shown when a player unit is selected */}
+        {selectedUnit && selectedUnit.team === "player" && (
+          <CharacterIllustration characterName={selectedUnit.name} />
+        )}
 
         {/* Grid area — positioned with relative+top to avoid layout conflicts with bottom bar */}
         <div className="flex flex-col items-center relative" style={{ top: `${cfg.gridMarginTop}px` }}>

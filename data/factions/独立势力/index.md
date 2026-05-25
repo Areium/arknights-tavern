@@ -1,5 +1,6 @@
 ---
 name: "独立势力"
+summary: "泰拉大陆上不属任何阵营的个体与小型团体统称，行动灵活利益驱动。"
 alias: "Independent Forces"
 type: mercenary
 scale: small

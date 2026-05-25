@@ -1,5 +1,6 @@
 ---
 name: "博士的战术终端"
+summary: "罗德岛特制的便携式战术指挥终端，用于战场指挥、干员调度与数据查询。"
 alias: "Tactical Terminal"
 category: equipment
 rarity: rare

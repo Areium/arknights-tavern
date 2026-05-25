@@ -15,7 +15,7 @@ async function getBaseUrl(): Promise<string> {
   return FALLBACK_URL;
 }
 
-const REQUEST_TIMEOUT = 15000; // 15s
+const REQUEST_TIMEOUT = 60000; // 60s — needs headroom for dual LLM calls (narrate + dialogue restructure)
 
 async function request<T>(
   path: string,
@@ -429,6 +429,8 @@ export function createSSE(
     onSceneEvent?: (event: any) => void;
     onMemoryEvent?: (event: any) => void;
     onChoice?: (options: string[]) => void;
+    onDialogueSegments?: (segments: { type: string; text: string; speaker?: string }[]) => void;
+    onTokenUsage?: (usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }) => void;
     onError?: (message: string) => void;
     onDone?: () => void;
   }
@@ -447,6 +449,8 @@ export function createPostSSE(
     onSceneEvent?: (event: any) => void;
     onMemoryEvent?: (event: any) => void;
     onChoice?: (options: string[]) => void;
+    onDialogueSegments?: (segments: { type: string; text: string; speaker?: string }[]) => void;
+    onTokenUsage?: (usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }) => void;
     onError?: (message: string) => void;
     onDone?: () => void;
   }
@@ -566,6 +570,8 @@ function connectSSE(
     onSceneEvent?: (event: any) => void;
     onMemoryEvent?: (event: any) => void;
     onChoice?: (options: string[]) => void;
+    onDialogueSegments?: (segments: { type: string; text: string; speaker?: string }[]) => void;
+    onTokenUsage?: (usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }) => void;
     onError?: (message: string) => void;
     onDone?: () => void;
   }
@@ -634,6 +640,12 @@ function connectSSE(
                 break;
               case "choice":
                 handlers.onChoice?.(event.data.options);
+                break;
+              case "dialogue_segments":
+                handlers.onDialogueSegments?.(event.data.segments);
+                break;
+              case "token_usage":
+                handlers.onTokenUsage?.(event.data.usage);
                 break;
               case "error":
                 handlers.onError?.(event.data.message);

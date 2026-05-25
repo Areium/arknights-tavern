@@ -39,6 +39,7 @@ _DEFAULT_CONFIG = {
     "choice_count": 3,
     "memory_interval": 5,
     "edit_before_send": False,
+    "dialogue_bubble_mode": False,
 }
 
 
@@ -280,7 +281,8 @@ class LLMBackendManager:
                 if llm:
                     # 轻量连通性检查
                     test = llm.chat([{"role": "user", "content": "."}])
-                    if test and "错误" not in test:
+                    test_text = test.get("content", "") if isinstance(test, dict) else str(test)
+                    if test_text and "错误" not in test_text:
                         return llm, ep.id
             except Exception:
                 continue
@@ -350,6 +352,7 @@ class LLMBackendManager:
             "choice_count": merged.get("choice_count", 3),
             "memory_interval": merged.get("memory_interval", 5),
             "edit_before_send": merged.get("edit_before_send", False),
+            "dialogue_bubble_mode": merged.get("dialogue_bubble_mode", False),
         }
 
     def update_config(self, data: dict) -> dict:
@@ -381,6 +384,8 @@ class LLMBackendManager:
             merged["memory_interval"] = max(1, min(20, int(data["memory_interval"])))
         if "edit_before_send" in data:
             merged["edit_before_send"] = bool(data["edit_before_send"])
+        if "dialogue_bubble_mode" in data:
+            merged["dialogue_bubble_mode"] = bool(data["dialogue_bubble_mode"])
 
         # 持久化到 JSON 文件
         _write_config_file(merged)

@@ -1,5 +1,6 @@
 ---
 name: "野生"
+summary: "泰拉大陆野生生物的分类、本能行为及其作为荒野危险因素的特点。"
 alias: "Wild / Creatures"
 type: organization
 scale: small

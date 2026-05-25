@@ -1,5 +1,6 @@
 ---
 name: "卡西米尔"
+summary: "卡西米尔的骑士文化被资本侵蚀，骑士竞技沦为商业工具，感染者受剥削，传统精神艰难留存。"
 alias: "Kazimierz"
 type: nation
 scale: global

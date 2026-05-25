@@ -1,9 +1,13 @@
 ---
+
+summary: "描述雪天气的视觉、听觉、体感特征及其对游戏机制、角色状态和环境的综合影响。"
+name: "雪"
 # ==============================================================================
 # 雪天天气配置 (Snow Weather Configuration)
 # ==============================================================================
 weather_type:
   name: 雪
+  summary: "雪天带来视觉美感与生存挑战，影响角色状态、行动和探索。"
   id: snow
   probability: 5
   icon: "❄️"
@@ -70,6 +74,7 @@ temperature_effects:
   frostbite_chance: 5     # 冻伤概率
   ice_formation: true     # 结冰现象
   water_freezing: true    # 水体结冰
+
 ---
 
 # ❄️ 雪 (Snow)

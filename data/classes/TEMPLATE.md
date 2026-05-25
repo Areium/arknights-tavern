@@ -2,17 +2,12 @@
 # ==============================================================================
 # 职业文件模板 (Class Template)
 # ==============================================================================
-# 本文件用于详细描述明日方舟中的一个职业门类。
-# 角色卡中的 class 字段通过 data/classes/_index.md 映射到本文件。
-# 系统加载角色时，自动将对应职业的详细信息注入角色上下文。
-#
-# ── 与索引的关系 ──
-# _index.md 中的 key（如 "术师"）→ 通过 file 字段找到本文件（如 "术师.md"）
-# 角色卡 class: "术师" → 查 _index.md → 加载 data/classes/术师.md → 注入 prompt
+# 角色卡中的 class 字段引用本文件。系统通过 imports 链自动预加载关联的职业信息。
 #
 # ── Frontmatter 字段说明 ──
 #
-# name:           职业中文名（必填），与 _index.md 中的 key 一致
+# name:           职业中文名（必填）
+# summary:        一句话摘要（必填），≤50 字。用于目录展示和 LLM 检索判断。
 # alias:          职业英文名（可选），如 "Caster"
 # category:       职业大类（必填）：输出 / 防御 / 治疗 / 支援 / 战术
 # combat_role:    战斗中担任的核心角色（必填），一句话概括
@@ -20,14 +15,13 @@
 # attack_range:   典型攻击距离（必填）：melee / short / medium / long / global
 # deployment_cost_range: 部署费用范围（可选），如 "15-25"
 # core_attributes: 该职业最重要的属性（必填），按重要性排序
-#                 用于 AI 理解该职业角色的能力侧重
-#                 参考 data/attributes/_index.md 中的属性定义
-#                 综合体检测试六项 + RP 补充属性：
-#                   physical_strength / mobility / physiological_tolerance
-#                   / tactical_planning / combat_skill / originium_arts_assimilation
-#                   / emotional_stability / charisma
+#                  用于 AI 理解该职业角色的能力侧重
+#                  physical_strength / mobility / physiological_tolerance
+#                  / tactical_planning / combat_skill / originium_arts_assimilation
+#                  / emotional_stability / charisma
 # ==============================================================================
 name: "术师"
+summary: ""
 alias: "Caster"
 category: "输出"
 combat_role: "远程法术输出核心"

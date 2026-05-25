@@ -1,5 +1,6 @@
 ---
 name: "鲁珀"
+summary: "鲁珀族拥有狼的生理特征，嗅觉灵敏，忠诚且领地意识强。"
 alias: "Lupo"
 category: humanoid
 rarity: common

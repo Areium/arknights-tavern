@@ -1,5 +1,6 @@
 ---
 name: "泰拉世界基础设定"
+summary: "介绍泰拉世界源石驱动文明、矿石病灾难及感染者与移动城邦的社会矛盾。"
 category: global
 priority: 1
 trigger: []

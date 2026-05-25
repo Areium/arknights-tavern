@@ -1,5 +1,6 @@
 ---
 name: "龙门"
+summary: "龙门是泰拉大陆繁荣的自治移动城邦，以商业、包容和魏彦吾的精妙平衡著称。"
 alias: "Lungmen"
 type: nation
 scale: city

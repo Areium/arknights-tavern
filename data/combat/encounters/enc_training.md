@@ -1,6 +1,7 @@
 ---
 encounter_id: "enc_training"
 name: "基础训练"
+summary: "战斗遭遇的基础训练方法及要点。"
 category: "test"
 difficulty: 1
 grid_size: 7

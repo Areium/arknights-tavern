@@ -1,35 +1,41 @@
 ---
-name: "银灰"
-class: "近卫"
-race: "菲林"
-faction: "维多利亚"
-tags: ["贵族", "谢拉格", "董事长", "策略家"]
-imports:
-  - classes/近卫
-  - races/菲林
-  - factions/维多利亚
-  - attributes/物理强度
-  - attributes/战场机动
-  - attributes/生理耐受
-  - attributes/战术规划
-  - attributes/战斗技巧
-  - attributes/源石技艺适应性
-  - attributes/情绪稳定性
-  - attributes/魅力
-  - characters/博士
 attributes:
-  物理强度: 7
-  战场机动: 7
-  生理耐受: 7
-  战术规划: 9
-  战斗技巧: 8
-  源石技艺适应性: 5
   情绪稳定性: 8
+  战场机动: 7
+  战斗技巧: 8
+  战术规划: 9
+  源石技艺适应性: 5
+  物理强度: 7
+  生理耐受: 7
   魅力: 9
+class: 近卫
+faction: 维多利亚
+imports:
+- classes/近卫
+- races/菲林
+- factions/维多利亚
+- attributes/物理强度
+- attributes/战场机动
+- attributes/生理耐受
+- attributes/战术规划
+- attributes/战斗技巧
+- attributes/源石技艺适应性
+- attributes/情绪稳定性
+- attributes/魅力
+- characters/博士
+name: 银灰
+race: 菲林
 relationships:
-  "博士": "互相利用又互相尊重的盟友关系"
-  "崖心": "宠爱但保护过度的妹妹"
-  "角峰": "忠实的管家和护卫"
+  博士: 互相利用又互相尊重的盟友关系
+  崖心: 宠爱但保护过度的妹妹
+  角峰: 忠实的管家和护卫
+summary: 银灰是谢拉格希瓦艾什家族家主、喀兰贸易董事长，优雅深谋的菲林族近卫。
+tags:
+- 贵族
+- 谢拉格
+- 董事长
+- 策略家
+theme_color: '#cabcac'
 ---
 
 # 可检索条目

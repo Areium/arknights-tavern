@@ -1,5 +1,6 @@
 ---
 name: "黎博利"
+summary: "黎博利族拥有鸟类特征，羽翼退化或保留飞行能力，视力极佳，善狙击，向往自由。"
 alias: "Liberi"
 category: humanoid
 rarity: common

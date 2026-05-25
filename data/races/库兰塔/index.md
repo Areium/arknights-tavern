@@ -1,5 +1,6 @@
 ---
 name: "库兰塔"
+summary: "库兰塔是拥有马科特征、耐力出众且务实可靠的种族。"
 alias: "Kuranta"
 category: humanoid
 rarity: common

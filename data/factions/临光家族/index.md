@@ -15,6 +15,7 @@ key_members:
 - 佐菲娅
 leader: []
 name: 临光家族
+summary: "没落骑士家族临光，仅存四人，与商业联合会对立，内部沉默而互信。"
 rivals:
 - 商业联合会
 scale: small

@@ -1,40 +1,43 @@
 ---
-name: 德克萨斯
+attributes:
+  情绪稳定性: 6
+  战场机动: 8
+  战斗技巧: 8
+  战术规划: 7
+  源石技艺适应性: 4
+  物理强度: 6
+  生理耐受: 6
+  魅力: 5
 class: 先锋
-race: 鲁珀
 faction: 罗德岛
+imports:
+- classes/先锋
+- races/鲁珀
+- factions/罗德岛
+- attributes/物理强度
+- attributes/战场机动
+- attributes/生理耐受
+- attributes/战术规划
+- attributes/战斗技巧
+- attributes/源石技艺适应性
+- attributes/情绪稳定性
+- attributes/魅力
+- characters/博士
+name: 德克萨斯
+race: 鲁珀
+relationships:
+  博士: 雇佣关系，逐步建立信任中
+  拉普兰德: 不愿提及的过去，复杂而沉重
+  能天使: 吵嚷的搭档，虽然嫌烦但已习惯
+summary: 德克萨斯是企鹅物流与罗德岛合作的沉默鲁珀族剑士，背负叙拉古家族覆灭的过去。
 tags:
 - 先锋
 - 企鹅物流
 - 佣兵
 - 沉默寡言
-imports:
-  - classes/先锋
-  - races/鲁珀
-  - factions/罗德岛
-  - attributes/物理强度
-  - attributes/战场机动
-  - attributes/生理耐受
-  - attributes/战术规划
-  - attributes/战斗技巧
-  - attributes/源石技艺适应性
-  - attributes/情绪稳定性
-  - attributes/魅力
-  - characters/博士
-attributes:
-  物理强度: 6
-  战场机动: 8
-  生理耐受: 6
-  战术规划: 7
-  战斗技巧: 8
-  源石技艺适应性: 4
-  情绪稳定性: 6
-  魅力: 5
-relationships:
-  博士: 雇佣关系，逐步建立信任中
-  能天使: 吵嚷的搭档，虽然嫌烦但已习惯
-  拉普兰德: 不愿提及的过去，复杂而沉重
+theme_color: '#fde9d5'
 ---
+
 # 角色背景
 
 德克萨斯曾是德克萨斯家族（已覆灭）的成员，后来辗转成为企鹅物流的资深员工，现同时与罗德岛合作。她有着不为人知的过去——她的家族在叙拉古的权力斗争中被灭门，而她是唯一的幸存者。她带着这段沉重的历史来到了龙门，用沉默和刀刃构筑起保护自己的壁垒。

@@ -436,3 +436,23 @@ class CombatSession:
 
         cs.engine = engine
         return cs
+
+
+class CombatTestSessionManager:
+    """管理无会话战斗测试的生命周期，替代 app.py 中的 _test_combats 全局 dict。"""
+
+    def __init__(self):
+        self._sessions: dict[str, CombatSession] = {}
+
+    def create(self, test_id: str, combat: CombatSession) -> None:
+        self._sessions[test_id] = combat
+
+    def get(self, test_id: str) -> CombatSession | None:
+        return self._sessions.get(test_id)
+
+    def remove(self, test_id: str) -> None:
+        self._sessions.pop(test_id, None)
+
+    @property
+    def count(self) -> int:
+        return len(self._sessions)

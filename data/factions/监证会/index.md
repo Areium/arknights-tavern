@@ -1,5 +1,6 @@
 ---
 name: "监证会"
+summary: "监证会是卡西米尔骑士传统的守护者，在资本侵蚀下等待反击时机。"
 alias: "Kazimierz Supervision Council"
 type: organization
 scale: national

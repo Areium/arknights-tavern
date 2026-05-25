@@ -18,6 +18,7 @@ imports:
 - attributes/魅力 | 魅力
 - classes/辅助 | 辅助
 name: 特种
+summary: "特种干员通过位移、潜行、伏击等非常规战术改变战场格局，战术价值超越面板数据。"
 ---
 
 # 特种 / Specialist

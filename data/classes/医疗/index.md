@@ -18,6 +18,7 @@ imports:
 - attributes/生理耐受 | 生理耐受
 - classes/辅助 | 辅助
 name: 医疗
+summary: "医疗干员负责治疗、状态解除和濒死抢救，卡牌系统以源石技艺和情绪稳定性为核心。"
 ---
 
 # 医疗 / Medic

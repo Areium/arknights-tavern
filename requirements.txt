@@ -1,6 +1,6 @@
 Flask
 Flask-Cors
+Pillow
 python-frontmatter
 PyYAML
 chromadb
-readchar

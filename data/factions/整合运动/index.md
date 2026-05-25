@@ -1,5 +1,6 @@
 ---
 name: "整合运动"
+summary: "整合运动是泰拉大陆上以暴力反抗压迫的感染者组织，由塔露拉领导。"
 alias: "Reunion"
 type: rebellion
 scale: national

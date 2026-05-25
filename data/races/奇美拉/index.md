@@ -1,5 +1,6 @@
 ---
 name: "奇美拉"
+summary: "奇美拉是泰拉大陆罕见的混血种族，拥有双种族特征与强大源石天赋，面临身份认同困境。"
 alias: "Chimera"
 category: mixed
 rarity: legendary

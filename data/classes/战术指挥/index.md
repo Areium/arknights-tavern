@@ -1,5 +1,6 @@
 ---
 name: "战术指挥"
+summary: "战术指挥是不直接作战的后方支援角色，通过全局增益和debuff提升队伍战术上限。"
 alias: "Tactical Commander"
 category: "指挥"
 combat_role: "战术指挥/远程支援"

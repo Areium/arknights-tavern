@@ -3,7 +3,7 @@ import { useAppStore } from "../stores/appStore";
 import { useApi } from "../hooks/useApi";
 
 export default function SettingsPanel() {
-  const { llmStatus, theme, toggleTheme, setEditBeforeSend } = useAppStore();
+  const { llmStatus, theme, toggleTheme, setEditBeforeSend, setDialogueBubbleMode } = useAppStore();
   const api = useApi();
   const [switching, setSwitching] = useState<string | null>(null);
 
@@ -18,6 +18,7 @@ export default function SettingsPanel() {
     choice_count: 3,
     memory_interval: 5,
     edit_before_send: false,
+    dialogue_bubble_mode: false,
   });
   const [configLoaded, setConfigLoaded] = useState(false);
   const [configError, setConfigError] = useState("");
@@ -80,6 +81,7 @@ export default function SettingsPanel() {
         choice_count: data.choice_count || 3,
         memory_interval: data.memory_interval || 5,
         edit_before_send: data.edit_before_send ?? false,
+        dialogue_bubble_mode: data.dialogue_bubble_mode ?? false,
       });
       setConfigLoaded(true);
     } catch (err: any) {
@@ -105,8 +107,10 @@ export default function SettingsPanel() {
         choice_count: config.choice_count,
         memory_interval: config.memory_interval,
         edit_before_send: config.edit_before_send,
+        dialogue_bubble_mode: config.dialogue_bubble_mode,
       });
       setEditBeforeSend(config.edit_before_send);
+      setDialogueBubbleMode(config.dialogue_bubble_mode);
       setConfigMsg({ type: "ok", text: "配置已保存" });
     } catch (err: any) {
       setConfigMsg({ type: "err", text: "保存失败: " + err.message });
@@ -447,6 +451,22 @@ export default function SettingsPanel() {
                 </label>
                 <p className="text-xs text-gray-600 mt-0.5 ml-6">
                   开启后点击选项将填入输入框而非直接发送，关闭则立即发送
+                </p>
+              </div>
+              <div className="border-t border-gray-700/50 pt-2 mt-2">
+                <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={config.dialogue_bubble_mode}
+                    onChange={(e) =>
+                      setConfig({ ...config, dialogue_bubble_mode: e.target.checked })
+                    }
+                    className="rounded"
+                  />
+                  对话气泡模式
+                </label>
+                <p className="text-xs text-gray-600 mt-0.5 ml-6">
+                  将角色对话以头像 + 聊天气泡形式展示，叙述文字保持原样
                 </p>
               </div>
             </div>

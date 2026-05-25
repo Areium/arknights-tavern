@@ -1,5 +1,6 @@
 ---
 name: "无胄盟"
+summary: "无胄盟是卡西米尔商业联合会资助的暗杀组织，以效率至上为准则，为钱效力。"
 alias: "Armorless Union"
 type: mercenary
 scale: regional

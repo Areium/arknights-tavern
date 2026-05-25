@@ -1,11 +1,10 @@
 import os
+import json
 import logging
+import re
 
 import frontmatter
 import yaml
-
-import json
-import re
 
 from memory import VectorMemory
 
@@ -17,15 +16,39 @@ _ENV_RULE = """
 示例：<!--env:{"location":"训练室"}-->  |  <!--env:{"weather":"雷暴"}-->  |  <!--env:{"objects":{"平板":{"action":"update","state":{"电量":"低"}}}}-->
 没有变化则不添加。"""
 
+_WIKI_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "wiki_query",
+        "description": (
+            "查询明日方舟世界文档库，获取角色、种族、职业、势力、物品、地点、天气、"
+            "敌人或剧情设定的详细信息。当对话触及'预加载资料'和'延伸参考'未覆盖的细节时使用。"
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "查询关键词：实体名称（如'临光'、'库兰塔'）、文档路径（如'characters/临光'）或简短描述"
+                }
+            },
+            "required": ["query"]
+        }
+    }
+}
+
 
 class CharacterAgent:
-    def __init__(self, character_name, llm, registry=None, overrides: dict = None, entity_whitelist: dict = None):
+    def __init__(self, character_name, llm, registry=None, overrides: dict = None,
+                 entity_whitelist: dict = None, wiki_manager=None, session_context=None):
         self.character_name = character_name
         self.llm = llm
         self.registry = registry
         self.metadata = {}
         self._overrides = overrides or {}
         self._entity_whitelist = entity_whitelist
+        self._wiki_manager = wiki_manager
+        self._session_context = session_context
         self.character = self.load_character(character_name, self._overrides)
         self.memory = VectorMemory(
             character_name=character_name,
@@ -101,7 +124,7 @@ class CharacterAgent:
 
     def chat(self, user_input: str, player_info: dict = None,
              environment_context: str = "", scene_context: str = "",
-             stream_callback=None) -> tuple[str, dict]:
+             stream_callback=None) -> tuple[str, dict, dict | None]:
         """
         与角色进行对话。
 
@@ -112,7 +135,7 @@ class CharacterAgent:
             scene_context: 场景上下文（同场角色、场景动态），由 SceneManager 传入。
 
         Returns:
-            tuple[str, dict]: (角色的回复, 环境更新字典)。
+            tuple[str, dict, dict|None]: (角色的回复, 环境更新字典, token使用量)。
         """
         memory_context = self.memory.build_context(user_input)
 
@@ -121,38 +144,101 @@ class CharacterAgent:
             identity = player_info.get("identity", "博士")
             player_section = f"\n当前玩家身份: {identity}\n"
 
-        # 通过 RegistryManager 注入种族/职业/势力/物品的层级引用
-        registry_context = ""
-        if self.registry and self.metadata:
-            registry_context = self.registry.build_character_context(self.metadata, self._entity_whitelist)
+        # 构建 system prompt 各部分
+        system_parts = [self.character]
 
-        system_content = (
-            self.character
-            + ("\n\n" + registry_context if registry_context else "")
-            + player_section
-            + ("\n" + environment_context if environment_context else "")
-            + ("\n\n" + scene_context if scene_context else "")
-            + "\n" + memory_context
-            + _ENV_RULE
-        )
+        # 优先使用 SessionContext 预加载文档，否则回退到 RegistryManager
+        if self._session_context and self._session_context.preloaded:
+            preloaded_text = self._session_context.format_preloaded()
+            if preloaded_text:
+                system_parts.append(preloaded_text)
+        elif self.registry and self.metadata:
+            registry_context = self.registry.build_character_context(
+                self.metadata, self._entity_whitelist)
+            if registry_context:
+                system_parts.append(registry_context)
+
+        # Wiki 目录摘要（让 LLM 知道可用文档范围）
+        if self._wiki_manager:
+            catalog = self._wiki_manager.format_catalog_summary()
+            if catalog:
+                system_parts.append(catalog)
+
+        if player_section:
+            system_parts.append(player_section)
+        if environment_context:
+            system_parts.append(environment_context)
+        if scene_context:
+            system_parts.append(scene_context)
+        system_parts.append(memory_context)
+        system_parts.append(_ENV_RULE)
+
+        system_content = "\n\n".join(system_parts)
 
         messages = [
             {"role": "system", "content": system_content},
             {"role": "user", "content": user_input},
         ]
 
-        response = self.llm.chat(
-            messages,
-            stream=stream_callback is not None,
-            on_token=stream_callback,
-        )
+        tools = [_WIKI_TOOL] if self._wiki_manager else None
 
-        # 解析环境标记
-        env_updates = self._parse_env_markers(response)
-        clean_response = self._strip_env_markers(response)
+        # 工具调用循环 (max 3 rounds)
+        total_usage = None
+        for _round in range(3):
+            result = self.llm.chat(messages, stream=False, tools=tools)
 
-        self.memory.add(user_input, clean_response)
-        return clean_response, env_updates
+            # Accumulate token usage
+            call_usage = result.get("usage")
+            if call_usage:
+                if total_usage is None:
+                    total_usage = dict(call_usage)
+                else:
+                    for k in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                        total_usage[k] = total_usage.get(k, 0) + call_usage.get(k, 0)
+
+            if result.get("type") == "tool_call":
+                tool_calls = result.get("tool_calls", [])
+                # 追加助手消息（含 tool_calls）
+                assistant_msg: dict = {"role": "assistant", "content": result.get("content") or ""}
+                tc_list = []
+                for tc in tool_calls:
+                    tc_list.append({
+                        "id": tc.get("id", "wiki_0"),
+                        "type": "function",
+                        "function": {"name": tc["name"], "arguments": json.dumps(tc["arguments"], ensure_ascii=False)},
+                    })
+                if tc_list:
+                    assistant_msg["tool_calls"] = tc_list
+                messages.append(assistant_msg)
+
+                # 执行工具调用
+                for tc in tool_calls:
+                    if tc["name"] == "wiki_query":
+                        query_str = tc["arguments"].get("query", "")
+                        logger.info("wiki_query: %s → %s", self.character_name, query_str[:80])
+                        wiki_result = self._wiki_manager.query(query_str)
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc.get("id", "wiki_0"),
+                            "content": wiki_result,
+                        })
+                        if self._session_context:
+                            self._session_context.add_wiki_result(query_str, wiki_result)
+                continue
+
+            # 文本回复
+            response_text = result.get("content", "")
+            if stream_callback and response_text:
+                for ch in response_text:
+                    stream_callback(ch)
+
+            env_updates = self._parse_env_markers(response_text)
+            clean_response = self._strip_env_markers(response_text)
+            self.memory.add(user_input, clean_response)
+            return clean_response, env_updates, total_usage
+
+        # 所有轮次都是 tool_call 的极端情况
+        return "（抱歉，我暂时无法回答这个问题。）", {}, total_usage
 
     @staticmethod
     def _apply_meta_overrides(base: dict, overrides: dict) -> dict:

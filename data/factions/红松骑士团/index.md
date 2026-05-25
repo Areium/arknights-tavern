@@ -1,5 +1,6 @@
 ---
 name: "红松骑士团"
+summary: "红松骑士团是由感染者骑士组成的秘密组织，表面参赛，实际为感染者争取权利。"
 alias: "Pinus Sylvestris Knightclub"
 type: rebellion
 scale: small

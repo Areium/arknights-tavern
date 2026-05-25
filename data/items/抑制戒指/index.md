@@ -1,5 +1,6 @@
 ---
 name: "抑制戒指"
+summary: "一枚抑制阿米娅源石技艺、监测感染并稳定情绪的戒指。"
 alias: "Suppression Ring"
 category: accessory
 rarity: epic

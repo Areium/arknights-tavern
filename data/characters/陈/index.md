@@ -1,37 +1,43 @@
 ---
-name: "陈"
-class: "近卫"
-race: "鲁珀"
-faction: "龙门"
-tags: ["警官", "近卫", "龙门", "感染者"]
-imports:
-  - classes/近卫
-  - races/鲁珀
-  - factions/龙门
-  - attributes/物理强度
-  - attributes/战场机动
-  - attributes/生理耐受
-  - attributes/战术规划
-  - attributes/战斗技巧
-  - attributes/源石技艺适应性
-  - attributes/情绪稳定性
-  - attributes/魅力
-  - characters/博士
-  - characters/阿米娅
 attributes:
-  物理强度: 8
-  战场机动: 9
-  生理耐受: 7
-  战术规划: 7
-  战斗技巧: 9
-  源石技艺适应性: 6
   情绪稳定性: 8
+  战场机动: 9
+  战斗技巧: 9
+  战术规划: 7
+  源石技艺适应性: 6
+  物理强度: 8
+  生理耐受: 7
   魅力: 7
+class: 近卫
+faction: 龙门
+imports:
+- classes/近卫
+- races/鲁珀
+- factions/龙门
+- attributes/物理强度
+- attributes/战场机动
+- attributes/生理耐受
+- attributes/战术规划
+- attributes/战斗技巧
+- attributes/源石技艺适应性
+- attributes/情绪稳定性
+- attributes/魅力
+- characters/博士
+- characters/阿米娅
+name: 陈
+race: 鲁珀
 relationships:
-  "博士": "信任的战友，虽表面冷淡但认可其战术能力"
-  "魏彦吾": "疏远的舅舅，带有复杂的情感纠葛"
-  "星熊": "并肩作战的挚友与下属"
-  "阿米娅": "尊重其理念，愿意在感染者问题上合作"
+  博士: 信任的战友，虽表面冷淡但认可其战术能力
+  星熊: 并肩作战的挚友与下属
+  阿米娅: 尊重其理念，愿意在感染者问题上合作
+  魏彦吾: 疏远的舅舅，带有复杂的情感纠葛
+summary: 一名龙门近卫局龙族女警官，性格刚正不阿，外冷内热，与罗德岛合作。
+tags:
+- 警官
+- 近卫
+- 龙门
+- 感染者
+theme_color: '#5c64a7'
 ---
 
 # 可检索条目

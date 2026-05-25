@@ -1,6 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useAppStore } from "../stores/appStore";
 import { useApi, createSSE } from "../hooks/useApi";
+import { parseDialogue } from "../utils/dialogueParser";
+import DialogueBubble from "./chat/DialogueBubble";
+import NarrationText from "./chat/NarrationText";
+import LoadingIndicator from "./chat/LoadingIndicator";
+import TokenUsage from "./chat/TokenUsage";
 
 interface Message {
   role: "user" | "assistant" | "character" | "system" | "narrator";
@@ -10,6 +15,8 @@ interface Message {
   round?: number;
   variants?: string[];
   variantIndex?: number;
+  dialogueSegments?: { type: string; text: string; speaker?: string }[];
+  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
 }
 
 function filterSceneLog(log: string[]): string[] {
@@ -21,9 +28,35 @@ function filterSceneLog(log: string[]): string[] {
 }
 
 export default function ChatPanel() {
-  const { activeSessionId, chatMode, sessions, triggerEnvRefresh, triggerMemoryRefresh, chatRefreshKey, editBeforeSend, sceneSwitchKey } = useAppStore();
+  const { activeSessionId, chatMode, sessions, triggerEnvRefresh, triggerMemoryRefresh, chatRefreshKey, characterRefreshKey, editBeforeSend, sceneSwitchKey, dialogueBubbleMode } = useAppStore();
   const activeMode = sessions.find((s) => s.id === activeSessionId)?.mode || "free";
+
+  const sceneCharacters: string[] = (() => {
+    const session = sessions.find((s) => s.id === activeSessionId);
+    if (!session || !session.characters) return [];
+    return session.characters.map((c: any) =>
+      typeof c === "string" ? c : c.name || c.id || ""
+    );
+  })();
+
+  const [characterColors, setCharacterColors] = useState<Record<string, string>>({});
+
   const api = useApi();
+
+  // Fetch character colors from backend whenever session/scene changes
+  useEffect(() => {
+    if (!activeSessionId) {
+      setCharacterColors({});
+      return;
+    }
+    let cancelled = false;
+    api.getSceneCharacters(activeSessionId).then((data: any) => {
+      if (!cancelled && data.character_colors) {
+        setCharacterColors(data.character_colors);
+      }
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [activeSessionId, characterRefreshKey, chatRefreshKey, api]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -36,10 +69,29 @@ export default function ChatPanel() {
   const [regenerationPrompt, setRegenerationPrompt] = useState("");
   const abortRef = useRef<(() => void) | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const waitStartRef = useRef<number>(0);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streaming]);
+
+  // Wait time counter: tick every second while sending or streaming
+  useEffect(() => {
+    if (sending || streaming) {
+      if (!waitStartRef.current) waitStartRef.current = Date.now();
+      setElapsedSeconds(0);
+      const timer = setInterval(() => {
+        setElapsedSeconds(
+          Math.round((Date.now() - waitStartRef.current) / 1000)
+        );
+      }, 250);
+      return () => clearInterval(timer);
+    } else {
+      waitStartRef.current = 0;
+      setElapsedSeconds(0);
+    }
+  }, [sending, streaming]);
 
   const storageKey = activeSessionId ? `ark_chat_${activeMode}_${activeSessionId}` : null;
 
@@ -198,7 +250,6 @@ export default function ChatPanel() {
       return;
     }
 
-    // 回退到编辑消息所在轮次之前
     const rollbackTo = targetRound ? targetRound - 1 : 0;
     try {
       if (rollbackTo >= 0) {
@@ -207,7 +258,7 @@ export default function ChatPanel() {
         triggerMemoryRefresh();
       }
 
-      // 截断消息列表
+      // 截断消息列表，添加用户编辑后的消息
       setMessages((prev) => {
         const keep = prev.slice(0, editingIdx);
         return [...keep, { role: "user", content: edited, round: rollbackTo + 1 }];
@@ -216,20 +267,12 @@ export default function ChatPanel() {
       setEditingIdx(null);
       setEditText("");
 
-      // 用编辑后的输入继续推进
-      setStreaming(true);
-      const data = await api.narrateContinue(activeSessionId, "博士", edited);
-      const newMsgs: Message[] = [];
-      const newRound = rollbackTo + 1;
-      if (data.narrative) {
-        newMsgs.push({ role: "narrator", content: data.narrative, round: newRound, variants: [data.narrative], variantIndex: 0 });
-      }
-      if (data.choices) {
-        newMsgs.push({ role: "system", content: "— 请选择 —", choices: data.choices, round: newRound });
-      }
-      setMessages((prev) => [...prev, ...newMsgs]);
-      setNarrationCount(newRound);
-      setStreaming(false);
+      // SSE 流式生成编辑后的叙述（newRound = rollbackTo + 1）
+      triggerNarrate(
+        activeSessionId, setMessages, setStreaming, abortRef,
+        triggerEnvRefresh, triggerMemoryRefresh, setNarrationCount,
+        rollbackTo, edited,
+      );
     } catch (err: any) {
       alert("编辑失败: " + (err.message || "未知错误"));
       setStreaming(false);
@@ -241,50 +284,34 @@ export default function ChatPanel() {
   const performSend = useCallback(
     async (text: string) => {
       if (!activeSessionId) return;
+
+      // Story mode: use SSE streaming for progressive token display
+      if (chatMode === "story") {
+        triggerNarrate(
+          activeSessionId, setMessages, setStreaming, abortRef,
+          triggerEnvRefresh, triggerMemoryRefresh, setNarrationCount, narrationCount,
+          text, setSending,
+        );
+        return;
+      }
+
+      // Free mode: blocking POST (group chat)
       setStreaming(true);
-
       try {
-        if (chatMode === "free") {
-          const res = await api.groupChat(activeSessionId, text);
-          const items: any[] = res.responses || res;
-          const responses: Message[] = items.map((r: any) => ({
-            role: "character",
-            content: r.response,
-            character: r.character,
-          }));
-          setMessages((prev) => {
-            if (responses.length === 0) {
-              return [...prev, { role: "system", content: "（没有角色回复 — 请先在右侧面板加载角色）" }];
-            }
-            return [...prev, ...responses];
-          });
-        } else {
-          const curRound = narrationCount;
-          const newRound = curRound + 1;
-          setNarrationCount(newRound);
-
-          const data = await api.narrateContinue(activeSessionId, "博士", text);
-          const newMsgs: Message[] = [];
-
-          if (data.narrative) {
-            newMsgs.push({ role: "narrator", content: data.narrative, round: newRound, variants: [data.narrative], variantIndex: 0 });
+        const res = await api.groupChat(activeSessionId, text);
+        const items: any[] = res.responses || res;
+        const responses: Message[] = items.map((r: any) => ({
+          role: "character",
+          content: r.response,
+          character: r.character,
+          usage: r.usage,
+        }));
+        setMessages((prev) => {
+          if (responses.length === 0) {
+            return [...prev, { role: "system", content: "（没有角色回复 — 请先在右侧面板加载角色）" }];
           }
-          if (data.env_updates && Object.keys(data.env_updates).length > 0) {
-            const changes = Object.entries(data.env_updates)
-              .filter(([, v]) => v)
-              .map(([k, v]) => `${k}: ${v}`)
-              .join(" · ");
-            newMsgs.push({ role: "system", content: `【环境更新】${changes}`, round: newRound });
-          }
-          const defaultChoices = data.choices || (() => {
-            const opts = ["继续推进剧情"];
-            if (data.active_character) opts.push(`对${data.active_character}说话`);
-            return opts;
-          })();
-          newMsgs.push({ role: "system", content: "— 请选择 —", choices: defaultChoices, round: newRound });
-
-          setMessages((prev) => [...prev, ...newMsgs]);
-        }
+          return [...prev, ...responses];
+        });
       } catch (err: any) {
         setMessages((prev) => [...prev, { role: "system", content: `请求失败: ${err.message}` }]);
       } finally {
@@ -292,7 +319,7 @@ export default function ChatPanel() {
         setStreaming(false);
       }
     },
-    [activeSessionId, chatMode, api, narrationCount]
+    [activeSessionId, chatMode, api, narrationCount, triggerEnvRefresh, triggerMemoryRefresh]
   );
 
   const handleSend = useCallback(() => {
@@ -340,7 +367,7 @@ export default function ChatPanel() {
       if (!msg.variants || (msg.variantIndex ?? 0) <= 0) return prev;
       const newIdx = (msg.variantIndex ?? 0) - 1;
       const narrative = msg.variants[newIdx];
-      const updated = { ...msg, content: narrative, variantIndex: newIdx };
+      const updated = { ...msg, content: narrative, variantIndex: newIdx, dialogueSegments: undefined };
       syncVariantToBackend(msg.round, narrative);
       return [...prev.slice(0, idx), updated, ...prev.slice(idx + 1)];
     });
@@ -354,7 +381,7 @@ export default function ChatPanel() {
       if (curIdx < msg.variants.length - 1) {
         const newIdx = curIdx + 1;
         const narrative = msg.variants[newIdx];
-        const updated = { ...msg, content: narrative, variantIndex: newIdx };
+        const updated = { ...msg, content: narrative, variantIndex: newIdx, dialogueSegments: undefined };
         syncVariantToBackend(msg.round, narrative);
         return [...prev.slice(0, idx), updated, ...prev.slice(idx + 1)];
       }
@@ -395,6 +422,8 @@ export default function ChatPanel() {
           content: newNarrative,
           variants: [...variants, newNarrative],
           variantIndex: newIdx,
+          dialogueSegments: data.dialogue_segments || msg.dialogueSegments,
+          usage: data.usage || msg.usage,
         };
         // Sync selected variant to backend
         api.narrateUpdate(activeSessionId, regeneratingRound, newNarrative).catch(() => {});
@@ -443,7 +472,50 @@ export default function ChatPanel() {
 
   const showEmptyState = messages.length === 0 && !initialLoading;
 
+  const isWaitingForLLM =
+    (sending || streaming) &&
+    !(streaming && messages.length > 0 && messages[messages.length - 1].role === "narrator");
+
   // ── Render ──
+
+  function renderMessageContent(msg: Message): React.ReactNode {
+    if (!dialogueBubbleMode) {
+      return <div className="whitespace-pre-wrap">{msg.content}</div>;
+    }
+
+    const applyBubbles = msg.role === "character" || msg.role === "narrator";
+    if (!applyBubbles || !msg.content) {
+      return <div className="whitespace-pre-wrap">{msg.content || ""}</div>;
+    }
+
+    // Prefer backend-provided segments, fall back to frontend parser
+    let segments = msg.dialogueSegments;
+    if (!segments || segments.length === 0) {
+      segments = parseDialogue(msg.content, msg.character, sceneCharacters);
+    }
+    const hasDialogue = segments.some((s) => s.type === "dialogue");
+    if (!hasDialogue) {
+      return <div className="whitespace-pre-wrap">{msg.content}</div>;
+    }
+
+    return (
+      <div>
+        {segments.map((seg, si) => {
+          if (seg.type === "narration" || !seg.speaker) {
+            return <NarrationText key={si} text={seg.text} />;
+          }
+          return (
+            <DialogueBubble
+              key={si}
+              text={seg.text}
+              speaker={seg.speaker}
+              color={characterColors[seg.speaker]}
+            />
+          );
+        })}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -513,9 +585,13 @@ export default function ChatPanel() {
                     msg.role === "user"
                       ? "bg-blue-600 text-white"
                       : msg.role === "character"
-                        ? "bg-purple-800/50 border border-purple-700/30"
+                        ? dialogueBubbleMode
+                          ? "bg-transparent border-0 p-0 max-w-[95%]"
+                          : "bg-purple-800/50 border border-purple-700/30"
                         : msg.role === "narrator"
-                          ? "bg-amber-900/30 border border-amber-700/20 italic text-amber-100"
+                          ? dialogueBubbleMode
+                            ? "bg-transparent border-0 p-0 max-w-[95%]"
+                            : "bg-amber-900/30 border border-amber-700/20 italic text-amber-100"
                           : msg.role === "system" && msg.choices
                             ? "bg-transparent border-0 p-0"
                             : msg.role === "system"
@@ -523,7 +599,7 @@ export default function ChatPanel() {
                               : "bg-gray-800 border border-gray-700"
                   }`}
                 >
-                  {msg.character && (
+                  {msg.character && !dialogueBubbleMode && (
                     <div className="text-xs font-bold text-purple-300 mb-1">{msg.character}</div>
                   )}
 
@@ -543,9 +619,7 @@ export default function ChatPanel() {
                     </div>
                   ) : (
                     <>
-                      {msg.content && (
-                        <div className="whitespace-pre-wrap">{msg.content}</div>
-                      )}
+                      {msg.content && renderMessageContent(msg)}
 
                       {/* Variant navigation (narrator messages in story mode) */}
                       {msg.role === "narrator" && chatMode === "story" && !streaming && msg.variants && (
@@ -658,6 +732,9 @@ export default function ChatPanel() {
                       )}
 
                       {/* Round badge */}
+                      {msg.usage && (msg.role === "narrator" || msg.role === "character") && (
+                        <TokenUsage usage={msg.usage} />
+                      )}
                       {msg.round != null && (
                         <div className={`text-[10px] mt-1 opacity-40 ${
                           msg.role === "user" ? "text-right text-blue-200" : "text-gray-500"
@@ -672,6 +749,9 @@ export default function ChatPanel() {
             </div>
           );
         })}
+        {isWaitingForLLM && (
+          <LoadingIndicator elapsedSeconds={elapsedSeconds} />
+        )}
         <div ref={bottomRef} />
       </div>
 
@@ -719,6 +799,8 @@ function triggerNarrate(
   triggerMemoryRefresh: () => void,
   setNarrationCount: React.Dispatch<React.SetStateAction<number>>,
   curCount: number,
+  action?: string,
+  setSending?: (v: boolean) => void,
 ) {
   if (!sessionId) return;
   abortRef.current?.();
@@ -728,9 +810,11 @@ function triggerNarrate(
   const newRound = curCount + 1;
   setNarrationCount(newRound);
 
-  const sse = createSSE(
-    `/api/sessions/${sessionId}/narrate?identity=${encodeURIComponent("博士")}`,
-    {
+  const url = action
+    ? `/api/sessions/${sessionId}/narrate?identity=${encodeURIComponent("博士")}&action=${encodeURIComponent(action)}`
+    : `/api/sessions/${sessionId}/narrate?identity=${encodeURIComponent("博士")}`;
+
+  const sse = createSSE(url, {
       onText: (token: string) => {
         accumulated += token;
         setMessages((prev) => {
@@ -749,12 +833,32 @@ function triggerNarrate(
           { role: "system", content: "— 请选择 —", choices: options, round: newRound },
         ]);
       },
+      onDialogueSegments: (segments) => {
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (last?.role === "narrator" && last.round === newRound) {
+            return [...prev.slice(0, -1), { ...last, dialogueSegments: segments }];
+          }
+          return prev;
+        });
+      },
+      onTokenUsage: (usage) => {
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (last?.role === "narrator" && last.round === newRound) {
+            return [...prev.slice(0, -1), { ...last, usage }];
+          }
+          return prev;
+        });
+      },
       onError: (msg: string) => {
         setStreaming(false);
+        setSending?.(false);
         setMessages((prev) => [...prev, { role: "system", content: `错误: ${msg}` }]);
       },
       onDone: () => {
         setStreaming(false);
+        setSending?.(false);
         setMessages((prev) => {
           const last = prev[prev.length - 1];
           if (last?.role === "narrator" && last.round === newRound) {

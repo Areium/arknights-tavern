@@ -4,6 +4,7 @@
 # ==============================================================================
 encounter_id: "enc_template"
 name: "遭遇名称"
+summary: ""
 category: "story"
 difficulty: 2
 grid_size: 7

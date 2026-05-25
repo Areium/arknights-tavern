@@ -10,7 +10,7 @@ import SettingsPanel from "./components/SettingsPanel";
 import IndexManager from "./components/IndexManager";
 
 export default function App() {
-  const { currentView, setBackendStatus, setLLMStatus, setSessions, theme, setTheme, setEditBeforeSend } =
+  const { currentView, setBackendStatus, setLLMStatus, setSessions, theme, setTheme, setEditBeforeSend, setDialogueBubbleMode } =
     useAppStore();
   const api = useApi();
 
@@ -24,6 +24,9 @@ export default function App() {
         }
         if (typeof config.edit_before_send === "boolean") {
           setEditBeforeSend(config.edit_before_send);
+        }
+        if (typeof config.dialogue_bubble_mode === "boolean") {
+          setDialogueBubbleMode(config.dialogue_bubble_mode);
         }
       } catch {
         // 后端不可用时使用默认深色主题

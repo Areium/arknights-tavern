@@ -1,5 +1,6 @@
 ---
 name: "莱茵生命"
+summary: "莱茵生命是泰拉知名的尖端科研机构，研究领域广泛且内部存在竞争。"
 alias: "Rhine Lab"
 type: research
 scale: national

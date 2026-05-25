@@ -3,6 +3,7 @@ alias: Ursus
 category: humanoid
 lifespan: 80-100年
 name: 乌萨斯
+summary: "乌萨斯种族体格强壮、耐寒，性格直接务实，兼具军事文化与文学传统。"
 origin_region: 乌萨斯帝国
 physical_traits:
 - 熊耳

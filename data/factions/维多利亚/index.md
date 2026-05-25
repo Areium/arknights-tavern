@@ -1,5 +1,6 @@
 ---
 name: "维多利亚"
+summary: "泰拉最发达的工业国家，正经历王室衰落与政治动荡。"
 alias: "Victoria"
 type: nation
 scale: global

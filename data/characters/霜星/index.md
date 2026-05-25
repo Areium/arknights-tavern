@@ -1,36 +1,42 @@
 ---
-name: "霜星"
-class: "术师"
-race: "卡特斯"
-faction: "整合运动"
-tags: ["整合运动", "术师", "感染者", "雪怪小队"]
-imports:
-  - classes/术师
-  - races/卡特斯
-  - factions/整合运动
-  - attributes/物理强度
-  - attributes/战场机动
-  - attributes/生理耐受
-  - attributes/战术规划
-  - attributes/战斗技巧
-  - attributes/源石技艺适应性
-  - attributes/情绪稳定性
-  - attributes/魅力
-  - characters/博士
 attributes:
-  物理强度: 4
-  战场机动: 5
-  生理耐受: 5
-  战术规划: 7
-  战斗技巧: 6
-  源石技艺适应性: 9
   情绪稳定性: 7
+  战场机动: 5
+  战斗技巧: 6
+  战术规划: 7
+  源石技艺适应性: 9
+  物理强度: 4
+  生理耐受: 5
   魅力: 8
+class: 术师
+faction: 整合运动
+imports:
+- classes/术师
+- races/卡特斯
+- factions/整合运动
+- attributes/物理强度
+- attributes/战场机动
+- attributes/生理耐受
+- attributes/战术规划
+- attributes/战斗技巧
+- attributes/源石技艺适应性
+- attributes/情绪稳定性
+- attributes/魅力
+- characters/博士
+name: 霜星
+race: 卡特斯
 relationships:
-  "博士": "战场上相识的对手，逐渐理解的陌生人"
-  "塔露拉": "曾经追随的理想，如今质疑的对象"
-  "爱国者": "如同父亲般的存在，最敬重的人"
-  "雪怪小队成员": "用自己的方式守护的家人"
+  博士: 战场上相识的对手，逐渐理解的陌生人
+  塔露拉: 曾经追随的理想，如今质疑的对象
+  爱国者: 如同父亲般的存在，最敬重的人
+  雪怪小队成员: 用自己的方式守护的家人
+summary: 整合运动干部霜星，卡特斯感染者，雪怪小队指挥官，内心矛盾而冷酷。
+tags:
+- 整合运动
+- 术师
+- 感染者
+- 雪怪小队
+theme_color: '#a09680'
 ---
 
 # 可检索条目

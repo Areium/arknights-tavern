@@ -15,10 +15,12 @@ from pathlib import Path
 from typing import Optional
 
 from SceneManager import SceneManager
+from avatar_color import get_theme_color
 from environment_state import EnvironmentState
-from registry_manager import RegistryManager
+from wiki_manager import WikiManager
 from llm_backend_manager import LLMBackendManager
 from session_overlay import SessionOverlay
+from session_context import SessionContext
 
 logger = logging.getLogger(__name__)
 
@@ -26,13 +28,13 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _SESSIONS_DIR = _PROJECT_ROOT / "data" / "memory" / "sessions"
 
 # Shared registry — all sessions share the same entity index
-_registry: Optional[RegistryManager] = None
+_registry: Optional[WikiManager] = None
 
 
-def _get_registry() -> RegistryManager:
+def _get_registry() -> WikiManager:
     global _registry
     if _registry is None:
-        _registry = RegistryManager()
+        _registry = WikiManager()
         _registry.validate()
     return _registry
 
@@ -41,7 +43,7 @@ class Session:
     """一个独立的对话会话。"""
 
     def __init__(self, session_id: str, llm_backend_manager: LLMBackendManager,
-                 name: str = "", mode: str = "free"):
+                 name: str = "", mode: str = "free", wiki_manager=None):
         self.id = session_id
         mode_label = "剧情" if mode == "story" else "自由"
         self.name = name or f"{mode_label}对话"
@@ -55,9 +57,16 @@ class Session:
         # 共享组件
         self.registry = _get_registry()
 
+        # Wiki 文档上下文
+        self._wiki_manager = wiki_manager
+        self.wiki_context = SessionContext()
+
         # LLM 延迟检测 — 首次 get_llm() 调用时才探测后端
         self._llm = None
-        self.scene_manager = SceneManager(self._llm, self.registry, overlay=self.overlay)
+        self.scene_manager = SceneManager(
+            self._llm, self.registry, overlay=self.overlay,
+            wiki_manager=wiki_manager, session_context=self.wiki_context,
+        )
         self.environment = EnvironmentState()
         self.environment.load_default()
 
@@ -189,23 +198,24 @@ class Session:
                 {"role": "system", "content": "你是一个专业的剧情编辑，负责为TRPG游戏记录详尽的剧情摘要。需要包含关键情节转折、角色互动和重要事件。只输出JSON，不要有其他内容。"},
                 {"role": "user", "content": prompt},
             ], stream=False)
+            response_text = response.get("content", "") if isinstance(response, dict) else str(response)
         except Exception as e:
             logger.warning("生成回忆失败 (LLM 调用): %s", e)
             return None
 
         import re
-        match = re.search(r'\{[^{}]*"title"\s*:\s*"[^"]*"\s*,\s*"summary"\s*:\s*"[^"]*"\s*\}', response, re.DOTALL)
+        match = re.search(r'\{[^{}]*"title"\s*:\s*"[^"]*"\s*,\s*"summary"\s*:\s*"[^"]*"\s*\}', response_text, re.DOTALL)
         if not match:
-            match = re.search(r'\{.*"title".*"summary".*\}', response, re.DOTALL)
+            match = re.search(r'\{.*"title".*"summary".*\}', response_text, re.DOTALL)
 
         if match:
             try:
                 result = json.loads(match.group())
             except json.JSONDecodeError:
-                logger.warning("生成回忆失败 (JSON 解析): %s", response[:200])
+                logger.warning("生成回忆失败 (JSON 解析): %s", response_text[:200])
                 return None
         else:
-            logger.warning("生成回忆失败 (无 JSON): %s", response[:200])
+            logger.warning("生成回忆失败 (无 JSON): %s", response_text[:200])
             return None
 
         title = result.get("title", "").strip()
@@ -268,11 +278,12 @@ class Session:
                     {"role": "system", "content": "你是一个专业的剧情编辑，负责为TRPG游戏记录详尽的剧情摘要。需要包含关键情节转折、角色互动和重要事件。只输出JSON，不要有其他内容。"},
                     {"role": "user", "content": prompt},
                 ], stream=False)
+                response_text = response.get("content", "") if isinstance(response, dict) else str(response)
 
                 import re
-                match = re.search(r'\{[^{}]*"title"\s*:\s*"[^"]*"\s*,\s*"summary"\s*:\s*"[^"]*"\s*\}', response, re.DOTALL)
+                match = re.search(r'\{[^{}]*"title"\s*:\s*"[^"]*"\s*,\s*"summary"\s*:\s*"[^"]*"\s*\}', response_text, re.DOTALL)
                 if not match:
-                    match = re.search(r'\{.*"title".*"summary".*\}', response, re.DOTALL)
+                    match = re.search(r'\{.*"title".*"summary".*\}', response_text, re.DOTALL)
 
                 title = ""
                 summary = ""
@@ -376,6 +387,11 @@ class Session:
             "created_at": self.created_at,
             "usable": self.is_usable,
             "characters": self.scene_manager.get_scene_characters(),
+            "character_colors": {
+                name: c
+                for name in self.scene_manager.get_scene_characters()
+                if (c := get_theme_color(name))
+            },
             "active_character": self.scene_manager.active,
             "items": self.scene_manager.get_scene_items(),
             "environment": {
@@ -397,8 +413,9 @@ class Session:
 class SessionManager:
     """管理多个并行会话。"""
 
-    def __init__(self, llm_backend_manager: LLMBackendManager):
+    def __init__(self, llm_backend_manager: LLMBackendManager, wiki_manager=None):
         self._llm_backend = llm_backend_manager
+        self._wiki_manager = wiki_manager
         self._sessions: dict[str, Session] = {}
         self._lock = threading.Lock()
         self._next_id = 0
@@ -422,7 +439,8 @@ class SessionManager:
             while name in existing:
                 counter += 1
                 name = f"{base}·{counter}"
-        session = Session(session_id, self._llm_backend, name=name, mode=mode)
+        session = Session(session_id, self._llm_backend, name=name, mode=mode,
+                         wiki_manager=self._wiki_manager)
         with self._lock:
             self._sessions[session_id] = session
         self._save_session_meta(session)
@@ -471,7 +489,8 @@ class SessionManager:
 
         for sid, mode, name, created_at in to_restore:
             try:
-                session = Session(sid, self._llm_backend, name=name, mode=mode)
+                session = Session(sid, self._llm_backend, name=name, mode=mode,
+                                 wiki_manager=self._wiki_manager)
                 session.created_at = created_at
                 self._sessions[sid] = session
 

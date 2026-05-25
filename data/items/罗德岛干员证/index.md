@@ -1,5 +1,6 @@
 ---
 name: "罗德岛干员证"
+summary: "罗德岛干员证是干员身份证明，兼具通行、消费与紧急定位功能。"
 alias: "Operator ID Card"
 category: key_item
 rarity: common

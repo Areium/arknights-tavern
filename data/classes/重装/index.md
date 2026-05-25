@@ -19,6 +19,7 @@ imports:
 - attributes/魅力 | 魅力
 - classes/辅助 | 辅助
 name: 重装
+summary: "重装干员是防线核心，负责吸收伤害、保护队友，具备多种防御和治疗能力。"
 ---
 
 # 重装 / Defender

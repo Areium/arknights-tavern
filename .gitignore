@@ -10,3 +10,4 @@ venv/
 CLAUDE.md
 .DS_Store
 .dev-pids
+assets/

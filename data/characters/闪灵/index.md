@@ -1,36 +1,42 @@
 ---
-name: "闪灵"
-class: "医疗"
-race: "萨卡兹"
-faction: "罗德岛"
-tags: ["医生", "萨卡兹", "赦罪师", "神秘"]
-imports:
-  - classes/医疗
-  - races/萨卡兹
-  - factions/罗德岛
-  - attributes/物理强度
-  - attributes/战场机动
-  - attributes/生理耐受
-  - attributes/战术规划
-  - attributes/战斗技巧
-  - attributes/源石技艺适应性
-  - attributes/情绪稳定性
-  - attributes/魅力
-  - characters/博士
-  - characters/临光
 attributes:
-  物理强度: 5
-  战场机动: 6
-  生理耐受: 6
-  战术规划: 9
-  战斗技巧: 7
-  源石技艺适应性: 9
   情绪稳定性: 9
+  战场机动: 6
+  战斗技巧: 7
+  战术规划: 9
+  源石技艺适应性: 9
+  物理强度: 5
+  生理耐受: 6
   魅力: 8
+class: 医疗
+faction: 罗德岛
+imports:
+- classes/医疗
+- races/萨卡兹
+- factions/罗德岛
+- attributes/物理强度
+- attributes/战场机动
+- attributes/生理耐受
+- attributes/战术规划
+- attributes/战斗技巧
+- attributes/源石技艺适应性
+- attributes/情绪稳定性
+- attributes/魅力
+- characters/博士
+- characters/临光
+name: 闪灵
+race: 萨卡兹
 relationships:
-  "博士": "保持礼貌距离的同事关系，暗自观察中"
-  "临光": "结伴而行的战友，相互信任和保护"
-  "夜莺": "守护的对象，也是她留在罗德岛的重要原因"
+  临光: 结伴而行的战友，相互信任和保护
+  博士: 保持礼貌距离的同事关系，暗自观察中
+  夜莺: 守护的对象，也是她留在罗德岛的重要原因
+summary: 闪灵是罗德岛医疗干员，萨卡兹赦罪师出身，医术精湛，温柔而神秘。
+tags:
+- 医生
+- 萨卡兹
+- 赦罪师
+- 神秘
+theme_color: '#846c61'
 ---
 
 # 可检索条目

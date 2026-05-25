@@ -1,5 +1,6 @@
 ---
 name: "商业联合会"
+summary: "卡西米尔的实际统治者，由资本巨头组成，控制骑士竞技与城市命脉。"
 alias: "Kazimierz General Chamber of Commerce (KGCC)"
 type: organization
 scale: national

@@ -17,6 +17,7 @@ imports:
 - classes/辅助 | 辅助
 - classes/重装 | 重装
 name: 狙击
+summary: "狙击干员是远程物理输出核心，擅长精确打击空中单位和远程压制。"
 ---
 
 # 狙击 / Sniper

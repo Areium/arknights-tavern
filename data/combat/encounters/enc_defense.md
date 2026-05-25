@@ -1,6 +1,7 @@
 ---
 encounter_id: "enc_defense"
 name: "坚守阵地"
+summary: "战斗中的坚守阵地，强调防御与不屈意志。"
 category: "test"
 difficulty: 4
 grid_size: 7

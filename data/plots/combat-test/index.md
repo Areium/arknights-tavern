@@ -1,6 +1,7 @@
 ---
 plot_id: "combat_test"
 name: "战斗测试"
+summary: "快速测试战术战斗系统，含角色与随机敌人池对战。"
 category: "test"
 characters:
   - "阿米娅"

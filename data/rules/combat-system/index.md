@@ -1,4 +1,6 @@
 ---
+summary: "本文档定义了战斗系统的战术与叙事双模式，以及角色与敌人的数值公式和回合规则。"
+
 type: system
 scope: all_plots
 version: "2.0"

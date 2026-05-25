@@ -19,6 +19,7 @@ imports:
 - classes/辅助 | 辅助
 - classes/重装 | 重装
 name: 先锋
+summary: "先锋干员是战场先头部队，负责快速部署、回复费用并掌控战斗节奏。"
 ---
 
 # 先锋 / Vanguard

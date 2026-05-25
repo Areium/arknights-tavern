@@ -1,4 +1,6 @@
 ---
+summary: "文档定义了负面效果系统的分类、触发条件、效果及清除方式。"
+
 type: "system"
 scope: "all_plots"
 ---

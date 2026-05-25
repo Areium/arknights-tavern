@@ -15,6 +15,7 @@ imports:
 - attributes/生理耐受 | 生理耐受
 - classes/辅助 | 辅助
 name: 术师
+summary: "术师是远程法术输出核心，擅长破防，子职业多样，拥有源石技艺通用卡牌池。"
 ---
 
 # 术师 / Caster

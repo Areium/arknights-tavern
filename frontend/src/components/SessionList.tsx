@@ -4,7 +4,7 @@ import { useApi } from "../hooks/useApi";
 import type { PlotInfo } from "../types";
 
 export default function SessionList() {
-  const { sessions, activeSessionId, chatMode, setSessions, setActiveSession, setCurrentView, setIndexSessionId } =
+  const { sessions, activeSessionId, chatMode, backend, setSessions, setActiveSession, setCurrentView, setIndexSessionId } =
     useAppStore();
   const api = useApi();
   const [creating, setCreating] = useState(false);
@@ -15,13 +15,39 @@ export default function SessionList() {
 
   // 剧情选择相关
   const [plots, setPlots] = useState<PlotInfo[]>([]);
+  const [plotsLoading, setPlotsLoading] = useState(false);
+  const [plotsError, setPlotsError] = useState(false);
   const [showPlotPicker, setShowPlotPicker] = useState(false);
 
-  // 加载可用剧情列表（仅在剧情模式时）
+  // 加载可用剧情列表（仅在剧情模式时，后端就绪后重试）
   useEffect(() => {
-    if (chatMode !== "story") return;
-    api.listPlots().then(setPlots).catch(() => {});
-  }, [chatMode]);
+    if (chatMode !== "story") {
+      setPlots([]);
+      setPlotsLoading(false);
+      setPlotsError(false);
+      return;
+    }
+    if (backend.status !== "connected") return;
+    let cancelled = false;
+    setPlotsLoading(true);
+    api.listPlots()
+      .then((data) => {
+        if (!cancelled) {
+          setPlots(data);
+          setPlotsError(false);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          console.error("加载剧情列表失败:", err);
+          setPlotsError(true);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setPlotsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [chatMode, backend.status, api]);
 
   // 按当前模式过滤会话
   const filteredSessions = useMemo(
@@ -99,11 +125,22 @@ export default function SessionList() {
   };
 
   const handleNewClick = () => {
-    if (chatMode === "story" && plots.length > 0) {
-      setShowPlotPicker(true);
-    } else {
-      handleCreate("");
+    if (chatMode === "story") {
+      if (plotsLoading) return;
+      if (plots.length > 0) {
+        setShowPlotPicker(true);
+        return;
+      }
+      if (plotsError) {
+        setPlotsError(false);
+        api.listPlots().then(setPlots).catch((err) => {
+          console.error("加载剧情列表失败:", err);
+          setPlotsError(true);
+        });
+        return;
+      }
     }
+    handleCreate("");
   };
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
@@ -181,10 +218,10 @@ export default function SessionList() {
           )}
           <button
             onClick={handleNewClick}
-            disabled={creating}
+            disabled={creating || (chatMode === "story" && plotsLoading)}
             className="btn-primary text-xs px-3 py-1"
           >
-            {creating ? "创建中..." : "+ 新建"}
+            {creating ? "创建中..." : chatMode === "story" && plotsLoading ? "加载中..." : chatMode === "story" && plotsError ? "重试加载剧情" : "+ 新建"}
           </button>
         </div>
       </div>

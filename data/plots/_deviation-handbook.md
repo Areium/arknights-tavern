@@ -1,4 +1,6 @@
 ---
+summary: "本文档规定了玩家自由输入偏离预设时的三层处理优先级及判定流程。"
+
 type: "system"
 scope: "all_plots"
 ---

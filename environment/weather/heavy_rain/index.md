@@ -1,9 +1,13 @@
 ---
+
+summary: "大雨天气的详细特征描述及其对角色、环境、战斗和剧情的多重影响。"
+name: "大雨"
 # ==============================================================================
 # 大雨天气配置 (Heavy Rain Weather Configuration)
 # ==============================================================================
 weather_type:
   name: 大雨
+  summary: "大雨天气对游戏机制、角色状态、探索和战斗造成全面负面影响，同时触发特殊事件与环境互动。"
   id: heavy_rain
   probability: 10
   icon: "🌧️"
@@ -58,6 +62,7 @@ visual:
   contrast: 60
   rain_intensity: "heavy"
   water_effects: "puddles_streams"
+
 ---
 
 # 🌧️ 大雨 (Heavy Rain)

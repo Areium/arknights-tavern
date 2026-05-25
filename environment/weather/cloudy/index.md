@@ -1,9 +1,13 @@
 ---
+
+summary: "多云天气的特征、氛围及其对游戏机制的影响。"
+name: "多云"
 # ==============================================================================
 # 多云天气配置 (Cloudy Weather Configuration)
 # ==============================================================================
 weather_type:
   name: 多云
+  summary: "多云天气覆盖天空，营造平和氛围，影响角色状态、探索视野和生态平衡。"
   id: cloudy
   probability: 25
   icon: "☁️"
@@ -47,6 +51,7 @@ visual:
   shadows: "soft"
   color_saturation: 85
   contrast: 90
+
 ---
 
 # ☁️ 多云 (Cloudy Weather)

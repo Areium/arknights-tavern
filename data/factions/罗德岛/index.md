@@ -1,5 +1,6 @@
 ---
 name: "罗德岛"
+summary: "罗德岛是一家表面医药研发，实则拥有武装力量、致力于和平改善感染者处境的机构。"
 alias: "Rhodes Island"
 type: organization
 scale: regional

@@ -1,6 +1,7 @@
 ---
 encounter_id: "enc_elite_hunt"
 name: "精英讨伐"
+summary: "精英讨伐战斗任务，针对强敌的挑战活动。"
 category: "test"
 difficulty: 5
 grid_size: 7

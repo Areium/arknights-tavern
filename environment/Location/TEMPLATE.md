@@ -8,16 +8,14 @@
 #
 # ── Frontmatter 字段说明 ──
 #
-# name:   地点中文名（必填），用于显示和 AI 引用
-# alias:  地点英文名/别名（可选），用于 GameAgent 关键词匹配
-#         例如：filename 为 "Control_Center.md"，alias 为 "Control Center"，
-#         用户输入"去控制中枢"或"去Control Center"均可识别
-# type:   固定为 "location"
-# tags:   地点标签（可选），用于分类和关键词匹配
-#         建议包含：所属区域、功能类型、氛围特征
-#         示例：["罗德岛", "指挥", "舰桥"]
+# name:    地点中文名（必填），用于显示和 AI 引用
+# summary: 一句话摘要（必填），≤50 字。用于目录展示和 LLM 检索判断。
+# alias:   地点英文名/别名（可选），用于关键词匹配
+# type:    固定为 "location"
+# tags:    地点标签（可选），建议包含：所属区域、功能类型、氛围特征
 # ==============================================================================
 name: "地点名"
+summary: ""
 alias: "Location Name"
 type: location
 tags: ["标签1", "标签2"]

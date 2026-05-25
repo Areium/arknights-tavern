@@ -18,6 +18,7 @@ imports:
 - attributes/生理耐受 | 生理耐受
 - attributes/魅力 | 魅力
 name: 辅助
+summary: "辅助干员是战术多面手，通过减速、削弱、增益、召唤等方式改变战场态势。"
 ---
 
 # 辅助 / Supporter

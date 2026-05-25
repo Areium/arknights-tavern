@@ -33,12 +33,7 @@ cd frontend && npm run dev
 - **云端 API** — 填写 API Key、接口地址和模型名称，点击「测试连接」验证可用性
 - **Ollama 本地** — 填写 Ollama 地址和模型名称（需先[安装 Ollama](https://ollama.com)并拉取模型）
 
-点击「保存配置」后生效。也可通过 `.env` 文件配置：
 
-```env
-API_KEY=sk-your-api-key-here
-BASE_URL=https://api.deepseek.com/v1
-```
 
 ## 使用指南
 
@@ -161,7 +156,7 @@ API 层           │  Flask API (src/app.py)
                   └────────┬────────┘
                            │
                   ┌────────┴────────┐
-核心引擎         │  GameAgent / SceneManager
+核心引擎         │  SceneManager / WikiManager
                   └────────┬────────┘
                            │
             ┌──────────────┼──────────────┐
@@ -175,12 +170,16 @@ API 层           │  Flask API (src/app.py)
 ```
 arknights-tavern/
 ├── src/                          # Python 后端
-│   ├── app.py                    # Flask Web API 服务
-│   ├── GameAgent.py              # 游戏代理：工具调用、对话路由
+│   ├── app.py                    # Flask Web API 服务（create_app 工厂）
+│   ├── constants.py               # 共享常量
+│   ├── blueprints/                # Flask Blueprints（API 路由）
+│   ├── shared/                    # 共享工具（缓存/SSE/错误响应）
+│   ├── services/                  # 服务层（Buff 池/骰子系统）
 │   ├── SceneManager.py           # 场景管理器：多角色同场对话 + 物品
 │   ├── CharacterAgent.py         # 角色代理：角色扮演 + 记忆
 │   ├── session_manager.py        # 多会话管理
 │   ├── session_overlay.py        # 会话覆盖层
+│   ├── session_context.py         # 会话文档缓存
 │   ├── combat_session.py         # 战斗会话管理
 │   ├── combat_data_loader.py     # 战斗数据加载器（遭遇战/敌人）
 │   ├── combat_engine/            # 战斗引擎
@@ -191,13 +190,12 @@ arknights-tavern/
 │   │   ├── card_data.py          # 卡牌数据
 │   │   └── dice.py               # 骰子系统
 │   ├── document_manager.py       # 文档 CRUD + 冲突检测
-│   ├── registry_manager.py       # 索引注册表管理器
+│   ├── wiki_manager.py            # Wiki 文档索引与查询
+│   ├── index_manager.py           # 全局索引导入/导出/校验
 │   ├── llm_backend_manager.py    # LLM 多后端检测与自动降级
 │   ├── load_llm.py               # LLM 加载器 (Ollama / API)
 │   ├── environment_state.py      # 环境状态追踪
 │   ├── memory.py                 # 向量记忆系统 (ChromaDB)
-│   ├── logging_setup.py          # 日志配置
-│   └── main.py                   # CLI 入口（已弃用）
 ├── frontend/                     # Electron + React 前端
 │   └── src/
 │       ├── App.tsx               # 主应用布局

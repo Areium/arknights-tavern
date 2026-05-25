@@ -48,6 +48,14 @@ interface AppState {
   editBeforeSend: boolean;
   setEditBeforeSend: (v: boolean) => void;
 
+  // 对话气泡模式：将角色对话以聊天气泡形式显示
+  dialogueBubbleMode: boolean;
+  setDialogueBubbleMode: (v: boolean) => void;
+
+  // 角色变更触发器（加载/卸载角色后 +1）
+  characterRefreshKey: number;
+  triggerCharacterRefresh: () => void;
+
   // 场景切换触发器（剧情模式切换场景后 +1，通知 ChatPanel 触发叙述）
   sceneSwitchKey: number;
   triggerSceneSwitch: () => void;
@@ -113,6 +121,14 @@ export const useAppStore = create<AppState>((set) => ({
   // 发送前编辑模式
   editBeforeSend: false,
   setEditBeforeSend: (v) => set({ editBeforeSend: v }),
+
+  // 对话气泡模式
+  dialogueBubbleMode: false,
+  setDialogueBubbleMode: (v) => set({ dialogueBubbleMode: v }),
+
+  // 角色变更触发器
+  characterRefreshKey: 0,
+  triggerCharacterRefresh: () => set((state) => ({ characterRefreshKey: state.characterRefreshKey + 1 })),
 
   // 场景切换触发器
   sceneSwitchKey: 0,

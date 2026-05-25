@@ -4,10 +4,11 @@
 # ==============================================================================
 # 使用方法：复制此文件，填入具体数据，删除本注释块。
 #
-# 必填字段：name, class, level, combat_stats, ai_behavior
+# 必填字段：name, summary, class, level, combat_stats, ai_behavior
 # 可选字段：alias, race, faction, tags, ai_skills, drop_items, drop_rate, xp_reward
 # ==============================================================================
 name: "敌人名称"
+summary: ""
 alias: "enemy_id"
 class: "近卫"
 race: "未知"

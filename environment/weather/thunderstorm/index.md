@@ -1,9 +1,13 @@
 ---
+
+summary: "雷暴是集闪电、暴雨、狂风于一体的极端天气，带来剧烈环境变化和危险影响。"
+name: "雷暴"
 # ==============================================================================
 # 雷暴天气配置 (Thunderstorm Weather Configuration)
 # ==============================================================================
 weather_type:
   name: 雷暴
+  summary: "雷暴是极具威胁和戏剧性的极端天气，集合风、雨、雷、电，带来严重环境与心理影响。"
   id: thunderstorm
   probability: 5
   icon: "⛈️"
@@ -70,6 +74,7 @@ hazards:
   flood_risk: 80                # 洪水风险百分比
   equipment_failure_chance: 15  # 设备故障概率
   panic_trigger_chance: 25      # 触发恐慌概率
+
 ---
 
 # ⛈️ 雷暴 (Thunderstorm)

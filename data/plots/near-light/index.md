@@ -1,6 +1,7 @@
 ---
 id: near_light
 name: 长夜临光
+summary: "罗德岛抵大骑士领，耀骑士归来，资本、荣耀与感染者命运的风暴来临。"
 category: main
 priority: 9
 trigger:

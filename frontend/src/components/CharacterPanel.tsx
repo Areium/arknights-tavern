@@ -18,7 +18,7 @@ export default function CharacterPanel({
   onAddClick?: () => void;
   refreshKey?: number;
 }) {
-  const { activeSessionId, chatMode } = useAppStore();
+  const { activeSessionId, chatMode, triggerCharacterRefresh } = useAppStore();
   const api = useApi();
   const [characters, setCharacters] = useState<CharacterInfo[]>([]);
   const [loading, setLoading] = useState(false);
@@ -144,6 +144,7 @@ export default function CharacterPanel({
     try {
       await api.loadCharacter(activeSessionId, name);
       await loadCharacters();
+      triggerCharacterRefresh();
     } catch (err: any) {
       alert("加载角色失败: " + err.message);
     }
@@ -154,6 +155,7 @@ export default function CharacterPanel({
     try {
       await api.unloadCharacter(activeSessionId, name);
       await loadCharacters();
+      triggerCharacterRefresh();
     } catch (err: any) {
       alert("卸载角色失败: " + err.message);
     }
@@ -164,6 +166,7 @@ export default function CharacterPanel({
     try {
       await api.switchCharacter(activeSessionId, name);
       await loadCharacters();
+      triggerCharacterRefresh();
     } catch (err: any) {
       alert("切换角色失败: " + err.message);
     }

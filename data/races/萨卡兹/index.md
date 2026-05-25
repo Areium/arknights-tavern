@@ -1,5 +1,6 @@
 ---
 name: "萨卡兹"
+summary: "萨卡兹种族特征为角、尾、长寿、源石亲和，易患矿石病，常面临偏见。"
 alias: "Sarkaz"
 category: humanoid
 rarity: uncommon

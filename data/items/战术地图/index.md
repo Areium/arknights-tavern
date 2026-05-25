@@ -1,5 +1,6 @@
 ---
 name: "战术地图"
+summary: "战术地图是罗德岛导航作战工具，提供路线规划、情报汇集与作战参考。"
 alias: "Tactical Map"
 category: document
 rarity: common

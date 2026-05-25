@@ -626,3 +626,31 @@ html.light .deploy-arrow {
 
 /* ── 伤害数字（保持暗色文字阴影以保证可读性） ── */
 /* damage-number 在两种模式下均可读，无需额外覆盖 */
+
+/* ── 角色立绘（战斗选中时展示） ── */
+.character-illustration-container {
+  position: absolute;
+  left: 0.5rem;
+  bottom: 320px;
+  height: 55vh;
+  max-height: 700px;
+  width: 420px;
+  pointer-events: none;
+  z-index: 5;
+  -webkit-mask-image: linear-gradient(to right, black 25%, transparent 65%);
+  mask-image: linear-gradient(to right, black 25%, transparent 65%);
+  animation: illustration-fade-in 0.4s ease-out;
+}
+
+.character-illustration-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: left bottom;
+  opacity: 0.85;
+}
+
+@keyframes illustration-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

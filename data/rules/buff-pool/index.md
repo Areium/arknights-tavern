@@ -1,4 +1,6 @@
 ---
+summary: "定义了Buff和Debuff的稀有度体系与gacha式随机抽取规则。"
+
 type: "system"
 scope: "all_plots"
 ---

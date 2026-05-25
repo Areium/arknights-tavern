@@ -1,5 +1,6 @@
 ---
 name: "银枪天马"
+summary: "银枪天马是监证会直属、不受商业资本控制的精英骑士团，坚守骑士传统与秩序。"
 alias: "Silverlance Pegasus Knights"
 type: organization
 scale: national

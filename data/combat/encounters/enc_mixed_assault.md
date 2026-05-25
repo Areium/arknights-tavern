@@ -1,6 +1,7 @@
 ---
 encounter_id: "enc_mixed_assault"
 name: "混编突击"
+summary: "混编突击：多兵种协同实施快速突袭的作战方式。"
 category: "test"
 difficulty: 3
 grid_size: 7

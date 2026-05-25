@@ -1,9 +1,13 @@
 ---
+
+summary: "小雨天气的详细描述及其对游戏角色、环境、战斗和事件的多种影响。"
+name: "小雨"
 # ==============================================================================
 # 小雨天气配置 (Light Rain Weather Configuration)
 # ==============================================================================
 weather_type:
   name: 小雨
+  summary: "小雨天气的详细描述、游戏机制影响及环境互动。"
   id: light_rain
   probability: 15
   icon: "🌦️"
@@ -53,6 +57,7 @@ visual:
   color_saturation: 70
   contrast: 75
   rain_intensity: "light"
+
 ---
 
 # 🌦️ 小雨 (Light Rain)

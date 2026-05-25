@@ -4,12 +4,13 @@
 # ==============================================================================
 # 使用方法：复制此文件，填入具体数据，删除本注释块。
 #
-# 必填字段：card_id, name, class_required, tier, damage_type,
+# 必填字段：card_id, name, summary, class_required, tier, damage_type,
 #           min_damage, max_damage, atk_scale, target, range, cost
 # 可选字段：owner, upgrade_to, tags
 # ==============================================================================
 card_id: "card_template"
 name: "卡牌名称"
+summary: ""
 description: "卡牌效果描述"
 class_required: "术师"
 tier: "basic"

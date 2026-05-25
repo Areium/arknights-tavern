@@ -1,5 +1,6 @@
 ---
 name: "卡特斯"
+summary: "卡特斯族具有兔耳、体型偏小、听觉敏锐和跳跃力强的种族特征。"
 alias: "Cautus"
 category: humanoid
 rarity: common

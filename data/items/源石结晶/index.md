@@ -1,5 +1,6 @@
 ---
 name: "源石结晶"
+summary: "源石结晶是泰拉世界文明基石与能源，也是矿石病感染根源。"
 alias: "Originium Crystal"
 category: material
 rarity: common

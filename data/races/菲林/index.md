@@ -1,5 +1,6 @@
 ---
 name: "菲林"
+summary: "具有猫科特征的菲林族，拥有灵敏感知、轻盈体态和独立好奇的性格。"
 alias: "Feline"
 category: humanoid
 rarity: common
