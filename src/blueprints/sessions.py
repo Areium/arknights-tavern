@@ -128,6 +128,7 @@ def register(app, managers):
             if plot_dir.is_dir():
                 session.overlay.load_quests_from_plot(plot_id)
                 _load_plot_opening(session, plot_id)
+                session.overlay.init_beat_state(plot_id)
 
         return jsonify(session.to_dict()), 201
 

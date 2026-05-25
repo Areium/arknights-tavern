@@ -40,6 +40,7 @@ def _require_no_combat(session):
 
 _COMBAT_MARKER_RE = re.compile(r'\n?\[COMBAT:([^\]]+)\]\n?')
 _SAFE_COMBAT_MARKER_RE = re.compile(r'\[COMBAT:([^\]]+)\]')
+_BEAT_COMPLETE_RE = re.compile(r'\n?\s*\[BEAT_COMPLETE\]\s*\n?')
 
 
 def _handle_combat_trigger(session, narrative, stream_id):
@@ -70,6 +71,25 @@ def _handle_combat_trigger(session, narrative, stream_id):
     except Exception as e:
         logger.error("自动触发战斗失败: %s", e)
         return cleaned, None
+
+
+def _handle_beat_complete(session, narrative):
+    """检测并处理节拍完成标记 [BEAT_COMPLETE]。
+
+    Returns:
+        str: 清理后的叙述文本（移除 [BEAT_COMPLETE] 标记）
+    """
+    if not _BEAT_COMPLETE_RE.search(narrative):
+        return narrative
+
+    cleaned = _BEAT_COMPLETE_RE.sub("", narrative).strip()
+    overlay = getattr(session, 'overlay', None)
+    if overlay and overlay.get_beat_state():
+        overlay.advance_beat()
+        current = overlay.get_current_beat()
+        beat_name = current["id"] if current else "剧情终点"
+        logger.info("会话 %s: LLM 标记节拍完成 → %s", session.session_id, beat_name)
+    return cleaned
 
 
 def _build_choices(session, llm_backend, narrative):
@@ -255,6 +275,9 @@ def register(app, managers):
                     )
                     if combat_triggered:
                         yield combat_triggered
+
+                    # 检测节拍完成标记 [BEAT_COMPLETE]
+                    narrative = _handle_beat_complete(session, narrative)
                 else:
                     # Bubble mode: non-streaming (LLM outputs JSON, cannot stream raw JSON to UI)
                     narrative, env_updates, usage = session.scene_manager.narrate(
@@ -274,6 +297,9 @@ def register(app, managers):
                     )
                     if combat_triggered:
                         yield combat_triggered
+
+                    # 检测节拍完成标记 [BEAT_COMPLETE]
+                    narrative = _handle_beat_complete(session, narrative)
 
                     # 逐字符发送解析后的纯文本
                     for ch in narrative:
@@ -300,6 +326,7 @@ def register(app, managers):
                 # 回忆系统：在文本输出后生成回忆（用户已在阅读，不再阻塞首字可见）
                 if session.mode == "story":
                     session.add_narration(narrative, user_action)
+                    session.overlay.record_narration_on_beat()
                     interval = config.get("memory_interval", 5)
                     if session.should_generate_memory(interval):
                         memory = session.generate_memory()
@@ -364,10 +391,15 @@ def register(app, managers):
                 if stream_text:
                     narrative = stream_text
 
+            # 检测战斗触发和节拍完成
+            narrative, _ = _handle_combat_trigger(session, narrative, "")
+            narrative = _handle_beat_complete(session, narrative)
+
             # 回忆系统
             response_extra = {}
             if session.mode == "story":
                 session.add_narration(narrative, data.get("action", ""))
+                session.overlay.record_narration_on_beat()
                 interval = config.get("memory_interval", 5)
                 if session.should_generate_memory(interval):
                     memory = session.generate_memory()

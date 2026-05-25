@@ -12,6 +12,7 @@
 
 import json
 import os
+import re
 import copy
 import logging
 from pathlib import Path
@@ -234,6 +235,219 @@ class SessionOverlay:
         self._data.pop("plot_context", None)
         self._save()
 
+    # ── 剧情节拍跟踪 ──
+
+    def init_beat_state(self, plot_id: str):
+        """解析 narrative.md 并初始化节拍跟踪状态。
+
+        从 narrative.md 提取章节/节拍结构，初始化为第一个节拍。
+        beat_state 持久化到 overrides.json，narrative 全文缓存在内存。
+        """
+        resolved = _resolve_plot_dir(plot_id) or plot_id
+        narrative_path = _PROJECT_ROOT / "data" / "plots" / resolved / "narrative.md"
+
+        if not narrative_path.is_file():
+            logger.debug("剧情 %s 无 narrative.md，跳过节拍初始化", plot_id)
+            self._narrative_beats = []
+            self._narrative_text = ""
+            return
+
+        with open(narrative_path, "r", encoding="utf-8") as f:
+            text = f.read()
+
+        self._narrative_text = text
+        self._narrative_beats = _parse_narrative_beats(text)
+
+        # 持久化节拍进度
+        if "beat_state" not in self._data:
+            self._data["beat_state"] = {
+                "chapter_idx": 0,
+                "beat_idx": 0,
+                "completed_beats": [],
+                "narrations_on_beat": 0,
+            }
+            self._save()
+
+        total_beats = sum(len(ch["beats"]) for ch in self._narrative_beats)
+        logger.info(
+            "会话 %s: 节拍状态已初始化，共 %d 章 %d 个节拍",
+            self.session_id, len(self._narrative_beats), total_beats,
+        )
+
+    def get_beat_state(self) -> dict:
+        """获取当前节拍进度状态。"""
+        return self._data.get("beat_state", {})
+
+    def get_current_beat(self) -> dict | None:
+        """获取当前节拍信息（content + dialogue + reveals）。"""
+        beats = self._narrative_beats if hasattr(self, "_narrative_beats") else []
+        bs = self._data.get("beat_state", {})
+        if not beats or not bs:
+            return None
+        ci = bs.get("chapter_idx", 0)
+        bi = bs.get("beat_idx", 0)
+        if ci < len(beats) and bi < len(beats[ci]["beats"]):
+            return beats[ci]["beats"][bi]
+        return None
+
+    def get_current_chapter(self) -> dict | None:
+        """获取当前章节信息。"""
+        beats = self._narrative_beats if hasattr(self, "_narrative_beats") else []
+        bs = self._data.get("beat_state", {})
+        if not beats or not bs:
+            return None
+        ci = bs.get("chapter_idx", 0)
+        if ci < len(beats):
+            return {k: v for k, v in beats[ci].items() if k != "beats"}
+        return None
+
+    def _build_beat_roadmap(self) -> str:
+        """构建节拍路线图——展示全剧情结构并标注当前位置。"""
+        beats = self._narrative_beats if hasattr(self, "_narrative_beats") else []
+        bs = self._data.get("beat_state", {})
+        if not beats:
+            return ""
+        ci = bs.get("chapter_idx", 0)
+        bi = bs.get("beat_idx", 0)
+        completed = set(bs.get("completed_beats", []))
+
+        lines = []
+        for i, ch in enumerate(beats):
+            marker = ">>" if i == ci else ("OK" if all(b["id"] in completed for b in ch["beats"]) else "  ")
+            lines.append(f"{marker} Chapter {i + 1}: {ch['title']}")
+            for j, b in enumerate(ch["beats"]):
+                if b["id"] in completed:
+                    bmarker = "  [DONE]"
+                elif i == ci and j == bi:
+                    bmarker = "  [HERE]"
+                else:
+                    bmarker = "  [    ]"
+                lines.append(f"{bmarker} {b['id']} — {b['summary'][:60]}")
+        return "\n".join(lines)
+
+    def get_beat_context(self) -> str:
+        """构建完整的剧情节拍上下文，供注入 LLM prompt。
+
+        包含：剧情路线图 + 当前节拍详细描述 + 下一节拍预告。
+        """
+        beats = self._narrative_beats if hasattr(self, "_narrative_beats") else []
+        bs = self._data.get("beat_state", {})
+        if not beats or not bs:
+            return ""
+
+        ci = bs.get("chapter_idx", 0)
+        bi = bs.get("beat_idx", 0)
+        narrations = bs.get("narrations_on_beat", 0)
+        ch = beats[ci] if ci < len(beats) else None
+        beat = beats[ci]["beats"][bi] if ch and bi < len(ch["beats"]) else None
+
+        parts = []
+
+        # 路线图
+        roadmap = self._build_beat_roadmap()
+        if roadmap:
+            parts.append(f"【剧情路线图】\n{roadmap}")
+
+        # 当前节拍
+        if ch and beat:
+            parts.append(f"\n【当前节拍】第{ci + 1}章 · {ch['title']} · {beat['id']}")
+            parts.append(f"已在此节拍进行 {narrations} 轮叙述")
+            if beat.get("content"):
+                parts.append(f"\n节拍内容：{beat['content']}")
+            if beat.get("dialogue"):
+                parts.append(f"\n强制对话：{beat['dialogue']}")
+            if beat.get("reveals"):
+                parts.append(f"\n需揭示信息：{beat['reveals']}")
+
+        # 下一节拍预告
+        next_beats = []
+        if ch:
+            for j in range(bi + 1, min(bi + 3, len(ch["beats"]))):
+                nb = ch["beats"][j]
+                next_beats.append(f"{nb['id']} — {nb['summary'][:80]}")
+        if not next_beats and ci + 1 < len(beats):
+            # 下一章的第一个节拍
+            nch = beats[ci + 1]
+            if nch["beats"]:
+                nb = nch["beats"][0]
+                next_beats.append(f"{nb['id']} — {nb['summary'][:80]}")
+        if next_beats:
+            parts.append(f"\n【后续节拍】" + " → ".join(next_beats))
+
+        # 指示
+        parts.append(
+            "\n---\n请在当前节拍的框架内推进剧情。"
+            "当节拍的核心事件（强制对话 + 揭示信息）已通过叙述呈现后，"
+            "在叙述文本末尾输出 [BEAT_COMPLETE] 标记以推进到下一节拍。"
+        )
+
+        return "\n".join(parts)
+
+    def get_narrative_full_text(self) -> str:
+        """获取 narrative.md 全文（缓存在内存中）。"""
+        if hasattr(self, "_narrative_text"):
+            return self._narrative_text
+        return ""
+
+    def advance_beat(self):
+        """推进到下一个节拍。跨章节自动处理。"""
+        beats = self._narrative_beats if hasattr(self, "_narrative_beats") else []
+        bs = self._data.get("beat_state", {})
+        if not beats or not bs:
+            return
+
+        ci = bs.get("chapter_idx", 0)
+        bi = bs.get("beat_idx", 0)
+        ch = beats[ci] if ci < len(beats) else None
+        if not ch:
+            return
+
+        # 记录当前节拍为已完成
+        current_beat = ch["beats"][bi] if bi < len(ch["beats"]) else None
+        if current_beat:
+            if "completed_beats" not in bs:
+                bs["completed_beats"] = []
+            if current_beat["id"] not in bs["completed_beats"]:
+                bs["completed_beats"].append(current_beat["id"])
+
+        # 推进
+        if bi + 1 < len(ch["beats"]):
+            bs["beat_idx"] = bi + 1
+        elif ci + 1 < len(beats):
+            bs["chapter_idx"] = ci + 1
+            bs["beat_idx"] = 0
+        else:
+            logger.info("会话 %s: 已是最后一个节拍", self.session_id)
+            bs["narrations_on_beat"] = 0
+            self._save()
+            return
+
+        bs["narrations_on_beat"] = 0
+        self._data["beat_state"] = bs
+        self._save()
+
+        new_beat = self.get_current_beat()
+        new_name = new_beat["id"] if new_beat else "end"
+        logger.info("会话 %s: 节拍推进 → %s", self.session_id, new_name)
+
+    def record_narration_on_beat(self):
+        """记录当前节拍的一次叙述。若超过阈值自动推进。"""
+        bs = self._data.get("beat_state", {})
+        if not bs:
+            return
+        bs["narrations_on_beat"] = bs.get("narrations_on_beat", 0) + 1
+        self._data["beat_state"] = bs
+
+        # 超过 8 轮未完成则强制推进
+        if bs["narrations_on_beat"] > 8:
+            logger.info("会话 %s: 节拍 %s 已 %d 轮，自动推进",
+                         self.session_id,
+                         (self.get_current_beat() or {}).get("id", "?"),
+                         bs["narrations_on_beat"])
+            self.advance_beat()
+        else:
+            self._save()
+
     def get_quest_states(self) -> dict:
         """获取所有任务状态 {quest_id: {status, updated_at}}。"""
         return self._data.get("quest_states", {})
@@ -413,6 +627,126 @@ def _parse_quests_md(plot_id: str) -> list[dict]:
         quests.append(attrs)
 
     return quests
+
+
+def _parse_narrative_beats(text: str) -> list[dict]:
+    """解析 narrative.md 为章节/节拍结构。
+
+    Returns:
+        [{title, id, summary, beats: [{id, summary, content, dialogue, reveals}]}, ...]
+    """
+    chapters = []
+    current_chapter = None
+    current_beat = None
+    current_section = None  # "content" | "dialogue" | "reveals"
+    section_buf = []
+
+    def flush_section():
+        nonlocal current_beat, current_section, section_buf
+        if current_beat and current_section and section_buf:
+            text = "\n".join(section_buf).strip()
+            if text:
+                current_beat[current_section] = text
+        section_buf = []
+        current_section = None
+
+    def flush_beat():
+        nonlocal current_beat
+        flush_section()
+        if current_beat and current_chapter:
+            current_chapter["beats"].append(current_beat)
+        current_beat = None
+
+    for line in text.split("\n"):
+        # 章节标题: ## 章节 N：Title
+        ch_m = re.match(r"^## 章节\s*(\d+)[：:]\s*(.+)$", line)
+        if ch_m:
+            flush_beat()
+            current_chapter = {
+                "title": ch_m.group(2).strip(),
+                "id": "",
+                "summary": "",
+                "beats": [],
+            }
+            chapters.append(current_chapter)
+            continue
+
+        # 章节 ID: **ID**：`blood_opener`
+        if current_chapter and not current_chapter.get("id"):
+            id_m = re.match(r"^\*\*ID\*\*[：:]\s*`?(\w+)`?", line)
+            if id_m:
+                current_chapter["id"] = id_m.group(1)
+                continue
+
+        # 章节概要: **概要**：...
+        if current_chapter and not current_chapter.get("summary"):
+            sum_m = re.match(r"^\*\*概要\*\*[：:]\s*(.+)$", line)
+            if sum_m:
+                current_chapter["summary"] = sum_m.group(1)
+                continue
+
+        # 节拍标题: #### beat_name（keep_on_deviate: true）
+        beat_m = re.match(r"^####\s+(beat_\w+)\s*([（(].+[）)])?$", line)
+        if beat_m:
+            flush_beat()
+            beat_id = beat_m.group(1)
+            current_beat = {
+                "id": beat_id,
+                "summary": "",
+                "content": "",
+                "dialogue": "",
+                "reveals": "",
+            }
+            continue
+
+        if not current_beat:
+            continue
+
+        # 节拍内容: **内容**：...
+        if re.match(r"^\*\*内容\*\*[：:]", line):
+            flush_section()
+            current_section = "content"
+            section_buf.append(re.sub(r"^\*\*内容\*\*[：:]\s*", "", line))
+            continue
+
+        # 强制对话: **强制对话**：
+        if re.match(r"^\*\*强制对话\*\*[：:]", line):
+            flush_section()
+            current_section = "dialogue"
+            section_buf.append(re.sub(r"^\*\*强制对话\*\*[：:]\s*", "", line))
+            continue
+
+        # 揭示信息: **揭示信息**：
+        if re.match(r"^\*\*揭示信息\*\*[：:]", line):
+            flush_section()
+            current_section = "reveals"
+            section_buf.append(re.sub(r"^\*\*揭示信息\*\*[：:]\s*", "", line))
+            continue
+
+        # 发现路径 / 玩家选项 / 对话方向 — 不属于我们关注的 section
+        if re.match(r"^\*\*(发现路径|玩家选项方向|对话方向)\*\*[：:]", line):
+            flush_section()
+            continue
+
+        # 如果是节拍内的第一段非空文本（没有 **key** 前缀），作为 summary 的补充
+        if current_section == "content" and not section_buf:
+            # 检查是否是普通段落
+            pass
+
+        if current_section:
+            stripped = line.strip()
+            if stripped:
+                section_buf.append(stripped)
+
+    flush_beat()
+
+    # 为每个 beat 生成 summary（取 content 前 80 字）
+    for ch in chapters:
+        for b in ch["beats"]:
+            if not b.get("summary") and b.get("content"):
+                b["summary"] = b["content"][:80].replace("\n", " ")
+
+    return chapters
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
