@@ -25,6 +25,12 @@ logger = logging.getLogger(__name__)
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _SESSIONS_DIR = _PROJECT_ROOT / "data" / "memory" / "sessions"
 
+_PLOT_LOG_HEADER = (
+    "# 剧情进度日志\n\n"
+    "> 以下记录已发生的剧情事件。每次叙述时请参考已有内容，"
+    "在此基础之上推进新的剧情发展，不要重复已记录的场景和对话。\n\n"
+)
+
 
 def _get_overlay_path(mode: str, session_id: str) -> Path:
     return _SESSIONS_DIR / mode / session_id / "overrides.json"
@@ -521,7 +527,7 @@ class SessionOverlay:
 
         # 写入会话文档
         self._rewrite_plot_state()
-        self.write_session_doc("plot_log.md", "# 剧情进度日志\n\n")
+        self.write_session_doc("plot_log.md", _PLOT_LOG_HEADER)
 
         total_beats = sum(len(ch["beats"]) for ch in self._narrative_beats)
         logger.info("会话 %s: 剧情文档已初始化，%d 章 %d 个节拍 → %s",
@@ -558,7 +564,7 @@ class SessionOverlay:
         path.parent.mkdir(parents=True, exist_ok=True)
         if not path.is_file():
             with open(path, "w", encoding="utf-8") as f:
-                f.write("# 剧情进度日志\n\n")
+                f.write(_PLOT_LOG_HEADER)
 
         line = f"[轮次 {round_num}] {summary}\n"
         with open(path, "a", encoding="utf-8") as f:
@@ -607,19 +613,39 @@ class SessionOverlay:
                 body_parts.append(f"- 第{i + 1}章 {ch['title']}：{ch.get('summary', '')}")
             body_parts.append("")
 
+        # 路线图（标注 HERE/DONE 位置）
         roadmap = self._build_beat_roadmap()
         if roadmap:
-            body_parts.append(f"## 节拍路线图\n{roadmap}\n")
+            body_parts.append(
+                "## 节拍路线图\n"
+                "> 标注了当前位置 [HERE] 和已完成 [DONE] 的节拍。"
+                "请将此路线图用作剧情推进方向参考，而不是逐字执行的脚本。\n"
+            )
+            body_parts.append(roadmap + "\n")
 
+        # 当前进度摘要（不含场景描写/对话——避免 LLM 逐字重复）
         current_beat = self.get_current_beat()
         if current_beat:
-            body_parts.append(f"## 当前节拍：{current_beat['id']}")
-            if current_beat.get("content"):
-                body_parts.append("\n" + current_beat["content"])
-            if current_beat.get("dialogue"):
-                body_parts.append("\n强制对话：\n" + current_beat["dialogue"])
-            if current_beat.get("reveals"):
-                body_parts.append("\n揭示信息：\n" + current_beat["reveals"])
+            bid = current_beat["id"]
+            narrations = bs.get("narrations_on_beat", 0)
+            body_parts.append(f"## 当前进度\n- 当前节拍：**{bid}**（已在该节拍进行 {narrations} 轮叙述）")
+
+            # 下一节拍方向提示（仅提供走向，不含具体内容）
+            ci = bs.get("chapter_idx", 0)
+            bi = bs.get("beat_idx", 0)
+            next_infos = []
+            for offset in range(1, 4):
+                ni = bi + offset
+                nc = ci
+                if nc < len(beats) and ni >= len(beats[nc]["beats"]):
+                    nc += 1
+                    ni = 0
+                if nc < len(beats) and ni < len(beats[nc]["beats"]):
+                    nb = beats[nc]["beats"][ni]
+                    next_infos.append(f"{nb['id']} — {nb.get('summary', '')[:60]}")
+            if next_infos:
+                body_parts.append(f"- 后续节拍方向：{' → '.join(next_infos[:3])}")
+            body_parts.append("")
 
         body = "\n".join(body_parts)
 

@@ -221,14 +221,13 @@ class DocumentManager:
 
                 filepath = os.path.join(root, f)
 
-                # 跳过已在实体文件夹内的 .md 文件（作为子文档另行处理）
+                # 跳过已在实体文件夹内的 .md 文件（由第三遍扫描作为子文档处理）
                 file_dir = os.path.dirname(filepath)
                 is_in_entity = any(
                     file_dir == ed or file_dir.startswith(ed + os.sep)
                     for ed in entity_dirs
                 )
-                # 文件本身是 index.md 且父目录是实体
-                if f == "index.md" and file_dir in entity_dirs:
+                if is_in_entity:
                     continue
 
                 cat_rel = os.path.relpath(filepath, base).replace("\\", "/")
@@ -373,7 +372,7 @@ class DocumentManager:
         docs = [(k, v) for k, v in d.items() if v.get("type") != "folder"]
         for name, node in sorted(folders, key=lambda x: x[0].lower()) + sorted(docs, key=lambda x: x[0].lower()):
             entry = dict(node)
-            if entry["type"] == "folder" and "children" in entry:
+            if "children" in entry and isinstance(entry["children"], dict):
                 entry["children"] = DocumentManager._dict_tree_to_list(entry["children"])
             result.append(entry)
         return result

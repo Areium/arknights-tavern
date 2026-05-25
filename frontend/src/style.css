@@ -133,6 +133,91 @@ html.light .text-red-400 { color: rgb(220 38 38); }
 /* ── 绿色系 ── */
 html.light .bg-green-800\/50 { background-color: rgb(220 252 231); }
 html.light .text-green-300 { color: rgb(21 128 61); }
+html.light .text-green-400 { color: rgb(22 163 74); }
+
+/* ── Amber 色系（叙述文字、标签、按钮） ── */
+html.light .text-amber-100 { color: #78350f; }
+html.light .text-amber-200 { color: #92400e; }
+html.light .text-amber-300 { color: #b45309; }
+html.light .text-amber-400 { color: #a16207; }
+html.light .text-amber-500 { color: #854d0e; }
+html.light .bg-amber-900\/30 { background-color: rgba(254,243,199,0.5); }
+html.light .bg-amber-900\/20 { background-color: rgba(254,243,199,0.4); }
+html.light .bg-amber-700\/30 { background-color: rgba(253,230,138,0.35); }
+html.light .bg-amber-700\/50 { background-color: rgba(253,230,138,0.45); }
+html.light .bg-amber-600\/20 { background-color: rgba(251,191,36,0.12); }
+html.light .bg-amber-600\/30 { background-color: rgba(251,191,36,0.18); }
+html.light .bg-amber-600\/40 { background-color: rgba(251,191,36,0.25); }
+html.light .bg-amber-600\/10 { background-color: rgba(251,191,36,0.08); }
+html.light .bg-amber-500\/20 { background-color: rgba(245,158,11,0.12); }
+html.light .bg-amber-950\/50 { background-color: rgba(254,243,199,0.35); }
+html.light .border-amber-700\/20 { border-color: rgba(180,83,9,0.15); }
+html.light .border-amber-700\/30 { border-color: rgba(180,83,9,0.2); }
+html.light .border-amber-600\/40 { border-color: rgba(180,83,9,0.3); }
+html.light .border-amber-600\/30 { border-color: rgba(180,83,9,0.2); }
+html.light .border-amber-500\/30 { border-color: rgba(180,83,9,0.25); }
+
+/* ── Purple 色系 ── */
+html.light .text-purple-200 { color: #6b21a8; }
+html.light .text-purple-300 { color: #7e22ce; }
+html.light .text-purple-400 { color: #9333ea; }
+html.light .bg-purple-600\/20 { background-color: rgba(147,51,234,0.1); }
+html.light .bg-purple-600\/30 { background-color: rgba(147,51,234,0.15); }
+html.light .bg-purple-600\/40 { background-color: rgba(147,51,234,0.2); }
+html.light .bg-purple-700\/50 { background-color: rgba(126,34,206,0.25); }
+html.light .bg-purple-800\/50 { background-color: rgba(107,33,168,0.2); }
+html.light .border-purple-700\/30 { border-color: rgba(126,34,206,0.15); }
+
+/* ── Orange 色系 ── */
+html.light .text-orange-300 { color: #c2410c; }
+html.light .text-orange-400 { color: #ea580c; }
+html.light .bg-orange-700\/30 { background-color: rgba(253,186,116,0.3); }
+html.light .bg-orange-700\/50 { background-color: rgba(253,186,116,0.4); }
+
+/* ── 补充 Blue 变体 ── */
+html.light .text-blue-200 { color: #1e40af; }
+html.light .text-blue-400 { color: #2563eb; }
+html.light .bg-blue-600\/30 { background-color: rgba(219,234,254,0.7); }
+html.light .bg-blue-600\/40 { background-color: rgba(191,219,254,0.7); }
+html.light .bg-blue-600\/50 { background-color: rgba(191,219,254,0.6); }
+html.light .bg-blue-600\/10 { background-color: rgba(219,234,254,0.25); }
+html.light .bg-blue-700\/50 { background-color: rgba(219,234,254,0.6); }
+html.light .bg-blue-500\/20 { background-color: rgba(219,234,254,0.4); }
+html.light .bg-blue-500\/3  { background-color: rgba(239,246,255,0.3); }
+html.light .border-blue-500\/40 { border-color: rgba(59,130,246,0.3); }
+html.light .border-blue-500\/30 { border-color: rgba(59,130,246,0.2); }
+html.light .border-blue-600\/20 { border-color: rgba(37,99,235,0.15); }
+html.light .border-blue-700\/30 { border-color: rgba(29,78,216,0.15); }
+
+/* ── 补充 Green / Emerald 变体 ── */
+html.light .text-emerald-400 { color: #059669; }
+html.light .bg-emerald-600\/20 { background-color: rgba(209,250,229,0.5); }
+html.light .bg-emerald-500\/20 { background-color: rgba(209,250,229,0.4); }
+
+/* ── 补充 Red 变体 ── */
+html.light .text-red-500 { color: #ef4444; }
+html.light .bg-red-500\/20 { background-color: rgba(254,226,226,0.5); }
+html.light .bg-red-500\/10 { background-color: rgba(254,226,226,0.3); }
+html.light .bg-red-900\/10 { background-color: rgba(254,226,226,0.4); }
+html.light .bg-red-600\/10 { background-color: rgba(254,226,226,0.3); }
+html.light .bg-gray-700\/40 { background-color: rgba(243,244,246,0.7); }
+
+/* ── Cyan 补充 ── */
+html.light .text-cyan-400 { color: #0891b2; }
+
+/* ── MarkdownRenderer 代码块 ── */
+html.light .md-code-inline {
+  background-color: #f3f4f6;
+  color: #b45309;
+}
+html.light .md-pre-block {
+  background-color: #f3f4f6;
+  color: #374151;
+  border-color: #d1d5db;
+}
+
+/* ── 文字通用补充 ── */
+html.light .text-amber-100\/70 { color: rgba(120,53,15,0.85); }
 
 /* ═══════════════════════════════════════
    战斗系统样式

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useApi } from "../hooks/useApi";
 import type { DocTreeCategory, DocTreeNode } from "../types";
+import MarkdownRenderer from "./MarkdownRenderer";
 
 interface ModalState {
   type: "createDoc" | "createFolder" | "rename" | "moveTo" | "delete";
@@ -1454,9 +1455,7 @@ export default function DocumentManager() {
                   onChange={(e) => setEditContent(e.target.value)}
                 />
               ) : (
-                <pre className="text-sm text-gray-300 font-mono whitespace-pre-wrap">
-                  {docContent?.content || "（空文档）"}
-                </pre>
+                <MarkdownRenderer content={docContent?.content || ""} />
               )}
             </div>
 

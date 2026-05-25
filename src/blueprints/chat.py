@@ -402,7 +402,10 @@ def register(app, managers):
             response_extra = {}
             if session.mode == "story":
                 session.add_narration(narrative, data.get("action", ""))
-                session.overlay.record_narration_on_beat()
+                session.overlay.append_plot_log(
+                    narrative[:80].replace('\n', ' ')
+                )
+                session.overlay.update_beat_progress()
                 interval = config.get("memory_interval", 5)
                 if session.should_generate_memory(interval):
                     memory = session.generate_memory()
