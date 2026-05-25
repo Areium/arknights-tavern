@@ -16,6 +16,13 @@
 
 ## 更新记录
 
+### 2026-05-25 — 战斗卡牌数据拆分 + UI 微调 + 配置清理
+
+- 12 个角色的战斗卡牌定义从 `index.md` 提取到独立 `combat.md`（专属卡牌 + 通用卡牌池）
+- 新增 `tools/split_combat_cards.py` 迁移脚本 + `tools/check_imports.py` imports 诊断工具
+- ChatPanel / DialogueBubble 角色名字号 `text-xs` → `text-sm`
+- constants.py 移除废弃的 `子职业一览` 配置，`战斗定位` depth 3→1
+
 ### 2026-05-25 — Markdown 文档渲染 + Prompt 卫生改进
 
 - 新增 `MarkdownRenderer.tsx` 组件（react-markdown），文档预览从纯文本改为富文本渲染
