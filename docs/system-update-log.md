@@ -16,6 +16,18 @@
 
 ## 更新记录
 
+### 2026-05-25 — 节拍引导简化 + 图片资产管理 + 跨分类搜索
+
+- **节拍引导简化**：`get_beat_context()` 移除当前节拍详细内容和指令性语言，仅保留路线图定位 + 下一节拍方向提示
+- SceneManager prompt 从 7 条规则简化为 6 条，改为自然推进策略（"推进到自然结束点时输出 [BEAT_COMPLETE]"）
+- 上下文注入顺序优化：先注入剧情参考文档全文，再注入节拍进度定位
+- **图片资产管理**：新增 `POST /api/assets/<category>/upload` 和 `DELETE /api/assets/<category>/<path>` API，含路径穿越防护
+- `_list_entity_images()` 重写为递归子目录扫描（支持 avatar/skin 等深层目录），返回 `size` 字段
+- 前端 DocumentManager 新增图片过滤、分类/实体级上传、hover 删除按钮、文件大小展示
+- **跨分类搜索**：`searchDocuments` 移除 category 必传限制，`exclude_doc_id` 替代 `doc_id`
+- 搜索和 imports 建议结果新增 `path`、`level`、`title` 字段
+- 陈 index.md imports 格式迁移 + 移除废弃的"可检索条目"
+
 ### 2026-05-25 — 剧情节拍跟踪系统
 
 - `session_overlay.py` 新增 `init_beat_state` / `get_beat_context` / `advance_beat` / `record_narration_on_beat` 等方法
