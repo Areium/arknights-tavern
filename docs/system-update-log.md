@@ -16,6 +16,16 @@
 
 ## 更新记录
 
+### 2026-05-25 — 会话自有文档：剧情状态与进度日志解耦
+
+- 节拍系统从"代码动态拼接 prompt 上下文"重构为"会话自有文档"模式
+- 新增 `init_session_docs(plot_id)`：从 narrative.md 模板生成 `plot_state.md` + `plot_log.md` 写入会话目录
+- `plot_state.md`：YAML frontmatter（chapter_idx/beat_idx/completed_beats）+ Markdown body（剧情概要/章节结构/节拍路线图/当前节拍详情）
+- `plot_log.md`：增量轮次日志，每次叙述追加一行摘要（`append_plot_log`）
+- `read_session_doc()` / `write_session_doc()` 通用会话文档读写 + 内存缓存
+- SceneManager 上下文注入从 `get_beat_context()` + `get_narrative_overview()` 改为读取会话文档
+- `record_narration_on_beat()` 拆分为 `append_plot_log()` + `update_beat_progress()`，日志记录与节拍推进解耦
+
 ### 2026-05-25 — 数据清理 + Prompt 上下文重排 + 默认图片系统 + 子文档扫描
 
 - **数据清理**：全部角色/职业/势力文档的 `imports` 去除冗余 `| name` 后缀，移除废弃的 `# 可检索条目` 章节
