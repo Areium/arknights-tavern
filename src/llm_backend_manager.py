@@ -20,6 +20,7 @@ from typing import Optional
 import httpx
 
 from load_llm import ApiLLM, ApiModelConfig, LocalLLM, ModelConfig
+from providers import get_adapter
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +36,14 @@ _DEFAULT_CONFIG = {
     "ollama_url": "http://localhost:11434",
     "ollama_model": ModelConfig.model,
     "theme": "dark",
+    "provider": "auto",
+    "enable_thinking": False,
     "auto_generate_choices": False,
     "choice_count": 3,
     "memory_interval": 5,
     "edit_before_send": False,
     "dialogue_bubble_mode": False,
+    "max_output_tokens": 2048,
 }
 
 
@@ -107,7 +111,10 @@ class LLMBackendManager:
         self._all_endpoints: list[LLMEndpoint] = []
         self._lock = threading.Lock()
         self._last_fail_time: float = 0.0
+        self._endpoint_fail_time: dict[str, float] = {}
         self._detected = False
+        self._provider: str = "auto"
+        self._enable_thinking: bool = False
         self._load_config()
 
     def _load_config(self):
@@ -130,9 +137,16 @@ class LLMBackendManager:
             self.OLLAMA_URL = merged["ollama_url"]
         if merged.get("ollama_model"):
             ModelConfig.model = merged["ollama_model"]
+        if merged.get("max_output_tokens"):
+            max_tok = merged["max_output_tokens"]
+            ApiModelConfig.max_tokens = max_tok
+            ModelConfig.max_tokens = max_tok
 
-        logger.info("LLM 配置已加载: cloud_model=%s, ollama_url=%s",
-                     ApiModelConfig.model, self.OLLAMA_URL)
+        self._provider = merged.get("provider", "auto")
+        self._enable_thinking = bool(merged.get("enable_thinking", False))
+
+        logger.info("LLM 配置已加载: cloud_model=%s, provider=%s, ollama_url=%s",
+                     ApiModelConfig.model, self._provider, self.OLLAMA_URL)
 
     # ── 检测 ──
 
@@ -144,26 +158,27 @@ class LLMBackendManager:
 
     def _detect(self):
         """检测所有可用后端。"""
-        cloud = self._check_cloud()
-        local = self._check_ollama()
+        with self._lock:
+            cloud = self._check_cloud()
+            local = self._check_ollama()
 
-        self._all_endpoints = [ep for ep in [cloud, local] if ep is not None]
+            self._all_endpoints = [ep for ep in [cloud, local] if ep is not None]
 
-        # 按优先级选择主后端：云端 > Ollama
-        available = [ep for ep in self._all_endpoints if ep.available]
-        if available:
-            self._primary = available[0]
-            self._fallback = available[1] if len(available) > 1 else None
-        else:
-            self._primary = None
-            self._fallback = None
+            # 按优先级选择主后端：云端 > Ollama
+            available = [ep for ep in self._all_endpoints if ep.available]
+            if available:
+                self._primary = available[0]
+                self._fallback = available[1] if len(available) > 1 else None
+            else:
+                self._primary = None
+                self._fallback = None
 
-        self._detected = True
-        logger.info(
-            "LLM 后端检测完成: primary=%s, fallback=%s",
-            self._primary.name if self._primary else "无",
-            self._fallback.name if self._fallback else "无",
-        )
+            self._detected = True
+            logger.info(
+                "LLM 后端检测完成: primary=%s, fallback=%s",
+                self._primary.name if self._primary else "无",
+                self._fallback.name if self._fallback else "无",
+            )
 
     def _check_cloud(self) -> Optional[LLMEndpoint]:
         """检测云端 API 连通性。"""
@@ -173,33 +188,57 @@ class LLMBackendManager:
 
         try:
             config = ApiModelConfig()
-            # 轻量连通性检测：请求模型列表或最小 chat 请求
+            adapter = get_adapter(
+                self._provider,
+                api_key=api_key,
+                base_url=config.base_url,
+                model=config.model,
+            )
+
             client = httpx.Client(
                 base_url=config.base_url,
                 timeout=10,
-                headers={"Authorization": f"Bearer {api_key}"},
+                headers=adapter.auth_headers() if adapter else {"Authorization": f"Bearer {api_key}"},
             )
             start = time.time()
 
-            # 优先尝试 /models 端点（无需消耗 token）
-            try:
-                r = client.get("/models")
-                if r.status_code == 200:
-                    models = r.json().get("data", [])
-                    model_name = config.model
-                    if models:
-                        model_name = models[0].get("id", models[0].get("root", config.model))
-                    latency = (time.time() - start) * 1000
-                    return LLMEndpoint(
-                        "cloud", "云端 API", "cloud",
-                        model_name, True, latency,
-                    )
-            except Exception:
-                pass
+            # Use adapter's connectivity check if available
+            if adapter:
+                check_method, check_payload = adapter.build_connectivity_check()
+                if check_method == "GET /models":
+                    try:
+                        r = client.get("/models")
+                        if r.status_code == 200:
+                            models = r.json().get("data", [])
+                            model_name = config.model
+                            if models:
+                                model_name = models[0].get("id", models[0].get("root", config.model))
+                            latency = (time.time() - start) * 1000
+                            return LLMEndpoint(
+                                "cloud", "云端 API", "cloud",
+                                model_name, True, latency,
+                            )
+                    except Exception:
+                        pass
+                elif check_method.startswith("POST "):
+                    try:
+                        endpoint = check_method[5:]
+                        r = client.post(endpoint, json=check_payload or {})
+                        r.raise_for_status()
+                        latency = (time.time() - start) * 1000
+                        return LLMEndpoint(
+                            "cloud", "云端 API", "cloud",
+                            config.model, True, latency,
+                        )
+                    except Exception:
+                        pass
+                # Fall through to default chat test
 
             # 回退：最小 chat 请求 (max_tokens=1)
-            r = client.post("/chat/completions", json={
-                "model": config.model,
+            endpoint = adapter.chat_endpoint if adapter else "/chat/completions"
+            test_model = config.model or "gpt-3.5-turbo"
+            r = client.post(endpoint, json={
+                "model": test_model,
                 "messages": [{"role": "user", "content": "."}],
                 "max_tokens": 1,
             })
@@ -226,14 +265,17 @@ class LLMBackendManager:
 
             if response.status_code == 200:
                 models = [m["name"] for m in response.json().get("models", [])]
+                # 优先使用用户配置的模型名，否则取检测到的第一个
+                preferred = ModelConfig.model
+                selected = preferred if preferred in models else (models[0] if models else "无模型")
                 if models:
-                    logger.info("Ollama 检测成功: %d 个模型可用, 主模型=%s", len(models), models[0])
+                    logger.info("Ollama 检测成功: %d 个模型可用, 主模型=%s", len(models), selected)
                 else:
                     logger.warning("Ollama 在线但无可用模型")
 
                 return LLMEndpoint(
                     "ollama", "Ollama 本地", "local",
-                    models[0] if models else "无模型",
+                    selected,
                     available=len(models) > 0,
                     latency_ms=latency,
                     detail=f"{len(models)} 个模型可用" if models else "无可用模型",
@@ -266,28 +308,36 @@ class LLMBackendManager:
             均不可用时返回 (None, "")。
         """
         self._ensure_detected()
-        # 如果上次失败在 30 秒内，跳过主后端直接试备用
-        skip_primary = (time.time() - self._last_fail_time) < 30.0
+        now = time.time()
+        cooldown = 30.0
 
         candidates = []
-        if self._primary and not skip_primary:
-            candidates.append((self._primary, "primary"))
-        if self._fallback:
-            candidates.append((self._fallback, "fallback"))
+        for ep, role in [(self._primary, "primary"), (self._fallback, "fallback")]:
+            if ep is None:
+                continue
+            last_fail = self._endpoint_fail_time.get(ep.id, 0)
+            if now - last_fail < cooldown:
+                continue
+            candidates.append((ep, role))
 
         for ep, role in candidates:
             try:
                 llm = self._instantiate(ep)
                 if llm:
-                    # 轻量连通性检查
-                    test = llm.chat([{"role": "user", "content": "."}])
+                    test = llm.chat([{"role": "user", "content": "."}], max_tokens=1)
                     test_text = test.get("content", "") if isinstance(test, dict) else str(test)
-                    if test_text and "错误" not in test_text:
+                    # Thinking models may return empty content (output in reasoning_content).
+                    # Accept if HTTP 200 with no error text, regardless of content emptiness.
+                    if isinstance(test, dict) and test.get("type") == "text":
+                        if "错误" not in test_text:
+                            return llm, ep.id
+                    elif test_text and "错误" not in test_text:
                         return llm, ep.id
             except Exception:
-                continue
+                pass
+            self._endpoint_fail_time[ep.id] = now
 
-        # 都失败：重试一次主后端（更新检测状态）
+        # 都失败：重试一次主后端
         if self._primary:
             try:
                 llm = self._instantiate(self._primary)
@@ -296,7 +346,7 @@ class LLMBackendManager:
             except Exception:
                 pass
 
-        self._last_fail_time = time.time()
+        self._last_fail_time = now
         return None, ""
 
     def get_llm_for_endpoint(self, endpoint_id: str) -> ApiLLM | LocalLLM | None:
@@ -310,7 +360,13 @@ class LLMBackendManager:
     def _instantiate(self, ep: LLMEndpoint) -> ApiLLM | LocalLLM:
         """根据端点类型创建 LLM 实例。"""
         if ep.type == "cloud":
-            return ApiLLM()
+            adapter = get_adapter(
+                self._provider,
+                api_key=os.getenv("API_KEY", ""),
+                base_url=os.getenv("BASE_URL", ""),
+                model=ApiModelConfig.model,
+            )
+            return ApiLLM(adapter=adapter)
         elif ep.type == "local":
             config = ModelConfig()
             config.base_url = self.OLLAMA_URL
@@ -348,11 +404,14 @@ class LLMBackendManager:
             "ollama_url": merged.get("ollama_url", ""),
             "ollama_model": merged.get("ollama_model", ""),
             "theme": merged.get("theme", "dark"),
+            "provider": merged.get("provider", "auto"),
+            "enable_thinking": merged.get("enable_thinking", False),
             "auto_generate_choices": merged.get("auto_generate_choices", False),
             "choice_count": merged.get("choice_count", 3),
             "memory_interval": merged.get("memory_interval", 5),
             "edit_before_send": merged.get("edit_before_send", False),
             "dialogue_bubble_mode": merged.get("dialogue_bubble_mode", False),
+            "max_output_tokens": merged.get("max_output_tokens", 2048),
         }
 
     def update_config(self, data: dict) -> dict:
@@ -386,6 +445,12 @@ class LLMBackendManager:
             merged["edit_before_send"] = bool(data["edit_before_send"])
         if "dialogue_bubble_mode" in data:
             merged["dialogue_bubble_mode"] = bool(data["dialogue_bubble_mode"])
+        if "max_output_tokens" in data:
+            merged["max_output_tokens"] = max(256, min(8192, int(data["max_output_tokens"])))
+        if "provider" in data:
+            merged["provider"] = data["provider"]
+        if "enable_thinking" in data:
+            merged["enable_thinking"] = bool(data["enable_thinking"])
 
         # 持久化到 JSON 文件
         _write_config_file(merged)
@@ -398,8 +463,12 @@ class LLMBackendManager:
             os.environ["BASE_URL"] = merged["base_url"]
             ApiModelConfig.base_url = merged["base_url"]
         ApiModelConfig.model = merged["cloud_model"]
+        ApiModelConfig.max_tokens = merged.get("max_output_tokens", 2048)
+        ModelConfig.max_tokens = merged.get("max_output_tokens", 2048)
         self.OLLAMA_URL = merged["ollama_url"]
         ModelConfig.model = merged["ollama_model"]
+        self._provider = merged.get("provider", "auto")
+        self._enable_thinking = bool(merged.get("enable_thinking", False))
 
         return self.get_config()
 

@@ -466,6 +466,7 @@ export function createSSE(
   path: string,
   handlers: {
     onText?: (token: string) => void;
+    onReasoning?: (token: string) => void;
     onSceneEvent?: (event: any) => void;
     onMemoryEvent?: (event: any) => void;
     onChoice?: (options: string[]) => void;
@@ -487,6 +488,7 @@ export function createPostSSE(
   body: Record<string, any>,
   handlers: {
     onText?: (token: string) => void;
+    onReasoning?: (token: string) => void;
     onSceneEvent?: (event: any) => void;
     onMemoryEvent?: (event: any) => void;
     onChoice?: (options: string[]) => void;
@@ -609,6 +611,7 @@ function connectSSE(
   body: Record<string, any> | undefined,
   handlers: {
     onText?: (token: string) => void;
+    onReasoning?: (token: string) => void;
     onSceneEvent?: (event: any) => void;
     onMemoryEvent?: (event: any) => void;
     onChoice?: (options: string[]) => void;
@@ -674,6 +677,9 @@ function connectSSE(
             switch (event.type) {
               case "text":
                 handlers.onText?.(event.data.token);
+                break;
+              case "reasoning":
+                handlers.onReasoning?.(event.data.token);
                 break;
               case "scene_event":
                 handlers.onSceneEvent?.(event.data);

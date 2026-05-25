@@ -31,7 +31,7 @@ def register(app, managers):
         endpoints = list(llm_backend._all_endpoints)
         target = None
         for ep in endpoints:
-            if ep.get("id") == endpoint_id:
+            if ep.id == endpoint_id:
                 target = ep
                 break
         if not target:
@@ -39,7 +39,7 @@ def register(app, managers):
 
         llm_backend._primary = target
         llm_backend._fallback = [
-            ep for ep in endpoints if ep.get("id") != endpoint_id
+            ep for ep in endpoints if ep.id != endpoint_id
         ]
         return jsonify(llm_backend.get_status())
 
@@ -49,22 +49,33 @@ def register(app, managers):
 
     @bp.route("/api/llm/config", methods=["PUT"])
     def llm_update_config():
-        allowed = {
-            "auto_generate_choices", "choice_count",
-            "memory_interval", "memory_enabled",
-            "system_content_enabled",
-            "dialogue_bubble_mode",
-        }
-        updates = {k: v for k, v in (request.json or {}).items() if k in allowed}
-        if updates:
-            llm_backend.update_config(updates)
+        data = request.json or {}
+        if data:
+            llm_backend.update_config(data)
         return jsonify(llm_backend.get_config())
 
     @bp.route("/api/llm/test", methods=["POST"])
     def llm_test():
         data = request.json or {}
-        message = data.get("message", "Hello, this is a test message.")
-        result = llm_backend.test_connection(message)
+        endpoint_type = data.get("type", "")
+        if not endpoint_type:
+            return json_error("需要 type 参数 (cloud 或 ollama)")
+
+        if endpoint_type == "cloud":
+            params = {
+                "api_key": data.get("api_key", ""),
+                "base_url": data.get("base_url", ""),
+                "model": data.get("model", ""),
+            }
+        elif endpoint_type in ("ollama", "local"):
+            params = {
+                "ollama_url": data.get("ollama_url", ""),
+                "model": data.get("model", ""),
+            }
+        else:
+            return json_error(f"未知后端类型: {endpoint_type}")
+
+        result = llm_backend.test_connection(endpoint_type, params)
         return jsonify(result)
 
     app.register_blueprint(bp)

@@ -14,9 +14,12 @@ export default function SettingsPanel() {
     cloud_model: "",
     ollama_url: "",
     ollama_model: "",
+    provider: "auto",
+    enable_thinking: false,
     auto_generate_choices: false,
     choice_count: 3,
     memory_interval: 5,
+    max_output_tokens: 2048,
     edit_before_send: false,
     dialogue_bubble_mode: false,
   });
@@ -77,9 +80,12 @@ export default function SettingsPanel() {
         cloud_model: data.cloud_model || "",
         ollama_url: data.ollama_url || "",
         ollama_model: data.ollama_model || "",
+        provider: data.provider || "auto",
+        enable_thinking: data.enable_thinking || false,
         auto_generate_choices: data.auto_generate_choices || false,
         choice_count: data.choice_count || 3,
         memory_interval: data.memory_interval || 5,
+        max_output_tokens: data.max_output_tokens ?? 2048,
         edit_before_send: data.edit_before_send ?? false,
         dialogue_bubble_mode: data.dialogue_bubble_mode ?? false,
       });
@@ -103,9 +109,12 @@ export default function SettingsPanel() {
         cloud_model: config.cloud_model,
         ollama_url: config.ollama_url,
         ollama_model: config.ollama_model,
+        provider: config.provider,
+        enable_thinking: config.enable_thinking,
         auto_generate_choices: config.auto_generate_choices,
         choice_count: config.choice_count,
         memory_interval: config.memory_interval,
+        max_output_tokens: config.max_output_tokens,
         edit_before_send: config.edit_before_send,
         dialogue_bubble_mode: config.dialogue_bubble_mode,
       });
@@ -303,6 +312,20 @@ export default function SettingsPanel() {
             <legend className="text-xs text-gray-400 px-1">云端 API</legend>
             <div className="space-y-2">
               <div>
+                <label className="text-xs text-gray-500">接口类型</label>
+                <select
+                  className="input text-sm"
+                  value={config.provider}
+                  onChange={(e) => setConfig({ ...config, provider: e.target.value })}
+                >
+                  <option value="auto">自动（OpenAI 兼容）</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="anthropic">Anthropic（开发中）</option>
+                  <option value="gemini">Gemini（开发中）</option>
+                </select>
+              </div>
+              <div>
                 <label className="text-xs text-gray-500">API Key</label>
                 <div className="flex gap-1">
                   <input
@@ -339,6 +362,19 @@ export default function SettingsPanel() {
                   placeholder="deepseek-v4-flash"
                 />
               </div>
+              {config.provider === "deepseek" && (
+                <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={config.enable_thinking}
+                    onChange={(e) =>
+                      setConfig({ ...config, enable_thinking: e.target.checked })
+                    }
+                    className="rounded"
+                  />
+                  启用思考模式（reasoning_effort）
+                </label>
+              )}
               <button
                 type="button"
                 onClick={() => handleTest("cloud")}
@@ -436,6 +472,27 @@ export default function SettingsPanel() {
               </div>
               <p className="text-xs text-gray-600 mt-1">
                 每隔这么多轮对话自动生成一次剧情回忆
+              </p>
+              <div className="flex items-center gap-2 mt-2">
+                <label className="text-xs text-gray-500 shrink-0">输出上限</label>
+                <input
+                  type="number"
+                  min={256}
+                  max={8192}
+                  step={256}
+                  value={config.max_output_tokens}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      max_output_tokens: Math.max(256, Math.min(8192, parseInt(e.target.value) || 2048)),
+                    })
+                  }
+                  className="input text-sm w-24 text-center"
+                />
+                <span className="text-xs text-gray-500">token（256-8192）</span>
+              </div>
+              <p className="text-xs text-gray-600 mt-1">
+                控制每次 LLM 叙述输出的最大 token 数，值越大叙述越详细
               </p>
               <div className="border-t border-gray-700/50 pt-2 mt-2">
                 <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">

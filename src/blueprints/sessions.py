@@ -48,7 +48,10 @@ def _load_plot_opening(session, plot_id: str):
         if time_val:
             session.environment.time_of_day = time_val
         if atmosphere:
-            session.environment.atmosphere = atmosphere
+            if isinstance(atmosphere, str):
+                session.environment.atmosphere = [atmosphere]
+            elif isinstance(atmosphere, list):
+                session.environment.atmosphere = atmosphere
 
         # 2. 加载初始角色（跳过不存在的角色 & 博士=玩家）
         player_identities = {"博士"}

@@ -166,7 +166,7 @@ class Session:
         from combat_session import CombatSession
         if character_names is None:
             character_names = self.scene_manager.get_scene_characters()
-        combat = CombatSession(self.session_id)
+        combat = CombatSession(self.id)
         combat.start(encounter_id, character_names=character_names)
         self.combat = combat
         return combat
@@ -179,7 +179,7 @@ class Session:
         self.narration_count += 1
         self._narration_history.append({
             "round": self.narration_count,
-            "text": narrative[:300] if narrative else "",
+            "text": narrative[:1500] if narrative else "",
             "action": user_action,
         })
         self._save_memories()
@@ -188,7 +188,7 @@ class Session:
         """更新指定轮次的叙述文本（用于前端切换变体时同步）。"""
         for h in self._narration_history:
             if h["round"] == round_num:
-                h["text"] = narrative[:300] if narrative else ""
+                h["text"] = narrative[:1500] if narrative else ""
                 self._save_memories()
                 return
 

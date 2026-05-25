@@ -41,6 +41,38 @@ def _require_no_combat(session):
 _COMBAT_MARKER_RE = re.compile(r'\n?\[COMBAT:([^\]]+)\]\n?')
 _SAFE_COMBAT_MARKER_RE = re.compile(r'\[COMBAT:([^\]]+)\]')
 _BEAT_COMPLETE_RE = re.compile(r'\n?\s*\[BEAT_COMPLETE\]\s*\n?')
+_CHOICES_MARKER_RE = re.compile(r'\n?\[CHOICES\]\n?([\s\S]*?)$')
+_SUMMARY_MARKER_RE = re.compile(r'\n?\[SUMMARY\]\n?([\s\S]*?)$')
+
+
+def _handle_choices_marker(narrative: str) -> tuple[str, list[str] | None]:
+    """检测并提取 [CHOICES] 标记中的选项列表。
+
+    Returns:
+        (cleaned_narrative, choices_or_none): 清理后的叙述文本和选项列表
+    """
+    match = _CHOICES_MARKER_RE.search(narrative)
+    if not match:
+        return narrative, None
+    cleaned = _CHOICES_MARKER_RE.sub("", narrative).strip()
+    choices_text = match.group(1).strip()
+    lines = [l.strip() for l in choices_text.split("\n") if l.strip()]
+    lines = [l for l in lines if len(l) <= 30]
+    return cleaned, (lines if lines else None)
+
+
+def _handle_summary_marker(narrative: str) -> tuple[str, str | None]:
+    """检测并提取 [SUMMARY] 标记中的剧情摘要。
+
+    Returns:
+        (cleaned_narrative, summary_or_none): 清理后的叙述文本和摘要字符串
+    """
+    match = _SUMMARY_MARKER_RE.search(narrative)
+    if not match:
+        return narrative, None
+    cleaned = _SUMMARY_MARKER_RE.sub("", narrative).strip()
+    summary = match.group(1).strip()
+    return cleaned, (summary if summary else None)
 
 
 def _handle_combat_trigger(session, narrative, stream_id):
@@ -65,8 +97,8 @@ def _handle_combat_trigger(session, narrative, stream_id):
         character_names = session.scene_manager.get_scene_characters()
         combat = session.start_combat(encounter_id, character_names)
         logger.info("会话 %s: LLM 触发战斗 %s，角色: %s",
-                     session.session_id, encounter_id, character_names)
-        event = f"data: {json.dumps({'type': 'combat_trigger', 'data': {'encounter_id': encounter_id, 'session_id': session.session_id, 'stream_id': stream_id}})}\n\n"
+                     session.id, encounter_id, character_names)
+        event = f"data: {json.dumps({'type': 'combat_trigger', 'data': {'encounter_id': encounter_id, 'session_id': session.id, 'stream_id': stream_id}})}\n\n"
         return cleaned, event
     except Exception as e:
         logger.error("自动触发战斗失败: %s", e)
@@ -88,7 +120,7 @@ def _handle_beat_complete(session, narrative):
         overlay.advance_beat()
         current = overlay.get_current_beat()
         beat_name = current["id"] if current else "剧情终点"
-        logger.info("会话 %s: LLM 标记节拍完成 → %s", session.session_id, beat_name)
+        logger.info("会话 %s: LLM 标记节拍完成 → %s", session.id, beat_name)
     return cleaned
 
 
@@ -242,22 +274,37 @@ def register(app, managers):
             try:
                 config = llm_backend.get_config()
                 bubble_mode = config.get("dialogue_bubble_mode", False)
+                auto_choices = config.get("auto_generate_choices", False)
+                choice_count = config.get("choice_count", 3)
+                choices_count = choice_count if auto_choices else 0
+                max_tokens = config.get("max_output_tokens", 2048)
+
+                # 构建对话历史（滑动窗口，最近 ~3000 字符）
+                conversation_history = session.scene_manager._build_conversation_history(
+                    session._narration_history
+                )
+                is_first_turn = session.narration_count == 0
 
                 # 注入记忆上下文
                 context_with_memory = inject_memory_context(session, env_context)
 
                 # — 叙述生成 —
-                # 非气泡模式：使用真正的 LLM token 流式，首字可见延迟极低
-                # 气泡模式：使用非流式（LLM 输出 JSON，不能逐 token 显示）
                 dialogue_segments = None
-                if not bubble_mode:
+                inline_choices = None
+                plot_summary = None
+                if not bubble_mode and choices_count == 0:
                     # True streaming: yield tokens as they arrive from LLM
                     for event_type, data in session.scene_manager.narrate_stream(
                         player_info, context_with_memory,
-                        user_action=user_action, structured=False
+                        user_action=user_action, structured=False,
+                        max_tokens=max_tokens,
+                        conversation_history=conversation_history,
+                        is_first_turn=is_first_turn,
                     ):
                         if event_type == "token":
                             yield f"data: {json.dumps({'type': 'text', 'data': {'token': data, 'stream_id': stream_id}})}\n\n"
+                        elif event_type == "reasoning":
+                            yield f"data: {json.dumps({'type': 'reasoning', 'data': {'token': data, 'stream_id': stream_id}})}\n\n"
                         elif event_type == "done":
                             narrative, env_updates, usage = data
                             session.accumulate_usage(usage)
@@ -278,13 +325,59 @@ def register(app, managers):
 
                     # 检测节拍完成标记 [BEAT_COMPLETE]
                     narrative = _handle_beat_complete(session, narrative)
+
+                elif not bubble_mode and choices_count > 0:
+                    # 全缓冲模式（需提取 [CHOICES]）：
+                    # LLM 非流式获取完整响应，解析标记后逐字符推送纯叙述
+                    for _event_type, _data in session.scene_manager.narrate_stream(
+                        player_info, context_with_memory,
+                        user_action=user_action, structured=False,
+                        max_tokens=max_tokens, choices_count=choices_count,
+                        conversation_history=conversation_history,
+                        is_first_turn=is_first_turn,
+                    ):
+                        if _event_type == "done":
+                            narrative, env_updates, usage = _data
+                            session.accumulate_usage(usage)
+                            break
+
+                    # 提取摘要和内联选项（SUMMARY 在末尾，先提取）
+                    narrative, plot_summary = _handle_summary_marker(narrative)
+                    narrative, inline_choices = _handle_choices_marker(narrative)
+
+                    # 检测结构化 JSON
+                    if narrative.strip().startswith(("[", "```")):
+                        dialogue_segments, stream_text = session.scene_manager.parse_structured(narrative)
+                        if stream_text:
+                            narrative = stream_text
+
+                    # 检测战斗触发和节拍完成
+                    narrative, combat_triggered = _handle_combat_trigger(
+                        session, narrative, stream_id
+                    )
+                    if combat_triggered:
+                        yield combat_triggered
+                    narrative = _handle_beat_complete(session, narrative)
+
+                    # 逐字符发送解析后的纯文本
+                    for ch in narrative:
+                        yield f"data: {json.dumps({'type': 'text', 'data': {'token': ch, 'stream_id': stream_id}})}\n\n"
+
                 else:
                     # Bubble mode: non-streaming (LLM outputs JSON, cannot stream raw JSON to UI)
                     narrative, env_updates, usage = session.scene_manager.narrate(
                         player_info, context_with_memory,
-                        user_action=user_action, structured=True
+                        user_action=user_action, structured=True,
+                        max_tokens=max_tokens, choices_count=choices_count,
+                        conversation_history=conversation_history,
+                        is_first_turn=is_first_turn,
                     )
                     session.accumulate_usage(usage)
+
+                    # 提取摘要和内联选项
+                    narrative, plot_summary = _handle_summary_marker(narrative)
+                    if choices_count > 0:
+                        narrative, inline_choices = _handle_choices_marker(narrative)
 
                     if narrative.strip().startswith(("[", "```")):
                         dialogue_segments, stream_text = session.scene_manager.parse_structured(narrative)
@@ -327,7 +420,7 @@ def register(app, managers):
                 if session.mode == "story":
                     session.add_narration(narrative, user_action)
                     session.overlay.append_plot_log(
-                        narrative[:80].replace('\n', ' ')
+                        plot_summary if plot_summary else narrative[:300].replace('\n', ' ')
                     )
                     session.overlay.update_beat_progress()
                     interval = config.get("memory_interval", 5)
@@ -339,8 +432,11 @@ def register(app, managers):
                                 'stream_id': stream_id
                             }})}\n\n"
 
-                # 生成选项
-                options = _build_choices(session, llm_backend, narrative)
+                # 生成选项：优先使用内联选项，回退到 LLM 生成
+                if inline_choices:
+                    options = ["继续推进剧情"] + inline_choices
+                else:
+                    options = _build_choices(session, llm_backend, narrative)
 
                 yield f"data: {json.dumps({'type': 'choice', 'data': {'options': options, 'stream_id': stream_id}})}\n\n"
 
@@ -378,14 +474,31 @@ def register(app, managers):
         try:
             config = llm_backend.get_config()
             bubble_mode = config.get("dialogue_bubble_mode", False)
+            auto_choices = config.get("auto_generate_choices", False)
+            choices_count = config.get("choice_count", 3) if auto_choices else 0
+
+            conversation_history = session.scene_manager._build_conversation_history(
+                session._narration_history
+            )
+            is_first_turn = session.narration_count == 0
 
             narrative, env_updates, usage = session.scene_manager.narrate(
                 player_info, context_with_memory,
                 user_action=data.get("action", ""),
                 structured=bubble_mode,
+                max_tokens=config.get("max_output_tokens", 2048),
+                choices_count=choices_count,
+                conversation_history=conversation_history,
+                is_first_turn=is_first_turn,
             )
             session.accumulate_usage(usage)
             session.environment.apply_update(env_updates)
+
+            # 提取摘要和内联选项（SUMMARY 在末尾，先提取）
+            narrative, plot_summary = _handle_summary_marker(narrative)
+            inline_choices = None
+            if choices_count > 0:
+                narrative, inline_choices = _handle_choices_marker(narrative)
 
             # 检测并解析结构化 JSON 输出
             dialogue_segments = None
@@ -403,7 +516,7 @@ def register(app, managers):
             if session.mode == "story":
                 session.add_narration(narrative, data.get("action", ""))
                 session.overlay.append_plot_log(
-                    narrative[:80].replace('\n', ' ')
+                    plot_summary if plot_summary else narrative[:300].replace('\n', ' ')
                 )
                 session.overlay.update_beat_progress()
                 interval = config.get("memory_interval", 5)
@@ -412,7 +525,10 @@ def register(app, managers):
                     if memory:
                         response_extra["memory"] = memory
 
-            options = _build_choices(session, llm_backend, narrative)
+            if inline_choices:
+                options = ["继续推进剧情"] + inline_choices
+            else:
+                options = _build_choices(session, llm_backend, narrative)
 
             if dialogue_segments:
                 response_extra["dialogue_segments"] = dialogue_segments
@@ -454,10 +570,18 @@ def register(app, managers):
             config = llm_backend.get_config()
             bubble_mode = config.get("dialogue_bubble_mode", False)
 
+            conversation_history = session.scene_manager._build_conversation_history(
+                session._narration_history
+            )
+            is_first_turn = session.narration_count == 0
+
             narrative, env_updates, usage = session.scene_manager.narrate(
                 player_info, context_with_memory,
                 user_action=prompt,
                 structured=bubble_mode,
+                conversation_history=conversation_history,
+                is_first_turn=is_first_turn,
+                max_tokens=config.get("max_output_tokens", 2048),
             )
             session.accumulate_usage(usage)
             response = {"narrative": narrative}

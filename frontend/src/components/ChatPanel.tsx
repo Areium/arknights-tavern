@@ -17,6 +17,7 @@ interface Message {
   variantIndex?: number;
   dialogueSegments?: { type: string; text: string; speaker?: string }[];
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+  reasoning?: string;
 }
 
 function filterSceneLog(log: string[]): string[] {
@@ -63,6 +64,11 @@ export default function ChatPanel() {
   const [sending, setSending] = useState(false);
   const [initialLoading, setInitialLoading] = useState(false);
   const [narrationCount, setNarrationCount] = useState(0);
+  const narrationCountRef = useRef(0);
+  const updateNarrationCount = (value: number) => {
+    narrationCountRef.current = value;
+    setNarrationCount(value);
+  };
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
   const [regeneratingRound, setRegeneratingRound] = useState<number | null>(null);
@@ -101,7 +107,7 @@ export default function ChatPanel() {
     setMessages([]);
     setStreaming(false);
     setSending(false);
-    setNarrationCount(0);
+    updateNarrationCount(0);
     setEditingIdx(null);
     abortRef.current?.();
     abortRef.current = null;
@@ -126,7 +132,7 @@ export default function ChatPanel() {
               const maxRound = Math.max(0, ...parsed
                 .filter((m: Message) => m.round != null)
                 .map((m: Message) => m.round!));
-              setNarrationCount(maxRound);
+              updateNarrationCount(maxRound);
             }
             return;
           }
@@ -138,7 +144,7 @@ export default function ChatPanel() {
       try {
         const session = await api.getSession(sid);
         if (cancelled) return;
-        setNarrationCount(session.narration_count || 0);
+        updateNarrationCount(session.narration_count || 0);
 
         const initialMessages: Message[] = [];
         const log = filterSceneLog(session.scene_log || []);
@@ -168,7 +174,7 @@ export default function ChatPanel() {
 
       // 3. Story mode auto-narrate
       if (chatMode === "story" && !cancelled) {
-        triggerNarrate(sid, setMessages, setStreaming, abortRef, triggerEnvRefresh, triggerMemoryRefresh, setNarrationCount, narrationCount);
+        triggerNarrate(sid, setMessages, setStreaming, abortRef, triggerEnvRefresh, triggerMemoryRefresh, setNarrationCount, narrationCountRef);
       }
     }
 
@@ -196,7 +202,7 @@ export default function ChatPanel() {
       try {
         const session = await api.getSession(activeSessionId);
         const targetRound = session.narration_count || 0;
-        setNarrationCount(targetRound);
+        updateNarrationCount(targetRound);
         setMessages((prev) => prev.filter((m) => !m.round || m.round <= targetRound));
       } catch { /* ignore */ }
     })();
@@ -208,7 +214,7 @@ export default function ChatPanel() {
     if (!activeSessionId || chatMode !== "story" || sceneSwitchKey === 0) return;
     triggerNarrate(
       activeSessionId, setMessages, setStreaming, abortRef,
-      triggerEnvRefresh, triggerMemoryRefresh, setNarrationCount, narrationCount,
+      triggerEnvRefresh, triggerMemoryRefresh, setNarrationCount, narrationCountRef,
     );
   }, [sceneSwitchKey]);
 
@@ -221,7 +227,7 @@ export default function ChatPanel() {
     try {
       await api.rollbackSession(activeSessionId, targetRound);
       setMessages((prev) => prev.filter((m) => !m.round || m.round <= targetRound));
-      setNarrationCount(targetRound);
+      updateNarrationCount(targetRound);
       triggerMemoryRefresh();
     } catch (err: any) {
       alert("回退失败: " + (err.message || "未知错误"));
@@ -254,7 +260,7 @@ export default function ChatPanel() {
     try {
       if (rollbackTo >= 0) {
         await api.rollbackSession(activeSessionId, rollbackTo);
-        setNarrationCount(rollbackTo);
+        updateNarrationCount(rollbackTo);
         triggerMemoryRefresh();
       }
 
@@ -271,7 +277,7 @@ export default function ChatPanel() {
       triggerNarrate(
         activeSessionId, setMessages, setStreaming, abortRef,
         triggerEnvRefresh, triggerMemoryRefresh, setNarrationCount,
-        rollbackTo, edited,
+        narrationCountRef, edited,
       );
     } catch (err: any) {
       alert("编辑失败: " + (err.message || "未知错误"));
@@ -289,7 +295,7 @@ export default function ChatPanel() {
       if (chatMode === "story") {
         triggerNarrate(
           activeSessionId, setMessages, setStreaming, abortRef,
-          triggerEnvRefresh, triggerMemoryRefresh, setNarrationCount, narrationCount,
+          triggerEnvRefresh, triggerMemoryRefresh, setNarrationCount, narrationCountRef,
           text, setSending,
         );
         return;
@@ -319,19 +325,19 @@ export default function ChatPanel() {
         setStreaming(false);
       }
     },
-    [activeSessionId, chatMode, api, narrationCount, triggerEnvRefresh, triggerMemoryRefresh]
+    [activeSessionId, chatMode, api, triggerEnvRefresh, triggerMemoryRefresh]
   );
 
   const handleSend = useCallback(() => {
     const text = input.trim();
     if (!text || sending || streaming) return;
 
-    const curRound = narrationCount;
+    const curRound = narrationCountRef.current;
     setInput("");
     setSending(true);
     setMessages((prev) => [...prev, { role: "user", content: text, round: curRound }]);
     performSend(text);
-  }, [input, sending, streaming, performSend, narrationCount]);
+  }, [input, sending, streaming, performSend]);
 
   const handleChoiceClick = useCallback(
     (choice: string) => {
@@ -339,12 +345,12 @@ export default function ChatPanel() {
         setInput(choice);
         return;
       }
-      const curRound = narrationCount;
+      const curRound = narrationCountRef.current;
       setInput("");
       setMessages((prev) => [...prev, { role: "user", content: choice, round: curRound }]);
       performSend(choice);
     },
-    [performSend, narrationCount, editBeforeSend]
+    [performSend, editBeforeSend]
   );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -599,7 +605,7 @@ export default function ChatPanel() {
                     onClick={() => {
                       if (!activeSessionId) return;
                       triggerNarrate(activeSessionId, setMessages, setStreaming, abortRef,
-                        triggerEnvRefresh, triggerMemoryRefresh, setNarrationCount, narrationCount);
+                        triggerEnvRefresh, triggerMemoryRefresh, setNarrationCount, narrationCountRef);
                     }}
                     className="btn-primary text-sm" disabled={!activeSessionId}
                   >
@@ -681,6 +687,17 @@ export default function ChatPanel() {
                     </div>
                   ) : (
                     <>
+                      {/* Reasoning/thinking display (collapsible) */}
+                      {msg.reasoning && (
+                        <details className="mb-2 text-xs">
+                          <summary className="text-gray-500 cursor-pointer hover:text-gray-400 select-none">
+                            思考过程 ({msg.reasoning.length} 字)
+                          </summary>
+                          <div className="mt-1 p-2 rounded bg-gray-800/60 text-gray-400 whitespace-pre-wrap border-l-2 border-gray-600 max-h-48 overflow-y-auto">
+                            {msg.reasoning}
+                          </div>
+                        </details>
+                      )}
                       {msg.content && renderMessageContent(msg)}
 
                       {/* Variant navigation (narrator messages in story mode) */}
@@ -862,7 +879,7 @@ function triggerNarrate(
   triggerEnvRefresh: () => void,
   triggerMemoryRefresh: () => void,
   setNarrationCount: React.Dispatch<React.SetStateAction<number>>,
-  curCount: number,
+  narrationCountRef: React.MutableRefObject<number>,
   action?: string,
   setSending?: (v: boolean) => void,
 ) {
@@ -870,8 +887,10 @@ function triggerNarrate(
   abortRef.current?.();
   setStreaming(true);
   let accumulated = "";
+  let accumulatedReasoning = "";
 
-  const newRound = curCount + 1;
+  const newRound = narrationCountRef.current + 1;
+  narrationCountRef.current = newRound;
   setNarrationCount(newRound);
 
   const url = action
@@ -879,6 +898,16 @@ function triggerNarrate(
     : `/api/sessions/${sessionId}/narrate?identity=${encodeURIComponent("博士")}`;
 
   const sse = createSSE(url, {
+      onReasoning: (token: string) => {
+        accumulatedReasoning += token;
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (last?.role === "narrator" && last.round === newRound) {
+            return [...prev.slice(0, -1), { ...last, reasoning: accumulatedReasoning }];
+          }
+          return [...prev, { role: "narrator", content: "", reasoning: accumulatedReasoning, round: newRound }];
+        });
+      },
       onText: (token: string) => {
         accumulated += token;
         setMessages((prev) => {
