@@ -631,12 +631,11 @@ html.light .deploy-arrow {
 .character-illustration-container {
   position: absolute;
   left: 0.5rem;
-  bottom: 320px;
-  height: 55vh;
-  max-height: 700px;
+  bottom: 0;
+  top: 10%;
   width: 420px;
   pointer-events: none;
-  z-index: 5;
+  z-index: 0;
   -webkit-mask-image: linear-gradient(to right, black 25%, transparent 65%);
   mask-image: linear-gradient(to right, black 25%, transparent 65%);
   animation: illustration-fade-in 0.4s ease-out;

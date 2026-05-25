@@ -865,7 +865,7 @@ export default function CombatView() {
       {/* Main area: status panels + grid */}
       <div className="flex-1 flex items-start justify-between px-2 gap-2 relative z-10 select-none" onClick={handleGridBackgroundClick}>
         {/* Player status — left panel */}
-        <div className="w-56 flex-shrink-0 max-h-[calc(100vh-320px)] overflow-y-auto bg-surface-card/90 border border-combat-border rounded-xl p-3 backdrop-blur-sm" onClick={(e) => e.stopPropagation()}>
+        <div className="w-56 flex-shrink-0 max-h-[calc(100vh-320px)] overflow-y-auto bg-surface-card/90 border border-combat-border rounded-xl p-3 backdrop-blur-sm relative z-[1]" onClick={(e) => e.stopPropagation()}>
           <UnitStatusPanel
             units={combatState.units}
             activeUnitId={combatState.active_unit_id}
