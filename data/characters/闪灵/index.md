@@ -38,16 +38,6 @@ tags:
 - 神秘
 theme_color: '#846c61'
 ---
-
-# 可检索条目
-
-character（data/characters/）：<博士>、<临光>、<夜莺>
-faction（data/factions/）：<罗德岛>
-race（data/races/）：<萨卡兹>
-class（data/classes/）：<医疗>
-item（data/items/）：<闪灵的法杖>
-location（environment/Location/）：<罗德岛>
-
 # 角色背景
 
 闪灵是一位来自萨卡兹族群的神秘女性，也是罗德岛医疗部门的核心干员之一。她曾属于萨卡兹的"赦罪师"组织——一个既非善也非恶的神秘团体，但她选择离开了那里。她拥有极其精湛的医术和深不可测的源石技艺，但从不主动提起自己的过往。她随身携带一把剑，却几乎从不使用——"真正的力量不在于伤害，而在于治愈"，这是她为数不多的自白之一。

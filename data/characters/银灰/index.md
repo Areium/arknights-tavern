@@ -37,16 +37,6 @@ tags:
 - 策略家
 theme_color: '#cabcac'
 ---
-
-# 可检索条目
-
-character（data/characters/）：<博士>、<崖心>、<角峰>
-faction（data/factions/）：<维多利亚>
-race（data/races/）：<菲林>
-class（data/classes/）：<近卫>
-item（data/items/）：<银灰的佩剑>、<喀兰贸易印章>
-location（environment/Location/）：<谢拉格>
-
 # 角色背景
 
 银灰，本名恩希欧迪斯·希瓦艾什，是谢拉格三大家族之一的希瓦艾什家族现任家主。他年轻时曾在维多利亚留学，接受了先进的教育和资本运作思想的洗礼。在父亲去世后，他回到谢拉格，以铁腕手段重振家族，并一手创立了谢拉格最大的商业集团——喀兰贸易。表面上他是一位优雅的贵族董事长，实际上他是一位深谋远虑的战略家，每一步棋都在为最终的目标服务：让谢拉格真正地强大起来。

@@ -38,17 +38,6 @@ tags:
 - 雪怪小队
 theme_color: '#a09680'
 ---
-
-# 可检索条目
-
-character（data/characters/）：<博士>、<塔露拉>、<爱国者>
-faction（data/factions/）：<整合运动>
-race（data/races/）：<卡特斯>
-class（data/classes/）：<术师>
-item（data/items/）：<冰霜法杖>、<雪怪小队徽记>
-location（environment/Location/）：<切尔诺伯格废墟>
-plot（data/plots/）：<chernobog-crisis>
-
 # 角色背景
 
 霜星，本名叶莲娜，是整合运动的干部之一，雪怪小队的指挥官。她是一名卡特斯族的感染者，源石结晶已经大面积出现在她的身体表面。她的父亲是乌萨斯著名的战士"爱国者"，而她的母亲在乌萨斯的矿场中因矿石病去世。她从小就在寒冷和苦难中长大，在整合运动中找到了"为感染者争取尊严"的理想。但随着时间的推移，她开始对塔露拉的极端路线产生质疑——然而，她已经走得太远，无法轻易回头。

@@ -340,10 +340,15 @@ def register(app, managers):
                 if exclude_doc_id and doc_id == exclude_doc_id and cat == filter_category:
                     continue
 
-                # 模糊匹配
+                # 模糊匹配：标题、摘要、文档ID、完整路径
                 if q:
                     q_lower = q.lower()
-                    if q_lower not in title.lower() and q_lower not in summary.lower():
+                    doc_path = f"{cat}/{doc_id}".lower()
+                    if (q_lower not in title.lower()
+                        and q_lower not in summary.lower()
+                        and q_lower not in doc_id.lower()
+                        and not doc_path.startswith(q_lower)
+                        and q_lower not in doc_path):
                         continue
 
                 cat_level = level_map.get(cat, 99) if not filter_category else 99

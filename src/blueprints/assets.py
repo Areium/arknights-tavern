@@ -103,6 +103,63 @@ def register(app, managers):
         _os.remove(filepath)
         return jsonify({"message": "已删除", "path": f"{category}/{filename}"})
 
+    @bp.route("/api/assets/<category>/<path:entity>/default-image", methods=["GET"])
+    def get_default_image(category, entity):
+        """读取实体的默认头像/立绘设置。"""
+        import os as _os
+        import frontmatter as _fm
+
+        cat = doc_mgr.get_category(category)
+        if not cat:
+            return jsonify({"error": f"未知类别: {category}"}), 404
+
+        index_md = _os.path.join(cat.directory, entity, "index.md")
+        if not _os.path.isfile(index_md):
+            return jsonify({"error": "实体不存在"}), 404
+
+        try:
+            with open(index_md, "r", encoding="utf-8") as f:
+                meta = _fm.load(f).metadata
+            return jsonify({
+                "default_avatar": meta.get("default_avatar", ""),
+                "default_skin": meta.get("default_skin", ""),
+            })
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @bp.route("/api/assets/<category>/<path:entity>/default-image", methods=["PUT"])
+    def set_default_image(category, entity):
+        """设置实体的默认头像/立绘。写入 index.md frontmatter。"""
+        import os as _os
+        import frontmatter as _fm
+
+        cat = doc_mgr.get_category(category)
+        if not cat:
+            return jsonify({"error": f"未知类别: {category}"}), 404
+
+        index_md = _os.path.join(cat.directory, entity, "index.md")
+        if not _os.path.isfile(index_md):
+            return jsonify({"error": "实体不存在"}), 404
+
+        data = request.json or {}
+        img_type = data.get("type", "").strip()
+        filename = data.get("filename", "").strip()
+
+        if img_type not in ("avatar", "skin"):
+            return jsonify({"error": "type 必须为 'avatar' 或 'skin'"}), 400
+
+        field = f"default_{img_type}"
+
+        try:
+            with open(index_md, "r", encoding="utf-8") as f:
+                post = _fm.load(f)
+            post.metadata[field] = filename
+            with open(index_md, "w", encoding="utf-8") as f:
+                f.write(_fm.dumps(post))
+            return jsonify({"message": "已更新", "field": field, "filename": filename})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
     app.register_blueprint(bp)
 
 
@@ -161,6 +218,7 @@ def _list_entity_images(doc_mgr):
                         "path": path_key,
                         "url": f"/api/assets/{path_key}",
                         "size": file_stat.st_size,
+                        "subdir": inner_rel if inner_rel != "." else "",
                     })
 
             if images:

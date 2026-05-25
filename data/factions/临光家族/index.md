@@ -4,10 +4,10 @@ alignment: lawful_good
 allies: []
 headquarters: 卡瓦莱利亚基——临光家族宅邸
 imports:
-- factions/卡西米尔 | 卡西米尔
-- factions/商业联合会 | 商业联合会
-- factions/监证会 | 监证会
-- factions/罗德岛 | 罗德岛
+- factions/卡西米尔
+- factions/商业联合会
+- factions/监证会
+- factions/罗德岛
 key_members:
 - 临光（玛嘉烈）
 - 瑕光（玛莉娅）
@@ -15,10 +15,10 @@ key_members:
 - 佐菲娅
 leader: []
 name: 临光家族
-summary: "没落骑士家族临光，仅存四人，与商业联合会对立，内部沉默而互信。"
 rivals:
 - 商业联合会
 scale: small
+summary: 没落骑士家族临光，仅存四人，与商业联合会对立，内部沉默而互信。
 tags:
 - 卡西米尔
 - 骑士家族

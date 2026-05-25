@@ -10,16 +10,16 @@ core_attributes:
 damage_type: physical
 deployment_cost_range: 12-20
 imports:
-- attributes/战场机动 | 战场机动
-- attributes/战斗技巧 | 战斗技巧
-- attributes/战术规划 | 战术规划
-- attributes/源石技艺适应性 | 源石技艺适应性
-- attributes/物理强度 | 物理强度
-- attributes/生理耐受 | 生理耐受
-- classes/辅助 | 辅助
-- classes/重装 | 重装
+- attributes/战场机动
+- attributes/战斗技巧
+- attributes/战术规划
+- attributes/源石技艺适应性
+- attributes/物理强度
+- attributes/生理耐受
+- classes/辅助
+- classes/重装
 name: 近卫
-summary: "近卫干员是罗德岛近战进攻核心，拥有多种子职业与物理输出卡牌池。"
+summary: 近卫干员是罗德岛近战进攻核心，拥有多种子职业与物理输出卡牌池。
 ---
 
 # 近卫 / Guard

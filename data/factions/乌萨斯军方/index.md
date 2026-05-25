@@ -4,21 +4,21 @@ alignment: lawful_evil
 allies: []
 headquarters: 乌萨斯帝国首都
 imports:
-- classes/近卫 | 近卫
-- races/乌萨斯 | 乌萨斯
-- factions/乌萨斯帝国 | 乌萨斯帝国
-- factions/整合运动 | 整合运动
-- factions/罗德岛 | 罗德岛
-- factions/龙门 | 龙门
+- classes/近卫
+- races/乌萨斯
+- factions/乌萨斯帝国
+- factions/整合运动
+- factions/罗德岛
+- factions/龙门
 key_members: []
 leader:
 - 乌萨斯皇帝
 name: 乌萨斯军方
-summary: "乌萨斯军方是泰拉最强军队之一，以严酷纪律、高压感染者和强者文化著称。"
 rivals:
 - 整合运动
 - 罗德岛
 scale: global
+summary: 乌萨斯军方是泰拉最强军队之一，以严酷纪律、高压感染者和强者文化著称。
 tags:
 - 乌萨斯
 - 军方

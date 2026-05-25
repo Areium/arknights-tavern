@@ -11,17 +11,17 @@ attributes:
 class: 战术指挥
 faction: 罗德岛
 imports:
-- classes/战术指挥 | 战术指挥
-- factions/罗德岛 | 罗德岛
-- attributes/情绪稳定性 | 情绪稳定性
-- attributes/战场机动 | 战场机动
-- attributes/战术规划 | 战术规划
-- attributes/魅力 | 魅力
-- characters/阿米娅 | 阿米娅
-- items/博士的战术终端 | 博士的战术终端
-- classes/辅助 | 辅助
-- classes/重装 | 重装
-- items/战术地图 | 战术地图
+- classes/战术指挥
+- factions/罗德岛
+- attributes/情绪稳定性
+- attributes/战场机动
+- attributes/战术规划
+- attributes/魅力
+- characters/阿米娅
+- items/博士的战术终端
+- classes/辅助
+- classes/重装
+- items/战术地图
 name: 博士
 race: 未知
 relationships:

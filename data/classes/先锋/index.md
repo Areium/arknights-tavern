@@ -10,16 +10,16 @@ core_attributes:
 damage_type: physical
 deployment_cost_range: 8-12
 imports:
-- attributes/情绪稳定性 | 情绪稳定性
-- attributes/战场机动 | 战场机动
-- attributes/战斗技巧 | 战斗技巧
-- attributes/战术规划 | 战术规划
-- attributes/物理强度 | 物理强度
-- attributes/魅力 | 魅力
-- classes/辅助 | 辅助
-- classes/重装 | 重装
+- attributes/情绪稳定性
+- attributes/战场机动
+- attributes/战斗技巧
+- attributes/战术规划
+- attributes/物理强度
+- attributes/魅力
+- classes/辅助
+- classes/重装
 name: 先锋
-summary: "先锋干员是战场先头部队，负责快速部署、回复费用并掌控战斗节奏。"
+summary: 先锋干员是战场先头部队，负责快速部署、回复费用并掌控战斗节奏。
 ---
 
 # 先锋 / Vanguard

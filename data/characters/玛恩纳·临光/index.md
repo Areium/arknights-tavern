@@ -41,16 +41,6 @@ tags:
 - 卡西米尔
 theme_color: '#fae3d7'
 ---
-
-# 可检索条目
-
-character（data/characters/）：<临光>、<瑕光>、<托兰>
-faction（data/factions/）：<临光家族>、<罗德岛>
-race（data/races/）：<库兰塔>
-class（data/classes/）：<近卫>
-item（data/items/）：<托兰的雇佣证明>
-plot（data/plots/）：<near_light>
-
 # 角色背景
 
 玛恩纳·临光——在外人看来，他只是一个普通的上班族。每天通勤到一家中型公司的格子间里处理文书，西装皱巴巴的，领带总是系得不太对。他买咖啡时会用优惠券。他下班后会在便利店里挑选打折便当。一个中年男人，已经被生活磨平了棱角。

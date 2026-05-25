@@ -11,21 +11,20 @@ attributes:
 class: 特种
 faction: 罗德岛
 imports:
-- classes/特种 | 特种 | 特种 | 特种 | 特种 | 特种 | 特种 | 特种
-- factions/罗德岛 | 罗德岛 | 罗德岛 | 罗德岛 | 罗德岛 | 罗德岛 | 罗德岛 | 罗德岛
-- factions/无胄盟 | 无胄盟 | 无胄盟 | 无胄盟 | 无胄盟 | 无胄盟 | 无胄盟 | 无胄盟
-- attributes/物理强度 | 物理强度 | 物理强度 | 物理强度 | 物理强度 | 物理强度 | 物理强度 | 物理强度
-- attributes/战场机动 | 战场机动 | 战场机动 | 战场机动 | 战场机动 | 战场机动 | 战场机动 | 战场机动
-- attributes/生理耐受 | 生理耐受 | 生理耐受 | 生理耐受 | 生理耐受 | 生理耐受 | 生理耐受 | 生理耐受
-- attributes/战术规划 | 战术规划 | 战术规划 | 战术规划 | 战术规划 | 战术规划 | 战术规划 | 战术规划
-- attributes/战斗技巧 | 战斗技巧 | 战斗技巧 | 战斗技巧 | 战斗技巧 | 战斗技巧 | 战斗技巧 | 战斗技巧
-- attributes/源石技艺适应性 | 源石技艺适应性 | 源石技艺适应性 | 源石技艺适应性 | 源石技艺适应性 | 源石技艺适应性 | 源石技艺适应性 |
-  源石技艺适应性
-- attributes/情绪稳定性 | 情绪稳定性 | 情绪稳定性 | 情绪稳定性 | 情绪稳定性 | 情绪稳定性 | 情绪稳定性 | 情绪稳定性
-- attributes/魅力 | 魅力 | 魅力 | 魅力 | 魅力 | 魅力 | 魅力 | 魅力
-- characters/博士 | 博士 | 博士 | 博士 | 博士 | 博士 | 博士 | 博士
-- characters/临光 | 临光 | 临光 | 临光 | 临光 | 临光 | 临光 | 临光
-- characters/瑕光 | 瑕光 | 瑕光 | 瑕光 | 瑕光 | 瑕光 | 瑕光 | 瑕光
+- classes/特种
+- factions/罗德岛
+- factions/无胄盟
+- attributes/物理强度
+- attributes/战场机动
+- attributes/生理耐受
+- attributes/战术规划
+- attributes/战斗技巧
+- attributes/源石技艺适应性
+- attributes/情绪稳定性
+- attributes/魅力
+- characters/博士
+- characters/临光
+- characters/瑕光
 name: 砾
 race: 扎拉克
 relationships:
@@ -42,15 +41,6 @@ tags:
 - 特种
 theme_color: '#f8d7c6'
 ---
-
-# 可检索条目
-
-character（data/characters/）：<博士>、<临光>、<瑕光>
-faction（data/factions/）：<罗德岛>、<无胄盟>
-race（data/races/）：<扎拉克>
-class（data/classes/）：<特种>
-item（data/items/）：<瑕光工坊外的监视照片>
-plot（data/plots/）：<near_light>
 
 # 角色背景
 

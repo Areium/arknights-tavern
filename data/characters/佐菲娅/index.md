@@ -11,15 +11,15 @@ attributes:
 class: 先锋
 faction: 临光家族
 imports:
-- classes/先锋 | 先锋
-- races/库兰塔 | 库兰塔
-- factions/临光家族 | 临光家族
-- factions/卡西米尔 | 卡西米尔
-- attributes/魅力 | 魅力
-- attributes/战场机动 | 战场机动
-- characters/临光 | 临光
-- characters/瑕光 | 瑕光
-- characters/玛恩纳·临光 | 玛恩纳·临光
+- classes/先锋
+- races/库兰塔
+- factions/临光家族
+- factions/卡西米尔
+- attributes/魅力
+- attributes/战场机动
+- characters/临光
+- characters/瑕光
+- characters/玛恩纳·临光
 name: 佐菲娅
 race: 库兰塔
 relationships:

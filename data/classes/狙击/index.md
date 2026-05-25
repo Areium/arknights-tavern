@@ -9,15 +9,15 @@ core_attributes:
 damage_type: physical
 deployment_cost_range: 10-20
 imports:
-- attributes/战场机动 | 战场机动
-- attributes/战斗技巧 | 战斗技巧
-- attributes/战术规划 | 战术规划
-- attributes/物理强度 | 物理强度
-- attributes/生理耐受 | 生理耐受
-- classes/辅助 | 辅助
-- classes/重装 | 重装
+- attributes/战场机动
+- attributes/战斗技巧
+- attributes/战术规划
+- attributes/物理强度
+- attributes/生理耐受
+- classes/辅助
+- classes/重装
 name: 狙击
-summary: "狙击干员是远程物理输出核心，擅长精确打击空中单位和远程压制。"
+summary: 狙击干员是远程物理输出核心，擅长精确打击空中单位和远程压制。
 ---
 
 # 狙击 / Sniper

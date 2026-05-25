@@ -10,15 +10,15 @@ core_attributes:
 damage_type: mixed
 deployment_cost_range: 8-12
 imports:
-- attributes/战场机动 | 战场机动
-- attributes/战斗技巧 | 战斗技巧
-- attributes/战术规划 | 战术规划
-- attributes/源石技艺适应性 | 源石技艺适应性
-- attributes/物理强度 | 物理强度
-- attributes/魅力 | 魅力
-- classes/辅助 | 辅助
+- attributes/战场机动
+- attributes/战斗技巧
+- attributes/战术规划
+- attributes/源石技艺适应性
+- attributes/物理强度
+- attributes/魅力
+- classes/辅助
 name: 特种
-summary: "特种干员通过位移、潜行、伏击等非常规战术改变战场格局，战术价值超越面板数据。"
+summary: 特种干员通过位移、潜行、伏击等非常规战术改变战场格局，战术价值超越面板数据。
 ---
 
 # 特种 / Specialist

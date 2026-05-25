@@ -11,14 +11,14 @@ attributes:
 class: 近卫
 faction: 龙门
 imports:
-- attributes/生理耐受 | 生理耐受
-- attributes/战术规划 | 战术规划
-- attributes/战斗技巧 | 战斗技巧
-- attributes/源石技艺适应性 | 源石技艺适应性
-- attributes/情绪稳定性 | 情绪稳定性
-- attributes/魅力 | 魅力
-- characters/博士 | 博士
-- characters/阿米娅 | 阿米娅
+- attributes/生理耐受
+- attributes/战术规划
+- attributes/战斗技巧
+- attributes/源石技艺适应性
+- attributes/情绪稳定性
+- attributes/魅力
+- characters/博士
+- characters/阿米娅
 name: 陈
 race: 鲁珀
 relationships:

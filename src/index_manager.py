@@ -108,8 +108,10 @@ def write_imports_to_file(filepath: str, imports: list, doc_manager=None):
     cleaned = list(dict.fromkeys(p for p in imports if p and "/" in p))
     formatted = []
     for imp in cleaned:
-        name = resolve_doc_display_name(imp, doc_manager)
-        formatted.append(f"{imp} | {name}" if name else imp)
+        # 先剥离已存在的 "| name" 后缀，避免重复堆积
+        path, _ = parse_import_entry(imp)
+        name = resolve_doc_display_name(path, doc_manager)
+        formatted.append(f"{path} | {name}" if name else path)
     post.metadata["imports"] = formatted
     post.metadata.pop("index_refs", None)
 

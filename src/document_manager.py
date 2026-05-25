@@ -261,6 +261,50 @@ class DocumentManager:
                     summary=summary,
                 ).to_dict())
 
+        # 第三遍：收集实体目录内的子文档（非 index.md）
+        for entity_dir in entity_dirs:
+            entity_name = os.path.basename(entity_dir)
+            for sub_root, _sub_dirs, sub_files in os.walk(entity_dir):
+                for f in sorted(sub_files):
+                    if not f.endswith(".md"):
+                        continue
+                    stem = os.path.splitext(f)[0]
+                    if stem == "index" or stem in self._EXCLUDED_FILES:
+                        continue
+
+                    filepath = os.path.join(sub_root, f)
+                    sub_rel = os.path.relpath(filepath, entity_dir).replace("\\", "/")
+                    # 复合 doc_id: "entity_name/sub_name"
+                    doc_id = f"{entity_name}/{os.path.splitext(sub_rel)[0]}"
+
+                    stat = os.stat(filepath)
+                    file_hash = self._hash_file(filepath)
+                    cat_rel = os.path.relpath(filepath, base).replace("\\", "/")
+
+                    title = stem
+                    summary = ""
+                    if include_content:
+                        try:
+                            with open(filepath, "r", encoding="utf-8") as fh:
+                                data = frontmatter.load(fh)
+                            title = data.metadata.get("name", stem)
+                            summary = data.metadata.get("summary", "")
+                            if not summary:
+                                first_line = data.content.strip().split("\n")[0]
+                                summary = first_line[:80] if first_line else ""
+                        except Exception:
+                            pass
+
+                    docs.append(DocumentInfo(
+                        category_id=category_id,
+                        doc_id=doc_id,
+                        title=title,
+                        path=cat_rel,
+                        hash_str=file_hash,
+                        mtime=stat.st_mtime,
+                        summary=summary,
+                    ).to_dict())
+
         return docs
 
     def list_all_documents(self) -> list[dict]:

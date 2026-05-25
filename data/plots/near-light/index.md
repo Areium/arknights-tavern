@@ -1,12 +1,52 @@
 ---
-id: near_light
-name: 长夜临光
-summary: "罗德岛抵大骑士领，耀骑士归来，资本、荣耀与感染者命运的风暴来临。"
 category: main
+deviation_policy:
+  allow: true
+  base_difficulty: -3
+  require_confirm: true
+effects:
+  character_available:
+  - 瑕光
+  - 临光
+  - 砾
+  - 焰尾
+  - 托兰
+  faction_change:
+    卡西米尔监证会: 友好
+    商业联合会: 敌对或警惕
+  unlock_locations:
+  - 大骑士领竞技场
+  - 卡瓦莱利亚基商业区
+  - 红松骑士团藏身处
+  unlock_plots:
+  - near_light_aftermath
+id: near_light
+imports:
+- plots/_deviation-handbook
+- plots/near-light/narrative
+- plots/near-light/pacing
+- plots/near-light/opening
+- plots/near-light/quests
+- plots/near-light/scenes
+- plots/near-light/setting
+name: 长夜临光
+prerequisites:
+  faction_known:
+  - 罗德岛
+  - 卡西米尔
 priority: 9
+repeatable: false
+summary: 罗德岛抵大骑士领，耀骑士归来，资本、荣耀与感染者命运的风暴来临。
+tension_clock:
+  final: 商业联合会彻底掌控局势，临光被迫退赛，感染者骑士被全部清除，罗德岛被驱逐出卡西米尔。瑕光在混乱中受重伤。长夜无尽。
+  stages:
+  - - 1
+    - 第一天：感染者骑士杰米在赛场上被公开虐杀。罗德岛内部出现紧急讨论
+  - - 3
+    - 第三天：玛莉娅（瑕光）遭遇第一次绑架未遂。商业联合会开始对罗德岛施压
+  - - 5
+    - 第五天：无胄盟暗杀名单扩大。大停电计划被利用——整座城市陷入混乱
 trigger:
-  location:
-  - 大骑士领卡瓦莱利亚基
   character:
   - 瑕光
   - 临光
@@ -16,41 +56,10 @@ trigger:
   - 卡西米尔
   - 感染者骑士
   - 商业联合会
-prerequisites:
-  faction_known:
-  - 罗德岛
-  - 卡西米尔
-deviation_policy:
-  allow: true
-  base_difficulty: -3
-  require_confirm: true
-tension_clock:
-  stages:
-  - - 1
-    - 第一天：感染者骑士杰米在赛场上被公开虐杀。罗德岛内部出现紧急讨论
-  - - 3
-    - 第三天：玛莉娅（瑕光）遭遇第一次绑架未遂。商业联合会开始对罗德岛施压
-  - - 5
-    - 第五天：无胄盟暗杀名单扩大。大停电计划被利用——整座城市陷入混乱
-  final: 商业联合会彻底掌控局势，临光被迫退赛，感染者骑士被全部清除，罗德岛被驱逐出卡西米尔。瑕光在混乱中受重伤。长夜无尽。
-effects:
-  unlock_plots:
-  - near_light_aftermath
-  unlock_locations:
-  - 大骑士领竞技场
-  - 卡瓦莱利亚基商业区
-  - 红松骑士团藏身处
-  faction_change:
-    卡西米尔监证会: 友好
-    商业联合会: 敌对或警惕
-  character_available:
-  - 瑕光
-  - 临光
-  - 砾
-  - 焰尾
-  - 托兰
-repeatable: false
+  location:
+  - 大骑士领卡瓦莱利亚基
 ---
+
 # 长夜临光
 
 > 罗德岛抵达大骑士领卡瓦莱利亚基。耀骑士归来。资本、荣耀、与感染者命运的风暴即将来临。

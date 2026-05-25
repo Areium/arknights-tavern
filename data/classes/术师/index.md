@@ -9,13 +9,13 @@ core_attributes:
 damage_type: arts
 deployment_cost_range: 15-35
 imports:
-- attributes/战场机动 | 战场机动
-- attributes/战术规划 | 战术规划
-- attributes/源石技艺适应性 | 源石技艺适应性
-- attributes/生理耐受 | 生理耐受
-- classes/辅助 | 辅助
+- attributes/战场机动
+- attributes/战术规划
+- attributes/源石技艺适应性
+- attributes/生理耐受
+- classes/辅助
 name: 术师
-summary: "术师是远程法术输出核心，擅长破防，子职业多样，拥有源石技艺通用卡牌池。"
+summary: 术师是远程法术输出核心，擅长破防，子职业多样，拥有源石技艺通用卡牌池。
 ---
 
 # 术师 / Caster

@@ -4,8 +4,8 @@ alignment: lawful_evil
 allies: []
 headquarters: 圣骏堡
 imports:
-- races/乌萨斯 | 乌萨斯
-- factions/整合运动 | 整合运动
+- races/乌萨斯
+- factions/整合运动
 key_members:
 - 凛冬
 - 真理
@@ -13,11 +13,11 @@ key_members:
 leader:
 - 皇帝
 name: 乌萨斯帝国
-summary: "乌萨斯帝国是泰拉大陆最强大的国家之一，对感染者实施严苛压迫，导致整合运动崛起。"
 rivals:
 - 整合运动
 - 龙门
 scale: global
+summary: 乌萨斯帝国是泰拉大陆最强大的国家之一，对感染者实施严苛压迫，导致整合运动崛起。
 tags:
 - 帝国
 - 军国主义

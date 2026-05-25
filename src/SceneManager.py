@@ -360,9 +360,23 @@ speaker 必须从【场景角色】列表中选择。无法判断说话人时用
             active_mark = " ← 对话中" if name == self.active else ""
             char_summaries.append(f"- {name}{tag_str}{active_mark}")
 
+        # 1. 当前场景状态
         context_parts = ["【场景状态】", env_context or "当前场景"]
 
-        # 注入剧情开场上下文（仅首次叙述，注入后清除）
+        # 2. 场景角色和玩家
+        context_parts.append("\n【场景角色】")
+        context_parts.extend(char_summaries)
+        context_parts.append(f"\n【玩家身份】{identity}")
+        if user_action:
+            context_parts.append(f"\n【玩家操作】{user_action}")
+
+        # 3. 场景动态——最近发生的事（连续性关键）
+        recent = self._scene_log[-8:]
+        if recent:
+            context_parts.append("\n【场景动态】")
+            context_parts.extend(recent)
+
+        # 4. 剧情开场（仅首轮）
         if self._overlay and self._overlay.has_plot_context():
             opening = self._overlay.get_plot_context()
             if opening:
@@ -370,38 +384,24 @@ speaker 必须从【场景角色】列表中选择。无法判断说话人时用
                 logger.info("已注入开场上下文到首次叙述")
             self._overlay.clear_plot_context()
 
-        # 注入剧情参考文档（全文）和节拍进度定位
+        # 5. 剧情进度定位 + 故事概览（参考，非指令）
         if self._overlay:
-            narrative_text = self._overlay.get_narrative_full_text()
-            if narrative_text:
-                context_parts.append(f"\n【剧情参考文档】\n{narrative_text}")
             beat_ctx = self._overlay.get_beat_context()
             if beat_ctx:
                 context_parts.append(beat_ctx)
+            overview = self._overlay.get_narrative_overview()
+            if overview:
+                context_parts.append(f"\n{overview}")
 
-        # 注入预加载文档（沿 imports 链展开的角色/种族/职业/势力等）
+        # 6. 预加载资料和文档目录（背景参考，放在末尾）
         if self._session_context:
             preloaded_text = self._session_context.format_preloaded()
             if preloaded_text:
                 context_parts.append(preloaded_text)
-
-        # Wiki 目录摘要
         if self._wiki_manager:
             catalog = self._wiki_manager.format_catalog_summary()
             if catalog:
                 context_parts.append(catalog)
-
-        context_parts.append("\n【场景角色】")
-        context_parts.extend(char_summaries)
-        context_parts.append(f"\n【玩家身份】{identity}")
-
-        if user_action:
-            context_parts.append(f"\n【玩家操作】{user_action}")
-
-        recent = self._scene_log[-8:]
-        if recent:
-            context_parts.append("\n【场景动态】")
-            context_parts.extend(recent)
 
         # 注入战斗模式上下文
         combat_mode = "narrative"
@@ -482,8 +482,23 @@ speaker 必须从【场景角色】列表中选择。无法判断说话人时用
             active_mark = " ← 对话中" if name == self.active else ""
             char_summaries.append(f"- {name}{tag_str}{active_mark}")
 
+        # 1. 当前场景状态
         context_parts = ["【场景状态】", env_context or "当前场景"]
 
+        # 2. 场景角色和玩家
+        context_parts.append("\n【场景角色】")
+        context_parts.extend(char_summaries)
+        context_parts.append(f"\n【玩家身份】{identity}")
+        if user_action:
+            context_parts.append(f"\n【玩家操作】{user_action}")
+
+        # 3. 场景动态——最近发生的事（连续性关键）
+        recent = self._scene_log[-8:]
+        if recent:
+            context_parts.append("\n【场景动态】")
+            context_parts.extend(recent)
+
+        # 4. 剧情开场（仅首轮）
         if self._overlay and self._overlay.has_plot_context():
             opening = self._overlay.get_plot_context()
             if opening:
@@ -491,36 +506,24 @@ speaker 必须从【场景角色】列表中选择。无法判断说话人时用
                 logger.info("已注入开场上下文到首次叙述")
             self._overlay.clear_plot_context()
 
-        # 注入剧情参考文档（全文）和节拍进度定位
+        # 5. 剧情进度定位 + 故事概览（参考，非指令）
         if self._overlay:
-            narrative_text = self._overlay.get_narrative_full_text()
-            if narrative_text:
-                context_parts.append(f"\n【剧情参考文档】\n{narrative_text}")
             beat_ctx = self._overlay.get_beat_context()
             if beat_ctx:
                 context_parts.append(beat_ctx)
+            overview = self._overlay.get_narrative_overview()
+            if overview:
+                context_parts.append(f"\n{overview}")
 
+        # 6. 预加载资料和文档目录（背景参考，放在末尾）
         if self._session_context:
             preloaded_text = self._session_context.format_preloaded()
             if preloaded_text:
                 context_parts.append(preloaded_text)
-
         if self._wiki_manager:
             catalog = self._wiki_manager.format_catalog_summary()
             if catalog:
                 context_parts.append(catalog)
-
-        context_parts.append("\n【场景角色】")
-        context_parts.extend(char_summaries)
-        context_parts.append(f"\n【玩家身份】{identity}")
-
-        if user_action:
-            context_parts.append(f"\n【玩家操作】{user_action}")
-
-        recent = self._scene_log[-8:]
-        if recent:
-            context_parts.append("\n【场景动态】")
-            context_parts.extend(recent)
 
         combat_mode = "narrative"
         if self._overlay:

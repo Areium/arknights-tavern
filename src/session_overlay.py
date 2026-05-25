@@ -369,6 +369,39 @@ class SessionOverlay:
             return self._narrative_text
         return ""
 
+    def get_narrative_overview(self) -> str:
+        """构建剧情结构摘要——不含具体场景描写，仅提供全局故事框架。
+
+        用于注入 LLM prompt 作为背景参考，避免具体场景描写引导 LLM 重复叙述。
+        """
+        beats = self._narrative_beats if hasattr(self, "_narrative_beats") else []
+        if not beats:
+            return ""
+
+        # 提取 narrative.md 开头的剧情概述（在第一个 ## 章节之前）
+        full_text = self.get_narrative_full_text()
+        overview = ""
+        if full_text:
+            import re
+            m = re.search(r"## 剧情概述\n\n(.+?)\n\n\*\*主视角\*\*[：:](.+?)\n\n", full_text, re.DOTALL)
+            if m:
+                overview = m.group(1).strip()
+                main_view = m.group(2).strip()
+                overview = f"{overview}\n主视角：{main_view}"
+
+        parts = []
+        if overview:
+            parts.append(f"【剧情概要】\n{overview}")
+
+        # 章节摘要
+        ch_summaries = []
+        for i, ch in enumerate(beats):
+            ch_summaries.append(f"第{i + 1}章 {ch['title']}：{ch.get('summary', '')}")
+        if ch_summaries:
+            parts.append("\n章节结构：\n" + "\n".join(f"  - {s}" for s in ch_summaries))
+
+        return "\n".join(parts)
+
     def advance_beat(self):
         """推进到下一个节拍。跨章节自动处理。"""
         beats = self._narrative_beats if hasattr(self, "_narrative_beats") else []

@@ -210,7 +210,7 @@ export function useApi() {
         method: "POST",
       }),
     verifyDocImports: (category: string, id: string) =>
-      request<{ results: { path: string; name: string; exists: boolean }[] }>(`/api/documents/${category}/${encodeURIComponent(id)}/imports/verify`),
+      request<{ total: number; valid: number; invalid: number; results: { path: string; valid: boolean; category?: string; id?: string; error?: string }[] }>(`/api/documents/${category}/${encodeURIComponent(id)}/imports/verify`),
 
     getAssetImages: () => request<any[]>("/api/assets/images"),
     getDataDir: () => request<{ path: string }>("/api/assets/data-dir"),
@@ -235,6 +235,13 @@ export function useApi() {
     deleteAssetImage: (category: string, filePath: string) =>
       request<any>(`/api/assets/${category}/${encodeURIComponent(filePath)}`, {
         method: "DELETE",
+      }),
+    getDefaultImage: (category: string, entity: string) =>
+      request<{ default_avatar: string; default_skin: string }>(`/api/assets/${category}/${encodeURIComponent(entity)}/default-image`),
+    setDefaultImage: (category: string, entity: string, type: "avatar" | "skin", filename: string) =>
+      request<any>(`/api/assets/${category}/${encodeURIComponent(entity)}/default-image`, {
+        method: "PUT",
+        body: JSON.stringify({ type, filename }),
       }),
 
     // ── 索引管理（基于 imports 的新系统） ──

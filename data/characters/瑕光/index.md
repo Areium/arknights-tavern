@@ -11,23 +11,22 @@ attributes:
 class: 重装
 faction: 临光家族
 imports:
-- classes/重装 | 重装 | 重装 | 重装 | 重装 | 重装 | 重装 | 重装
-- races/库兰塔 | 库兰塔 | 库兰塔 | 库兰塔 | 库兰塔 | 库兰塔 | 库兰塔 | 库兰塔
-- factions/临光家族 | 临光家族 | 临光家族 | 临光家族 | 临光家族 | 临光家族 | 临光家族 | 临光家族
-- factions/罗德岛 | 罗德岛 | 罗德岛 | 罗德岛 | 罗德岛 | 罗德岛 | 罗德岛 | 罗德岛
-- attributes/物理强度 | 物理强度 | 物理强度 | 物理强度 | 物理强度 | 物理强度 | 物理强度 | 物理强度
-- attributes/战场机动 | 战场机动 | 战场机动 | 战场机动 | 战场机动 | 战场机动 | 战场机动 | 战场机动
-- attributes/生理耐受 | 生理耐受 | 生理耐受 | 生理耐受 | 生理耐受 | 生理耐受 | 生理耐受 | 生理耐受
-- attributes/战术规划 | 战术规划 | 战术规划 | 战术规划 | 战术规划 | 战术规划 | 战术规划 | 战术规划
-- attributes/战斗技巧 | 战斗技巧 | 战斗技巧 | 战斗技巧 | 战斗技巧 | 战斗技巧 | 战斗技巧 | 战斗技巧
-- attributes/源石技艺适应性 | 源石技艺适应性 | 源石技艺适应性 | 源石技艺适应性 | 源石技艺适应性 | 源石技艺适应性 | 源石技艺适应性 |
-  源石技艺适应性
-- attributes/情绪稳定性 | 情绪稳定性 | 情绪稳定性 | 情绪稳定性 | 情绪稳定性 | 情绪稳定性 | 情绪稳定性 | 情绪稳定性
-- attributes/魅力 | 魅力 | 魅力 | 魅力 | 魅力 | 魅力 | 魅力 | 魅力
-- characters/临光 | 临光 | 临光 | 临光 | 临光 | 临光 | 临光 | 临光
-- characters/玛恩纳·临光 | 玛恩纳·临光 | 玛恩纳·临光 | 玛恩纳·临光 | 玛恩纳·临光 | 玛恩纳·临光 | 玛恩纳·临光 | 玛恩纳·临光
-- characters/博士 | 博士 | 博士 | 博士 | 博士 | 博士 | 博士 | 博士
-- characters/砾 | 砾 | 砾 | 砾 | 砾 | 砾 | 砾 | 砾
+- classes/重装
+- races/库兰塔
+- factions/临光家族
+- factions/罗德岛
+- attributes/物理强度
+- attributes/战场机动
+- attributes/生理耐受
+- attributes/战术规划
+- attributes/战斗技巧
+- attributes/源石技艺适应性
+- attributes/情绪稳定性
+- attributes/魅力
+- characters/临光
+- characters/玛恩纳·临光
+- characters/博士
+- characters/砾
 name: 瑕光
 race: 库兰塔
 relationships:
@@ -44,15 +43,6 @@ tags:
 - 卡西米尔
 theme_color: '#c49f83'
 ---
-
-# 可检索条目
-
-character（data/characters/）：<临光>、<玛恩纳·临光>、<佐菲娅>、<砾>
-faction（data/factions/）：<临光家族>、<罗德岛>
-race（data/races/）：<库兰塔>
-class（data/classes/）：<重装>
-item（data/items/）：<临光的旧铠甲>、<指挥官护甲>
-plot（data/plots/）：<near_light>
 
 # 角色背景
 

@@ -95,6 +95,11 @@ export default function DocumentManager() {
   const [assetImages, setAssetImages] = useState<any[]>([]);
   const [imagesLoading, setImagesLoading] = useState(false);
   const [imageFilter, setImageFilter] = useState("");
+  const [selectedImage, setSelectedImage] = useState<{
+    url: string; name: string; size: number; subdir: string;
+    path: string; category: string; entity: string;
+  } | null>(null);
+  const [defaultImages, setDefaultImages] = useState<Record<string, { default_avatar: string; default_skin: string }>>({});
 
   // ── Modal ──
   const [modal, setModal] = useState<ModalState | null>(null);
@@ -119,6 +124,7 @@ export default function DocumentManager() {
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [savingImports, setSavingImports] = useState(false);
+  const [depsCollapsed, setDepsCollapsed] = useState(false);
   const [scanResults, setScanResults] = useState<any[] | null>(null);
   const [scanExisting, setScanExisting] = useState<any[]>([]);
   const [scanLoading, setScanLoading] = useState(false);
@@ -246,9 +252,45 @@ export default function DocumentManager() {
     }
   };
 
+  const loadDefaultImages = useCallback(async () => {
+    const newDefaults: Record<string, { default_avatar: string; default_skin: string }> = {};
+    for (const item of assetImages) {
+      const key = `${item.category}/${item.entity}`;
+      try {
+        const data = await apiRef.current.getDefaultImage(item.category, item.entity);
+        newDefaults[key] = data;
+      } catch { /* skip */ }
+    }
+    setDefaultImages(newDefaults);
+  }, [assetImages]);
+
+  const handleSetDefaultImage = async (category: string, entity: string, type: "avatar" | "skin", filename: string) => {
+    try {
+      await apiRef.current.setDefaultImage(category, entity, type, filename);
+      showToast(`已设为默认${type === "avatar" ? "头像" : "立绘"}`);
+      const key = `${category}/${entity}`;
+      setDefaultImages((prev) => ({
+        ...prev,
+        [key]: { ...prev[key], [`default_${type}`]: filename },
+      }));
+    } catch (err: any) {
+      showToast(err.message || "设置失败", "error");
+    }
+  };
+
   useEffect(() => {
-    if (activeTab === "images") loadImages();
+    if (activeTab === "images") {
+      loadImages().then(() => {
+        // loadDefaultImages depends on assetImages, so we trigger it after
+      });
+    }
   }, [activeTab, loadImages]);
+
+  useEffect(() => {
+    if (activeTab === "images" && assetImages.length > 0) {
+      loadDefaultImages();
+    }
+  }, [assetImages, activeTab, loadDefaultImages]);
 
   // ── Tree collapse ──
 
@@ -294,6 +336,7 @@ export default function DocumentManager() {
     setSelectedPath(path);
     setSelectedCategory(category);
     setEditing(false);
+    setSelectedImage(null);
     setLoading(true);
     setError("");
     setImports([]);
@@ -316,7 +359,7 @@ export default function DocumentManager() {
       // Also verify imports
       api.verifyDocImports(category, id).then((vr) => {
         if (reqId !== currentReq.current) return;
-        const missing = new Set(vr.results.filter((r) => !r.exists).map((r) => r.path));
+        const missing = new Set(vr.results.filter((r) => !r.valid).map((r) => r.path));
         setMissingDeps(missing);
       }).catch(() => {});
     } catch (err: any) {
@@ -517,12 +560,10 @@ export default function DocumentManager() {
     setSavingImports(true);
     try {
       const paths = imports.map((i) => i.path);
-      const result = await api.updateDocImports(selectedCategory, docId, paths);
-      // 更新为保存后返回的结构化数据
-      if (result.imports) {
-        const updated = result.imports as { path: string; name: string }[];
-        setImports(updated);
-      }
+      await api.updateDocImports(selectedCategory, docId, paths);
+      // 重新加载格式化后的 imports（含显示名称）
+      const refreshed = await api.getDocImports(selectedCategory, docId);
+      setImports(refreshed.imports || []);
       setImportsDirty(false);
       showToast("依赖已保存");
       // Re-verify broken refs for this doc (removes from broken section if all fixed)
@@ -693,7 +734,7 @@ export default function DocumentManager() {
       const docId = parts.slice(1).join("/");
       try {
         const vr = await apiRef.current.verifyDocImports(cat, docId);
-        const broken = vr.results.filter((r: any) => !r.exists);
+        const broken = vr.results.filter((r: any) => !r.valid);
         if (broken.length > 0) {
           const docName = findDocNameInTree(cat, docId) || docId;
           results.push({
@@ -844,65 +885,114 @@ export default function DocumentManager() {
                 />
               </label>
             </div>
-            {items.map((item: any) => (
-              <div key={`${cat}/${item.entity}`} className="mb-2 ml-1">
-                <div className="flex items-center gap-1 text-xs text-gray-400 px-1 mb-1">
-                  <span className="truncate flex-1" title={item.entity_name}>
-                    {item.entity_name}
-                  </span>
-                  <label className="text-[10px] text-blue-400 hover:text-blue-300 cursor-pointer shrink-0" title="上传到该实体">
-                    +
-                    <input
-                      type="file"
-                      accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.bmp"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          handleImageUpload(file, cat, item.entity);
-                          e.target.value = "";
-                        }
-                      }}
-                    />
-                  </label>
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {item.images.map((img: any) => (
-                    <div
-                      key={img.path}
-                      className="relative group rounded overflow-hidden border border-gray-700 hover:border-blue-500/50 transition-colors"
-                      style={{ width: 64, height: 64 }}
-                    >
-                      <img
-                        src={img.url}
-                        alt={img.name}
-                        className="w-full h-full object-cover cursor-pointer"
-                        loading="lazy"
-                        onClick={() => window.open(img.url, "_blank")}
-                      />
-                      <button
-                        className="absolute top-0 right-0 bg-red-600/80 text-white text-[10px] px-1 rounded-bl opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (confirm(`确定要删除 "${img.name}" 吗？`)) {
-                            handleImageDelete(cat, img.path);
+            {items.map((item: any) => {
+              const entityKey = `${item.category}/${item.entity}`;
+              const defaults = defaultImages[entityKey];
+              // 按 subdir 分组图片
+              const subdirGroups: Record<string, any[]> = {};
+              for (const img of item.images) {
+                const sd = img.subdir || "";
+                if (!subdirGroups[sd]) subdirGroups[sd] = [];
+                subdirGroups[sd].push(img);
+              }
+
+              return (
+                <div key={`${cat}/${item.entity}`} className="mb-2 ml-1">
+                  <div className="flex items-center gap-1 text-xs text-gray-400 px-1 mb-1">
+                    <span className="truncate flex-1" title={item.entity_name}>
+                      {item.entity_name}
+                    </span>
+                    <label className="text-[10px] text-blue-400 hover:text-blue-300 cursor-pointer shrink-0" title="上传到该实体">
+                      +
+                      <input
+                        type="file"
+                        accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.bmp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            handleImageUpload(file, cat, item.entity);
+                            e.target.value = "";
                           }
                         }}
-                        title="删除"
-                      >
-                        ✕
-                      </button>
-                      <div className="absolute bottom-0 left-0 right-0 bg-black/70 text-[10px] text-gray-300 px-1 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                        <div className="truncate">{img.name}</div>
-                        {img.size != null && (
-                          <div className="text-gray-500">{formatFileSize(img.size)}</div>
-                        )}
+                      />
+                    </label>
+                  </div>
+                  {Object.entries(subdirGroups).map(([subdir, imgs]) => (
+                    <div key={subdir || "__root__"} className="mb-1 ml-1">
+                      {subdir && (
+                        <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-1 px-1">
+                          {subdir}
+                        </div>
+                      )}
+                      <div className="flex flex-wrap gap-1">
+                        {imgs.map((img: any) => {
+                          const isSelected = selectedImage?.path === img.path;
+                          const isDefaultAvatar = defaults?.default_avatar === img.name;
+                          const isDefaultSkin = defaults?.default_skin === img.name;
+                          const isDefault = isDefaultAvatar || isDefaultSkin;
+                          return (
+                            <div
+                              key={img.path}
+                              className={`relative group rounded overflow-hidden border-2 transition-colors cursor-pointer ${
+                                isSelected
+                                  ? "border-blue-400"
+                                  : isDefault
+                                  ? "border-yellow-500/60"
+                                  : "border-gray-700 hover:border-blue-500/50"
+                              }`}
+                              style={{ width: 64, height: 64 }}
+                              onClick={() => setSelectedImage({
+                                url: img.url,
+                                name: img.name,
+                                size: img.size,
+                                subdir: img.subdir || "",
+                                path: img.path,
+                                category: item.category,
+                                entity: item.entity,
+                              })}
+                            >
+                              <img
+                                src={img.url}
+                                alt={img.name}
+                                className="w-full h-full object-cover"
+                                loading="lazy"
+                              />
+                              {isDefault && (
+                                <span
+                                  className="absolute top-0 left-0 text-yellow-400 text-[10px] px-0.5"
+                                  title={isDefaultAvatar ? "默认头像" : "默认立绘"}
+                                >
+                                  ★
+                                </span>
+                              )}
+                              <button
+                                className="absolute top-0 right-0 bg-red-600/80 text-white text-[10px] px-1 rounded-bl opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (confirm(`确定要删除 "${img.name}" 吗？`)) {
+                                    handleImageDelete(cat, img.path);
+                                  }
+                                }}
+                                title="删除"
+                              >
+                                ✕
+                              </button>
+                              <div className="absolute bottom-0 left-0 right-0 bg-black/70 text-[10px] text-gray-300 px-1 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                                <div className="truncate">{img.name}</div>
+                                {img.size != null && (
+                                  <div className="text-gray-500">{formatFileSize(img.size)}</div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   ))}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ))}
       </div>
@@ -1065,7 +1155,7 @@ export default function DocumentManager() {
                 ? "bg-blue-600/30 text-blue-300"
                 : "text-gray-500 hover:text-gray-300"
             }`}
-            onClick={() => setActiveTab("docs")}
+            onClick={() => { setActiveTab("docs"); setSelectedImage(null); }}
           >
             文档
           </button>
@@ -1190,11 +1280,89 @@ export default function DocumentManager() {
         )}
       </div>
 
-      {/* ── Editor panel ── */}
+      {/* ── Editor / Preview panel ── */}
       <div className="flex-1 flex flex-col min-w-0">
-        {!selectedPath ? (
+        {!selectedPath && !selectedImage ? (
           <div className="flex items-center justify-center h-full text-gray-500">
-            <p>选择左侧文档查看或编辑</p>
+            <p>{activeTab === "images" ? "选择左侧图片预览" : "选择左侧文档查看或编辑"}</p>
+          </div>
+        ) : activeTab === "images" && selectedImage && !selectedPath ? (
+          /* ── 图片预览面板 ── */
+          <div className="flex flex-col h-full">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
+              <h2 className="text-sm font-medium text-gray-300 truncate max-w-[60%]">
+                {selectedImage.name}
+              </h2>
+              <button
+                onClick={() => setSelectedImage(null)}
+                className="text-xs text-gray-500 hover:text-gray-300"
+              >
+                ✕ 关闭
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 flex flex-col items-center">
+              <div className="max-w-lg w-full">
+                <img
+                  src={selectedImage.url}
+                  alt={selectedImage.name}
+                  className="w-full max-h-96 object-contain rounded bg-gray-900/50"
+                />
+                <div className="mt-4 space-y-1 text-xs text-gray-400">
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">文件名</span>
+                    <span>{selectedImage.name}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">大小</span>
+                    <span>{formatFileSize(selectedImage.size)}</span>
+                  </div>
+                  {selectedImage.subdir && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">子目录</span>
+                      <span>{selectedImage.subdir}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">路径</span>
+                    <span className="text-gray-600">{selectedImage.path}</span>
+                  </div>
+                </div>
+                {/* Set as default buttons */}
+                <div className="mt-4 flex gap-2 justify-center">
+                  {selectedImage.subdir === "avatar" && (
+                    <button
+                      onClick={() => handleSetDefaultImage(
+                        selectedImage.category,
+                        selectedImage.entity,
+                        "avatar",
+                        selectedImage.name
+                      )}
+                      className="text-xs px-3 py-1.5 rounded bg-blue-600/20 text-blue-400 hover:bg-blue-600/40 transition-colors"
+                    >
+                      设为默认头像
+                    </button>
+                  )}
+                  {selectedImage.subdir === "skin" && (
+                    <button
+                      onClick={() => handleSetDefaultImage(
+                        selectedImage.category,
+                        selectedImage.entity,
+                        "skin",
+                        selectedImage.name
+                      )}
+                      className="text-xs px-3 py-1.5 rounded bg-purple-600/20 text-purple-400 hover:bg-purple-600/40 transition-colors"
+                    >
+                      设为默认立绘
+                    </button>
+                  )}
+                </div>
+                {selectedImage.subdir && selectedImage.subdir !== "avatar" && selectedImage.subdir !== "skin" && (
+                  <p className="text-xs text-gray-600 text-center mt-3">
+                    仅 avatar/ 和 skin/ 子目录的图片可设为默认
+                  </p>
+                )}
+              </div>
+            </div>
           </div>
         ) : loading ? (
           <div className="flex items-center justify-center h-full text-gray-500">
@@ -1295,7 +1463,13 @@ export default function DocumentManager() {
             {/* ── 依赖管理 ── */}
             {!loading && selectedPath && (
               <div className="border-t border-gray-700">
-                <div className="flex items-center gap-2 px-4 py-2">
+                <div
+                  className="flex items-center gap-2 px-4 py-2 cursor-pointer select-none"
+                  onClick={() => setDepsCollapsed(!depsCollapsed)}
+                >
+                  <span className="text-[10px] text-gray-600 w-3 shrink-0">
+                    {depsCollapsed ? "▶" : "▼"}
+                  </span>
                   <span className="text-xs font-medium text-gray-400">依赖</span>
                   <span className="text-[10px] text-gray-600">
                     ({imports.length} 项{missingDeps.size > 0 ? `, ${missingDeps.size} 缺失` : ""})
@@ -1303,7 +1477,7 @@ export default function DocumentManager() {
                   <div className="flex-1" />
                   {importsDirty && (
                     <button
-                      onClick={handleSaveImports}
+                      onClick={(e) => { e.stopPropagation(); handleSaveImports(); }}
                       disabled={savingImports}
                       className="text-xs text-blue-400 hover:text-blue-300 disabled:text-gray-600"
                     >
@@ -1311,7 +1485,9 @@ export default function DocumentManager() {
                     </button>
                   )}
                   <button
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (depsCollapsed) setDepsCollapsed(false);
                       setShowImportSearch(!showImportSearch);
                       setSearchQuery("");
                       setSearchResults([]);
@@ -1321,7 +1497,11 @@ export default function DocumentManager() {
                     {showImportSearch ? "关闭" : "+ 添加"}
                   </button>
                   <button
-                    onClick={handleScanImports}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (depsCollapsed) setDepsCollapsed(false);
+                      handleScanImports();
+                    }}
                     disabled={scanLoading}
                     className="text-xs text-gray-500 hover:text-gray-300 disabled:text-gray-700"
                   >
@@ -1329,128 +1509,132 @@ export default function DocumentManager() {
                   </button>
                 </div>
 
-                {showImportSearch && (
-                  <div className="px-4 pb-2">
-                    <input
-                      className="input text-xs w-full mb-2"
-                      placeholder="搜索文档名称..."
-                      value={searchQuery}
-                      onChange={(e) => handleSearchImport(e.target.value)}
-                      autoFocus
-                    />
-                    {searchLoading && (
-                      <p className="text-xs text-gray-500">搜索中...</p>
-                    )}
-                    {!searchLoading && searchQuery && searchResults.length === 0 && (
-                      <p className="text-xs text-gray-600">无匹配结果</p>
-                    )}
-                    {searchResults.length > 0 && (
-                      <div className="max-h-48 overflow-y-auto space-y-0.5">
-                        {searchResults.map((r) => {
-                          const alreadyImported = imports.some((i) => i.path === r.path);
-                          return (
-                            <div
-                              key={r.path}
-                              className={`flex items-center gap-2 text-xs rounded px-2 py-1 ${
-                                alreadyImported
-                                  ? "text-gray-600"
-                                  : "text-gray-300 hover:bg-gray-700/50 cursor-pointer"
-                              }`}
-                              onClick={() => {
-                                if (!alreadyImported) {
-                                  handleAddImport(r.path, r.title);
-                                }
-                              }}
-                            >
-                              <span className="text-gray-500 shrink-0">L{r.level}</span>
-                              <span className="truncate">{r.path}</span>
-                              <span className="text-gray-600 shrink-0">{catLabel(r.category)}</span>
-                              {alreadyImported && (
-                                <span className="text-gray-600 shrink-0">已添加</span>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* ── 扫描结果 ── */}
-                {scanResults !== null && (
-                  <div className="px-4 pb-2">
-                    {scanResults.length === 0 ? (
-                      <p className="text-xs text-gray-600">未发现新的可导入依赖</p>
-                    ) : (
-                      <div className="space-y-0.5">
-                        <div className="flex items-center justify-between mb-1">
-                          <p className="text-xs text-gray-500">扫描到 {scanResults.length} 个可能需要的依赖：</p>
-                          <button
-                            onClick={handleAddAllScanResults}
-                            className="text-xs px-2 py-0.5 rounded bg-blue-600/20 text-blue-400 hover:bg-blue-600/40 transition-colors"
-                          >
-                            一键添加所有
-                          </button>
-                        </div>
-                        {scanResults.map((r) => {
-                          const alreadyImported = imports.some((i) => i.path === r.path);
-                          return (
-                            <div
-                              key={r.path}
-                              className={`flex items-center gap-2 text-xs rounded px-2 py-1 ${
-                                alreadyImported
-                                  ? "text-gray-600"
-                                  : "text-gray-300 hover:bg-gray-700/50 cursor-pointer"
-                              }`}
-                              onClick={() => {
-                                if (!alreadyImported) handleAddImport(r.path, r.title);
-                              }}
-                            >
-                              <span className="text-gray-500 shrink-0">L{r.level}</span>
-                              <span className="truncate flex-1">{r.path}</span>
-                              <span className="text-gray-600 shrink-0">{catLabel(r.category)}</span>
-                              {alreadyImported ? (
-                                <span className="text-gray-600 shrink-0">已添加</span>
-                              ) : (
-                                <span className="text-blue-400 shrink-0">+ 添加</span>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {imports.length > 0 && (
-                  <div className="px-4 pb-2 space-y-0.5">
-                    {imports.map((imp) => (
-                      <div
-                        key={imp.path}
-                        className={`flex items-center gap-2 text-xs rounded px-1 py-0.5 ${
-                          missingDeps.has(imp.path)
-                            ? "text-red-400 bg-red-900/10"
-                            : "text-gray-400"
-                        }`}
-                      >
-                        <span className="text-gray-600 shrink-0">{imp.name}</span>
-                        <span className="text-gray-600 truncate">{imp.path}</span>
-                        {missingDeps.has(imp.path) && (
-                          <span className="text-red-500 shrink-0 text-[10px]">缺失</span>
+                {!depsCollapsed && (
+                  <>
+                    {showImportSearch && (
+                      <div className="px-4 pb-2">
+                        <input
+                          className="input text-xs w-full mb-2"
+                          placeholder="搜索名称或路径 (如 characters/)..."
+                          value={searchQuery}
+                          onChange={(e) => handleSearchImport(e.target.value)}
+                          autoFocus
+                        />
+                        {searchLoading && (
+                          <p className="text-xs text-gray-500">搜索中...</p>
                         )}
-                        <button
-                          onClick={() => handleRemoveImport(imp.path)}
-                          className="text-gray-600 hover:text-red-400 shrink-0"
-                          title="移除依赖"
-                        >
-                          ✕
-                        </button>
+                        {!searchLoading && searchQuery && searchResults.length === 0 && (
+                          <p className="text-xs text-gray-600">无匹配结果</p>
+                        )}
+                        {searchResults.length > 0 && (
+                          <div className="max-h-48 overflow-y-auto space-y-0.5">
+                            {searchResults.map((r) => {
+                              const alreadyImported = imports.some((i) => i.path === r.path);
+                              return (
+                                <div
+                                  key={r.path}
+                                  className={`flex items-center gap-2 text-xs rounded px-2 py-1 ${
+                                    alreadyImported
+                                      ? "text-gray-600"
+                                      : "text-gray-300 hover:bg-gray-700/50 cursor-pointer"
+                                  }`}
+                                  onClick={() => {
+                                    if (!alreadyImported) {
+                                      handleAddImport(r.path, r.title);
+                                    }
+                                  }}
+                                >
+                                  <span className="text-gray-500 shrink-0">L{r.level}</span>
+                                  <span className="truncate">{r.path}</span>
+                                  <span className="text-gray-600 shrink-0">{catLabel(r.category)}</span>
+                                  {alreadyImported && (
+                                    <span className="text-gray-600 shrink-0">已添加</span>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
-                    ))}
-                  </div>
-                )}
-                {imports.length === 0 && !showImportSearch && (
-                  <div className="px-4 pb-2 text-xs text-gray-600">暂无依赖</div>
+                    )}
+
+                    {/* ── 扫描结果 ── */}
+                    {scanResults !== null && (
+                      <div className="px-4 pb-2">
+                        {scanResults.length === 0 ? (
+                          <p className="text-xs text-gray-600">未发现新的可导入依赖</p>
+                        ) : (
+                          <div className="space-y-0.5">
+                            <div className="flex items-center justify-between mb-1">
+                              <p className="text-xs text-gray-500">扫描到 {scanResults.length} 个可能需要的依赖：</p>
+                              <button
+                                onClick={handleAddAllScanResults}
+                                className="text-xs px-2 py-0.5 rounded bg-blue-600/20 text-blue-400 hover:bg-blue-600/40 transition-colors"
+                              >
+                                一键添加所有
+                              </button>
+                            </div>
+                            {scanResults.map((r) => {
+                              const alreadyImported = imports.some((i) => i.path === r.path);
+                              return (
+                                <div
+                                  key={r.path}
+                                  className={`flex items-center gap-2 text-xs rounded px-2 py-1 ${
+                                    alreadyImported
+                                      ? "text-gray-600"
+                                      : "text-gray-300 hover:bg-gray-700/50 cursor-pointer"
+                                  }`}
+                                  onClick={() => {
+                                    if (!alreadyImported) handleAddImport(r.path, r.title);
+                                  }}
+                                >
+                                  <span className="text-gray-500 shrink-0">L{r.level}</span>
+                                  <span className="truncate flex-1">{r.path}</span>
+                                  <span className="text-gray-600 shrink-0">{catLabel(r.category)}</span>
+                                  {alreadyImported ? (
+                                    <span className="text-gray-600 shrink-0">已添加</span>
+                                  ) : (
+                                    <span className="text-blue-400 shrink-0">+ 添加</span>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {imports.length > 0 && (
+                      <div className="px-4 pb-2 space-y-0.5 max-h-48 overflow-y-auto">
+                        {imports.map((imp) => (
+                          <div
+                            key={imp.path}
+                            className={`flex items-center gap-2 text-xs rounded px-1 py-0.5 ${
+                              missingDeps.has(imp.path)
+                                ? "text-red-400 bg-red-900/10"
+                                : "text-gray-400"
+                            }`}
+                          >
+                            <span className="text-gray-600 shrink-0">{imp.name}</span>
+                            <span className="text-gray-600 truncate">{imp.path}</span>
+                            {missingDeps.has(imp.path) && (
+                              <span className="text-red-500 shrink-0 text-[10px]">缺失</span>
+                            )}
+                            <button
+                              onClick={() => handleRemoveImport(imp.path)}
+                              className="text-gray-600 hover:text-red-400 shrink-0"
+                              title="移除依赖"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {imports.length === 0 && !showImportSearch && (
+                      <div className="px-4 pb-2 text-xs text-gray-600">暂无依赖</div>
+                    )}
+                  </>
                 )}
               </div>
             )}
