@@ -400,9 +400,21 @@ speaker 必须从【场景角色】列表中选择。无法判断说话人时用
                 "不展示 HP/SP 等数值，提供有叙事含义的战术选项。"
             )
         else:
+            import os
+            encounters_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                          "data", "combat", "encounters")
+            encounter_list = []
+            if os.path.isdir(encounters_dir):
+                for f in sorted(os.listdir(encounters_dir)):
+                    if f.endswith(".md"):
+                        encounter_list.append(f[:-3])
+            encounter_str = "、".join(encounter_list) if encounter_list else "初遇整合运动"
             combat_instruction = (
-                "\n【战斗模式：战术】如场景中出现战斗，使用完整 d20 回合制系统，"
-                "展示 HP/SP/防御 DC/先攻顺序等完整数值结算。"
+                f"\n【战斗模式：战术】当剧情推进到需要展开战斗时，"
+                f"在叙述文本末尾输出单独一行：[COMBAT:遭遇ID]。"
+                f"可用遭遇：{encounter_str}。"
+                f"选择最匹配剧情的遭遇，如无匹配使用第一个。"
+                f"正常叙述中不要提到HP/SP数值，战斗系统会单独处理。"
             )
         context_parts.append(combat_instruction)
 
@@ -497,9 +509,21 @@ speaker 必须从【场景角色】列表中选择。无法判断说话人时用
                 "不展示 HP/SP 等数值，提供有叙事含义的战术选项。"
             )
         else:
+            import os
+            encounters_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                          "data", "combat", "encounters")
+            encounter_list = []
+            if os.path.isdir(encounters_dir):
+                for f in sorted(os.listdir(encounters_dir)):
+                    if f.endswith(".md"):
+                        encounter_list.append(f[:-3])
+            encounter_str = "、".join(encounter_list) if encounter_list else "初遇整合运动"
             combat_instruction = (
-                "\n【战斗模式：战术】如场景中出现战斗，使用完整 d20 回合制系统，"
-                "展示 HP/SP/防御 DC/先攻顺序等完整数值结算。"
+                f"\n【战斗模式：战术】当剧情推进到需要展开战斗时，"
+                f"在叙述文本末尾输出单独一行：[COMBAT:遭遇ID]。"
+                f"可用遭遇：{encounter_str}。"
+                f"选择最匹配剧情的遭遇，如无匹配使用第一个。"
+                f"正常叙述中不要提到HP/SP数值，战斗系统会单独处理。"
             )
         context_parts.append(combat_instruction)
 

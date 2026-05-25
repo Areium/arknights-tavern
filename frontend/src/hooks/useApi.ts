@@ -364,6 +364,12 @@ export function useApi() {
       ),
 
     // ── Combat ──
+    setCombatMode: (sessionId: string, mode: "narrative" | "tactical") =>
+      request<any>(`/api/sessions/${sessionId}/combat-mode`, {
+        method: "PUT",
+        body: JSON.stringify({ mode }),
+      }),
+
     combatStart: (sessionId: string, encounterId: string, characters: string[]) =>
       request<any>(`/api/sessions/${sessionId}/combat/start`, {
         method: "POST",
@@ -431,6 +437,7 @@ export function createSSE(
     onChoice?: (options: string[]) => void;
     onDialogueSegments?: (segments: { type: string; text: string; speaker?: string }[]) => void;
     onTokenUsage?: (usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }) => void;
+    onCombatTrigger?: (data: { encounter_id: string; session_id: string }) => void;
     onError?: (message: string) => void;
     onDone?: () => void;
   }
@@ -451,6 +458,7 @@ export function createPostSSE(
     onChoice?: (options: string[]) => void;
     onDialogueSegments?: (segments: { type: string; text: string; speaker?: string }[]) => void;
     onTokenUsage?: (usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }) => void;
+    onCombatTrigger?: (data: { encounter_id: string; session_id: string }) => void;
     onError?: (message: string) => void;
     onDone?: () => void;
   }
@@ -572,6 +580,7 @@ function connectSSE(
     onChoice?: (options: string[]) => void;
     onDialogueSegments?: (segments: { type: string; text: string; speaker?: string }[]) => void;
     onTokenUsage?: (usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }) => void;
+    onCombatTrigger?: (data: { encounter_id: string; session_id: string }) => void;
     onError?: (message: string) => void;
     onDone?: () => void;
   }
@@ -646,6 +655,9 @@ function connectSSE(
                 break;
               case "token_usage":
                 handlers.onTokenUsage?.(event.data.usage);
+                break;
+              case "combat_trigger":
+                handlers.onCombatTrigger?.(event.data);
                 break;
               case "error":
                 handlers.onError?.(event.data.message);

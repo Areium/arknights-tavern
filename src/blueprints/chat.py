@@ -3,6 +3,7 @@ Chat blueprint — 对话 / 叙述 API (聊天、群聊、SSE 流式叙述、叙
 """
 
 import json
+import re
 import uuid
 import logging
 
@@ -28,6 +29,46 @@ def _require_usable(session):
     if not session.get_llm():
         return json_error("LLM 后端不可用，无法执行此操作", 503)
     return None
+
+
+def _require_no_combat(session):
+    """检查会话是否正在进行战斗，战斗中则返回 423。"""
+    if session.combat is not None:
+        return json_error("战斗进行中，无法执行对话操作。请先完成或退出战斗。", 423)
+    return None
+
+
+_COMBAT_MARKER_RE = re.compile(r'\n?\[COMBAT:([^\]]+)\]\n?')
+_SAFE_COMBAT_MARKER_RE = re.compile(r'\[COMBAT:([^\]]+)\]')
+
+
+def _handle_combat_trigger(session, narrative, stream_id, overlay):
+    """检测并处理战斗触发标记 [COMBAT:encounter_id]。
+
+    Returns:
+        (cleaned_narrative, sse_event_or_none): 清理后的叙述文本和可选的 SSE 事件字符串
+    """
+    match = _COMBAT_MARKER_RE.search(narrative)
+    if not match:
+        return narrative, None
+
+    encounter_id = match.group(1).strip()
+    cleaned = _COMBAT_MARKER_RE.sub("", narrative).strip()
+
+    combat_mode = overlay.get_combat_mode() if overlay else "narrative"
+    if combat_mode != "tactical":
+        return cleaned, None
+
+    try:
+        character_names = session.scene_manager.get_scene_characters()
+        combat = session.start_combat(encounter_id, character_names)
+        logger.info("会话 %s: LLM 触发战斗 %s，角色: %s",
+                     session.session_id, encounter_id, character_names)
+        event = f"data: {json.dumps({'type': 'combat_trigger', 'data': {'encounter_id': encounter_id, 'session_id': session.session_id, 'stream_id': stream_id}})}\n\n"
+        return cleaned, event
+    except Exception as e:
+        logger.error("自动触发战斗失败: %s", e)
+        return cleaned, None
 
 
 def _build_choices(session, llm_backend, narrative):
@@ -85,7 +126,7 @@ def register(app, managers):
         session = _get_session(session_mgr, session_id)
         if not session:
             return json_error("会话不存在", 404)
-        err = _require_usable(session)
+        err = _require_usable(session) or _require_no_combat(session)
         if err:
             return err
 
@@ -123,7 +164,7 @@ def register(app, managers):
         session = _get_session(session_mgr, session_id)
         if not session:
             return json_error("会话不存在", 404)
-        err = _require_usable(session)
+        err = _require_usable(session) or _require_no_combat(session)
         if err:
             return err
 
@@ -165,7 +206,7 @@ def register(app, managers):
         session = _get_session(session_mgr, session_id)
         if not session:
             return json_error("会话不存在", 404)
-        err = _require_usable(session)
+        err = _require_usable(session) or _require_no_combat(session)
         if err:
             return err
 
@@ -206,6 +247,13 @@ def register(app, managers):
                         dialogue_segments, stream_text = session.scene_manager.parse_structured(narrative)
                         if stream_text:
                             narrative = stream_text
+
+                    # 检测战斗触发标记 [COMBAT:encounter_id]
+                    narrative, combat_triggered = _handle_combat_trigger(
+                        session, narrative, stream_id, session.scene_manager._overlay
+                    )
+                    if combat_triggered:
+                        yield combat_triggered
                 else:
                     # Bubble mode: non-streaming (LLM outputs JSON, cannot stream raw JSON to UI)
                     narrative, env_updates, usage = session.scene_manager.narrate(
@@ -218,6 +266,13 @@ def register(app, managers):
                         dialogue_segments, stream_text = session.scene_manager.parse_structured(narrative)
                         if stream_text:
                             narrative = stream_text
+
+                    # 检测战斗触发标记 [COMBAT:encounter_id]（先剥离再发送字符）
+                    narrative, combat_triggered = _handle_combat_trigger(
+                        session, narrative, stream_id, session.scene_manager._overlay
+                    )
+                    if combat_triggered:
+                        yield combat_triggered
 
                     # 逐字符发送解析后的纯文本
                     for ch in narrative:
@@ -278,7 +333,7 @@ def register(app, managers):
         session = _get_session(session_mgr, session_id)
         if not session:
             return json_error("会话不存在", 404)
-        err = _require_usable(session)
+        err = _require_usable(session) or _require_no_combat(session)
         if err:
             return err
 
@@ -344,7 +399,7 @@ def register(app, managers):
         session = _get_session(session_mgr, session_id)
         if not session:
             return json_error("会话不存在", 404)
-        err = _require_usable(session)
+        err = _require_usable(session) or _require_no_combat(session)
         if err:
             return err
 

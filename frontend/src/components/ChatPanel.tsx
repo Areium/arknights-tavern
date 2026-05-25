@@ -28,7 +28,7 @@ function filterSceneLog(log: string[]): string[] {
 }
 
 export default function ChatPanel() {
-  const { activeSessionId, chatMode, sessions, triggerEnvRefresh, triggerMemoryRefresh, chatRefreshKey, characterRefreshKey, editBeforeSend, sceneSwitchKey, dialogueBubbleMode } = useAppStore();
+  const { activeSessionId, chatMode, sessions, setSessions, triggerEnvRefresh, triggerMemoryRefresh, chatRefreshKey, characterRefreshKey, editBeforeSend, sceneSwitchKey, dialogueBubbleMode, setCurrentView, setCombatSessionId } = useAppStore();
   const activeMode = sessions.find((s) => s.id === activeSessionId)?.mode || "free";
 
   const sceneCharacters: string[] = (() => {
@@ -528,15 +528,57 @@ export default function ChatPanel() {
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-xs text-gray-400 truncate">{activeSession.name}</span>
             <span className="text-[10px] text-gray-600">第{activeSession.narration_count ?? narrationCount}轮</span>
+            {activeSession.in_combat && (
+              <span className="text-[10px] text-orange-400 font-medium animate-pulse">⚔ 战斗中</span>
+            )}
+            {chatMode === "story" && (
+              <label className="flex items-center gap-1 text-[10px] text-gray-500 cursor-pointer select-none" title="开启后，对话中触发战斗时将进入战术回合制模式">
+                <input
+                  type="checkbox"
+                  className="checkbox"
+                  checked={activeSession.combat_mode === "tactical"}
+                  onChange={async () => {
+                    const newMode = activeSession.combat_mode === "tactical" ? "narrative" : "tactical";
+                    try {
+                      await api.setCombatMode(activeSession.id!, newMode);
+                      setSessions(sessions.map(s =>
+                        s.id === activeSession.id ? { ...s, combat_mode: newMode } : s
+                      ));
+                    } catch { /* ignore */ }
+                  }}
+                />
+                战术
+              </label>
+            )}
+            {chatMode === "story" && activeSession.combat_mode === "tactical" && !activeSession.in_combat && (
+              <button
+                onClick={async () => {
+                  const encounterId = prompt("输入遭遇 ID（可选）\n可用：初遇整合运动, enc_defense, enc_elite_hunt, enc_mixed_assault, enc_training") || "初遇整合运动";
+                  try {
+                    await api.combatStart(activeSession.id!, encounterId, []);
+                    setCombatSessionId(activeSession.id!);
+                    setCurrentView("combat");
+                  } catch (err: any) {
+                    alert("启动战斗失败: " + (err.message || "未知错误"));
+                  }
+                }}
+                className="text-[10px] px-1.5 py-0.5 rounded bg-orange-700/30 text-orange-300 hover:bg-orange-700/50 transition-colors"
+                title="手动触发战斗"
+              >
+                ⚔
+              </button>
+            )}
           </div>
-          {sessionTokens && sessionTokens.total_tokens > 0 && (
-            <div className="text-[10px] text-gray-500 select-none shrink-0">
-              {sessionTokens.total_tokens.toLocaleString()} tokens
-              <span className="text-gray-600">
-                {" "}(入 {sessionTokens.prompt_tokens.toLocaleString()} + 出 {sessionTokens.completion_tokens.toLocaleString()})
-              </span>
-            </div>
-          )}
+          <div className="flex items-center gap-3">
+            {sessionTokens && sessionTokens.total_tokens > 0 && (
+              <div className="text-[10px] text-gray-500 select-none shrink-0">
+                {sessionTokens.total_tokens.toLocaleString()} tokens
+                <span className="text-gray-600">
+                  {" "}(入 {sessionTokens.prompt_tokens.toLocaleString()} + 出 {sessionTokens.completion_tokens.toLocaleString()})
+                </span>
+              </div>
+            )}
+          </div>
         </div>
       )}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
@@ -712,7 +754,7 @@ export default function ChatPanel() {
                             <button
                               key={ci}
                               onClick={() => handleChoiceClick(choice)}
-                              disabled={sending || streaming || (msg.round != null && msg.round < narrationCount)}
+                              disabled={sending || streaming || !!activeSession?.in_combat || (msg.round != null && msg.round < narrationCount)}
                               className="px-3 py-1.5 rounded-lg text-sm border border-amber-600/40
                                 text-amber-300 hover:bg-amber-600/20 transition-colors disabled:opacity-50"
                             >
@@ -784,23 +826,25 @@ export default function ChatPanel() {
             placeholder={
               !activeSessionId
                 ? "请先选择或创建会话"
-                : sending
-                  ? "发送中..."
-                  : chatMode === "story"
-                    ? "输入行动或对话推进剧情..."
-                    : "输入消息..."
+                : activeSession?.in_combat
+                  ? "战斗中，无法对话..."
+                  : sending
+                    ? "发送中..."
+                    : chatMode === "story"
+                      ? "输入行动或对话推进剧情..."
+                      : "输入消息..."
             }
-            value={input}
+            value={activeSession?.in_combat ? "（战斗中 — 请先完成战斗）" : input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            disabled={!activeSessionId || sending}
+            disabled={!activeSessionId || sending || !!activeSession?.in_combat}
           />
           <button
             onClick={handleSend}
-            disabled={!input.trim() || !activeSessionId || sending || streaming}
+            disabled={!input.trim() || !activeSessionId || sending || streaming || !!activeSession?.in_combat}
             className="btn-primary self-end shrink-0"
           >
-            {sending ? "发送中..." : "发送"}
+            {activeSession?.in_combat ? "战斗中" : sending ? "发送中..." : "发送"}
           </button>
         </div>
       </div>
@@ -870,6 +914,12 @@ function triggerNarrate(
           }
           return prev;
         });
+      },
+      onCombatTrigger: (data: { encounter_id: string; session_id: string }) => {
+        setStreaming(false);
+        setSending?.(false);
+        useAppStore.getState().setCombatSessionId(data.session_id);
+        useAppStore.getState().setCurrentView("combat");
       },
       onError: (msg: string) => {
         setStreaming(false);

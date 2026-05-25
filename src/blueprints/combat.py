@@ -237,6 +237,12 @@ def register(app, managers):
         combat_history = overlay_data["combat_history"]
         winner = combat_data.get("engine_state", {}).get("winner", "")
         round_num = combat_data.get("engine_state", {}).get("round_num", 0)
+        encounter_id = combat_data.get("encounter_id", "")
+
+        # 将战斗结果注入场景日志，下一轮叙述会自动引用
+        result_desc = "玩家" if winner == "player" else ("敌方" if winner else "未知")
+        result_text = f"⚔ 战斗结束：遭遇战「{encounter_id}」— {result_desc}获胜，共 {round_num} 回合"
+        session.scene_manager._log_event(result_text)
 
         session.combat = None
 
@@ -254,6 +260,21 @@ def register(app, managers):
             return make_sse_response(error_stream)
 
         return make_sse_response(_build_sse_generator(session.combat, stream_prefix="combat"))
+
+    @bp.route("/api/sessions/<session_id>/combat-mode", methods=["PUT"])
+    def combat_mode(session_id: str):
+        """Toggle session combat mode between narrative and tactical."""
+        session = _get_session(session_mgr, session_id)
+        if not session:
+            return json_error("会话不存在", 404)
+
+        data = request.json or {}
+        mode = data.get("mode", "")
+        if mode not in ("narrative", "tactical"):
+            return json_error("无效的战斗模式，可选值: narrative, tactical", 400)
+
+        session.overlay.set_combat_mode(mode)
+        return jsonify({"combat_mode": mode, "session_id": session_id})
 
     # ══════════════════════════════════════════════════════
     # Test Combat

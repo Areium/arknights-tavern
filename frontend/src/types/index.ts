@@ -44,6 +44,8 @@ export interface Session {
     completion_tokens: number;
     total_tokens: number;
   };
+  in_combat?: boolean;
+  combat_mode?: string;
 }
 
 /** 文档类别 */
@@ -102,7 +104,7 @@ export interface MoveResult {
 
 /** SSE 事件 */
 export interface SSEEvent {
-  type: "text" | "scene_event" | "choice" | "heartbeat" | "error" | "done" | "meta";
+  type: "text" | "scene_event" | "choice" | "heartbeat" | "error" | "done" | "meta" | "combat_trigger";
   data: Record<string, any>;
 }
 
