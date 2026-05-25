@@ -16,6 +16,17 @@
 
 ## 更新记录
 
+### 2026-05-25 — Markdown 文档渲染 + Prompt 卫生改进
+
+- 新增 `MarkdownRenderer.tsx` 组件（react-markdown），文档预览从纯文本改为富文本渲染
+- 支持标题/列表/引用/代码块/表格/图片/链接等全部标准 markdown 元素，含暗色主题样式
+- style.css 新增 amber/purple/orange/blue/green/red 色系 light-mode 覆盖
+- SceneManager 上下文注入：`plot_state` 加前缀"剧情结构参考（导航用，非脚本）"，`plot_log` 加前缀"已发生的事件，请勿重复"
+- `_rewrite_plot_state` 移除当前节拍内的具体场景/对话原文，仅保留节拍名 + 轮次计数 + 下一节拍方向摘要
+- `_PLOT_LOG_HEADER` 常量：引导 LLM 参考已有内容推进新剧情而非重复
+- chat.py 修复第二条叙述路径遗漏的 `append_plot_log` + `update_beat_progress` 调用
+- document_manager.py 子文档跳过逻辑简化 + 文件夹检测修复
+
 ### 2026-05-25 — 会话自有文档：剧情状态与进度日志解耦
 
 - 节拍系统从"代码动态拼接 prompt 上下文"重构为"会话自有文档"模式
