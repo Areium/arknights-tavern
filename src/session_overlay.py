@@ -37,6 +37,7 @@ class SessionOverlay:
         self.session_id = session_id
         self.mode = mode
         self._data: dict = {}
+        self._doc_cache: dict = {}
         self._load()
 
     # ── 持久化 ──
@@ -437,6 +438,7 @@ class SessionOverlay:
 
         bs["narrations_on_beat"] = 0
         self._data["beat_state"] = bs
+        self._rewrite_plot_state()
         self._save()
 
         new_beat = self.get_current_beat()
@@ -460,6 +462,177 @@ class SessionOverlay:
             self.advance_beat()
         else:
             self._save()
+
+    # ── 会话自有文档管理 ──
+
+    def _get_doc_path(self, name: str) -> Path:
+        """获取会话文档的完整路径。"""
+        return _SESSIONS_DIR / self.mode / self.session_id / name
+
+    def init_session_docs(self, plot_id: str):
+        """从剧情模板生成会话自有文档（plot_state.md + plot_log.md）。
+
+        仅在会话创建时调用一次。后续所有剧情上下文均从会话文档读取，
+        不再重新加载模板文件。
+        """
+        resolved = _resolve_plot_dir(plot_id) or plot_id
+        narrative_path = _PROJECT_ROOT / "data" / "plots" / resolved / "narrative.md"
+
+        if not narrative_path.is_file():
+            logger.debug("剧情 %s 无 narrative.md，跳过文档初始化", plot_id)
+            self._narrative_beats = []
+            self._narrative_text = ""
+            return
+
+        with open(narrative_path, "r", encoding="utf-8") as f:
+            text = f.read()
+
+        self._narrative_text = text
+        self._narrative_beats = _parse_narrative_beats(text)
+
+        # 提取剧情名称
+        plot_name = resolved
+        index_path = _PROJECT_ROOT / "data" / "plots" / resolved / "index.md"
+        if index_path.is_file():
+            try:
+                with open(index_path, "r", encoding="utf-8") as f:
+                    fm = frontmatter.load(f)
+                plot_name = fm.metadata.get("name", resolved)
+            except Exception:
+                pass
+
+        # 提取剧情概述
+        overview = ""
+        m = re.search(r"## 剧情概述\n\n(.+?)\n\n\*\*主视角\*\*[：:](.+?)\n\n", text, re.DOTALL)
+        if m:
+            overview = f"{m.group(1).strip()}\n主视角：{m.group(2).strip()}"
+
+        # 初始化节拍状态
+        if "beat_state" not in self._data:
+            self._data["beat_state"] = {
+                "chapter_idx": 0,
+                "beat_idx": 0,
+                "completed_beats": [],
+                "narrations_on_beat": 0,
+            }
+        self._data["plot_name"] = plot_name
+        self._data["plot_overview"] = overview
+        self._save()
+
+        # 写入会话文档
+        self._rewrite_plot_state()
+        self.write_session_doc("plot_log.md", "# 剧情进度日志\n\n")
+
+        total_beats = sum(len(ch["beats"]) for ch in self._narrative_beats)
+        logger.info("会话 %s: 剧情文档已初始化，%d 章 %d 个节拍 → %s",
+                     self.session_id, len(self._narrative_beats), total_beats,
+                     self._get_doc_path(""))
+
+    def read_session_doc(self, name: str) -> str | None:
+        """读取会话文档内容（带缓存）。"""
+        if name in self._doc_cache:
+            return self._doc_cache[name]
+        path = self._get_doc_path(name)
+        if not path.is_file():
+            return None
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read()
+        self._doc_cache[name] = content
+        return content
+
+    def write_session_doc(self, name: str, content: str):
+        """写入会话文档并更新缓存。"""
+        path = self._get_doc_path(name)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+        self._doc_cache[name] = content
+
+    def append_plot_log(self, summary: str):
+        """追加一行剧情进度日志，自动递增轮次。"""
+        round_num = self._data.get("narration_round", 0) + 1
+        self._data["narration_round"] = round_num
+        self._save()
+
+        path = self._get_doc_path("plot_log.md")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if not path.is_file():
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("# 剧情进度日志\n\n")
+
+        line = f"[轮次 {round_num}] {summary}\n"
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(line)
+        cached = self._doc_cache.get("plot_log.md", "")
+        self._doc_cache["plot_log.md"] = cached + line
+
+    def update_beat_progress(self):
+        """更新节拍进度：计数自增，超阈值自动推进，重写 plot_state.md。"""
+        bs = self._data.get("beat_state", {})
+        if not bs:
+            return
+        bs["narrations_on_beat"] = bs.get("narrations_on_beat", 0) + 1
+        self._data["beat_state"] = bs
+
+        if bs["narrations_on_beat"] > 8:
+            logger.info("会话 %s: 节拍 %s 已 %d 轮，自动推进",
+                         self.session_id,
+                         (self.get_current_beat() or {}).get("id", "?"),
+                         bs["narrations_on_beat"])
+            self.advance_beat()
+        else:
+            self._rewrite_plot_state()
+            self._save()
+
+    def _rewrite_plot_state(self):
+        """从当前内存状态重写 plot_state.md。
+
+        包含 YAML frontmatter（机器可读状态）和 Markdown body（LLM 可读上下文）。
+        """
+        beats = self._narrative_beats if hasattr(self, "_narrative_beats") else []
+        bs = self._data.get("beat_state", {})
+
+        body_parts = []
+        plot_name = self._data.get("plot_name", "")
+        if plot_name:
+            body_parts.append(f"# {plot_name}\n")
+
+        overview_text = self._data.get("plot_overview", "")
+        if overview_text:
+            body_parts.append(f"## 剧情概要\n{overview_text}\n")
+
+        if beats:
+            body_parts.append("## 章节结构")
+            for i, ch in enumerate(beats):
+                body_parts.append(f"- 第{i + 1}章 {ch['title']}：{ch.get('summary', '')}")
+            body_parts.append("")
+
+        roadmap = self._build_beat_roadmap()
+        if roadmap:
+            body_parts.append(f"## 节拍路线图\n{roadmap}\n")
+
+        current_beat = self.get_current_beat()
+        if current_beat:
+            body_parts.append(f"## 当前节拍：{current_beat['id']}")
+            if current_beat.get("content"):
+                body_parts.append("\n" + current_beat["content"])
+            if current_beat.get("dialogue"):
+                body_parts.append("\n强制对话：\n" + current_beat["dialogue"])
+            if current_beat.get("reveals"):
+                body_parts.append("\n揭示信息：\n" + current_beat["reveals"])
+
+        body = "\n".join(body_parts)
+
+        post = frontmatter.Post(body, **{
+            "chapter_idx": bs.get("chapter_idx", 0),
+            "beat_idx": bs.get("beat_idx", 0),
+            "completed_beats": bs.get("completed_beats", []),
+            "narrations_on_beat": bs.get("narrations_on_beat", 0),
+            "plot_id": self._data.get("plot_id", ""),
+        })
+        self.write_session_doc("plot_state.md", frontmatter.dumps(post))
+
+    # ── 任务 ──
 
     def get_quest_states(self) -> dict:
         """获取所有任务状态 {quest_id: {status, updated_at}}。"""

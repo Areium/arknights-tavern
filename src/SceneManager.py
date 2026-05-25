@@ -384,14 +384,14 @@ speaker 必须从【场景角色】列表中选择。无法判断说话人时用
                 logger.info("已注入开场上下文到首次叙述")
             self._overlay.clear_plot_context()
 
-        # 5. 剧情进度定位 + 故事概览（参考，非指令）
+        # 5. 剧情进度日志 + 剧情状态（从会话自有文档读取）
         if self._overlay:
-            beat_ctx = self._overlay.get_beat_context()
-            if beat_ctx:
-                context_parts.append(beat_ctx)
-            overview = self._overlay.get_narrative_overview()
-            if overview:
-                context_parts.append(f"\n{overview}")
+            plot_log = self._overlay.read_session_doc("plot_log.md")
+            if plot_log:
+                context_parts.append(plot_log)
+            plot_state = self._overlay.read_session_doc("plot_state.md")
+            if plot_state:
+                context_parts.append(plot_state)
 
         # 6. 预加载资料和文档目录（背景参考，放在末尾）
         if self._session_context:
@@ -506,14 +506,14 @@ speaker 必须从【场景角色】列表中选择。无法判断说话人时用
                 logger.info("已注入开场上下文到首次叙述")
             self._overlay.clear_plot_context()
 
-        # 5. 剧情进度定位 + 故事概览（参考，非指令）
+        # 5. 剧情进度日志 + 剧情状态（从会话自有文档读取）
         if self._overlay:
-            beat_ctx = self._overlay.get_beat_context()
-            if beat_ctx:
-                context_parts.append(beat_ctx)
-            overview = self._overlay.get_narrative_overview()
-            if overview:
-                context_parts.append(f"\n{overview}")
+            plot_log = self._overlay.read_session_doc("plot_log.md")
+            if plot_log:
+                context_parts.append(plot_log)
+            plot_state = self._overlay.read_session_doc("plot_state.md")
+            if plot_state:
+                context_parts.append(plot_state)
 
         # 6. 预加载资料和文档目录（背景参考，放在末尾）
         if self._session_context:
