@@ -630,8 +630,8 @@ html.light .deploy-arrow {
 /* ── 角色立绘（战斗选中时展示） ── */
 .character-illustration-container {
   position: absolute;
-  left: 15rem;
-  bottom: 24px;
+  left: 12rem;
+  bottom: 82px;
   height: 65%;
   max-height: 550px;
   width: 420px;
@@ -639,8 +639,8 @@ html.light .deploy-arrow {
   z-index: 0;
   transform: scale(1.2);
   transform-origin: left bottom;
-  -webkit-mask-image: linear-gradient(to right, black 25%, transparent 65%);
-  mask-image: linear-gradient(to right, black 25%, transparent 65%);
+  -webkit-mask-image: linear-gradient(to right, black 35%, transparent 80%);
+  mask-image: linear-gradient(to right, black 35%, transparent 80%);
   animation: illustration-fade-in 0.4s ease-out;
 }
 

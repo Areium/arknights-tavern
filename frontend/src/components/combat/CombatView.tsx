@@ -897,8 +897,8 @@ export default function CombatView() {
           />
         </div>
 
-        {/* Character illustration — shown when a player unit is selected */}
-        {selectedUnit && selectedUnit.team === "player" && (
+        {/* Character illustration — shown when a player unit is selected (fullscreen only) */}
+        {isFullscreen && selectedUnit && selectedUnit.team === "player" && (
           <CharacterIllustration key={selectedUnit.name} characterName={selectedUnit.name} />
         )}
 
