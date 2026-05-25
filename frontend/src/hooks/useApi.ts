@@ -191,8 +191,13 @@ export function useApi() {
     },
 
     // ── 文档依赖导入 ──
-    searchDocuments: (q: string, category: string, docId: string) =>
-      request<any[]>(`/api/documents/search?q=${encodeURIComponent(q)}&category=${encodeURIComponent(category)}&doc_id=${encodeURIComponent(docId)}`),
+    searchDocuments: async (q: string, category?: string, docId?: string) => {
+      const params = new URLSearchParams({ q });
+      if (category) params.set("category", category);
+      if (docId) params.set("exclude_doc_id", docId);
+      const data = await request<{ results: any[]; total: number }>(`/api/documents/search?${params.toString()}`);
+      return data.results || [];
+    },
     getDocImports: (category: string, id: string) =>
       request<{ imports: { path: string; name: string }[] }>(`/api/documents/${category}/${encodeURIComponent(id)}/imports`),
     updateDocImports: (category: string, id: string, imports: string[]) =>
@@ -209,6 +214,28 @@ export function useApi() {
 
     getAssetImages: () => request<any[]>("/api/assets/images"),
     getDataDir: () => request<{ path: string }>("/api/assets/data-dir"),
+
+    uploadAssetImage: async (category: string, file: File, subdir?: string) => {
+      const base = await getBaseUrl();
+      const formData = new FormData();
+      formData.append("file", file);
+      if (subdir) formData.append("subdir", subdir);
+      const res = await fetch(`${base}/api/assets/${category}/upload`, {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        let message = body;
+        try { message = JSON.parse(body).error || body; } catch {}
+        throw new Error(message);
+      }
+      return res.json();
+    },
+    deleteAssetImage: (category: string, filePath: string) =>
+      request<any>(`/api/assets/${category}/${encodeURIComponent(filePath)}`, {
+        method: "DELETE",
+      }),
 
     // ── 索引管理（基于 imports 的新系统） ──
     getIndexOverview: () =>

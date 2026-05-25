@@ -310,10 +310,9 @@ class SceneManager:
 3. 叙述生动但克制，不代替玩家做决定，不替玩家说话
 4. 每次叙述控制在 150-250 字之间，保留悬念和继续的空间
 5. 如果是继续之前的对话，保持对话的连贯性
-6. 根据【剧情进度】中当前节拍的指引推进剧情，主动将故事引导到节拍的核心事件
-7. 当节拍的核心事件（强制对话 + 关键揭示）已通过叙述充分呈现后，在叙述末尾输出 [BEAT_COMPLETE]
+6. 推进到当前场景的自然结束点时，在叙述末尾输出 [BEAT_COMPLETE]
 
-请开始叙述当前场景的下一步发展。"""
+请根据【剧情参考文档】和【剧情进度】自然推进故事。"""
 
     _NARRATOR_SYSTEM_STRUCTURED = """你是明日方舟文字冒险游戏的【场景叙述者】，负责推进剧情。
 
@@ -323,6 +322,9 @@ class SceneManager:
 3. 叙述生动但克制，不代替玩家做决定，不替玩家说话
 4. 每次叙述控制在 150-250 字之间，保留悬念和继续的空间
 5. 如果是继续之前的对话，保持对话的连贯性
+6. 推进到当前场景的自然结束点时，在叙述末尾输出 [BEAT_COMPLETE]
+
+请根据【剧情参考文档】和【剧情进度】自然推进故事。
 
 请以 JSON 数组格式输出剧情。每个元素为叙述段落或角色对话：
 - 叙述：{"type": "narration", "text": "叙述文字（其中对话用「」标注）"}
@@ -368,14 +370,14 @@ speaker 必须从【场景角色】列表中选择。无法判断说话人时用
                 logger.info("已注入开场上下文到首次叙述")
             self._overlay.clear_plot_context()
 
-        # 注入剧情节拍上下文和参考文档
+        # 注入剧情参考文档（全文）和节拍进度定位
         if self._overlay:
-            beat_ctx = self._overlay.get_beat_context()
-            if beat_ctx:
-                context_parts.append(f"\n{beat_ctx}")
             narrative_text = self._overlay.get_narrative_full_text()
             if narrative_text:
                 context_parts.append(f"\n【剧情参考文档】\n{narrative_text}")
+            beat_ctx = self._overlay.get_beat_context()
+            if beat_ctx:
+                context_parts.append(beat_ctx)
 
         # 注入预加载文档（沿 imports 链展开的角色/种族/职业/势力等）
         if self._session_context:
@@ -489,14 +491,14 @@ speaker 必须从【场景角色】列表中选择。无法判断说话人时用
                 logger.info("已注入开场上下文到首次叙述")
             self._overlay.clear_plot_context()
 
-        # 注入剧情节拍上下文和参考文档
+        # 注入剧情参考文档（全文）和节拍进度定位
         if self._overlay:
-            beat_ctx = self._overlay.get_beat_context()
-            if beat_ctx:
-                context_parts.append(f"\n{beat_ctx}")
             narrative_text = self._overlay.get_narrative_full_text()
             if narrative_text:
                 context_parts.append(f"\n【剧情参考文档】\n{narrative_text}")
+            beat_ctx = self._overlay.get_beat_context()
+            if beat_ctx:
+                context_parts.append(beat_ctx)
 
         if self._session_context:
             preloaded_text = self._session_context.format_preloaded()

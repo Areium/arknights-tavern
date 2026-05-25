@@ -302,10 +302,10 @@ def register(app, managers):
     # ── 12. GET /search ──
     @bp.route("/api/documents/search", methods=["GET"])
     def search_docs():
-        """搜索文档（按名称、摘要模糊匹配，支持层级过滤）。"""
+        """搜索文档（按名称、摘要模糊匹配，支持可选分类过滤）。"""
         q = request.args.get("q", "").strip()
         filter_category = request.args.get("category", "").strip()
-        filter_doc_id = request.args.get("doc_id", "").strip()
+        exclude_doc_id = request.args.get("exclude_doc_id", "").strip()
 
         # 确定要搜索的类别列表
         if filter_category:
@@ -314,8 +314,11 @@ def register(app, managers):
             # 使用层级结构确定所有相关类别
             levels = _load_hierarchy()
             search_categories = []
+            level_map = {}  # category -> level
             for level in levels:
-                search_categories.extend(level.get("categories", []))
+                for c in level.get("categories", []):
+                    search_categories.append(c)
+                    level_map[c] = level["level"]
             # 如果没有层级配置，回退到所有类别
             if not search_categories:
                 search_categories = [c["id"] for c in doc_mgr.list_categories()]
@@ -333,8 +336,8 @@ def register(app, managers):
                 title = doc.get("title", "")
                 summary = doc.get("summary", "")
 
-                # 精确 doc_id 过滤
-                if filter_doc_id and filter_doc_id != doc_id:
+                # 排除当前编辑的文档自身
+                if exclude_doc_id and doc_id == exclude_doc_id and cat == filter_category:
                     continue
 
                 # 模糊匹配
@@ -343,11 +346,15 @@ def register(app, managers):
                     if q_lower not in title.lower() and q_lower not in summary.lower():
                         continue
 
+                cat_level = level_map.get(cat, 99) if not filter_category else 99
+
                 results.append({
                     "category": cat,
                     "id": doc_id,
+                    "path": f"{cat}/{doc_id}",
                     "title": title,
                     "summary": summary,
+                    "level": cat_level,
                     "hash": doc.get("hash", ""),
                     "mtime": doc.get("mtime", 0),
                 })
@@ -414,12 +421,14 @@ def register(app, managers):
         content = doc.get("content", "")
         title = doc.get("metadata", {}).get("name", doc_id)
 
-        # 从层级配置中获取要扫描的类别
+        # 从层级配置中获取要扫描的类别及其层级
         levels = _load_hierarchy()
         scan_categories = set()
+        cat_level_map: dict[str, int] = {}
         for level in levels:
             for c in level.get("categories", []):
                 scan_categories.add(c)
+                cat_level_map[c] = level["level"]
         # 回退到所有类别
         if not scan_categories:
             scan_categories = {c["id"] for c in doc_mgr.list_categories()}
@@ -457,12 +466,14 @@ def register(app, managers):
                     "category": scan_cat,
                     "id": d["id"],
                     "path": f"{scan_cat}/{d['id']}",
+                    "title": d_title,
                     "name": d_title,
+                    "level": cat_level_map.get(scan_cat, 99),
                     "summary": d_summary,
                     "match_type": match_type,
                 })
 
-        suggestions.sort(key=lambda s: s["name"].lower())
+        suggestions.sort(key=lambda s: s["title"].lower())
         return jsonify({"suggestions": suggestions, "total": len(suggestions)})
 
     # ── 16. GET /<category>/<doc_id>/imports/verify ──

@@ -54,6 +54,13 @@ function catLabel(cat: string): string {
   return CATEGORY_LABELS[cat] || cat;
 }
 
+function formatFileSize(bytes: number): string {
+  if (!bytes || bytes < 0) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function getAllFolders(nodes: DocTreeNode[], prefix = ""): string[] {
   const result: string[] = [];
   for (const n of nodes) {
@@ -87,6 +94,7 @@ export default function DocumentManager() {
   // ── Images ──
   const [assetImages, setAssetImages] = useState<any[]>([]);
   const [imagesLoading, setImagesLoading] = useState(false);
+  const [imageFilter, setImageFilter] = useState("");
 
   // ── Modal ──
   const [modal, setModal] = useState<ModalState | null>(null);
@@ -212,6 +220,31 @@ export default function DocumentManager() {
       setImagesLoading(false);
     }
   }, []);
+
+  const handleImageUpload = async (file: File, category: string, subdir?: string) => {
+    try {
+      await apiRef.current.uploadAssetImage(category, file, subdir);
+      showToast(`图片 "${file.name}" 已上传`);
+      loadImages();
+    } catch (err: any) {
+      showToast(err.message || "上传失败", "error");
+    }
+  };
+
+  const handleImageDelete = async (category: string, fullPath: string) => {
+    // fullPath example: "characters/阿米娅/avatar/char_002_amiya.png"
+    // The API expects path relative to category dir: "阿米娅/avatar/char_002_amiya.png"
+    const relativePath = fullPath.startsWith(category + "/")
+      ? fullPath.slice(category.length + 1)
+      : fullPath;
+    try {
+      await apiRef.current.deleteAssetImage(category, relativePath);
+      showToast("图片已删除");
+      loadImages();
+    } catch (err: any) {
+      showToast(err.message || "删除失败", "error");
+    }
+  };
 
   useEffect(() => {
     if (activeTab === "images") loadImages();
@@ -532,18 +565,19 @@ export default function DocumentManager() {
       setSearchResults([]);
       return;
     }
-    if (!selectedCategory || !selectedPath) return;
+    if (!selectedPath) return;
     setSearchLoading(true);
     try {
       const docId = docIdFromPath(selectedPath);
-      const results = await apiRef.current.searchDocuments(q, selectedCategory, docId);
+      // 不传 category —— 跨所有分类搜索依赖文档
+      const results = await apiRef.current.searchDocuments(q, undefined, docId);
       setSearchResults(results);
     } catch {
       setSearchResults([]);
     } finally {
       setSearchLoading(false);
     }
-  }, [selectedCategory, selectedPath]);
+  }, [selectedPath]);
 
   const handleScanImports = async () => {
     if (!selectedCategory || !selectedPath) return;
@@ -760,51 +794,119 @@ export default function DocumentManager() {
   // ── Render: image tree ──
 
   const renderImageTree = () => {
+    // 按名称过滤
+    let filtered = assetImages;
+    if (imageFilter.trim()) {
+      const q = imageFilter.toLowerCase();
+      filtered = assetImages.filter((item: any) =>
+        item.entity_name.toLowerCase().includes(q) ||
+        item.category.toLowerCase().includes(q) ||
+        item.images.some((img: any) => img.name.toLowerCase().includes(q))
+      );
+    }
+
     // 按 category 分组
     const grouped: Record<string, any[]> = {};
-    for (const item of assetImages) {
+    for (const item of filtered) {
       const cat = item.category;
       if (!grouped[cat]) grouped[cat] = [];
       grouped[cat].push(item);
     }
 
-    return Object.entries(grouped).map(([cat, items]) => (
-      <div key={cat} className="mb-3">
-        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider py-1 mb-1">
-          {cat}
-        </div>
-        {items.map((item: any) => (
-          <div key={`${cat}/${item.entity}`} className="mb-2">
-            <div className="text-xs text-gray-400 px-1 mb-1 truncate" title={item.entity_name}>
-              {item.entity_name}
-            </div>
-            <div className="flex flex-wrap gap-1">
-              {item.images.map((img: any) => (
-                <div
-                  key={img.path}
-                  className="relative group cursor-pointer rounded overflow-hidden border border-gray-700 hover:border-blue-500/50 transition-colors"
-                  style={{ width: 64, height: 64 }}
-                  onClick={() => {
-                    // 在新窗口打开原图
-                    window.open(img.url, "_blank");
+    return (
+      <div>
+        <input
+          className="input text-xs w-full mb-2"
+          placeholder="过滤图片名称..."
+          value={imageFilter}
+          onChange={(e) => setImageFilter(e.target.value)}
+        />
+        {filtered.length === 0 && (
+          <p className="text-xs text-gray-500 text-center py-4">
+            {imageFilter ? "无匹配结果" : "暂无图像资产"}
+          </p>
+        )}
+        {Object.entries(grouped).map(([cat, items]) => (
+          <div key={cat} className="mb-3">
+            <div className="flex items-center gap-1 text-xs font-semibold text-gray-500 uppercase tracking-wider py-1 mb-1">
+              <span>{cat}</span>
+              <div className="flex-1" />
+              <label className="text-[10px] text-blue-400 hover:text-blue-300 cursor-pointer" title="上传到该分类">
+                + 上传
+                <input
+                  type="file"
+                  accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.bmp"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) { handleImageUpload(file, cat); e.target.value = ""; }
                   }}
-                >
-                  <img
-                    src={img.url}
-                    alt={img.name}
-                    className="w-full h-full object-cover"
-                    loading="lazy"
-                  />
-                  <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-[10px] text-gray-300 px-1 truncate opacity-0 group-hover:opacity-100 transition-opacity">
-                    {img.name}
-                  </div>
-                </div>
-              ))}
+                />
+              </label>
             </div>
+            {items.map((item: any) => (
+              <div key={`${cat}/${item.entity}`} className="mb-2 ml-1">
+                <div className="flex items-center gap-1 text-xs text-gray-400 px-1 mb-1">
+                  <span className="truncate flex-1" title={item.entity_name}>
+                    {item.entity_name}
+                  </span>
+                  <label className="text-[10px] text-blue-400 hover:text-blue-300 cursor-pointer shrink-0" title="上传到该实体">
+                    +
+                    <input
+                      type="file"
+                      accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.bmp"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          handleImageUpload(file, cat, item.entity);
+                          e.target.value = "";
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {item.images.map((img: any) => (
+                    <div
+                      key={img.path}
+                      className="relative group rounded overflow-hidden border border-gray-700 hover:border-blue-500/50 transition-colors"
+                      style={{ width: 64, height: 64 }}
+                    >
+                      <img
+                        src={img.url}
+                        alt={img.name}
+                        className="w-full h-full object-cover cursor-pointer"
+                        loading="lazy"
+                        onClick={() => window.open(img.url, "_blank")}
+                      />
+                      <button
+                        className="absolute top-0 right-0 bg-red-600/80 text-white text-[10px] px-1 rounded-bl opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (confirm(`确定要删除 "${img.name}" 吗？`)) {
+                            handleImageDelete(cat, img.path);
+                          }
+                        }}
+                        title="删除"
+                      >
+                        ✕
+                      </button>
+                      <div className="absolute bottom-0 left-0 right-0 bg-black/70 text-[10px] text-gray-300 px-1 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                        <div className="truncate">{img.name}</div>
+                        {img.size != null && (
+                          <div className="text-gray-500">{formatFileSize(img.size)}</div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
         ))}
       </div>
-    ));
+    );
   };
 
   // ── Render: category ──

@@ -11,19 +11,14 @@ attributes:
 class: 近卫
 faction: 龙门
 imports:
-- classes/近卫
-- races/鲁珀
-- factions/龙门
-- attributes/物理强度
-- attributes/战场机动
-- attributes/生理耐受
-- attributes/战术规划
-- attributes/战斗技巧
-- attributes/源石技艺适应性
-- attributes/情绪稳定性
-- attributes/魅力
-- characters/博士
-- characters/阿米娅
+- attributes/生理耐受 | 生理耐受
+- attributes/战术规划 | 战术规划
+- attributes/战斗技巧 | 战斗技巧
+- attributes/源石技艺适应性 | 源石技艺适应性
+- attributes/情绪稳定性 | 情绪稳定性
+- attributes/魅力 | 魅力
+- characters/博士 | 博士
+- characters/阿米娅 | 阿米娅
 name: 陈
 race: 鲁珀
 relationships:
@@ -39,16 +34,6 @@ tags:
 - 感染者
 theme_color: '#5c64a7'
 ---
-
-# 可检索条目
-
-character（data/characters/）：<博士>、<星熊>、<阿米娅>、<魏彦吾>
-faction（data/factions/）：<龙门>
-race（data/races/）：<鲁珀>
-class（data/classes/）：<近卫>
-item（data/items/）：<赤霄>
-location（environment/Location/）：<龙门>
-plot（data/plots/）：<lungmen-slums>
 
 # 角色背景
 

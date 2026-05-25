@@ -326,9 +326,10 @@ class SessionOverlay:
         return "\n".join(lines)
 
     def get_beat_context(self) -> str:
-        """构建完整的剧情节拍上下文，供注入 LLM prompt。
+        """构建剧情节拍定位上下文，供注入 LLM prompt。
 
-        包含：剧情路线图 + 当前节拍详细描述 + 下一节拍预告。
+        仅作为定位参考，不包含指令——让 LLM 基于文档自然推进剧情。
+        包含：路线图（标注当前位置） + 下一节拍预告。
         """
         beats = self._narrative_beats if hasattr(self, "_narrative_beats") else []
         bs = self._data.get("beat_state", {})
@@ -337,7 +338,6 @@ class SessionOverlay:
 
         ci = bs.get("chapter_idx", 0)
         bi = bs.get("beat_idx", 0)
-        narrations = bs.get("narrations_on_beat", 0)
         ch = beats[ci] if ci < len(beats) else None
         beat = beats[ci]["beats"][bi] if ch and bi < len(ch["beats"]) else None
 
@@ -346,42 +346,22 @@ class SessionOverlay:
         # 路线图
         roadmap = self._build_beat_roadmap()
         if roadmap:
-            parts.append(f"【剧情路线图】\n{roadmap}")
+            parts.append(f"【剧情进度】\n{roadmap}")
 
-        # 当前节拍
-        if ch and beat:
-            parts.append(f"\n【当前节拍】第{ci + 1}章 · {ch['title']} · {beat['id']}")
-            parts.append(f"已在此节拍进行 {narrations} 轮叙述")
-            if beat.get("content"):
-                parts.append(f"\n节拍内容：{beat['content']}")
-            if beat.get("dialogue"):
-                parts.append(f"\n强制对话：{beat['dialogue']}")
-            if beat.get("reveals"):
-                parts.append(f"\n需揭示信息：{beat['reveals']}")
-
-        # 下一节拍预告
+        # 下一节拍（仅作为方向提示，不强制）
         next_beats = []
         if ch:
             for j in range(bi + 1, min(bi + 3, len(ch["beats"]))):
                 nb = ch["beats"][j]
-                next_beats.append(f"{nb['id']} — {nb['summary'][:80]}")
+                next_beats.append(nb["id"])
         if not next_beats and ci + 1 < len(beats):
-            # 下一章的第一个节拍
             nch = beats[ci + 1]
             if nch["beats"]:
-                nb = nch["beats"][0]
-                next_beats.append(f"{nb['id']} — {nb['summary'][:80]}")
+                next_beats.append(nch["beats"][0]["id"])
         if next_beats:
-            parts.append(f"\n【后续节拍】" + " → ".join(next_beats))
+            parts.append(f"下一节拍：{' → '.join(next_beats)}")
 
-        # 指示
-        parts.append(
-            "\n---\n请在当前节拍的框架内推进剧情。"
-            "当节拍的核心事件（强制对话 + 揭示信息）已通过叙述呈现后，"
-            "在叙述文本末尾输出 [BEAT_COMPLETE] 标记以推进到下一节拍。"
-        )
-
-        return "\n".join(parts)
+        return "\n".join(parts) + "\n"
 
     def get_narrative_full_text(self) -> str:
         """获取 narrative.md 全文（缓存在内存中）。"""
