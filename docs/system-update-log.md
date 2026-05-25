@@ -16,6 +16,11 @@
 
 ## 更新记录
 
+### 2026-05-25 — 角色立绘全屏限制 + 位置优化
+
+- CharacterIllustration 仅在 `isFullscreen` 时渲染，避免非全屏下遮挡战斗界面
+- 立绘位置左移（12rem）、上移（82px），渐变蒙版柔化
+
 ### 2026-05-25 — 战斗触发流程修复
 
 - CombatView 接入 `combatSessionId`：LLM 触发战斗时自动加载已启动的会话（`useEffect` 监听 → `fetchState` + `connectSSE`）
