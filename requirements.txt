@@ -5,3 +5,4 @@ Pillow
 python-frontmatter
 PyYAML
 chromadb
+pytest

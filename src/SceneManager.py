@@ -9,6 +9,88 @@ from CharacterAgent import CharacterAgent
 logger = logging.getLogger(__name__)
 
 
+def _empty_extraction_result() -> dict:
+    """返回空的标记提取结果。"""
+    return {
+        "beat_complete": False,
+        "combat": None,
+        "choices": None,
+        "summary": None,
+        "usage": None,
+        "error": None,
+    }
+
+
+def _parse_extraction_json(text: str) -> dict:
+    """从 LLM 响应中解析标记提取 JSON。
+
+    处理 markdown 代码块包裹、JSON 对象定位和解析异常。
+    失败时返回 _empty_extraction_result()。
+    """
+    text = text.strip()
+    # 移除 markdown 代码块包裹
+    if text.startswith("```"):
+        lines = text.split("\n")
+        text = "\n".join(lines[1:]) if len(lines) > 1 else text
+        if text.rstrip().endswith("```"):
+            text = text.rstrip()[:-3].strip()
+        else:
+            # 可能代码块结尾在最后一行（包含换行）
+            last_nl = text.rfind("\n")
+            if last_nl != -1 and text[last_nl:].strip() == "```":
+                text = text[:last_nl].strip()
+
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        # 尝试从文本中定位 JSON 对象
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            try:
+                data = json.loads(text[start:end + 1])
+            except json.JSONDecodeError:
+                return _empty_extraction_result()
+        else:
+            return _empty_extraction_result()
+
+    return {
+        "beat_complete": bool(data.get("beat_complete", False)),
+        "combat": _normalize_combat_field(data.get("combat_trigger")),
+        "choices": _normalize_choices_field(data.get("choices")),
+        "summary": _normalize_summary_field(data.get("summary")),
+    }
+
+
+def _normalize_combat_field(combat_data) -> dict | None:
+    """验证并规范化 combat_trigger 字段。"""
+    if not combat_data or not isinstance(combat_data, dict):
+        return None
+    encounter_id = combat_data.get("encounter_id", "")
+    if not encounter_id or not isinstance(encounter_id, str) or not encounter_id.strip():
+        return None
+    params = combat_data.get("params")
+    if params is not None and not isinstance(params, dict):
+        params = None
+    return {"encounter_id": encounter_id.strip(), "params": params}
+
+
+def _normalize_choices_field(choices) -> list[str] | None:
+    """验证并规范化 choices 字段。"""
+    if not choices or not isinstance(choices, list):
+        return None
+    result = [str(c).strip() for c in choices if c and len(str(c).strip()) <= 30]
+    return result if result else None
+
+
+def _normalize_summary_field(summary) -> str | None:
+    """验证并规范化 summary 字段。"""
+    if not summary or not isinstance(summary, str):
+        return None
+    s = summary.strip()
+    return s if s else None
+
+
 class SceneManager:
     """场景角色管理器：管理多角色同场对话。
 
@@ -315,50 +397,16 @@ class SceneManager:
 - MUST：叙述生动但克制，不代替玩家做决定，不替玩家说话
 - MUST：每次叙述约 {word_limit} 字，在自然段落处收尾
 - MUST：保持对话的连贯性，不重复已发生的事件
-- MUST：推进到场景自然结束时，在叙述末尾输出 <beat_complete/>
-</core_rules>
-
-<output_format>
-- 正常叙述：自然段落文本，角色对话用「」标注
-- 场景结束：末尾输出 <beat_complete/>（单独一行）
-{combat_rule}{choices_rules}</output_format>"""
+</core_rules>"""
 
     @staticmethod
-    def _build_system_prompt(word_limit: int, structured: bool = False,
-                             choices_count: int = 0,
-                             combat_mode: str = "narrative") -> str:
-        """根据 word_limit 和条件构建系统提示词，XML 标签分区 + MUST 语言。
+    def _build_system_prompt(word_limit: int, structured: bool = False) -> str:
+        """根据 word_limit 构建系统提示词。
 
-        模板通过 .format() 注入 word_limit、combat_rule、choices_rules。
+        模板通过 .format() 注入 word_limit。
         """
-
-        # 战斗规则（注入到 <output_format> 中）
-        if combat_mode == "tactical":
-            combat_rule = (
-                "\n- MUST：如果场景存在明确的敌对威胁或战斗冲突，"
-                "立即在叙述末尾输出 <combat:遭遇ID/>（单独一行）。"
-                "不得继续叙述而不输出标记。正常叙述中禁止展示 HP/SP 数值。"
-            )
-        else:
-            combat_rule = (
-                "\n- MUST：如果场景出现战斗，通过剧情描述和关键判定推进。"
-                "禁止展示 HP/SP 等数值，提供有叙事含义的战术选项。"
-            )
-
-        # 选项规则（注入到 <output_format> 中）
-        if choices_count > 0:
-            choices_rules = (
-                f"\n- MUST：叙述结束后输出 <choices/>，"
-                f"然后列出恰好 {choices_count} 个合理的后续行动选项（每行一个，≤15字，不编号）"
-                f"\n- MUST：末尾输出 <summary/>（≤50字中文，只写事实不写评价）"
-            )
-        else:
-            choices_rules = ""
-
         template = SceneManager._NARRATOR_SYSTEM_STRUCTURED if structured else SceneManager._NARRATOR_SYSTEM
-        return template.format(word_limit=word_limit,
-                               combat_rule=combat_rule,
-                               choices_rules=choices_rules)
+        return template.format(word_limit=word_limit)
 
     _NARRATOR_SYSTEM_STRUCTURED = """\
 <role>
@@ -371,7 +419,6 @@ class SceneManager:
 - MUST：叙述生动但克制，不代替玩家做决定，不替玩家说话
 - MUST：每次叙述约 {word_limit} 字，在自然段落处收尾
 - MUST：保持对话的连贯性，不重复已发生的事件
-- MUST：推进到场景自然结束时，在叙述末尾输出 <beat_complete/>
 </core_rules>
 
 <output_format>
@@ -383,7 +430,128 @@ class SceneManager:
 type 枚举：narration / dialogue
 speaker 必须从场景角色列表选择，无法判断时用 null
 相邻同类型元素合并
-{combat_rule}{choices_rules}</output_format>"""
+</output_format>"""
+
+    _MARKER_EXTRACTOR_SYSTEM = """\
+<role>
+你是文本分析助手，负责从游戏叙述文本中提取结构化标记。
+这是一个简单的分类和提取任务，不涉及创意写作。
+</role>
+
+<core_rules>
+- MUST：只输出 JSON 对象，不要输出任何其他文字或解释
+- MUST：只基于叙述文本中实际发生的内容进行判断，严禁虚构或推测
+- MUST：只有叙述末尾场景明确达到段落结束点（角色离开、对话结束、行动完成等），才设置 beat_complete 为 true
+- MUST：只有叙述中明确出现了敌对冲突/战斗场面时，才设置 combat_trigger
+- MUST：选项必须基于叙述内容推导，每个选项不超过15个汉字
+- 如果对某个字段没有把握，使用默认值（false / null / null / null）
+</core_rules>
+
+<output_format>
+严格输出以下 JSON 对象，不要包含其他内容：
+{
+  "beat_complete": false,
+  "combat_trigger": null,
+  "choices": null,
+  "summary": null
+}
+
+字段说明：
+- beat_complete: boolean，场景是否自然结束
+- combat_trigger: null 或 {"encounter_id": "遭遇ID", "params": null}
+- choices: null 或字符串数组（每个选项不超过15个汉字）
+- summary: null 或字符串（不超过50个汉字，只写事实不写评价）
+</output_format>"""
+
+    def _build_extraction_messages(
+        self, narrative: str, choices_count: int = 0,
+        beat_state_active: bool = False,
+    ) -> list[dict]:
+        """构建标记提取的消息列表（Call 2）。
+
+        根据条件动态构建 tasks 列表：仅当相关功能激活时才加入对应任务。
+        """
+        parts = [f"<narrative>\n{narrative}\n</narrative>"]
+
+        tasks = []
+
+        if beat_state_active:
+            tasks.append(
+                "- 判断叙述末尾的场景是否已自然推进到一个段落结束点。\n"
+                "  段落结束点的特征：角色离开场景、重要对话结束、\n"
+                "  关键行动完成、场景转换过渡等。\n"
+                "  将判断结果填入 beat_complete 字段。"
+            )
+
+        if self._combat_mode == "tactical":
+            encounters = self._list_encounters()
+            tasks.append(
+                f"- 判断叙述中是否出现了需要触发回合制战斗的明确的敌对冲突。\n"
+                f"  如果是，从以下遭遇列表中选择最匹配剧情的遭遇ID：\n"
+                f"  可用遭遇：{encounters}\n"
+                f"  将结果填入 combat_trigger 字段（格式：{{\"encounter_id\": \"遭遇ID\", \"params\": null}}）。\n"
+                f"  如果不是，combat_trigger 设为 null。\n"
+                f"  可选：在 combat_trigger.params 中设置 status_effects，\n"
+                f"  格式 {{\"角色名\": {{\"hp_penalty\": 0.0~1.0}}}}"
+            )
+
+        if choices_count > 0:
+            tasks.append(
+                f"- 基于叙述内容，推导恰好 {choices_count} 个合理的后续行动选项。\n"
+                f"  每个选项不超过15个汉字，表达简洁直接，不编号。\n"
+                f"  将选项填入 choices 数组。\n"
+                f"- 用不超过50个汉字概括本章节叙述的剧情事实（只写事实，不写评价）。\n"
+                f"  将摘要填入 summary 字段。"
+            )
+
+        if tasks:
+            parts.append("<tasks>\n" + "\n".join(tasks) + "\n</tasks>")
+
+        parts.append("MUST：只输出 JSON 对象，不要输出其他任何内容。")
+
+        return [
+            {"role": "system", "content": self._MARKER_EXTRACTOR_SYSTEM},
+            {"role": "user", "content": "\n\n".join(parts)},
+        ]
+
+    def extract_markers(
+        self, narrative: str, choices_count: int = 0,
+        beat_state_active: bool = False,
+    ) -> dict:
+        """从叙述文本中提取结构化标记（Call 2）。
+
+        这是一个简单的分类/提取任务，即使 flash 模型也能可靠处理。
+        输入叙述文本，输出包含 beat_complete/combat/choices/summary 的字典。
+
+        Returns:
+            {
+                "beat_complete": bool,
+                "combat": {"encounter_id": str, "params": dict | None} | None,
+                "choices": list[str] | None,
+                "summary": str | None,
+                "usage": dict | None,
+                "error": str | None,
+            }
+        """
+        if not narrative or not narrative.strip():
+            return _empty_extraction_result()
+
+        messages = self._build_extraction_messages(
+            narrative, choices_count=choices_count,
+            beat_state_active=beat_state_active,
+        )
+
+        try:
+            result = self._llm.chat(messages, stream=False, max_tokens=512)
+            text = result.get("content", "") if isinstance(result, dict) else str(result)
+            usage = result.get("usage") if isinstance(result, dict) else None
+            parsed = _parse_extraction_json(text)
+            parsed["usage"] = usage
+            parsed.setdefault("error", None)
+            return parsed
+        except Exception as e:
+            logger.warning("Marker extraction failed: %s", e)
+            return {**_empty_extraction_result(), "error": str(e)}
 
     @staticmethod
     def _build_conversation_history(history: list[dict],
@@ -443,7 +611,6 @@ speaker 必须从场景角色列表选择，无法判断时用 null
         user_action="", is_first_turn=True,
         conversation_history="",
         word_limit=500, structured=False,
-        choices_count=0,
     ) -> list[dict]:
         """构建叙述的 messages 列表，XML 标签分区用户消息。"""
         identity = (player_info or {}).get("identity", "博士") if player_info else "博士"
@@ -456,12 +623,12 @@ speaker 必须从场景角色列表选择，无法判断时用 null
             active_mark = " ← 对话中" if name == self.active else ""
             char_summaries.append(f"- {name}{tag_str}{active_mark}")
 
-        # 战术模式：在用户消息最前面插入战斗优先指令（primacy 效应）
+        # 战术模式：在用户消息最前面提示战术模式（primacy 效应）
         context_parts = []
         if self._combat_mode == "tactical":
             context_parts.append(
-                "MUST：如果场景中存在战斗/敌对冲突，优先输出 <combat:遭遇ID/> 触发战斗系统。"
-                "不要只叙述战斗场景而不输出标记。"
+                "当前处于战术模式。如果场景中存在战斗/敌对冲突，"
+                "请详细描述战斗局势。战斗触发将由系统自动处理。"
             )
 
         # 场景状态
@@ -488,8 +655,7 @@ speaker 必须从场景角色列表选择，无法判断时用 null
         if self._combat_mode == "tactical":
             encounter_str = self._list_encounters()
             context_parts.append(
-                f"<encounters>\n{encounter_str}（选择最匹配剧情的遭遇，如无匹配使用第一个）\n"
-                f"可选附加 JSON：{{\"status_effects\":{{\"角色名\":{{\"hp_penalty\":0.0~1.0,\"atk_bonus\":0.0~1.0,\"def_penalty\":0.0~1.0}}}}}}\n"
+                f"<encounters>\n可用的战斗遭遇：{encounter_str}\n"
                 f"</encounters>"
             )
 
@@ -535,22 +701,13 @@ speaker 必须从场景角色列表选择，无法判断时用 null
         # 收尾指令（recency 效应）
         if structured:
             context_parts.append("MUST：只输出 JSON 数组，不要其他内容。")
-            system_prompt = self._build_system_prompt(word_limit, structured=True,
-                                                         choices_count=choices_count,
-                                                         combat_mode=self._combat_mode)
+            system_prompt = self._build_system_prompt(word_limit, structured=True)
         else:
-            if self._combat_mode == "tactical":
-                context_parts.append(
-                    "MUST：如果存在战斗冲突，输出 <combat:遭遇ID/> 触发战斗系统，然后简要叙述。"
-                )
-            else:
-                context_parts.append(
-                    "请基于以上场景信息继续推进剧情。描写场景和角色的反应，"
-                    "角色对话用「」标注。保持剧情连贯、自然，结束时留出继续的空间。"
-                )
-            system_prompt = self._build_system_prompt(word_limit, structured=False,
-                                                         choices_count=choices_count,
-                                                         combat_mode=self._combat_mode)
+            context_parts.append(
+                "请基于以上场景信息继续推进剧情。描写场景和角色的反应，"
+                "角色对话用「」标注。保持剧情连贯、自然，结束时留出继续的空间。"
+            )
+            system_prompt = self._build_system_prompt(word_limit, structured=False)
 
         context = "\n\n".join(context_parts)
         return [
@@ -562,13 +719,12 @@ speaker 必须从场景角色列表选择，无法判断时用 null
                 user_action: str = "", structured: bool = False,
                 max_tokens: int | None = None,
                 word_limit: int = 500,
-                choices_count: int = 0,
                 conversation_history: str = "",
                 is_first_turn: bool = True) -> tuple[str, dict, dict | None]:
-        """生成剧情叙述。
+        """生成剧情叙述（非流式）。
 
-        用于【继续推进剧情】模式。以场景叙述者的视角生成连贯的剧情文本，
-        角色对话会自然嵌入叙述中。
+        用于需要完整响应后再处理的场景（气泡模式、缓冲模式）。
+        以场景叙述者的视角生成连贯的剧情文本，角色对话会自然嵌入叙述中。
 
         Args:
             player_info: 玩家信息
@@ -586,7 +742,6 @@ speaker 必须从场景角色列表选择，无法判断时用 null
             user_action=user_action, is_first_turn=is_first_turn,
             conversation_history=conversation_history,
             word_limit=word_limit, structured=structured,
-            choices_count=choices_count,
         )
 
         result = self._llm.chat(messages, stream=False, max_tokens=max_tokens)
@@ -602,7 +757,6 @@ speaker 必须从场景角色列表选择，无法判断时用 null
                        user_action: str = "", structured: bool = False,
                        max_tokens: int | None = None,
                        word_limit: int = 500,
-                       choices_count: int = 0,
                        conversation_history: str = "",
                        is_first_turn: bool = True):
         """流式生成剧情叙述 — 生成器，逐 token yield。
@@ -610,35 +764,20 @@ speaker 必须从场景角色列表选择，无法判断时用 null
         使用线程+队列桥接 LLM 的 on_token 回调和 SSE 生成器，
         使前端能在首个 token 到达时立即显示文字，而非等待完整响应。
 
-        当 choices_count > 0 时使用全缓冲模式：LLM 内部不流式，
-        完成后再逐 token 推送，确保 [CHOICES] 标记解析完整。
-
         Yields:
             ("token", str): 单个 LLM 输出 token
             ("reasoning", str): 思考推理 token（思考模型）
-            ("done", (str, dict, dict|None, list|None)): 完成信号
-                (narrative, env_updates, usage, choices_or_none)
+            ("done", (str, dict, dict|None)): 完成信号
+                (narrative, env_updates, usage)
         """
         messages = self._build_narration_messages(
             player_info, env_context,
             user_action=user_action, is_first_turn=is_first_turn,
             conversation_history=conversation_history,
             word_limit=word_limit, structured=structured,
-            choices_count=choices_count,
         )
 
-        # — 全缓冲模式（需提取 [CHOICES]）与真流式模式 —
-        if choices_count > 0:
-            # 全缓冲：非流式获取完整响应，解析 [CHOICES]，再逐 token 推送纯叙述
-            result = self._llm.chat(messages, stream=False, max_tokens=max_tokens)
-            narrative = result.get("content", "") if isinstance(result, dict) else str(result)
-            usage = result.get("usage") if isinstance(result, dict) else None
-            self._log_event(f"📖 剧情推进: {narrative[:80].replace(chr(10), ' ')}...")
-            # 交给调用方处理 [CHOICES] 解析和逐 token 推送
-            yield ("done", (narrative, {}, usage))
-            return
-
-        # — 真流式模式 —
+        # 真流式模式
         q = queue.Queue()
         cancel = threading.Event()
 

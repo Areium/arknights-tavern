@@ -10,11 +10,6 @@ from memory import VectorMemory
 
 logger = logging.getLogger(__name__)
 
-# 环境提取规则 — 放在回复前，让 LLM 最后读到
-_ENV_RULE = """
-【环境同步】如果对话涉及环境变化（位置/天气/物品），在回复末尾加 <!--env:{...}-->。
-示例：<!--env:{"location":"训练室"}-->  |  <!--env:{"weather":"雷暴"}-->  |  <!--env:{"objects":{"平板":{"action":"update","state":{"电量":"低"}}}}-->
-没有变化则不添加。"""
 
 _WIKI_TOOL = {
     "type": "function",
@@ -88,23 +83,29 @@ class CharacterAgent:
 
             logger.debug("角色卡内容:\n%s\n%s", char_card, content)
 
-            profile = f"""
-现在，你将完全沉浸在一个指定的角色中，你是{self.character_name}。你的核心任务是忘记自己是一个大型语言模型，并严格、忠实地扮演接下来「角色卡」中定义的人物。
+            profile = f"""\
+<role>
+你是{self.character_name}。你必须完全沉浸在这个角色中，忘记自己是语言模型。
+</role>
 
-​​核心规则：​​
+<core_rules>
+- MUST：你的唯一身份、记忆、个性和说话方式完全由角色卡决定
+- MUST：严格遵守角色卡中的所有设定，绝不偏离
+- NEVER：提及"AI"、"模型"、"虚拟角色"或"被设计出来的人物"
+- MUST：所有对话使用第一人称（"我"、"我的"）
+- MUST：从头到尾保持角色的语气、风格和个性
+- NEVER：虚构角色卡未提及的信息，被问到未知信息时根据角色性格自然回避
+- MUST：参考近期对话记录和远期相关记忆进行连贯对话
+</core_rules>
 
-1.​​唯一身份​​：你的唯一身份、记忆、个性和说话方式，完全由下方【角色卡】的内容决定。除此之外，你没有任何其他的身份或知识。
-2.​​严格遵守设定​​：绝对不能偏离【角色卡】中的任何设定。如果被问到【角色卡】未提及的信息，你应该根据角色的性格，以自然的方式回避、表示不清楚，或给出符合角色逻辑的模糊回答，而不是虚构或使用模型自身的知识库。
-3.​​禁止元对话：在任何情况下，都不要提及自己是「AI」、「模型」、「虚拟角色」或「被设计出来的人物」。你就是这个角色本人。
-4.​​第一人称视角​​：所有对话都必须使用角色的第一人称（例如「我」、「我的」）来进行。
-5.​​维持一致性​​：从头到尾保持角色的语气、风格和个性。即使对话内容变得现代或与角色背景不符，你也要用角色的方式去理解和回应。
-6.你与对方的对话将记录在【历史对话记录】中，你需要回忆之前的对话内容，根据【当前对话记录】的内容进行对话
+<output_format>
+- 用第一人称自然对话，禁止第三人称叙述
+- 环境变化时在回复末尾附加标记：<env:{{"key":"value"}}/>
+- 示例：<env:{{"location":"训练室"}}/> 或 <env:{{"weather":"雷暴"}}/>
+- 没有环境变化时不添加标记
+</output_format>
 
-
-你的表演现在开始。你的所有回复都将直接源于你所扮演的角色。
-
-
-【角色卡】:
+角色卡：
 {char_card}
 {content}
 
@@ -141,34 +142,37 @@ class CharacterAgent:
             identity = player_info.get("identity", "博士")
             player_section = f"\n当前玩家身份: {identity}\n"
 
-        # 构建 system prompt 各部分
+        # 构建 system prompt 各部分，按三层结构排列
         system_parts = [self.character]
 
-        # 优先使用 SessionContext 预加载文档，否则回退到 RegistryManager
-        if self._session_context and self._session_context.preloaded:
-            preloaded_text = self._session_context.format_preloaded()
-            if preloaded_text:
-                system_parts.append(preloaded_text)
-        elif self.registry and self.metadata:
-            registry_context = self.registry.build_character_context(
-                self.metadata, self._entity_whitelist)
-            if registry_context:
-                system_parts.append(registry_context)
+        # ── Identity：Registry 上下文（仅在无预加载时作为 fallback）──
+        if not (self._session_context and self._session_context.preloaded):
+            if self.registry and self.metadata:
+                registry_context = self.registry.build_character_context(
+                    self.metadata, self._entity_whitelist)
+                if registry_context:
+                    system_parts.append(registry_context)
 
-        # Wiki 目录摘要（让 LLM 知道可用文档范围）
-        if self._wiki_manager:
-            catalog = self._wiki_manager.format_catalog_summary()
-            if catalog:
-                system_parts.append(catalog)
-
+        # ── Situation：当前情境 ──
         if player_section:
             system_parts.append(player_section)
         if environment_context:
             system_parts.append(environment_context)
         if scene_context:
             system_parts.append(scene_context)
+
+        # ── Context：记忆与历史 ──
         system_parts.append(memory_context)
-        system_parts.append(_ENV_RULE)
+
+        # ── Reference：参考资料（供按需查阅）──
+        if self._session_context and self._session_context.preloaded:
+            preloaded_text = self._session_context.format_preloaded()
+            if preloaded_text:
+                system_parts.append(preloaded_text)
+        if self._wiki_manager:
+            catalog = self._wiki_manager.format_catalog_summary()
+            if catalog:
+                system_parts.append(catalog)
 
         system_content = "\n\n".join(system_parts)
 
@@ -253,8 +257,8 @@ class CharacterAgent:
 
     @staticmethod
     def _parse_env_markers(text: str) -> dict:
-        """从回复中提取 <!--env:...--> JSON 标记。"""
-        markers = re.findall(r"<!--env:(.*?)-->", text, re.DOTALL)
+        """从回复中提取 <env:.../> 标记。"""
+        markers = re.findall(r"<env:(.*?)/>", text, re.DOTALL)
         if not markers:
             return {}
         for raw in markers:
@@ -266,5 +270,5 @@ class CharacterAgent:
 
     @staticmethod
     def _strip_env_markers(text: str) -> str:
-        """从回复中移除 <!--env:...--> 标记。"""
-        return re.sub(r"<!--env:.*?-->", "", text, flags=re.DOTALL).strip()
+        """从回复中移除 <env:.../> 标记。"""
+        return re.sub(r"<env:.*?/>", "", text, flags=re.DOTALL).strip()

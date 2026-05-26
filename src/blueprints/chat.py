@@ -3,7 +3,6 @@ Chat blueprint — 对话 / 叙述 API (聊天、群聊、SSE 流式叙述、叙
 """
 
 import json
-import re
 import uuid
 import logging
 
@@ -39,13 +38,6 @@ def _require_no_combat(session):
     if session.combat is not None:
         return json_error("战斗进行中，无法执行对话操作。请先完成或退出战斗。", 423)
     return None
-
-
-_COMBAT_MARKER_RE = re.compile(r'<combat:([^{\s/>]+)(?:\s+(\{.*?\}))?\s*/>', re.IGNORECASE)
-_SAFE_COMBAT_MARKER_RE = re.compile(r'<combat:([^{\s/>]+)(?:\s+(\{.*?\}))?\s*/>', re.IGNORECASE)
-_BEAT_COMPLETE_RE = re.compile(r'\n?\s*<beat_complete\s*/>\s*\n?')
-_CHOICES_MARKER_RE = re.compile(r'\n?<choices\s*/>\n?([\s\S]*?)$')
-_SUMMARY_MARKER_RE = re.compile(r'\n?<summary\s*/>\n?([\s\S]*?)$')
 
 
 def _try_extract_structured(narrative: str, scene_manager):
@@ -93,143 +85,64 @@ def _try_extract_structured(narrative: str, scene_manager):
     return None, narrative
 
 
-def _handle_choices_marker(narrative: str) -> tuple[str, list[str] | None]:
-    """检测并提取 <choices/> 标记中的选项列表。
+def _should_extract_markers(session, choices_count: int) -> bool:
+    """判断是否需要标记提取 Call 2。
 
-    Returns:
-        (cleaned_narrative, choices_or_none): 清理后的叙述文本和选项列表
+    当无选项、无战术模式、无节拍状态时跳过，避免无意义的 LLM 往返。
     """
-    match = _CHOICES_MARKER_RE.search(narrative)
-    if not match:
-        return narrative, None
-    cleaned = _CHOICES_MARKER_RE.sub("", narrative).strip()
-    choices_text = match.group(1).strip()
-    lines = [l.strip() for l in choices_text.split("\n") if l.strip()]
-    lines = [l for l in lines if len(l) <= 30]
-    return cleaned, (lines if lines else None)
+    if choices_count > 0:
+        return True
+    if getattr(session.scene_manager, '_combat_mode', 'narrative') == "tactical":
+        return True
+    overlay = session.overlay
+    if overlay and overlay.get_beat_state():
+        return True
+    return False
 
 
-def _handle_summary_marker(narrative: str) -> tuple[str, str | None]:
-    """检测并提取 <summary/> 标记中的剧情摘要。
-
-    Returns:
-        (cleaned_narrative, summary_or_none): 清理后的叙述文本和摘要字符串
-    """
-    match = _SUMMARY_MARKER_RE.search(narrative)
-    if not match:
-        return narrative, None
-    cleaned = _SUMMARY_MARKER_RE.sub("", narrative).strip()
-    summary = match.group(1).strip()
-    return cleaned, (summary if summary else None)
-
-
-def _handle_combat_trigger(session, narrative, stream_id):
-    """检测并处理战斗触发标记 <combat:encounter_id/>。
-
-    支持扩展格式：
-        <combat:encounter_id/>
-        <combat:encounter_id {"status_effects": {...}}/>
-
-    Returns:
-        (cleaned_narrative, sse_event_or_none): 清理后的叙述文本和可选的 SSE 事件字符串
-    """
-    match = _COMBAT_MARKER_RE.search(narrative)
-    if not match:
-        return narrative, None
-
-    encounter_id = match.group(1).strip()
-    cleaned = _COMBAT_MARKER_RE.sub("", narrative).strip()
-
-    combat_mode = getattr(session, 'combat_mode', 'narrative')
-    if combat_mode != "tactical":
-        return cleaned, None
-
-    # 尝试解析可选的 JSON 参数
-    combat_params = None
-    if match.group(2):
-        try:
-            combat_params = json.loads(match.group(2))
-        except json.JSONDecodeError:
-            logger.warning("会话 %s: 战斗触发 JSON 解析失败，忽略参数: %s",
-                          session.id, match.group(2)[:100])
-
+def _apply_combat_trigger(session, combat_data: dict | None, stream_id: str) -> str | None:
+    """从标记提取结果启动战斗，返回 SSE 事件字符串或 None。"""
+    if not combat_data:
+        return None
+    if getattr(session, 'combat_mode', 'narrative') != "tactical":
+        return None
+    encounter_id = combat_data.get("encounter_id", "")
+    if not encounter_id:
+        return None
     try:
         character_metas = build_character_metas(session, _doc_mgr) if _doc_mgr else None
-        combat = session.start_combat(encounter_id,
-                                       character_metas=character_metas,
-                                       combat_params=combat_params)
-        logger.info("会话 %s: LLM 触发战斗 %s (params=%s)",
-                     session.id, encounter_id,
-                     "yes" if combat_params else "no")
-        event = f"data: {json.dumps({'type': 'combat_trigger', 'data': {'encounter_id': encounter_id, 'session_id': session.id, 'stream_id': stream_id}})}\n\n"
-        return cleaned, event
+        session.start_combat(encounter_id, character_metas=character_metas,
+                              combat_params=combat_data.get("params"))
+        logger.info("会话 %s: 标记提取触发战斗 %s", session.id, encounter_id)
+        return f"data: {json.dumps({'type': 'combat_trigger', 'data': {'encounter_id': encounter_id, 'session_id': session.id, 'stream_id': stream_id}})}\n\n"
     except Exception as e:
         logger.error("自动触发战斗失败: %s", e)
-        return cleaned, None
+        return None
 
 
-def _handle_beat_complete(session, narrative):
-    """检测并处理节拍完成标记 <beat_complete/>。
-
-    Returns:
-        str: 清理后的叙述文本（移除 [BEAT_COMPLETE] 标记）
-    """
-    if not _BEAT_COMPLETE_RE.search(narrative):
-        return narrative
-
-    cleaned = _BEAT_COMPLETE_RE.sub("", narrative).strip()
+def _apply_beat_complete(session, beat_complete: bool):
+    """从标记提取结果推进节拍。"""
+    if not beat_complete:
+        return
     overlay = session.overlay
     if overlay and overlay.get_beat_state():
         overlay.advance_beat()
         current = overlay.get_current_beat()
         beat_name = current["id"] if current else "剧情终点"
-        logger.info("会话 %s: LLM 标记节拍完成 → %s", session.id, beat_name)
-    return cleaned
+        logger.info("会话 %s: 标记提取推进节拍 -> %s", session.id, beat_name)
 
 
-def _build_choices(session, llm_backend, narrative):
-    """根据配置生成选项：LLM 自动生成或内置默认。"""
-    config = llm_backend.get_config()
-    llm_choices = []
-    if config.get("auto_generate_choices"):
-        count = config.get("choice_count", 3)
-        llm = session.get_llm()
-        if llm:
-            try:
-                active = session.scene_manager.active or ""
-                chars = session.scene_manager.get_scene_characters()
-                prompt = (
-                    f"【场景叙述】\n{narrative}\n\n"
-                    f"【当前场景角色】{', '.join(chars) if chars else '无'}\n"
-                    + (f"【对话目标】{active}\n" if active else "")
-                    + f"\n请基于以上叙述，生成恰好 {count} 个合理的后续行动选项，"
-                      f"每个选项不超过 15 个字，表达简洁直接。"
-                      f"每行一个选项，不要编号，不要加任何前缀或解释。"
-                )
-                response = llm.chat([
-                    {"role": "system", "content": (
-                        "<role>你是明日方舟文字冒险游戏的选项生成器。</role>\n"
-                        "<core_rules>\n"
-                        "- MUST：根据当前剧情生成合理且多样化的后续行动选项\n"
-                        "- MUST：每个选项≤15字，表达简洁直接\n"
-                        "</core_rules>"
-                    )},
-                    {"role": "user", "content": prompt},
-                ], stream=False)
-                response_text = response.get("content", "") if isinstance(response, dict) else str(response)
-                lines = [l.strip() for l in response_text.strip().split("\n") if l.strip()]
-                lines = [l for l in lines if len(l) <= 30 and not l.startswith("#")]
-                if lines:
-                    llm_choices = lines[:count]
-            except Exception:
-                pass
+def _build_choices(session, inline_choices: list[str] | None) -> list[str]:
+    """格式化最终选项列表，优先使用提取结果，回退到默认选项。"""
+    if inline_choices:
+        return ["继续推进剧情"] + inline_choices
 
+    # Fallback
     options = ["继续推进剧情"]
-    options.extend(llm_choices)
-    if len(options) == 1:
-        active = session.scene_manager.active
-        if active:
-            options.append(f"对{active}说话")
+    active = session.scene_manager.active
+    if active:
+        options.append(f"与{active}交谈")
+    options.append("观察周围环境")
     return options
 
 
@@ -390,34 +303,29 @@ def register(app, managers):
                     if stream_text:
                         narrative = stream_text
 
-                    # 检测战斗触发标记 <combat:encounter_id/>
-                    narrative, combat_triggered = _handle_combat_trigger(
-                        session, narrative, stream_id
-                    )
-                    if combat_triggered:
-                        yield combat_triggered
-
-                    # 检测节拍完成标记 <beat_complete/>
-                    narrative = _handle_beat_complete(session, narrative)
+                    # 两阶段提取：从叙事文本中提取标记（Call 2）
+                    if _should_extract_markers(session, 0):
+                        markers = session.scene_manager.extract_markers(
+                            narrative, choices_count=0,
+                            beat_state_active=bool(session.overlay and session.overlay.get_beat_state()),
+                        )
+                        if markers.get("usage"):
+                            session.accumulate_usage(markers["usage"])
+                        _apply_beat_complete(session, markers.get("beat_complete", False))
+                        combat_event = _apply_combat_trigger(session, markers.get("combat"), stream_id)
+                        if combat_event:
+                            yield combat_event
 
                 elif not bubble_mode and choices_count > 0:
-                    # 全缓冲模式（需提取 <choices/>）：
-                    # LLM 非流式获取完整响应，解析标记后逐字符推送纯叙述
-                    for _event_type, _data in session.scene_manager.narrate_stream(
+                    # 缓冲模式：非流式获取完整响应，提取标记后逐字符回放
+                    narrative, env_updates, usage = session.scene_manager.narrate(
                         player_info, context_with_memory,
                         user_action=user_action, structured=False,
-                        max_tokens=max_tokens, word_limit=word_limit, choices_count=choices_count,
+                        max_tokens=max_tokens, word_limit=word_limit,
                         conversation_history=conversation_history,
                         is_first_turn=is_first_turn,
-                    ):
-                        if _event_type == "done":
-                            narrative, env_updates, usage = _data
-                            session.accumulate_usage(usage)
-                            break
-
-                    # 提取摘要和内联选项（SUMMARY 在末尾，先提取）
-                    narrative, plot_summary = _handle_summary_marker(narrative)
-                    narrative, inline_choices = _handle_choices_marker(narrative)
+                    )
+                    session.accumulate_usage(usage)
 
                     # 检测结构化 JSON
                     dialogue_segments, stream_text = _try_extract_structured(
@@ -426,13 +334,20 @@ def register(app, managers):
                     if stream_text:
                         narrative = stream_text
 
-                    # 检测战斗触发和节拍完成
-                    narrative, combat_triggered = _handle_combat_trigger(
-                        session, narrative, stream_id
-                    )
-                    if combat_triggered:
-                        yield combat_triggered
-                    narrative = _handle_beat_complete(session, narrative)
+                    # 两阶段提取：从叙事文本中提取标记（Call 2）
+                    if _should_extract_markers(session, choices_count):
+                        markers = session.scene_manager.extract_markers(
+                            narrative, choices_count=choices_count,
+                            beat_state_active=bool(session.overlay and session.overlay.get_beat_state()),
+                        )
+                        if markers.get("usage"):
+                            session.accumulate_usage(markers["usage"])
+                        _apply_beat_complete(session, markers.get("beat_complete", False))
+                        combat_event = _apply_combat_trigger(session, markers.get("combat"), stream_id)
+                        if combat_event:
+                            yield combat_event
+                        inline_choices = markers.get("choices")
+                        plot_summary = markers.get("summary")
 
                     # 逐字符发送解析后的纯文本
                     for ch in narrative:
@@ -443,16 +358,11 @@ def register(app, managers):
                     narrative, env_updates, usage = session.scene_manager.narrate(
                         player_info, context_with_memory,
                         user_action=user_action, structured=True,
-                        max_tokens=max_tokens, word_limit=word_limit, choices_count=choices_count,
+                        max_tokens=max_tokens, word_limit=word_limit,
                         conversation_history=conversation_history,
                         is_first_turn=is_first_turn,
                     )
                     session.accumulate_usage(usage)
-
-                    # 提取摘要和内联选项
-                    narrative, plot_summary = _handle_summary_marker(narrative)
-                    if choices_count > 0:
-                        narrative, inline_choices = _handle_choices_marker(narrative)
 
                     dialogue_segments, stream_text = _try_extract_structured(
                         narrative, session.scene_manager
@@ -460,15 +370,20 @@ def register(app, managers):
                     if stream_text:
                         narrative = stream_text
 
-                    # 检测战斗触发标记 <combat:encounter_id/>（先剥离再发送字符）
-                    narrative, combat_triggered = _handle_combat_trigger(
-                        session, narrative, stream_id
-                    )
-                    if combat_triggered:
-                        yield combat_triggered
-
-                    # 检测节拍完成标记 <beat_complete/>
-                    narrative = _handle_beat_complete(session, narrative)
+                    # 两阶段提取：从叙事文本中提取标记（Call 2）
+                    if _should_extract_markers(session, choices_count):
+                        markers = session.scene_manager.extract_markers(
+                            narrative, choices_count=choices_count,
+                            beat_state_active=bool(session.overlay and session.overlay.get_beat_state()),
+                        )
+                        if markers.get("usage"):
+                            session.accumulate_usage(markers["usage"])
+                        _apply_beat_complete(session, markers.get("beat_complete", False))
+                        combat_event = _apply_combat_trigger(session, markers.get("combat"), stream_id)
+                        if combat_event:
+                            yield combat_event
+                        inline_choices = markers.get("choices")
+                        plot_summary = markers.get("summary")
 
                     # 逐字符发送解析后的纯文本
                     for ch in narrative:
@@ -508,11 +423,8 @@ def register(app, managers):
                                 'stream_id': stream_id
                             }})}\n\n"
 
-                # 生成选项：优先使用内联选项，回退到 LLM 生成
-                if inline_choices:
-                    options = ["继续推进剧情"] + inline_choices
-                else:
-                    options = _build_choices(session, llm_backend, narrative)
+                # 生成选项：优先使用提取结果，回退到默认选项
+                options = _build_choices(session, inline_choices)
 
                 yield f"data: {json.dumps({'type': 'choice', 'data': {'options': options, 'stream_id': stream_id}})}\n\n"
 
@@ -566,18 +478,11 @@ def register(app, managers):
                 structured=bubble_mode,
                 max_tokens=max_tokens,
                 word_limit=word_limit,
-                choices_count=choices_count,
                 conversation_history=conversation_history,
                 is_first_turn=is_first_turn,
             )
             session.accumulate_usage(usage)
             session.environment.apply_update(env_updates)
-
-            # 提取摘要和内联选项（SUMMARY 在末尾，先提取）
-            narrative, plot_summary = _handle_summary_marker(narrative)
-            inline_choices = None
-            if choices_count > 0:
-                narrative, inline_choices = _handle_choices_marker(narrative)
 
             # 检测并解析结构化 JSON 输出
             dialogue_segments = None
@@ -587,10 +492,23 @@ def register(app, managers):
             if stream_text:
                 narrative = stream_text
 
-            # 检测战斗触发和节拍完成
-            narrative, _ = _handle_combat_trigger(session, narrative, "")
-            combat_triggered = session.combat is not None
-            narrative = _handle_beat_complete(session, narrative)
+            # 两阶段提取：从叙事文本中提取标记（Call 2）
+            inline_choices = None
+            plot_summary = None
+            combat_triggered = False
+            if _should_extract_markers(session, choices_count):
+                markers = session.scene_manager.extract_markers(
+                    narrative, choices_count=choices_count,
+                    beat_state_active=bool(session.overlay and session.overlay.get_beat_state()),
+                )
+                if markers.get("usage"):
+                    session.accumulate_usage(markers["usage"])
+                _apply_beat_complete(session, markers.get("beat_complete", False))
+                combat_event = _apply_combat_trigger(session, markers.get("combat"), "")
+                if combat_event:
+                    combat_triggered = session.combat is not None
+                inline_choices = markers.get("choices")
+                plot_summary = markers.get("summary")
 
             # 回忆系统
             response_extra = {}
@@ -606,10 +524,7 @@ def register(app, managers):
                     if memory:
                         response_extra["memory"] = memory
 
-            if inline_choices:
-                options = ["继续推进剧情"] + inline_choices
-            else:
-                options = _build_choices(session, llm_backend, narrative)
+            options = _build_choices(session, inline_choices)
 
             if dialogue_segments:
                 response_extra["dialogue_segments"] = dialogue_segments

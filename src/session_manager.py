@@ -234,7 +234,13 @@ class Session:
 
         try:
             response = self._llm.chat([
-                {"role": "system", "content": "你是一个专业的剧情编辑，负责为TRPG游戏记录详尽的剧情摘要。需要包含关键情节转折、角色互动和重要事件。只输出JSON，不要有其他内容。"},
+                {"role": "system", "content": (
+                    "<role>你是专业TRPG剧情编辑，负责记录详尽的剧情摘要。</role>\n"
+                    "<output_format>\n"
+                    '强制 JSON：{"title": "标题≤15字", "summary": "摘要≤300字，含关键情节转折、角色互动和重要事件"}\n'
+                    "只输出 JSON，不要其他内容。\n"
+                    "</output_format>"
+                )},
                 {"role": "user", "content": prompt},
             ], stream=False)
             response_text = response.get("content", "") if isinstance(response, dict) else str(response)
