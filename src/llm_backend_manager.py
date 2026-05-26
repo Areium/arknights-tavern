@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 # 项目根目录
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _CONFIG_PATH = _PROJECT_ROOT / "config" / "llm_config.json"
+_EXAMPLE_PATH = _PROJECT_ROOT / "config" / "llm_config.example.json"
 
 # 默认配置
 _DEFAULT_CONFIG = {
@@ -115,7 +116,20 @@ class LLMBackendManager:
         self._detected = False
         self._provider: str = "auto"
         self._enable_thinking: bool = False
+        self._ensure_config()
         self._load_config()
+
+    @staticmethod
+    def _ensure_config():
+        """若 config/llm_config.json 不存在，自动从 example 复制创建。"""
+        if _CONFIG_PATH.exists():
+            return
+        if not _EXAMPLE_PATH.exists():
+            logger.info("未找到 %s 和 %s，跳过自动创建", _CONFIG_PATH, _EXAMPLE_PATH)
+            return
+        _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _CONFIG_PATH.write_text(_EXAMPLE_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+        logger.info("已从 %s 自动创建 %s", _EXAMPLE_PATH.name, _CONFIG_PATH.name)
 
     def _load_config(self):
         """从 JSON 配置文件加载配置并同步到运行时。"""

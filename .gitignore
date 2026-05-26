@@ -4,10 +4,11 @@ logs/
 .history/
 data/memory/
 src/data/
-config/
+config/llm_config.json
 venv/
 .venv/
 CLAUDE.md
 .DS_Store
 .dev-pids
-assets/
+assets/.vite
+logs/
