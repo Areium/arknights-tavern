@@ -23,21 +23,19 @@ export default function CombatView() {
   const {
     activeSessionId,
     sessions,
-    combatState,
-    setCombatState,
-    combatUIMode,
-    setCombatUIMode,
-    selectedCardIndex,
-    setSelectedCardIndex,
-    combatTestId,
-    setCombatTestId,
-    selectedUnitId,
-    setSelectedUnitId,
+    combatContext: ctx,
+    setCombatContext,
     setCurrentView,
-    combatSessionId,
-    setCombatSessionId,
     setPendingAutoNarrate,
   } = useAppStore();
+  const {
+    state: combatState,
+    uiMode: combatUIMode,
+    selectedCardIndex,
+    testId: combatTestId,
+    sessionId: combatSessionId,
+    selectedUnitId,
+  } = ctx;
   const api = useApi();
 
   const [events, setEvents] = useState<CombatEventDTO[]>([]);
@@ -141,14 +139,14 @@ export default function CombatView() {
       const state = combatTestId
         ? await api.combatTestState(combatTestId)
         : await api.combatState(sessionId!);
-      setCombatState(state as CombatStateDTO);
+      setCombatContext({ state: state as CombatStateDTO });
       if (state.battle_over && state.winner) {
         setResult(state.winner === "player" ? "胜利" : "失败");
       }
     } catch {
       // no combat active
     }
-  }, [effectiveId, combatTestId, sessionId, api, setCombatState]);
+  }, [effectiveId, combatTestId, sessionId, api, setCombatContext]);
 
   const connectSSE = useCallback(() => {
     if (!effectiveId) return;
@@ -261,7 +259,7 @@ export default function CombatView() {
     setError(null);
     try {
       const state = await api.combatStart(sessionId, encounterId, startChars);
-      setCombatState(state as CombatStateDTO);
+      setCombatContext({ state: state as CombatStateDTO });
       setEvents([]);
       setResult(null);
       setDamageNumbers([]);
@@ -271,15 +269,14 @@ export default function CombatView() {
     } finally {
       setLoading(false);
     }
-  }, [sessionId, encounterId, startChars, api, setCombatState, connectSSE]);
+  }, [sessionId, encounterId, startChars, api, setCombatContext, connectSSE]);
 
   const handleStartTestBattle = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const result = await api.combatTestStart(encounterId);
-      setCombatState(result.state as CombatStateDTO);
-      setCombatTestId(result.test_id);
+      setCombatContext({ state: result.state as CombatStateDTO, testId: result.test_id });
       setEvents([]);
       setResult(null);
       setDamageNumbers([]);
@@ -288,7 +285,7 @@ export default function CombatView() {
     } finally {
       setLoading(false);
     }
-  }, [encounterId, api, setCombatState, setCombatTestId]);
+  }, [encounterId, api, setCombatContext]);
 
   const addChar = () => {
     const name = charInput.trim();
@@ -419,9 +416,7 @@ export default function CombatView() {
           } else if (unitAtCell && unitAtCell.team === "player") {
             setError("无法对己方角色使用攻击卡牌");
           } else {
-            setSelectedCardIndex(null);
-            setSelectedUnitId(null);
-            setCombatUIMode("VIEWING");
+            setCombatContext({ selectedCardIndex: null, selectedUnitId: null, uiMode: "VIEWING" });
           }
           return;
         }
@@ -438,9 +433,7 @@ export default function CombatView() {
             card_index: selectedCardIndex,
             target: [row, col],
           });
-          setSelectedCardIndex(null);
-          setSelectedUnitId(null);
-          setCombatUIMode("VIEWING");
+          setCombatContext({ selectedCardIndex: null, selectedUnitId: null, uiMode: "VIEWING" });
           await fetchState();
         } catch (e: any) {
           setError(e?.message || "操作失败");
@@ -458,12 +451,11 @@ export default function CombatView() {
         // Clicked an occupied cell that's not in move range
         if (unitAtCell && !moveHighlights.has(`${row},${col}`)) {
           if (unitAtCell.unit_id === selectedUnitId) {
-            setSelectedUnitId(null);
+            setCombatContext({ selectedUnitId: null });
           } else {
-            setSelectedUnitId(unitAtCell.unit_id);
+            setCombatContext({ selectedUnitId: unitAtCell.unit_id });
           }
-          setCombatUIMode("VIEWING");
-          setSelectedCardIndex(null);
+          setCombatContext({ uiMode: "VIEWING", selectedCardIndex: null });
           setCursor([row, col]);
           return;
         }
@@ -492,32 +484,25 @@ export default function CombatView() {
         (u) => u.is_alive && u.pos[0] === row && u.pos[1] === col
       );
       if (unit) {
-        setSelectedUnitId(selectedUnitId === unit.unit_id ? null : unit.unit_id);
-        setCombatUIMode("VIEWING");
-        setSelectedCardIndex(null);
+        setCombatContext({ selectedUnitId: selectedUnitId === unit.unit_id ? null : unit.unit_id, uiMode: "VIEWING", selectedCardIndex: null });
         setCursor([row, col]);
         return;
       }
 
       // Clicked empty/invalid cell → deselect
-      setSelectedUnitId(null);
-      setCombatUIMode("VIEWING");
-      setSelectedCardIndex(null);
+      setCombatContext({ selectedUnitId: null, uiMode: "VIEWING", selectedCardIndex: null });
       setCursor([row, col]);
     },
-    [effectiveId, combatTestId, sessionId, combatState, combatUIMode, selectedCardIndex, selectedUnitId, moveHighlights, rangeHighlights, displayedHand, api, fetchState, setSelectedCardIndex, setCombatUIMode, setSelectedUnitId]
+    [effectiveId, combatTestId, sessionId, combatState, combatUIMode, selectedCardIndex, selectedUnitId, moveHighlights, rangeHighlights, displayedHand, api, fetchState, setCombatContext]
   );
 
   const handleCardClick = useCallback(
     (index: number) => {
       if (combatUIMode === "TARGETING" && selectedCardIndex === index) {
-        setSelectedCardIndex(null);
-        setCombatUIMode("VIEWING");
-        setSelectedUnitId(null);
+        setCombatContext({ selectedCardIndex: null, uiMode: "VIEWING", selectedUnitId: null });
         return;
       }
-      setSelectedCardIndex(index);
-      setCombatUIMode("TARGETING");
+      setCombatContext({ selectedCardIndex: index, uiMode: "TARGETING" });
       const state = stateRef.current;
       if (state) {
         const card = state.shared_hand[index];
@@ -526,12 +511,12 @@ export default function CombatView() {
             (u) => u.team === "player" && u.is_alive && u.name === card.owner
           );
           if (ownerUnit) {
-            setSelectedUnitId(ownerUnit.unit_id);
+            setCombatContext({ selectedUnitId: ownerUnit.unit_id });
           }
         }
       }
     },
-    [combatUIMode, selectedCardIndex, setSelectedCardIndex, setCombatUIMode, setSelectedUnitId]
+    [combatUIMode, selectedCardIndex, setCombatContext]
   );
 
   const handleEndTurn = useCallback(async () => {
@@ -543,23 +528,19 @@ export default function CombatView() {
       } else {
         await api.combatEndTurn(sessionId!);
       }
-      setCombatUIMode("VIEWING");
-      setSelectedCardIndex(null);
-      setSelectedUnitId(null);
+      setCombatContext({ uiMode: "VIEWING", selectedCardIndex: null, selectedUnitId: null });
       await fetchState();
     } catch (e: any) {
       setError(e?.message || "结束回合失败");
     } finally {
       setLoading(false);
     }
-  }, [effectiveId, combatTestId, sessionId, api, fetchState, setCombatUIMode, setSelectedCardIndex, setSelectedUnitId]);
+  }, [effectiveId, combatTestId, sessionId, api, fetchState, setCombatContext]);
 
   const handleCancel = useCallback(() => {
-    setCombatUIMode("VIEWING");
-    setSelectedCardIndex(null);
+    setCombatContext({ uiMode: "VIEWING", selectedCardIndex: null, selectedUnitId: null });
     setCursor(null);
-    setSelectedUnitId(null);
-  }, [setCombatUIMode, setSelectedCardIndex, setSelectedUnitId]);
+  }, [setCombatContext]);
 
   const handleAbandon = useCallback(async () => {
     if (!sessionId || combatTestId) return;
@@ -573,12 +554,9 @@ export default function CombatView() {
       alert("放弃战斗失败，请重试");
       return;
     }
-    setCombatState(null);
-    setCombatTestId(null);
-    setCombatSessionId(null);
-    setSelectedUnitId(null);
+    setCombatContext(null);
     setCurrentView("chat");
-  }, [sessionId, combatTestId, api, setCombatState, setCombatTestId, setCombatSessionId, setSelectedUnitId, setCurrentView, setPendingAutoNarrate]);
+  }, [sessionId, combatTestId, api, setCombatContext, setCurrentView, setPendingAutoNarrate]);
 
   const handleReturnToChat = useCallback(async () => {
     if (writingBackRef.current) return;
@@ -621,12 +599,9 @@ export default function CombatView() {
       writingBackRef.current = false;
     }
 
-    setCombatState(null);
-    setCombatTestId(null);
-    setCombatSessionId(null);
-    setSelectedUnitId(null);
+    setCombatContext(null);
     setCurrentView("chat");
-  }, [combatTestId, sessionId, combatState, encounterId, api, setCombatState, setCombatTestId, setCombatSessionId, setSelectedUnitId, setCurrentView, setPendingAutoNarrate]);
+  }, [combatTestId, sessionId, combatState, encounterId, api, setCombatContext, setCurrentView, setPendingAutoNarrate]);
 
   // Click on main area → map to grid cell or deselect.
   // Cell mapping handles 3D-transformed cells (rows 4-8) that don't
@@ -664,19 +639,16 @@ export default function CombatView() {
         }
       }
       // Background click — deselect
-      setSelectedUnitId(null);
-      setSelectedCardIndex(null);
-      setCombatUIMode("VIEWING");
+      setCombatContext({ selectedUnitId: null, selectedCardIndex: null, uiMode: "VIEWING" });
       setCursor(null);
       setError(null);
     },
-    [combatState, handleCellClick, setSelectedUnitId, setSelectedCardIndex, setCombatUIMode],
+    [combatState, handleCellClick, setCombatContext],
   );
 
   const handleCardDragStart = useCallback((index: number) => {
     setDragCardIndex(index);
-    setSelectedCardIndex(index);
-    setCombatUIMode("TARGETING");
+    setCombatContext({ selectedCardIndex: index, uiMode: "TARGETING" });
     const state = stateRef.current;
     if (state) {
       const card = state.shared_hand[index];
@@ -685,19 +657,17 @@ export default function CombatView() {
           (u) => u.team === "player" && u.is_alive && u.name === card.owner
         );
         if (ownerUnit) {
-          setSelectedUnitId(ownerUnit.unit_id);
+          setCombatContext({ selectedUnitId: ownerUnit.unit_id });
         }
       }
     }
-  }, [setSelectedCardIndex, setCombatUIMode, setSelectedUnitId]);
+  }, [setCombatContext]);
 
   const handleCardDragEnd = useCallback(() => {
     setDragCardIndex(null);
     setDragCell(null);
-    setSelectedCardIndex(null);
-    setSelectedUnitId(null);
-    setCombatUIMode("VIEWING");
-  }, [setSelectedCardIndex, setSelectedUnitId, setCombatUIMode]);
+    setCombatContext({ selectedCardIndex: null, selectedUnitId: null, uiMode: "VIEWING" });
+  }, [setCombatContext]);
 
   const handleGridDragMove = useCallback((cell: [number, number] | null, clientX?: number, clientY?: number) => {
     setDragCell(cell);
@@ -725,9 +695,7 @@ export default function CombatView() {
         }
         setDragCardIndex(null);
         setDragCell(null);
-        setSelectedCardIndex(null);
-        setSelectedUnitId(null);
-        setCombatUIMode("VIEWING");
+        setCombatContext({ selectedCardIndex: null, selectedUnitId: null, uiMode: "VIEWING" });
         return;
       }
       // AP check
@@ -749,9 +717,7 @@ export default function CombatView() {
           card_index: dragCardIndex,
           target: [row, col],
         });
-        setSelectedCardIndex(null);
-        setSelectedUnitId(null);
-        setCombatUIMode("VIEWING");
+        setCombatContext({ selectedCardIndex: null, selectedUnitId: null, uiMode: "VIEWING" });
         await fetchState();
       } catch (e: any) {
         setError(e?.message || "操作失败");
@@ -761,20 +727,16 @@ export default function CombatView() {
         setDragCell(null);
       }
     },
-    [effectiveId, combatTestId, sessionId, combatState, dragCardIndex, rangeHighlights, displayedHand, api, fetchState, setSelectedCardIndex, setCombatUIMode, setSelectedUnitId]
+    [effectiveId, combatTestId, sessionId, combatState, dragCardIndex, rangeHighlights, displayedHand, api, fetchState, setCombatContext]
   );
 
   const handleUnitClick = useCallback((unitId: string) => {
     if (selectedUnitId === unitId) {
-      setSelectedUnitId(null);
-      setCombatUIMode("VIEWING");
-      setSelectedCardIndex(null);
+      setCombatContext({ selectedUnitId: null, uiMode: "VIEWING", selectedCardIndex: null });
     } else {
-      setSelectedUnitId(unitId);
-      setCombatUIMode("VIEWING");
-      setSelectedCardIndex(null);
+      setCombatContext({ selectedUnitId: unitId, uiMode: "VIEWING", selectedCardIndex: null });
     }
-  }, [selectedUnitId, setSelectedUnitId, setCombatUIMode, setSelectedCardIndex]);
+  }, [selectedUnitId, setCombatContext]);
 
   // Hover tooltip
   const handleCellHover = useCallback((unit: CombatStateDTO["units"][number], rect: DOMRect) => {
@@ -802,9 +764,7 @@ export default function CombatView() {
       }
       if (e.key === "Escape") {
         if (selectedUnitId) {
-          setSelectedUnitId(null);
-          setCombatUIMode("VIEWING");
-          setSelectedCardIndex(null);
+          setCombatContext({ selectedUnitId: null, uiMode: "VIEWING", selectedCardIndex: null });
         } else {
           handleCancel();
         }
@@ -820,7 +780,7 @@ export default function CombatView() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [combatState, selectedUnitId, handleEndTurn, handleCancel, handleCardClick, setSelectedUnitId, setCombatUIMode, setSelectedCardIndex]);
+  }, [combatState, selectedUnitId, handleEndTurn, handleCancel, handleCardClick, setCombatContext]);
 
   if (!combatState) {
     return (

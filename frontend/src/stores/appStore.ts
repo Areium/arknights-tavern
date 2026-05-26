@@ -6,6 +6,15 @@ import type { BackendStatus, Session, LLMStatus, CombatStateDTO } from "../types
 
 type Theme = "dark" | "light";
 
+export interface CombatContext {
+  state: CombatStateDTO | null;
+  uiMode: "VIEWING" | "TARGETING";
+  selectedCardIndex: number | null;
+  testId: string | null;
+  sessionId: string | null;
+  selectedUnitId: string | null;
+}
+
 interface AppState {
   // 视图
   currentView: "chat" | "documents" | "settings" | "combat" | "index";
@@ -65,18 +74,8 @@ interface AppState {
   setIndexSessionId: (id: string | null) => void;
 
   // 战斗
-  combatState: CombatStateDTO | null;
-  setCombatState: (state: CombatStateDTO | null) => void;
-  combatUIMode: "VIEWING" | "TARGETING";
-  setCombatUIMode: (mode: "VIEWING" | "TARGETING") => void;
-  selectedCardIndex: number | null;
-  setSelectedCardIndex: (index: number | null) => void;
-  combatTestId: string | null;
-  setCombatTestId: (id: string | null) => void;
-  combatSessionId: string | null;
-  setCombatSessionId: (id: string | null) => void;
-  selectedUnitId: string | null;
-  setSelectedUnitId: (id: string | null) => void;
+  combatContext: CombatContext;
+  setCombatContext: (partial: Partial<CombatContext> | null) => void;
 
   // 战斗后自动叙述
   pendingAutoNarrate: string | null;
@@ -145,18 +144,29 @@ export const useAppStore = create<AppState>((set) => ({
   setIndexSessionId: (id) => set({ indexSessionId: id }),
 
   // 战斗
-  combatState: null,
-  setCombatState: (state) => set({ combatState: state }),
-  combatUIMode: "VIEWING",
-  setCombatUIMode: (mode) => set({ combatUIMode: mode }),
-  selectedCardIndex: null,
-  setSelectedCardIndex: (index) => set({ selectedCardIndex: index }),
-  combatTestId: null,
-  setCombatTestId: (id) => set({ combatTestId: id }),
-  combatSessionId: null,
-  setCombatSessionId: (id) => set({ combatSessionId: id }),
-  selectedUnitId: null,
-  setSelectedUnitId: (id) => set({ selectedUnitId: id }),
+  combatContext: {
+    state: null,
+    uiMode: "VIEWING" as const,
+    selectedCardIndex: null,
+    testId: null,
+    sessionId: null,
+    selectedUnitId: null,
+  },
+  setCombatContext: (partial) => set((s) => {
+    if (partial === null) {
+      return {
+        combatContext: {
+          state: null,
+          uiMode: "VIEWING",
+          selectedCardIndex: null,
+          testId: null,
+          sessionId: null,
+          selectedUnitId: null,
+        },
+      };
+    }
+    return { combatContext: { ...s.combatContext, ...partial } };
+  }),
 
   // 战斗后自动叙述
   pendingAutoNarrate: null,

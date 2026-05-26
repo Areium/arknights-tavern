@@ -29,7 +29,7 @@ function filterSceneLog(log: string[]): string[] {
 }
 
 export default function ChatPanel() {
-  const { activeSessionId, chatMode, sessions, setSessions, triggerEnvRefresh, triggerMemoryRefresh, chatRefreshKey, characterRefreshKey, editBeforeSend, sceneSwitchKey, dialogueBubbleMode, currentView, setCurrentView, setCombatSessionId, pendingAutoNarrate, setPendingAutoNarrate } = useAppStore();
+  const { activeSessionId, chatMode, sessions, setSessions, triggerEnvRefresh, triggerMemoryRefresh, chatRefreshKey, characterRefreshKey, editBeforeSend, sceneSwitchKey, dialogueBubbleMode, currentView, setCurrentView, setCombatContext, pendingAutoNarrate, setPendingAutoNarrate } = useAppStore();
   const activeMode = sessions.find((s) => s.id === activeSessionId)?.mode || "free";
 
   const sceneCharacters: string[] = (() => {
@@ -567,7 +567,7 @@ export default function ChatPanel() {
                   const encounterId = prompt("输入遭遇 ID（可选）\n可用：初遇整合运动, enc_defense, enc_elite_hunt, enc_mixed_assault, enc_training") || "初遇整合运动";
                   try {
                     await api.combatStart(activeSession.id!, encounterId, []);
-                    setCombatSessionId(activeSession.id!);
+                    setCombatContext({ sessionId: activeSession.id! });
                     setCurrentView("combat");
                   } catch (err: any) {
                     alert("启动战斗失败: " + (err.message || "未知错误"));
@@ -952,7 +952,7 @@ function triggerNarrate(
       onCombatTrigger: (data: { encounter_id: string; session_id: string }) => {
         setStreaming(false);
         setSending?.(false);
-        useAppStore.getState().setCombatSessionId(data.session_id);
+        useAppStore.getState().setCombatContext({ sessionId: data.session_id });
         useAppStore.getState().setCurrentView("combat");
       },
       onError: (msg: string) => {

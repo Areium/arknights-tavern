@@ -266,6 +266,46 @@ def register(app, managers):
             return json_error(f"物品没有覆盖数据: {item_id}")
         return jsonify({"message": "已还原为模板"})
 
+    # 角色列表与详情（供前端 CharacterBrowser / CharacterDetailCard 使用）
+    @bp.route("/api/characters", methods=["GET"])
+    def character_list():
+        try:
+            docs = doc_mgr.list_documents("characters", include_content=True)
+        except ValueError:
+            return jsonify([])
+        return jsonify(docs)
+
+    @bp.route("/api/characters/<path:name>", methods=["GET"])
+    def character_detail(name: str):
+        try:
+            doc = doc_mgr.read_document("characters", name)
+        except DocumentNotFoundError:
+            return json_error(f"角色不存在: {name}", 404)
+        return jsonify({
+            "content": doc["content"],
+            "metadata": doc["metadata"],
+        })
+
+    # 物品列表与详情（供前端 ItemBrowser / ItemDetailCard 使用）
+    @bp.route("/api/items", methods=["GET"])
+    def item_list():
+        try:
+            docs = doc_mgr.list_documents("items", include_content=True)
+        except ValueError:
+            return jsonify([])
+        return jsonify(docs)
+
+    @bp.route("/api/items/<path:name>", methods=["GET"])
+    def item_detail(name: str):
+        try:
+            doc = doc_mgr.read_document("items", name)
+        except DocumentNotFoundError:
+            return json_error(f"物品不存在: {name}", 404)
+        return jsonify({
+            "content": doc["content"],
+            "metadata": doc["metadata"],
+        })
+
     # 角色头像
     @bp.route("/api/characters/<name>/avatar")
     def character_avatar(name: str):
