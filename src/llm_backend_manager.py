@@ -45,7 +45,8 @@ _DEFAULT_CONFIG = {
     "memory_interval": 5,
     "edit_before_send": False,
     "dialogue_bubble_mode": False,
-    "max_output_tokens": 8192,
+    "max_output_tokens": 16384,
+    "word_limit": 500,
 }
 
 
@@ -139,10 +140,10 @@ class LLMBackendManager:
         merged = {**_DEFAULT_CONFIG, **stored}
 
         # 同步到 os.environ 和 ApiModelConfig 类属性（类属性在 import 时求值，需显式覆盖）
-        if merged.get("api_key"):
+        if "api_key" in merged:
             os.environ["API_KEY"] = merged["api_key"]
             ApiModelConfig.api_key = merged["api_key"]
-        if merged.get("base_url"):
+        if "base_url" in merged:
             os.environ["BASE_URL"] = merged["base_url"]
             ApiModelConfig.base_url = merged["base_url"]
 
@@ -431,7 +432,8 @@ class LLMBackendManager:
             "memory_interval": merged.get("memory_interval", 5),
             "edit_before_send": merged.get("edit_before_send", False),
             "dialogue_bubble_mode": merged.get("dialogue_bubble_mode", False),
-            "max_output_tokens": merged.get("max_output_tokens", 8192),
+            "max_output_tokens": merged.get("max_output_tokens", 16384),
+            "word_limit": merged.get("word_limit", 500),
         }
 
     def update_config(self, data: dict) -> dict:
@@ -466,7 +468,9 @@ class LLMBackendManager:
         if "dialogue_bubble_mode" in data:
             merged["dialogue_bubble_mode"] = bool(data["dialogue_bubble_mode"])
         if "max_output_tokens" in data:
-            merged["max_output_tokens"] = max(256, min(16384, int(data["max_output_tokens"])))
+            merged["max_output_tokens"] = max(256, min(32768, int(data["max_output_tokens"])))
+        if "word_limit" in data:
+            merged["word_limit"] = max(100, min(3000, int(data["word_limit"])))
         if "provider" in data:
             merged["provider"] = data["provider"]
         if "enable_thinking" in data:
@@ -478,10 +482,10 @@ class LLMBackendManager:
         _write_config_file(merged)
 
         # 同步到运行时（仅 LLM 相关字段）
-        if merged.get("api_key"):
+        if "api_key" in merged:
             os.environ["API_KEY"] = merged["api_key"]
             ApiModelConfig.api_key = merged["api_key"]
-        if merged.get("base_url"):
+        if "base_url" in merged:
             os.environ["BASE_URL"] = merged["base_url"]
             ApiModelConfig.base_url = merged["base_url"]
         ApiModelConfig.model = merged["cloud_model"]
@@ -492,6 +496,8 @@ class LLMBackendManager:
         self._provider = merged.get("provider", "auto")
         self._enable_thinking = bool(merged.get("enable_thinking", False))
         self._reasoning_effort = merged.get("reasoning_effort", "medium")
+
+        self._detected = False
 
         return self.get_config()
 

@@ -20,7 +20,8 @@ export default function SettingsPanel() {
     auto_generate_choices: false,
     choice_count: 3,
     memory_interval: 5,
-    max_output_tokens: 8192,
+    max_output_tokens: 16384,
+    word_limit: 500,
     edit_before_send: false,
     dialogue_bubble_mode: false,
   });
@@ -87,7 +88,8 @@ export default function SettingsPanel() {
         auto_generate_choices: data.auto_generate_choices || false,
         choice_count: data.choice_count || 3,
         memory_interval: data.memory_interval || 5,
-        max_output_tokens: data.max_output_tokens ?? 8192,
+        max_output_tokens: data.max_output_tokens ?? 16384,
+        word_limit: data.word_limit ?? 500,
         edit_before_send: data.edit_before_send ?? false,
         dialogue_bubble_mode: data.dialogue_bubble_mode ?? false,
       });
@@ -118,9 +120,11 @@ export default function SettingsPanel() {
         choice_count: config.choice_count,
         memory_interval: config.memory_interval,
         max_output_tokens: config.max_output_tokens,
+        word_limit: config.word_limit,
         edit_before_send: config.edit_before_send,
         dialogue_bubble_mode: config.dialogue_bubble_mode,
       });
+      await api.refreshLLM();
       setEditBeforeSend(config.edit_before_send);
       setDialogueBubbleMode(config.dialogue_bubble_mode);
       setConfigMsg({ type: "ok", text: "配置已保存" });
@@ -499,21 +503,42 @@ export default function SettingsPanel() {
                 <input
                   type="number"
                   min={256}
-                  max={16384}
+                  max={32768}
                   step={256}
                   value={config.max_output_tokens}
                   onChange={(e) =>
                     setConfig({
                       ...config,
-                      max_output_tokens: Math.max(256, Math.min(16384, parseInt(e.target.value) || 8192)),
+                      max_output_tokens: Math.max(256, Math.min(32768, parseInt(e.target.value) || 16384)),
                     })
                   }
                   className="input text-sm w-24 text-center"
                 />
-                <span className="text-xs text-gray-500">token（256-16384）</span>
+                <span className="text-xs text-gray-500">token（256-32768）</span>
               </div>
               <p className="text-xs text-gray-600 mt-1">
-                安全上限：LLM 按 prompt 引导自然收尾，仅在超出此值时硬截断
+                API 硬上限：模型输出超过此 token 数时强制截断
+              </p>
+              <div className="flex items-center gap-2 mt-2">
+                <label className="text-xs text-gray-500 shrink-0">叙述字数</label>
+                <input
+                  type="number"
+                  min={100}
+                  max={3000}
+                  step={100}
+                  value={config.word_limit}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      word_limit: Math.max(100, Math.min(3000, parseInt(e.target.value) || 500)),
+                    })
+                  }
+                  className="input text-sm w-24 text-center"
+                />
+                <span className="text-xs text-gray-500">字（100-3000）</span>
+              </div>
+              <p className="text-xs text-gray-600 mt-1">
+                提示词中引导 LLM 每次叙述约输出此字数，在自然段落处收尾
               </p>
               <div className="border-t border-gray-700/50 pt-2 mt-2">
                 <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">

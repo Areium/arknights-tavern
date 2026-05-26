@@ -304,55 +304,86 @@ class SceneManager:
             parts.append(f"玩家：{identity}")
         return "  |  ".join(parts)
 
-    _NARRATOR_SYSTEM = """你是明日方舟文字冒险游戏的【场景叙述者】，负责推进剧情。
+    _NARRATOR_SYSTEM = """\
+<role>
+你是明日方舟文字冒险游戏的场景叙述者，负责推进剧情。
+</role>
 
-规则：
-1. 用第三人称叙述场景的进展，描写环境、角色的动作和表情
-2. 角色对话用「」标注，自然地融入叙述中
-3. 叙述生动但克制，不代替玩家做决定，不替玩家说话
-4. 每次叙述目标约 {word_limit} 字，在自然段落处收尾，不必填满字数限制，也允许稍有超出
-5. 如果是继续之前的对话，保持对话的连贯性
-6. 推进到当前场景的自然结束点时，在叙述末尾输出 [BEAT_COMPLETE]
+<core_rules>
+- MUST：用第三人称叙述场景进展，描写环境、角色的动作和表情
+- MUST：角色对话用「」标注，自然地融入叙述中
+- MUST：叙述生动但克制，不代替玩家做决定，不替玩家说话
+- MUST：每次叙述约 {word_limit} 字，在自然段落处收尾
+- MUST：保持对话的连贯性，不重复已发生的事件
+- MUST：推进到场景自然结束时，在叙述末尾输出 <beat_complete/>
+</core_rules>
 
-请根据【剧情参考文档】和【剧情进度】自然推进故事。"""
+<output_format>
+- 正常叙述：自然段落文本，角色对话用「」标注
+- 场景结束：末尾输出 <beat_complete/>（单独一行）
+{combat_rule}{choices_rules}</output_format>"""
 
     @staticmethod
-    def _build_system_prompt(max_tokens: int | None, structured: bool = False,
-                             choices_count: int = 0) -> str:
-        """根据 max_tokens 构建系统提示词，动态调整软约束字数。"""
-        mt = max_tokens if max_tokens else 8192
-        word_limit = max(200, mt // 2)
-        template = SceneManager._NARRATOR_SYSTEM_STRUCTURED if structured else SceneManager._NARRATOR_SYSTEM
-        prompt = template.format(word_limit=word_limit)
+    def _build_system_prompt(word_limit: int, structured: bool = False,
+                             choices_count: int = 0,
+                             combat_mode: str = "narrative") -> str:
+        """根据 word_limit 和条件构建系统提示词，XML 标签分区 + MUST 语言。
+
+        模板通过 .format() 注入 word_limit、combat_rule、choices_rules。
+        """
+
+        # 战斗规则（注入到 <output_format> 中）
+        if combat_mode == "tactical":
+            combat_rule = (
+                "\n- MUST：如果场景存在明确的敌对威胁或战斗冲突，"
+                "立即在叙述末尾输出 <combat:遭遇ID/>（单独一行）。"
+                "不得继续叙述而不输出标记。正常叙述中禁止展示 HP/SP 数值。"
+            )
+        else:
+            combat_rule = (
+                "\n- MUST：如果场景出现战斗，通过剧情描述和关键判定推进。"
+                "禁止展示 HP/SP 等数值，提供有叙事含义的战术选项。"
+            )
+
+        # 选项规则（注入到 <output_format> 中）
         if choices_count > 0:
-            prompt += (
-                f"\n7. 叙述结束后，在末尾输出 [CHOICES] 标记，然后列出恰好 {choices_count} 个合理的后续行动选项，"
-                f"每行一个，每个选项不超过 15 字。不要编号，不要加任何前缀或解释。"
+            choices_rules = (
+                f"\n- MUST：叙述结束后输出 <choices/>，"
+                f"然后列出恰好 {choices_count} 个合理的后续行动选项（每行一个，≤15字，不编号）"
+                f"\n- MUST：末尾输出 <summary/>（≤50字中文，只写事实不写评价）"
             )
-            prompt += (
-                "\n8. 在输出末尾添加 [SUMMARY] 标记，用不超过50字的中文总结本轮剧情发生的核心事件。"
-                "只写事实，不写评价，不重复前文已出现的句子。"
-            )
-        return prompt
+        else:
+            choices_rules = ""
 
-    _NARRATOR_SYSTEM_STRUCTURED = """你是明日方舟文字冒险游戏的【场景叙述者】，负责推进剧情。
+        template = SceneManager._NARRATOR_SYSTEM_STRUCTURED if structured else SceneManager._NARRATOR_SYSTEM
+        return template.format(word_limit=word_limit,
+                               combat_rule=combat_rule,
+                               choices_rules=choices_rules)
 
-规则：
-1. 用第三人称叙述场景的进展，描写环境、角色的动作和表情
-2. 叙述中的角色对话必须使用「」标注，严禁在 JSON 文本值中使用英文双引号 " 标注对话，因为这会破坏 JSON 结构
-3. 叙述生动但克制，不代替玩家做决定，不替玩家说话
-4. 每次叙述目标约 {word_limit} 字，在自然段落处收尾，不必填满字数限制，也允许稍有超出
-5. 如果是继续之前的对话，保持对话的连贯性
-6. 推进到当前场景的自然结束点时，在叙述末尾输出 [BEAT_COMPLETE]
+    _NARRATOR_SYSTEM_STRUCTURED = """\
+<role>
+你是明日方舟文字冒险游戏的场景叙述者，负责推进剧情。
+</role>
 
-请根据【剧情参考文档】和【剧情进度】自然推进故事。
+<core_rules>
+- MUST：用第三人称叙述场景进展，描写环境、角色的动作和表情
+- MUST：叙述中的角色对话必须使用「」标注，严禁在 JSON 文本值中使用英文双引号 " 标注对话
+- MUST：叙述生动但克制，不代替玩家做决定，不替玩家说话
+- MUST：每次叙述约 {word_limit} 字，在自然段落处收尾
+- MUST：保持对话的连贯性，不重复已发生的事件
+- MUST：推进到场景自然结束时，在叙述末尾输出 <beat_complete/>
+</core_rules>
 
-请以 JSON 数组格式输出剧情。每个元素为叙述段落或角色对话：
-- 叙述：{{"type": "narration", "text": "叙述文字（其中对话用「」标注）"}}
-- 对话：{{"type": "dialogue", "text": "对话内容", "speaker": "角色名"}}
-speaker 必须从【场景角色】列表中选择。无法判断说话人时用 null。
-相邻的同类型片段应合并为一个元素。
-只输出 JSON 数组，不要 markdown 代码块或其他文字。"""
+<output_format>
+严格输出 JSON 数组，禁止其他文字：
+[
+  {{"type": "narration", "text": "叙述文字（对话用「」标注）"}},
+  {{"type": "dialogue", "text": "对话内容", "speaker": "角色名"}}
+]
+type 枚举：narration / dialogue
+speaker 必须从场景角色列表选择，无法判断时用 null
+相邻同类型元素合并
+{combat_rule}{choices_rules}</output_format>"""
 
     @staticmethod
     def _build_conversation_history(history: list[dict],
@@ -411,10 +442,10 @@ speaker 必须从【场景角色】列表中选择。无法判断说话人时用
         self, player_info, env_context,
         user_action="", is_first_turn=True,
         conversation_history="",
-        max_tokens=None, structured=False,
+        word_limit=500, structured=False,
         choices_count=0,
     ) -> list[dict]:
-        """构建叙述的 messages 列表，供 narrate() 和 narrate_stream() 共用。"""
+        """构建叙述的 messages 列表，XML 标签分区用户消息。"""
         identity = (player_info or {}).get("identity", "博士") if player_info else "博士"
 
         char_summaries = []
@@ -425,9 +456,17 @@ speaker 必须从【场景角色】列表中选择。无法判断说话人时用
             active_mark = " ← 对话中" if name == self.active else ""
             char_summaries.append(f"- {name}{tag_str}{active_mark}")
 
-        # 1. 当前场景状态（首轮完整描述，后续仅保留摘要行）
+        # 战术模式：在用户消息最前面插入战斗优先指令（primacy 效应）
+        context_parts = []
+        if self._combat_mode == "tactical":
+            context_parts.append(
+                "MUST：如果场景中存在战斗/敌对冲突，优先输出 <combat:遭遇ID/> 触发战斗系统。"
+                "不要只叙述战斗场景而不输出标记。"
+            )
+
+        # 场景状态
         if is_first_turn:
-            context_parts = ["【场景状态】", env_context or "当前场景"]
+            context_parts.append(f"<scene_state>\n{env_context or '当前场景'}\n</scene_state>")
         else:
             brief_lines = []
             for line in (env_context or "").split("\n"):
@@ -437,94 +476,83 @@ speaker 必须从【场景角色】列表中选择。无法判断说话人时用
                 if stripped.startswith(("位置:", "天气:", "时间:")):
                     brief_lines.append(stripped)
             if brief_lines:
-                context_parts = ["【当前场景】" + " / ".join(brief_lines)]
-            else:
-                context_parts = [""]
+                context_parts.append("<scene_state>\n" + " / ".join(brief_lines) + "\n</scene_state>")
 
-        # 2. 对话历史（连续性关键）
+        # 对话历史
         if conversation_history:
-            context_parts.append("\n" + conversation_history)
+            context_parts.append(f"<conversation_history>\n{conversation_history}\n</conversation_history>")
 
-        # 3. 场景角色和玩家
-        context_parts.append("\n【场景角色】")
-        context_parts.extend(char_summaries)
-        context_parts.append(f"\n【玩家身份】{identity}")
+        # 场景角色 + 遭遇
+        chars = "\n".join(char_summaries) if char_summaries else "（无）"
+        context_parts.append(f"<characters>\n{chars}\n</characters>")
+        if self._combat_mode == "tactical":
+            encounter_str = self._list_encounters()
+            context_parts.append(
+                f"<encounters>\n{encounter_str}（选择最匹配剧情的遭遇，如无匹配使用第一个）\n"
+                f"可选附加 JSON：{{\"status_effects\":{{\"角色名\":{{\"hp_penalty\":0.0~1.0,\"atk_bonus\":0.0~1.0,\"def_penalty\":0.0~1.0}}}}}}\n"
+                f"</encounters>"
+            )
+
+        # 玩家
+        player_lines = [f"身份：{identity}"]
         if user_action:
-            context_parts.append(f"\n【玩家操作】{user_action}")
+            player_lines.append(f"操作：{user_action}")
+        context_parts.append(f"<player>\n" + "\n".join(player_lines) + "\n</player>")
 
-        # 4. 场景动态——最近发生的事（补充历史遗漏的细节）
+        # 场景动态
         recent = self._scene_log[-8:]
         if recent:
-            context_parts.append("\n【场景动态】")
-            context_parts.extend(recent)
+            context_parts.append("<scene_events>\n" + "\n".join(recent) + "\n</scene_events>")
 
-        # 5. 剧情开场（仅首轮）
+        # 参考层：剧情开场、结构、预加载资料、文档目录
+        ref_parts = []
         if self._overlay and self._overlay.has_plot_context():
             opening = self._overlay.get_plot_context()
             if opening:
-                context_parts.append(f"\n【开场场景】\n{opening}")
+                ref_parts.append(opening)
                 logger.info("已注入开场上下文到首次叙述")
             self._overlay.clear_plot_context()
-
-        # 6. 剧情结构参考 + 进度日志（从会话自有文档读取）
         if self._overlay:
             plot_state = self._overlay.read_session_doc("plot_state.md")
             if plot_state:
-                context_parts.append("# 剧情结构参考（导航用，非脚本）\n" + plot_state)
+                ref_parts.append("剧情结构参考（导航用，非脚本）：\n" + plot_state)
             plot_log = self._overlay.read_session_doc("plot_log.md")
             if plot_log:
-                context_parts.append("# 剧情进度日志（已发生的事件，请勿重复）\n" + plot_log)
-
-        # 7. 预加载资料和文档目录（背景参考，放在末尾）
+                ref_parts.append("剧情进度日志（已发生的事件，请勿重复）：\n" + plot_log)
         if self._session_context:
             preloaded_text = self._session_context.format_preloaded()
             if preloaded_text:
-                context_parts.append(preloaded_text)
+                ref_parts.append(preloaded_text)
         if self._wiki_manager:
             catalog = self._wiki_manager.format_catalog_summary(
                 self._wiki_manager.NARRATIVE_CATALOG_CATS
             )
             if catalog:
-                context_parts.append(catalog)
+                ref_parts.append(catalog)
+        if ref_parts:
+            context_parts.append("<reference>\n" + "\n\n".join(ref_parts) + "\n</reference>")
 
-        # 8. 战斗模式上下文
-        if self._combat_mode == "narrative":
-            combat_instruction = (
-                "\n【战斗模式：叙事】如场景中出现战斗，通过剧情描述和关键判定推进，"
-                "不展示 HP/SP 等数值，提供有叙事含义的战术选项。"
-            )
-        else:
-            encounter_str = self._list_encounters()
-            combat_instruction = (
-                f"\n【战斗模式：战术】当剧情推进到需要展开战斗时，"
-                f"在叙述文本末尾输出单独一行：[COMBAT:遭遇ID]。"
-                f"可用遭遇：{encounter_str}。"
-                f"选择最匹配剧情的遭遇，如无匹配使用第一个。"
-                f"正常叙述中不要提到HP/SP数值，战斗系统会单独处理。\n"
-                f"可选：在遭遇ID后附加 JSON 参数来描述叙事中的角色状态，"
-                f"例如：[COMBAT:初遇整合运动 {{\"status_effects\":{{\"阿米娅\":{{\"hp_penalty\":0.3,\"atk_bonus\":0.2}}}}}}]。"
-                f"status_effects 中可选的 key 为角色名，value 支持："
-                f"hp_penalty（HP降低比例,0~1）、atk_bonus（攻击加成比例）、def_penalty（防御降低比例,0~1）。"
-                f"JSON 参数是可选的，不传则使用默认属性。"
-            )
-        context_parts.append(combat_instruction)
-
+        # 收尾指令（recency 效应）
         if structured:
-            context_parts.append(
-                "\n---\n请基于以上场景信息，以 JSON 格式继续推进剧情。"
-            )
-            system_prompt = self._build_system_prompt(max_tokens, structured=True,
-                                                         choices_count=choices_count)
+            context_parts.append("MUST：只输出 JSON 数组，不要其他内容。")
+            system_prompt = self._build_system_prompt(word_limit, structured=True,
+                                                         choices_count=choices_count,
+                                                         combat_mode=self._combat_mode)
         else:
-            context_parts.append(
-                "\n---\n请基于以上场景信息，继续推进剧情。"
-                "描写场景和角色的反应，角色对话用「」标注。"
-                "保持剧情连贯、自然，结束时留出继续的空间。"
-            )
-            system_prompt = self._build_system_prompt(max_tokens, structured=False,
-                                                         choices_count=choices_count)
+            if self._combat_mode == "tactical":
+                context_parts.append(
+                    "MUST：如果存在战斗冲突，输出 <combat:遭遇ID/> 触发战斗系统，然后简要叙述。"
+                )
+            else:
+                context_parts.append(
+                    "请基于以上场景信息继续推进剧情。描写场景和角色的反应，"
+                    "角色对话用「」标注。保持剧情连贯、自然，结束时留出继续的空间。"
+                )
+            system_prompt = self._build_system_prompt(word_limit, structured=False,
+                                                         choices_count=choices_count,
+                                                         combat_mode=self._combat_mode)
 
-        context = "\n".join(context_parts)
+        context = "\n\n".join(context_parts)
         return [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": context},
@@ -533,6 +561,7 @@ speaker 必须从【场景角色】列表中选择。无法判断说话人时用
     def narrate(self, player_info: dict | None = None, env_context: str = "",
                 user_action: str = "", structured: bool = False,
                 max_tokens: int | None = None,
+                word_limit: int = 500,
                 choices_count: int = 0,
                 conversation_history: str = "",
                 is_first_turn: bool = True) -> tuple[str, dict, dict | None]:
@@ -556,7 +585,7 @@ speaker 必须从【场景角色】列表中选择。无法判断说话人时用
             player_info, env_context,
             user_action=user_action, is_first_turn=is_first_turn,
             conversation_history=conversation_history,
-            max_tokens=max_tokens, structured=structured,
+            word_limit=word_limit, structured=structured,
             choices_count=choices_count,
         )
 
@@ -572,6 +601,7 @@ speaker 必须从【场景角色】列表中选择。无法判断说话人时用
     def narrate_stream(self, player_info: dict | None = None, env_context: str = "",
                        user_action: str = "", structured: bool = False,
                        max_tokens: int | None = None,
+                       word_limit: int = 500,
                        choices_count: int = 0,
                        conversation_history: str = "",
                        is_first_turn: bool = True):
@@ -593,7 +623,7 @@ speaker 必须从【场景角色】列表中选择。无法判断说话人时用
             player_info, env_context,
             user_action=user_action, is_first_turn=is_first_turn,
             conversation_history=conversation_history,
-            max_tokens=max_tokens, structured=structured,
+            word_limit=word_limit, structured=structured,
             choices_count=choices_count,
         )
 

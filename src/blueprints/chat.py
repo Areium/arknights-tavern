@@ -41,11 +41,11 @@ def _require_no_combat(session):
     return None
 
 
-_COMBAT_MARKER_RE = re.compile(r'\[COMBAT:([^{\]]+)(?:\s+(\{.*\}))?\]', re.IGNORECASE)
-_SAFE_COMBAT_MARKER_RE = re.compile(r'\[COMBAT:([^{\]]+)(?:\s+(\{.*\}))?\]', re.IGNORECASE)
-_BEAT_COMPLETE_RE = re.compile(r'\n?\s*\[BEAT_COMPLETE\]\s*\n?')
-_CHOICES_MARKER_RE = re.compile(r'\n?\[CHOICES\]\n?([\s\S]*?)$')
-_SUMMARY_MARKER_RE = re.compile(r'\n?\[SUMMARY\]\n?([\s\S]*?)$')
+_COMBAT_MARKER_RE = re.compile(r'<combat:([^{\s/>]+)(?:\s+(\{.*?\}))?\s*/>', re.IGNORECASE)
+_SAFE_COMBAT_MARKER_RE = re.compile(r'<combat:([^{\s/>]+)(?:\s+(\{.*?\}))?\s*/>', re.IGNORECASE)
+_BEAT_COMPLETE_RE = re.compile(r'\n?\s*<beat_complete\s*/>\s*\n?')
+_CHOICES_MARKER_RE = re.compile(r'\n?<choices\s*/>\n?([\s\S]*?)$')
+_SUMMARY_MARKER_RE = re.compile(r'\n?<summary\s*/>\n?([\s\S]*?)$')
 
 
 def _try_extract_structured(narrative: str, scene_manager):
@@ -94,7 +94,7 @@ def _try_extract_structured(narrative: str, scene_manager):
 
 
 def _handle_choices_marker(narrative: str) -> tuple[str, list[str] | None]:
-    """检测并提取 [CHOICES] 标记中的选项列表。
+    """检测并提取 <choices/> 标记中的选项列表。
 
     Returns:
         (cleaned_narrative, choices_or_none): 清理后的叙述文本和选项列表
@@ -110,7 +110,7 @@ def _handle_choices_marker(narrative: str) -> tuple[str, list[str] | None]:
 
 
 def _handle_summary_marker(narrative: str) -> tuple[str, str | None]:
-    """检测并提取 [SUMMARY] 标记中的剧情摘要。
+    """检测并提取 <summary/> 标记中的剧情摘要。
 
     Returns:
         (cleaned_narrative, summary_or_none): 清理后的叙述文本和摘要字符串
@@ -124,11 +124,11 @@ def _handle_summary_marker(narrative: str) -> tuple[str, str | None]:
 
 
 def _handle_combat_trigger(session, narrative, stream_id):
-    """检测并处理战斗触发标记 [COMBAT:encounter_id]。
+    """检测并处理战斗触发标记 <combat:encounter_id/>。
 
     支持扩展格式：
-        [COMBAT:encounter_id]
-        [COMBAT:encounter_id {"status_effects": {...}}]
+        <combat:encounter_id/>
+        <combat:encounter_id {"status_effects": {...}}/>
 
     Returns:
         (cleaned_narrative, sse_event_or_none): 清理后的叙述文本和可选的 SSE 事件字符串
@@ -169,7 +169,7 @@ def _handle_combat_trigger(session, narrative, stream_id):
 
 
 def _handle_beat_complete(session, narrative):
-    """检测并处理节拍完成标记 [BEAT_COMPLETE]。
+    """检测并处理节拍完成标记 <beat_complete/>。
 
     Returns:
         str: 清理后的叙述文本（移除 [BEAT_COMPLETE] 标记）
@@ -207,7 +207,13 @@ def _build_choices(session, llm_backend, narrative):
                       f"每行一个选项，不要编号，不要加任何前缀或解释。"
                 )
                 response = llm.chat([
-                    {"role": "system", "content": "你是明日方舟文字冒险游戏的选项生成器。根据当前剧情，生成合理且多样化的后续行动选项。"},
+                    {"role": "system", "content": (
+                        "<role>你是明日方舟文字冒险游戏的选项生成器。</role>\n"
+                        "<core_rules>\n"
+                        "- MUST：根据当前剧情生成合理且多样化的后续行动选项\n"
+                        "- MUST：每个选项≤15字，表达简洁直接\n"
+                        "</core_rules>"
+                    )},
                     {"role": "user", "content": prompt},
                 ], stream=False)
                 response_text = response.get("content", "") if isinstance(response, dict) else str(response)
@@ -342,7 +348,8 @@ def register(app, managers):
                 auto_choices = config.get("auto_generate_choices", False)
                 choice_count = config.get("choice_count", 3)
                 choices_count = choice_count if auto_choices else 0
-                max_tokens = config.get("max_output_tokens", 8192)
+                max_tokens = config.get("max_output_tokens", 16384)
+                word_limit = config.get("word_limit", 500)
 
                 # 构建对话历史（滑动窗口，最近 ~3000 字符）
                 conversation_history = session.scene_manager._build_conversation_history(
@@ -363,6 +370,7 @@ def register(app, managers):
                         player_info, context_with_memory,
                         user_action=user_action, structured=False,
                         max_tokens=max_tokens,
+                        word_limit=word_limit,
                         conversation_history=conversation_history,
                         is_first_turn=is_first_turn,
                     ):
@@ -382,23 +390,23 @@ def register(app, managers):
                     if stream_text:
                         narrative = stream_text
 
-                    # 检测战斗触发标记 [COMBAT:encounter_id]
+                    # 检测战斗触发标记 <combat:encounter_id/>
                     narrative, combat_triggered = _handle_combat_trigger(
                         session, narrative, stream_id
                     )
                     if combat_triggered:
                         yield combat_triggered
 
-                    # 检测节拍完成标记 [BEAT_COMPLETE]
+                    # 检测节拍完成标记 <beat_complete/>
                     narrative = _handle_beat_complete(session, narrative)
 
                 elif not bubble_mode and choices_count > 0:
-                    # 全缓冲模式（需提取 [CHOICES]）：
+                    # 全缓冲模式（需提取 <choices/>）：
                     # LLM 非流式获取完整响应，解析标记后逐字符推送纯叙述
                     for _event_type, _data in session.scene_manager.narrate_stream(
                         player_info, context_with_memory,
                         user_action=user_action, structured=False,
-                        max_tokens=max_tokens, choices_count=choices_count,
+                        max_tokens=max_tokens, word_limit=word_limit, choices_count=choices_count,
                         conversation_history=conversation_history,
                         is_first_turn=is_first_turn,
                     ):
@@ -435,7 +443,7 @@ def register(app, managers):
                     narrative, env_updates, usage = session.scene_manager.narrate(
                         player_info, context_with_memory,
                         user_action=user_action, structured=True,
-                        max_tokens=max_tokens, choices_count=choices_count,
+                        max_tokens=max_tokens, word_limit=word_limit, choices_count=choices_count,
                         conversation_history=conversation_history,
                         is_first_turn=is_first_turn,
                     )
@@ -452,14 +460,14 @@ def register(app, managers):
                     if stream_text:
                         narrative = stream_text
 
-                    # 检测战斗触发标记 [COMBAT:encounter_id]（先剥离再发送字符）
+                    # 检测战斗触发标记 <combat:encounter_id/>（先剥离再发送字符）
                     narrative, combat_triggered = _handle_combat_trigger(
                         session, narrative, stream_id
                     )
                     if combat_triggered:
                         yield combat_triggered
 
-                    # 检测节拍完成标记 [BEAT_COMPLETE]
+                    # 检测节拍完成标记 <beat_complete/>
                     narrative = _handle_beat_complete(session, narrative)
 
                     # 逐字符发送解析后的纯文本
@@ -544,6 +552,8 @@ def register(app, managers):
             bubble_mode = config.get("dialogue_bubble_mode", False)
             auto_choices = config.get("auto_generate_choices", False)
             choices_count = config.get("choice_count", 3) if auto_choices else 0
+            max_tokens = config.get("max_output_tokens", 16384)
+            word_limit = config.get("word_limit", 500)
 
             conversation_history = session.scene_manager._build_conversation_history(
                 session._narration_history, structured=bubble_mode
@@ -554,7 +564,8 @@ def register(app, managers):
                 player_info, context_with_memory,
                 user_action=data.get("action", ""),
                 structured=bubble_mode,
-                max_tokens=config.get("max_output_tokens", 8192),
+                max_tokens=max_tokens,
+                word_limit=word_limit,
                 choices_count=choices_count,
                 conversation_history=conversation_history,
                 is_first_turn=is_first_turn,
@@ -643,6 +654,8 @@ def register(app, managers):
         try:
             config = llm_backend.get_config()
             bubble_mode = config.get("dialogue_bubble_mode", False)
+            max_tokens = config.get("max_output_tokens", 16384)
+            word_limit = config.get("word_limit", 500)
 
             conversation_history = session.scene_manager._build_conversation_history(
                 session._narration_history
@@ -655,7 +668,8 @@ def register(app, managers):
                 structured=bubble_mode,
                 conversation_history=conversation_history,
                 is_first_turn=is_first_turn,
-                max_tokens=config.get("max_output_tokens", 8192),
+                max_tokens=max_tokens,
+                word_limit=word_limit,
             )
             session.accumulate_usage(usage)
             response = {"narrative": narrative}
