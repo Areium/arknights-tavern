@@ -39,12 +39,13 @@ _DEFAULT_CONFIG = {
     "theme": "dark",
     "provider": "auto",
     "enable_thinking": False,
+    "reasoning_effort": "medium",
     "auto_generate_choices": False,
     "choice_count": 3,
     "memory_interval": 5,
     "edit_before_send": False,
     "dialogue_bubble_mode": False,
-    "max_output_tokens": 2048,
+    "max_output_tokens": 8192,
 }
 
 
@@ -116,6 +117,7 @@ class LLMBackendManager:
         self._detected = False
         self._provider: str = "auto"
         self._enable_thinking: bool = False
+        self._reasoning_effort: str = "medium"
         self._ensure_config()
         self._load_config()
 
@@ -158,6 +160,7 @@ class LLMBackendManager:
 
         self._provider = merged.get("provider", "auto")
         self._enable_thinking = bool(merged.get("enable_thinking", False))
+        self._reasoning_effort = merged.get("reasoning_effort", "medium")
 
         logger.info("LLM 配置已加载: cloud_model=%s, provider=%s, ollama_url=%s",
                      ApiModelConfig.model, self._provider, self.OLLAMA_URL)
@@ -380,7 +383,9 @@ class LLMBackendManager:
                 base_url=os.getenv("BASE_URL", ""),
                 model=ApiModelConfig.model,
             )
-            return ApiLLM(adapter=adapter)
+            return ApiLLM(adapter=adapter,
+                          enable_thinking=self._enable_thinking,
+                          reasoning_effort=self._reasoning_effort)
         elif ep.type == "local":
             config = ModelConfig()
             config.base_url = self.OLLAMA_URL
@@ -420,12 +425,13 @@ class LLMBackendManager:
             "theme": merged.get("theme", "dark"),
             "provider": merged.get("provider", "auto"),
             "enable_thinking": merged.get("enable_thinking", False),
+            "reasoning_effort": merged.get("reasoning_effort", "medium"),
             "auto_generate_choices": merged.get("auto_generate_choices", False),
             "choice_count": merged.get("choice_count", 3),
             "memory_interval": merged.get("memory_interval", 5),
             "edit_before_send": merged.get("edit_before_send", False),
             "dialogue_bubble_mode": merged.get("dialogue_bubble_mode", False),
-            "max_output_tokens": merged.get("max_output_tokens", 2048),
+            "max_output_tokens": merged.get("max_output_tokens", 8192),
         }
 
     def update_config(self, data: dict) -> dict:
@@ -460,11 +466,13 @@ class LLMBackendManager:
         if "dialogue_bubble_mode" in data:
             merged["dialogue_bubble_mode"] = bool(data["dialogue_bubble_mode"])
         if "max_output_tokens" in data:
-            merged["max_output_tokens"] = max(256, min(8192, int(data["max_output_tokens"])))
+            merged["max_output_tokens"] = max(256, min(16384, int(data["max_output_tokens"])))
         if "provider" in data:
             merged["provider"] = data["provider"]
         if "enable_thinking" in data:
             merged["enable_thinking"] = bool(data["enable_thinking"])
+        if "reasoning_effort" in data:
+            merged["reasoning_effort"] = data["reasoning_effort"]
 
         # 持久化到 JSON 文件
         _write_config_file(merged)
@@ -477,12 +485,13 @@ class LLMBackendManager:
             os.environ["BASE_URL"] = merged["base_url"]
             ApiModelConfig.base_url = merged["base_url"]
         ApiModelConfig.model = merged["cloud_model"]
-        ApiModelConfig.max_tokens = merged.get("max_output_tokens", 2048)
-        ModelConfig.max_tokens = merged.get("max_output_tokens", 2048)
+        ApiModelConfig.max_tokens = merged.get("max_output_tokens", 8192)
+        ModelConfig.max_tokens = merged.get("max_output_tokens", 8192)
         self.OLLAMA_URL = merged["ollama_url"]
         ModelConfig.model = merged["ollama_model"]
         self._provider = merged.get("provider", "auto")
         self._enable_thinking = bool(merged.get("enable_thinking", False))
+        self._reasoning_effort = merged.get("reasoning_effort", "medium")
 
         return self.get_config()
 

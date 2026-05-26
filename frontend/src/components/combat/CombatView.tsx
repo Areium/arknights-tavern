@@ -36,6 +36,7 @@ export default function CombatView() {
     setCurrentView,
     combatSessionId,
     setCombatSessionId,
+    setPendingAutoNarrate,
   } = useAppStore();
   const api = useApi();
 
@@ -560,6 +561,25 @@ export default function CombatView() {
     setSelectedUnitId(null);
   }, [setCombatUIMode, setSelectedCardIndex, setSelectedUnitId]);
 
+  const handleAbandon = useCallback(async () => {
+    if (!sessionId || combatTestId) return;
+    sseRef.current?.close();
+    try {
+      const resp = await api.combatAbandon(sessionId);
+      if (resp.auto_narrate_action) {
+        setPendingAutoNarrate(resp.auto_narrate_action);
+      }
+    } catch {
+      alert("放弃战斗失败，请重试");
+      return;
+    }
+    setCombatState(null);
+    setCombatTestId(null);
+    setCombatSessionId(null);
+    setSelectedUnitId(null);
+    setCurrentView("chat");
+  }, [sessionId, combatTestId, api, setCombatState, setCombatTestId, setCombatSessionId, setSelectedUnitId, setCurrentView, setPendingAutoNarrate]);
+
   const handleReturnToChat = useCallback(async () => {
     if (writingBackRef.current) return;
     sseRef.current?.close();
@@ -582,15 +602,21 @@ export default function CombatView() {
         }
       }
       try {
-        await api.combatComplete(sessionId, {
+        const resp = await api.combatComplete(sessionId, {
           encounter_id: encounterId,
           winner: combatState.winner || "unknown",
           survivors,
           rounds: combatState.round_num,
           character_stats: characterStats,
         });
+        // Store auto-narrate action for ChatPanel to pick up
+        if (resp.auto_narrate_action) {
+          setPendingAutoNarrate(resp.auto_narrate_action);
+        }
       } catch {
-        // Non-critical — silently ignore writeback failures
+        alert("战斗结果保存失败，请重试");
+        writingBackRef.current = false;
+        return; // Don't clear state or switch view on failure
       }
       writingBackRef.current = false;
     }
@@ -600,7 +626,7 @@ export default function CombatView() {
     setCombatSessionId(null);
     setSelectedUnitId(null);
     setCurrentView("chat");
-  }, [combatTestId, sessionId, combatState, encounterId, api, setCombatState, setCombatTestId, setCombatSessionId, setSelectedUnitId, setCurrentView]);
+  }, [combatTestId, sessionId, combatState, encounterId, api, setCombatState, setCombatTestId, setCombatSessionId, setSelectedUnitId, setCurrentView, setPendingAutoNarrate]);
 
   // Click on main area → map to grid cell or deselect.
   // Cell mapping handles 3D-transformed cells (rows 4-8) that don't
@@ -1188,6 +1214,14 @@ export default function CombatView() {
               onClick={handleReturnToChat}
             >
               返回对话
+            </button>
+          )}
+          {!combatState.battle_over && !combatTestId && (
+            <button
+              className="px-4 py-1.5 text-xs bg-red-900/40 hover:bg-red-800/50 text-red-300 rounded-lg transition-all border border-red-800/30"
+              onClick={handleAbandon}
+            >
+              放弃战斗
             </button>
           )}
         </div>

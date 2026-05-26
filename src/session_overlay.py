@@ -11,12 +11,10 @@
 """
 
 import json
-import os
 import re
 import copy
 import logging
 from pathlib import Path
-from typing import Optional
 
 import frontmatter
 
@@ -30,6 +28,8 @@ _PLOT_LOG_HEADER = (
     "> 以下记录已发生的剧情事件。每次叙述时请参考已有内容，"
     "在此基础之上推进新的剧情发展，不要重复已记录的场景和对话。\n\n"
 )
+
+_MAX_PLOT_LOG_ENTRIES = 15
 
 
 def _get_overlay_path(mode: str, session_id: str) -> Path:
@@ -175,20 +175,6 @@ class SessionOverlay:
         """重置会话索引配置为默认。"""
         self._data.pop("index_config", None)
         self._save()
-
-    # ── 战斗模式设置 ──
-
-    def get_combat_mode(self) -> str:
-        """获取战斗模式。返回 "narrative"（默认）或 "tactical"。"""
-        return self._data.get("combat_mode", "narrative")
-
-    def set_combat_mode(self, mode: str):
-        """设置战斗模式。mode 为 "narrative" 或 "tactical"。"""
-        if mode not in ("narrative", "tactical"):
-            raise ValueError(f"无效的战斗模式: {mode}，可选值: narrative, tactical")
-        self._data["combat_mode"] = mode
-        self._save()
-        logger.info("会话 %s: 战斗模式切换为 %s", self.session_id, mode)
 
     # ── 环境覆盖 ──
 
@@ -555,7 +541,10 @@ class SessionOverlay:
         self._doc_cache[name] = content
 
     def append_plot_log(self, summary: str):
-        """追加一行剧情进度日志，自动递增轮次。"""
+        """追加一行剧情进度日志，自动递增轮次。
+
+        自动截断旧条目，只保留最近 _MAX_PLOT_LOG_ENTRIES 轮。
+        """
         round_num = self._data.get("narration_round", 0) + 1
         self._data["narration_round"] = round_num
         self._save()
@@ -566,11 +555,25 @@ class SessionOverlay:
             with open(path, "w", encoding="utf-8") as f:
                 f.write(_PLOT_LOG_HEADER)
 
-        line = f"[轮次 {round_num}] {summary}\n"
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(line)
-        cached = self._doc_cache.get("plot_log.md", "")
-        self._doc_cache["plot_log.md"] = cached + line
+        # 读取已有条目
+        existing = self._doc_cache.get("plot_log.md", "")
+        if not existing and path.is_file():
+            with open(path, "r", encoding="utf-8") as f:
+                existing = f.read()
+
+        # 提取已有条目行（以 [轮次 开头）
+        entry_lines = [l for l in existing.split("\n") if l.startswith("[轮次")]
+        entry_lines.append(f"[轮次 {round_num}] {summary}")
+
+        # 只保留最近 N 条
+        if len(entry_lines) > _MAX_PLOT_LOG_ENTRIES:
+            entry_lines = entry_lines[-_MAX_PLOT_LOG_ENTRIES:]
+
+        # 重建文件内容
+        new_content = _PLOT_LOG_HEADER + "\n".join(entry_lines) + "\n"
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(new_content)
+        self._doc_cache["plot_log.md"] = new_content
 
     def update_beat_progress(self):
         """更新节拍进度：计数自增，超阈值自动推进，重写 plot_state.md。"""
@@ -706,7 +709,6 @@ class SessionOverlay:
         result = {
             "session_id": self.session_id,
             "plot_id": self._data.get("plot_id"),
-            "combat_mode": self.get_combat_mode(),
             "characters": self._data.get("characters", {}),
             "items": self._data.get("items", {}),
             "environment": self._data.get("environment", {}),

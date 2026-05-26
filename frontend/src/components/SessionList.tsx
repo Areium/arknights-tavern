@@ -18,6 +18,7 @@ export default function SessionList() {
   const [plotsLoading, setPlotsLoading] = useState(false);
   const [plotsError, setPlotsError] = useState(false);
   const [showPlotPicker, setShowPlotPicker] = useState(false);
+  const [combatMode, setCombatMode] = useState<"narrative" | "tactical">("narrative");
 
   // 加载可用剧情列表（仅在剧情模式时，后端就绪后重试）
   useEffect(() => {
@@ -110,11 +111,11 @@ export default function SessionList() {
     }
   };
 
-  const handleCreate = async (plotId: string) => {
+  const handleCreate = async (plotId: string, combatMode: "narrative" | "tactical" = "narrative") => {
     setShowPlotPicker(false);
     setCreating(true);
     try {
-      const session = await api.createSession(chatMode, "", plotId);
+      const session = await api.createSession(chatMode, "", plotId, combatMode);
       setSessions([...sessions, session]);
       setActiveSession(session.id);
     } catch (err: any) {
@@ -229,11 +230,39 @@ export default function SessionList() {
       {/* Plot picker dialog */}
       {showPlotPicker && (
         <div className="mb-3 p-2 rounded-lg bg-gray-800 border border-gray-700">
+          <p className="text-xs text-gray-400 mb-2">选择战斗模式：</p>
+          <div className="flex gap-2 mb-3">
+            <button
+              onClick={() => setCombatMode("narrative")}
+              className={`flex-1 px-3 py-1.5 rounded text-xs transition-colors ${
+                combatMode === "narrative"
+                  ? "bg-blue-600/30 text-blue-300 border border-blue-500/50"
+                  : "bg-gray-700/50 text-gray-400 hover:bg-gray-700 border border-transparent"
+              }`}
+            >
+              纯剧情模式
+            </button>
+            <button
+              onClick={() => setCombatMode("tactical")}
+              className={`flex-1 px-3 py-1.5 rounded text-xs transition-colors ${
+                combatMode === "tactical"
+                  ? "bg-orange-600/30 text-orange-300 border border-orange-500/50"
+                  : "bg-gray-700/50 text-gray-400 hover:bg-gray-700 border border-transparent"
+              }`}
+            >
+              战术模式
+            </button>
+          </div>
+          <p className="text-[10px] text-gray-500 mb-2">
+            {combatMode === "tactical"
+              ? "对话中触发战斗时将进入战术回合制，创建后不可更改"
+              : "纯剧情叙述，不包含战斗玩法，创建后不可更改"}
+          </p>
           <p className="text-xs text-gray-400 mb-2">选择绑定的剧情：</p>
           <div className="space-y-1 max-h-48 overflow-y-auto">
             {/* No binding option */}
             <button
-              onClick={() => handleCreate("")}
+              onClick={() => handleCreate("", combatMode)}
               className="w-full text-left px-3 py-2 rounded-md text-sm text-gray-400
                          hover:bg-gray-700/50 transition-colors flex items-center gap-2"
             >
@@ -243,7 +272,7 @@ export default function SessionList() {
             {plots.map((p) => (
               <button
                 key={p.id}
-                onClick={() => handleCreate(p.id)}
+                onClick={() => handleCreate(p.id, combatMode)}
                 className="w-full text-left px-3 py-2 rounded-md text-sm hover:bg-gray-700/50
                            transition-colors flex items-center gap-2"
               >

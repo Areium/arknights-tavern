@@ -5,7 +5,7 @@ type: "setting"
 # 可检索条目
 character（data/characters/）：<临光>、<瑕光>、<砾>、<玛恩纳·临光>、<焰尾>、<托兰>、<佐菲娅>、<闪灵>、<白金>、<血骑士>、<薇薇安娜>、<逐魇骑士>
 faction（data/factions/）：<商业联合会>、<监证会>、<无胄盟>、<红松骑士团>、<临光家族>、<罗德岛>
-location（environment/Location/）：<大骑士领卡瓦莱利亚基>、<大骑士领竞技场>、<工坊区>
+location（data/environment/Location/）：<大骑士领卡瓦莱利亚基>、<大骑士领竞技场>、<工坊区>
 item（data/items/）：<指挥官护甲>、<感染者合同数据>、<临光的旧铠甲>、<托兰的雇佣证明>
 plot（data/plots/）：<near_light_aftermath>
 

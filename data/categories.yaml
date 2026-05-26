@@ -7,14 +7,13 @@ categories:
   classes: data/classes/
   factions: data/factions/
   items: data/items/
-  locations: environment/Location/
-  weather: environment/weather/
+  locations: data/environment/Location/
+  weather: data/environment/weather/
   plots: data/plots/
   world: data/world/
   attributes: data/attributes/
   enemies: data/enemies/
   combat_enemies: data/combat/enemies/
-  combat_cards: data/combat/cards/
   combat_encounters: data/combat/encounters/
   rules: data/rules/
 
@@ -38,4 +37,4 @@ hierarchy:
       categories: [plots, enemies, combat_encounters]
     - level: 5
       label: 战斗组件
-      categories: [combat_enemies, combat_cards]
+      categories: [combat_enemies]

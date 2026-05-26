@@ -59,7 +59,7 @@ class WikiManager:
         for cat_name, cat_info in categories.items():
             dir_rel = cat_info if isinstance(cat_info, str) else cat_info.get("dir", "")
             # 解析相对于 project root 的路径
-            if dir_rel.startswith("data/") or dir_rel.startswith("environment/"):
+            if dir_rel.startswith("data/"):
                 full_dir = os.path.join(self._root, dir_rel)
             else:
                 full_dir = os.path.join(self._root, "data", dir_rel)
@@ -391,10 +391,6 @@ class WikiManager:
         if issues:
             logger.warning("imports 完整性检查发现 %d 个问题", len(issues))
         return issues
-
-    def validate(self) -> list[str]:
-        """向后兼容别名。检查所有索引的引用完整性。"""
-        return self.validate_imports()
 
     def _format_doc_full(self, path_key: str) -> str:
         """格式化返回文档全文。"""

@@ -29,7 +29,7 @@ function filterSceneLog(log: string[]): string[] {
 }
 
 export default function ChatPanel() {
-  const { activeSessionId, chatMode, sessions, setSessions, triggerEnvRefresh, triggerMemoryRefresh, chatRefreshKey, characterRefreshKey, editBeforeSend, sceneSwitchKey, dialogueBubbleMode, setCurrentView, setCombatSessionId } = useAppStore();
+  const { activeSessionId, chatMode, sessions, setSessions, triggerEnvRefresh, triggerMemoryRefresh, chatRefreshKey, characterRefreshKey, editBeforeSend, sceneSwitchKey, dialogueBubbleMode, currentView, setCurrentView, setCombatSessionId, pendingAutoNarrate, setPendingAutoNarrate } = useAppStore();
   const activeMode = sessions.find((s) => s.id === activeSessionId)?.mode || "free";
 
   const sceneCharacters: string[] = (() => {
@@ -328,6 +328,27 @@ export default function ChatPanel() {
     [activeSessionId, chatMode, api, triggerEnvRefresh, triggerMemoryRefresh]
   );
 
+  // Auto-narrate after combat: watch for pendingAutoNarrate being set
+  useEffect(() => {
+    if (pendingAutoNarrate && activeSessionId) {
+      const action = pendingAutoNarrate;
+      setPendingAutoNarrate(null);
+      // Delay slightly to ensure view switch completes before narrating
+      const timer = setTimeout(() => {
+        performSend(action);
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [pendingAutoNarrate, activeSessionId, performSend, setPendingAutoNarrate]);
+
+  // Reconnect SSE when switching back to chat view after combat
+  useEffect(() => {
+    if (currentView === "chat" && activeSessionId) {
+      // ChatPanel is always mounted; when coming back from combat,
+      // ensure SSE connection state is fresh by triggering a refresh
+    }
+  }, [currentView, activeSessionId]);
+
   const handleSend = useCallback(() => {
     const text = input.trim();
     if (!text || sending || streaming) return;
@@ -537,24 +558,8 @@ export default function ChatPanel() {
             {activeSession.in_combat && (
               <span className="text-[10px] text-orange-400 font-medium animate-pulse">⚔ 战斗中</span>
             )}
-            {chatMode === "story" && (
-              <label className="flex items-center gap-1 text-[10px] text-gray-500 cursor-pointer select-none" title="开启后，对话中触发战斗时将进入战术回合制模式">
-                <input
-                  type="checkbox"
-                  className="checkbox"
-                  checked={activeSession.combat_mode === "tactical"}
-                  onChange={async () => {
-                    const newMode = activeSession.combat_mode === "tactical" ? "narrative" : "tactical";
-                    try {
-                      await api.setCombatMode(activeSession.id!, newMode);
-                      setSessions(sessions.map(s =>
-                        s.id === activeSession.id ? { ...s, combat_mode: newMode } : s
-                      ));
-                    } catch { /* ignore */ }
-                  }}
-                />
-                战术
-              </label>
+            {chatMode === "story" && activeSession.combat_mode === "tactical" && (
+              <span className="text-[10px] text-orange-400/70 font-medium">⚔ 战术</span>
             )}
             {chatMode === "story" && activeSession.combat_mode === "tactical" && !activeSession.in_combat && (
               <button

@@ -9,9 +9,12 @@ import logging
 
 from flask import Blueprint, jsonify, request, Response, stream_with_context
 
-from shared.helpers import json_error, make_sse_response, inject_memory_context
+from shared.helpers import json_error, make_sse_response, inject_memory_context, build_character_metas
 
 logger = logging.getLogger(__name__)
+
+# 模块级引用，由 register() 初始化
+_doc_mgr = None
 
 
 # ── 辅助函数 ──
@@ -38,11 +41,56 @@ def _require_no_combat(session):
     return None
 
 
-_COMBAT_MARKER_RE = re.compile(r'\n?\[COMBAT:([^\]]+)\]\n?')
-_SAFE_COMBAT_MARKER_RE = re.compile(r'\[COMBAT:([^\]]+)\]')
+_COMBAT_MARKER_RE = re.compile(r'\[COMBAT:([^{\]]+)(?:\s+(\{.*\}))?\]', re.IGNORECASE)
+_SAFE_COMBAT_MARKER_RE = re.compile(r'\[COMBAT:([^{\]]+)(?:\s+(\{.*\}))?\]', re.IGNORECASE)
 _BEAT_COMPLETE_RE = re.compile(r'\n?\s*\[BEAT_COMPLETE\]\s*\n?')
 _CHOICES_MARKER_RE = re.compile(r'\n?\[CHOICES\]\n?([\s\S]*?)$')
 _SUMMARY_MARKER_RE = re.compile(r'\n?\[SUMMARY\]\n?([\s\S]*?)$')
+
+
+def _try_extract_structured(narrative: str, scene_manager):
+    """尝试从叙述文本中提取结构化对话片段。
+
+    比 parse_structured 的入口检查更宽松：即使 JSON 数组不是
+    严格从文本开头开始，也会尝试查找和解析。
+
+    Returns:
+        (dialogue_segments, plain_text) 或 (None, narrative)
+    """
+    text = narrative.strip()
+
+    # 优先使用标准入口（以 [ 或 ``` 开头）
+    if text.startswith(("[", "```")):
+        segments, plain = scene_manager.parse_structured(narrative)
+        if segments:
+            return segments, plain
+        return None, narrative
+
+    # 尝试从文本中定位 JSON 数组起始位置 [{ 并提取到匹配的 ]
+    idx = text.find("[{")
+    if idx == -1:
+        idx = text.find("[\n{")
+    if idx == -1:
+        idx = text.find("[\r\n{")
+    if idx >= 0:
+        # 从 idx 开始查找匹配的 ]
+        depth = 0
+        end = -1
+        for i in range(idx, len(text)):
+            if text[i] == "[":
+                depth += 1
+            elif text[i] == "]":
+                depth -= 1
+                if depth == 0:
+                    end = i + 1
+                    break
+        if end > 0:
+            candidate = text[idx:end]
+            segments, plain = scene_manager.parse_structured(candidate)
+            if segments:
+                return segments, plain
+
+    return None, narrative
 
 
 def _handle_choices_marker(narrative: str) -> tuple[str, list[str] | None]:
@@ -78,6 +126,10 @@ def _handle_summary_marker(narrative: str) -> tuple[str, str | None]:
 def _handle_combat_trigger(session, narrative, stream_id):
     """检测并处理战斗触发标记 [COMBAT:encounter_id]。
 
+    支持扩展格式：
+        [COMBAT:encounter_id]
+        [COMBAT:encounter_id {"status_effects": {...}}]
+
     Returns:
         (cleaned_narrative, sse_event_or_none): 清理后的叙述文本和可选的 SSE 事件字符串
     """
@@ -88,16 +140,27 @@ def _handle_combat_trigger(session, narrative, stream_id):
     encounter_id = match.group(1).strip()
     cleaned = _COMBAT_MARKER_RE.sub("", narrative).strip()
 
-    overlay = getattr(session, 'overlay', None)
-    combat_mode = overlay.get_combat_mode() if overlay else "narrative"
+    combat_mode = getattr(session, 'combat_mode', 'narrative')
     if combat_mode != "tactical":
         return cleaned, None
 
+    # 尝试解析可选的 JSON 参数
+    combat_params = None
+    if match.group(2):
+        try:
+            combat_params = json.loads(match.group(2))
+        except json.JSONDecodeError:
+            logger.warning("会话 %s: 战斗触发 JSON 解析失败，忽略参数: %s",
+                          session.id, match.group(2)[:100])
+
     try:
-        character_names = session.scene_manager.get_scene_characters()
-        combat = session.start_combat(encounter_id, character_names)
-        logger.info("会话 %s: LLM 触发战斗 %s，角色: %s",
-                     session.id, encounter_id, character_names)
+        character_metas = build_character_metas(session, _doc_mgr) if _doc_mgr else None
+        combat = session.start_combat(encounter_id,
+                                       character_metas=character_metas,
+                                       combat_params=combat_params)
+        logger.info("会话 %s: LLM 触发战斗 %s (params=%s)",
+                     session.id, encounter_id,
+                     "yes" if combat_params else "no")
         event = f"data: {json.dumps({'type': 'combat_trigger', 'data': {'encounter_id': encounter_id, 'session_id': session.id, 'stream_id': stream_id}})}\n\n"
         return cleaned, event
     except Exception as e:
@@ -115,7 +178,7 @@ def _handle_beat_complete(session, narrative):
         return narrative
 
     cleaned = _BEAT_COMPLETE_RE.sub("", narrative).strip()
-    overlay = getattr(session, 'overlay', None)
+    overlay = session.overlay
     if overlay and overlay.get_beat_state():
         overlay.advance_beat()
         current = overlay.get_current_beat()
@@ -167,9 +230,11 @@ def _build_choices(session, llm_backend, narrative):
 # ── Blueprint 注册 ──
 
 def register(app, managers):
+    global _doc_mgr
     bp = Blueprint("chat", __name__)
     session_mgr = managers["session"]
     llm_backend = managers["llm_backend"]
+    _doc_mgr = managers["document"]
 
     # ── 1. 单角色聊天 ──
 
@@ -277,11 +342,11 @@ def register(app, managers):
                 auto_choices = config.get("auto_generate_choices", False)
                 choice_count = config.get("choice_count", 3)
                 choices_count = choice_count if auto_choices else 0
-                max_tokens = config.get("max_output_tokens", 2048)
+                max_tokens = config.get("max_output_tokens", 8192)
 
                 # 构建对话历史（滑动窗口，最近 ~3000 字符）
                 conversation_history = session.scene_manager._build_conversation_history(
-                    session._narration_history
+                    session._narration_history, structured=bubble_mode
                 )
                 is_first_turn = session.narration_count == 0
 
@@ -311,10 +376,11 @@ def register(app, managers):
                             break
 
                     # 检测结构化 JSON（LLM 即使非 structured 模式也可能输出 JSON）
-                    if narrative.strip().startswith(("[", "```")):
-                        dialogue_segments, stream_text = session.scene_manager.parse_structured(narrative)
-                        if stream_text:
-                            narrative = stream_text
+                    dialogue_segments, stream_text = _try_extract_structured(
+                        narrative, session.scene_manager
+                    )
+                    if stream_text:
+                        narrative = stream_text
 
                     # 检测战斗触发标记 [COMBAT:encounter_id]
                     narrative, combat_triggered = _handle_combat_trigger(
@@ -346,10 +412,11 @@ def register(app, managers):
                     narrative, inline_choices = _handle_choices_marker(narrative)
 
                     # 检测结构化 JSON
-                    if narrative.strip().startswith(("[", "```")):
-                        dialogue_segments, stream_text = session.scene_manager.parse_structured(narrative)
-                        if stream_text:
-                            narrative = stream_text
+                    dialogue_segments, stream_text = _try_extract_structured(
+                        narrative, session.scene_manager
+                    )
+                    if stream_text:
+                        narrative = stream_text
 
                     # 检测战斗触发和节拍完成
                     narrative, combat_triggered = _handle_combat_trigger(
@@ -379,10 +446,11 @@ def register(app, managers):
                     if choices_count > 0:
                         narrative, inline_choices = _handle_choices_marker(narrative)
 
-                    if narrative.strip().startswith(("[", "```")):
-                        dialogue_segments, stream_text = session.scene_manager.parse_structured(narrative)
-                        if stream_text:
-                            narrative = stream_text
+                    dialogue_segments, stream_text = _try_extract_structured(
+                        narrative, session.scene_manager
+                    )
+                    if stream_text:
+                        narrative = stream_text
 
                     # 检测战斗触发标记 [COMBAT:encounter_id]（先剥离再发送字符）
                     narrative, combat_triggered = _handle_combat_trigger(
@@ -418,7 +486,7 @@ def register(app, managers):
 
                 # 回忆系统：在文本输出后生成回忆（用户已在阅读，不再阻塞首字可见）
                 if session.mode == "story":
-                    session.add_narration(narrative, user_action)
+                    session.add_narration(narrative, user_action, dialogue_segments)
                     session.overlay.append_plot_log(
                         plot_summary if plot_summary else narrative[:300].replace('\n', ' ')
                     )
@@ -478,7 +546,7 @@ def register(app, managers):
             choices_count = config.get("choice_count", 3) if auto_choices else 0
 
             conversation_history = session.scene_manager._build_conversation_history(
-                session._narration_history
+                session._narration_history, structured=bubble_mode
             )
             is_first_turn = session.narration_count == 0
 
@@ -486,7 +554,7 @@ def register(app, managers):
                 player_info, context_with_memory,
                 user_action=data.get("action", ""),
                 structured=bubble_mode,
-                max_tokens=config.get("max_output_tokens", 2048),
+                max_tokens=config.get("max_output_tokens", 8192),
                 choices_count=choices_count,
                 conversation_history=conversation_history,
                 is_first_turn=is_first_turn,
@@ -502,19 +570,21 @@ def register(app, managers):
 
             # 检测并解析结构化 JSON 输出
             dialogue_segments = None
-            if narrative.strip().startswith(("[", "```")):
-                dialogue_segments, stream_text = session.scene_manager.parse_structured(narrative)
-                if stream_text:
-                    narrative = stream_text
+            dialogue_segments, stream_text = _try_extract_structured(
+                narrative, session.scene_manager
+            )
+            if stream_text:
+                narrative = stream_text
 
             # 检测战斗触发和节拍完成
             narrative, _ = _handle_combat_trigger(session, narrative, "")
+            combat_triggered = session.combat is not None
             narrative = _handle_beat_complete(session, narrative)
 
             # 回忆系统
             response_extra = {}
             if session.mode == "story":
-                session.add_narration(narrative, data.get("action", ""))
+                session.add_narration(narrative, data.get("action", ""), dialogue_segments)
                 session.overlay.append_plot_log(
                     plot_summary if plot_summary else narrative[:300].replace('\n', ' ')
                 )
@@ -535,6 +605,10 @@ def register(app, managers):
 
             if usage:
                 response_extra["usage"] = usage
+
+            if combat_triggered:
+                response_extra["combat_triggered"] = True
+                response_extra["encounter_id"] = session.combat._encounter_id if session.combat else ""
 
             return jsonify({
                 "narrative": narrative,
@@ -581,19 +655,18 @@ def register(app, managers):
                 structured=bubble_mode,
                 conversation_history=conversation_history,
                 is_first_turn=is_first_turn,
-                max_tokens=config.get("max_output_tokens", 2048),
+                max_tokens=config.get("max_output_tokens", 8192),
             )
             session.accumulate_usage(usage)
             response = {"narrative": narrative}
             if usage:
                 response["usage"] = usage
 
-            if narrative.strip().startswith(("[", "```")):
-                segments, plain = session.scene_manager.parse_structured(narrative)
-                if segments:
-                    response["dialogue_segments"] = segments
-                    if plain:
-                        response["narrative"] = plain
+            segments, plain = _try_extract_structured(narrative, session.scene_manager)
+            if segments:
+                response["dialogue_segments"] = segments
+                if plain:
+                    response["narrative"] = plain
 
             return jsonify(response)
         except Exception as e:

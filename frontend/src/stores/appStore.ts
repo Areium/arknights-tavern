@@ -77,6 +77,10 @@ interface AppState {
   setCombatSessionId: (id: string | null) => void;
   selectedUnitId: string | null;
   setSelectedUnitId: (id: string | null) => void;
+
+  // 战斗后自动叙述
+  pendingAutoNarrate: string | null;
+  setPendingAutoNarrate: (action: string | null) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -153,4 +157,8 @@ export const useAppStore = create<AppState>((set) => ({
   setCombatSessionId: (id) => set({ combatSessionId: id }),
   selectedUnitId: null,
   setSelectedUnitId: (id) => set({ selectedUnitId: id }),
+
+  // 战斗后自动叙述
+  pendingAutoNarrate: null,
+  setPendingAutoNarrate: (action) => set({ pendingAutoNarrate: action }),
 }));

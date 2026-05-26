@@ -101,6 +101,10 @@ def register(app, managers):
         if mode not in ("free", "story"):
             return json_error("mode 必须是 'free' 或 'story'")
 
+        combat_mode = data.get("combat_mode", "narrative")
+        if combat_mode not in ("narrative", "tactical"):
+            return json_error("combat_mode 必须是 'narrative' 或 'tactical'")
+
         plot_id = data.get("plot_id", "").strip()
         plot_name = ""
         if plot_id and mode == "story":
@@ -122,6 +126,7 @@ def register(app, managers):
             name=data.get("name", ""),
             mode=mode,
             plot_name=plot_name if not data.get("name") else "",
+            combat_mode=combat_mode,
         )
 
         if plot_id and mode == "story":

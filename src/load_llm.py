@@ -179,16 +179,21 @@ class ApiModelConfig:
 
 
 class ApiLLM:
-    def __init__(self, config: ApiModelConfig = ApiModelConfig(), adapter=None):
+    def __init__(self, config: ApiModelConfig = ApiModelConfig(), adapter=None,
+                 enable_thinking: bool = False, reasoning_effort: str = "medium"):
         """
         初始化API大语言模型接口。
 
         Args:
             config: API 配置。
             adapter: 可选的 ProviderAdapter，用于非 OpenAI 兼容平台。
+            enable_thinking: 启用思考模式（DeepSeek reasoning_effort）。
+            reasoning_effort: 推理强度 (low / medium / high)。
         """
         self.config = config
         self.adapter = adapter
+        self.enable_thinking = enable_thinking
+        self.reasoning_effort = reasoning_effort
         # If adapter provides auth headers, prefer them
         headers = {"Authorization": f"Bearer {self.config.api_key}"}
         if adapter:
@@ -251,6 +256,18 @@ class ApiLLM:
             mt = max_tokens if max_tokens is not None else self.config.max_tokens
 
             def _build_payload(include_stream_opts: bool) -> dict:
+                if self.adapter:
+                    return self.adapter.build_payload(
+                        messages=messages,
+                        stream=effective_stream,
+                        max_tokens=mt,
+                        temperature=self.config.temperature,
+                        tools=tools,
+                        include_stream_options=include_stream_opts,
+                        enable_thinking=self.enable_thinking,
+                        reasoning_effort=self.reasoning_effort,
+                    )
+                # Fallback: inline payload when no adapter
                 payload: dict = {
                     "model": self.config.model,
                     "messages": messages,
@@ -353,14 +370,5 @@ class ApiLLM:
         except Exception as e:
             logger.error("发生未知错误: %s", e)
             return {"type": "text", "content": f"错误: 处理请求时发生未知错误 ({type(e).__name__})。", "usage": None}
-        except Exception as e:
-            logger.error("发生未知错误: %s", e)
-            return {"type": "text", "content": "错误: 处理请求时发生未知错误。", "usage": None}
-
-
-def chat_text(llm, messages: list, stream: bool = False, on_token=None) -> str:
-    """向后兼容辅助：调用 llm.chat() 并提取纯文本内容。"""
-    result = llm.chat(messages, stream=stream, on_token=on_token)
-    return result.get("content", "") if isinstance(result, dict) else str(result)
 
 

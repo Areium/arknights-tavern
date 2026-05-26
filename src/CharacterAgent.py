@@ -60,13 +60,10 @@ class CharacterAgent:
         project_root = os.path.dirname(base_dir)
         chars_dir = os.path.join(project_root, "data", "characters")
 
-        # 优先查找实体文件夹（{name}/index.md），其次传统文件（{name}.md）
+        # 查找实体文件夹（{name}/index.md）
         entity_path = os.path.join(chars_dir, character_name, "index.md")
-        legacy_path = os.path.join(chars_dir, f"{character_name}.md")
         if os.path.isfile(entity_path):
             file_path = entity_path
-        elif os.path.isfile(legacy_path):
-            file_path = legacy_path
         else:
             logger.warning("角色文件未找到: %s", character_name)
             return None

@@ -45,7 +45,7 @@ export interface Session {
     total_tokens: number;
   };
   in_combat?: boolean;
-  combat_mode?: string;
+  combat_mode: "narrative" | "tactical";
 }
 
 /** 文档类别 */

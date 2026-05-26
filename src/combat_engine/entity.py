@@ -25,16 +25,7 @@ import math
 # ── Attribute key compatibility ──
 
 _ATTR_KEY_MAP = {
-    # New canonical keys (English) → normalize to English
-    "physical_strength": "physical_strength",
-    "mobility": "mobility",
-    "physiological_tolerance": "physiological_tolerance",
-    "tactical_planning": "tactical_planning",
-    "combat_skill": "combat_skill",
-    "originium_arts_assimilation": "originium_arts_assimilation",
-    "emotional_stability": "emotional_stability",
-    "charisma": "charisma",
-    # New canonical keys (Chinese) → English
+    # Chinese → English
     "物理强度": "physical_strength",
     "战场机动": "mobility",
     "生理耐受": "physiological_tolerance",
@@ -43,12 +34,6 @@ _ATTR_KEY_MAP = {
     "源石技艺适应性": "originium_arts_assimilation",
     "情绪稳定性": "emotional_stability",
     "魅力": "charisma",
-    # Old demo keys → new canonical keys
-    "strength": "physical_strength",
-    "agility": "mobility",
-    "endurance": "physiological_tolerance",
-    "intelligence": "tactical_planning",
-    "originium_arts": "originium_arts_assimilation",
 }
 
 _DEFAULT_ATTR = 5  # Standard adult baseline for missing attributes

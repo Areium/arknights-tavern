@@ -2,7 +2,6 @@
 
 import json
 import logging
-from typing import Any
 
 from .base import ProviderAdapter
 
@@ -49,6 +48,7 @@ class OpenAIAdapter(ProviderAdapter):
         tools: list[dict] | None = None,
         include_stream_options: bool = True,
         enable_thinking: bool = False,
+        reasoning_effort: str = "medium",
     ) -> dict:
         payload: dict = {
             "model": self.model,

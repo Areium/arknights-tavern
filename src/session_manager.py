@@ -35,7 +35,7 @@ def _get_registry() -> WikiManager:
     global _registry
     if _registry is None:
         _registry = WikiManager()
-        _registry.validate()
+        _registry.validate_imports()
     return _registry
 
 
@@ -43,11 +43,13 @@ class Session:
     """一个独立的对话会话。"""
 
     def __init__(self, session_id: str, llm_backend_manager: LLMBackendManager,
-                 name: str = "", mode: str = "free", wiki_manager=None):
+                 name: str = "", mode: str = "free", combat_mode: str = "narrative",
+                 wiki_manager=None):
         self.id = session_id
         mode_label = "剧情" if mode == "story" else "自由"
         self.name = name or f"{mode_label}对话"
         self.mode = mode  # "free" | "story"
+        self.combat_mode = combat_mode  # "narrative" | "tactical"，创建时选定，不可更改
         self.created_at = time.time()
         self._llm_backend = llm_backend_manager
 
@@ -66,6 +68,7 @@ class Session:
         self.scene_manager = SceneManager(
             self._llm, self.registry, overlay=self.overlay,
             wiki_manager=wiki_manager, session_context=self.wiki_context,
+            combat_mode=self.combat_mode,
         )
         self.environment = EnvironmentState()
         self.environment.load_default()
@@ -161,27 +164,33 @@ class Session:
             if usage.get(k):
                 self.total_usage[k] = self.total_usage.get(k, 0) + usage[k]
 
-    def start_combat(self, encounter_id: str, character_names: list[str] = None):
+    def start_combat(self, encounter_id: str, character_names: list[str] = None,
+                     character_metas: list[dict] = None, combat_params: dict = None):
         """启动会话战斗。"""
         from combat_session import CombatSession
-        if character_names is None:
+        if character_names is None and character_metas is None:
             character_names = self.scene_manager.get_scene_characters()
         combat = CombatSession(self.id)
-        combat.start(encounter_id, character_names=character_names)
+        combat.start(encounter_id, character_names=character_names,
+                     character_metas=character_metas, combat_params=combat_params)
         self.combat = combat
         return combat
 
     def get_memories(self) -> list[dict]:
         return list(self._memories)
 
-    def add_narration(self, narrative: str, user_action: str = ""):
+    def add_narration(self, narrative: str, user_action: str = "",
+                      dialogue_segments: list | None = None):
         """记录一轮叙述到持久化历史。"""
         self.narration_count += 1
-        self._narration_history.append({
+        entry = {
             "round": self.narration_count,
             "text": narrative[:1500] if narrative else "",
             "action": user_action,
-        })
+        }
+        if dialogue_segments:
+            entry["segments"] = dialogue_segments
+        self._narration_history.append(entry)
         self._save_memories()
 
     def update_narration(self, round_num: int, narrative: str):
@@ -413,7 +422,7 @@ class Session:
             "id": self.id,
             "name": self.name,
             "mode": self.mode,
-            "combat_mode": self.overlay.get_combat_mode(),
+            "combat_mode": self.combat_mode,
             "created_at": self.created_at,
             "usable": self.is_usable,
             "characters": self.scene_manager.get_scene_characters(),
@@ -452,7 +461,8 @@ class SessionManager:
         self._next_id = 0
         self._restore_sessions()
 
-    def create_session(self, name: str = "", mode: str = "free", plot_name: str = "") -> Session:
+    def create_session(self, name: str = "", mode: str = "free", plot_name: str = "",
+                        combat_mode: str = "narrative") -> Session:
         """创建新会话。"""
         session_id = self._generate_id()
         if not name:
@@ -471,7 +481,7 @@ class SessionManager:
                 counter += 1
                 name = f"{base}·{counter}"
         session = Session(session_id, self._llm_backend, name=name, mode=mode,
-                         wiki_manager=self._wiki_manager)
+                         combat_mode=combat_mode, wiki_manager=self._wiki_manager)
         with self._lock:
             self._sessions[session_id] = session
         self._save_session_meta(session)
@@ -481,15 +491,15 @@ class SessionManager:
 
     def _save_session_meta(self, session: Session):
         """保存会话元数据到 session.json。"""
-        self._save_session_meta_raw(session.id, session.mode, session.name, session.created_at)
+        self._save_session_meta_raw(session.id, session.mode, session.name, session.created_at,
+                                    session.combat_mode)
 
     def _restore_sessions(self):
         """从磁盘恢复会话元数据。
 
-        兼容三种情况：
+        兼容两种情况：
         1. {mode}/{id}/session.json 存在 → 直接读取
         2. {mode}/{id}/overrides.json 存在但 session.json 不存在 → 从目录结构推断
-        3. 旧版 {id}/overrides.json (无 mode 子目录) → 视为 free 模式
         """
         if not _SESSIONS_DIR.exists():
             return
@@ -511,12 +521,6 @@ class SessionManager:
                     meta = self._read_session_meta(session_dir, sid, mode)
                     if meta:
                         to_restore.append(meta)
-            elif (entry / "overrides.json").exists():
-                # 旧版：session 目录直接在 sessions/ 下，无 mode 子目录
-                sid = entry.name
-                meta = self._read_session_meta(entry, sid, "free")
-                if meta:
-                    to_restore.append(meta)
 
         for sid, mode, name, created_at in to_restore:
             try:
@@ -574,7 +578,8 @@ class SessionManager:
 
         return None
 
-    def _save_session_meta_raw(self, sid: str, mode: str, name: str, created_at: float):
+    def _save_session_meta_raw(self, sid: str, mode: str, name: str, created_at: float,
+                                combat_mode: str = "narrative"):
         """直接写入 session.json（不依赖 Session 对象）。"""
         session_file = _SESSIONS_DIR / mode / sid / "session.json"
         session_file.parent.mkdir(parents=True, exist_ok=True)
@@ -583,6 +588,7 @@ class SessionManager:
                 "id": sid,
                 "name": name,
                 "mode": mode,
+                "combat_mode": combat_mode,
                 "created_at": created_at,
             }, f, ensure_ascii=False, indent=2)
             f.write("\n")

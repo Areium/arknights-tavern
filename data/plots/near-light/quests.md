@@ -6,7 +6,7 @@ type: "quests"
 # 可检索条目
 character（data/characters/）：<临光>、<瑕光>、<砾>、<玛恩纳·临光>、<焰尾>、<托兰>、<佐菲娅>、<白金>、<血骑士>、<薇薇安娜>、<青金罗伊>、<青金莫妮克>、<玄铁大位>、<罗素>、<灰毫>、<野鬃>
 faction（data/factions/）：<商业联合会>、<监证会>、<无胄盟>、<红松骑士团>、<临光家族>、<罗德岛>
-location（environment/Location/）：<大骑士领卡瓦莱利亚基>、<大骑士领竞技场>、<工坊区>、<商业联合会总部>、<罗德岛临时办事处>
+location（data/environment/Location/）：<大骑士领卡瓦莱利亚基>、<大骑士领竞技场>、<工坊区>、<商业联合会总部>、<罗德岛临时办事处>
 item（data/items/）：<指挥官护甲>、<感染者合同数据>、<临光的旧铠甲>、<托兰的雇佣证明>、<商业联合会内部会议纪要>、<商业联合会内部清洗的证据>
 plot（data/plots/）：<near_light_aftermath>
 

@@ -47,6 +47,7 @@ class ProviderAdapter(ABC):
         tools: list[dict] | None = None,
         include_stream_options: bool = True,
         enable_thinking: bool = False,
+        reasoning_effort: str = "medium",
     ) -> dict:
         """Build the JSON request payload for a chat completion."""
         ...

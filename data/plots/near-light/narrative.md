@@ -6,7 +6,7 @@ type: "narrative"
 # 可检索条目
 character（data/characters/）：<临光>、<瑕光>、<砾>、<玛恩纳·临光>、<焰尾>、<托兰>、<佐菲娅>、<闪灵>、<白金>、<血骑士>、<薇薇安娜>、<逐魇骑士>、<青金罗伊>、<青金莫妮克>、<玄铁大位>、<罗素>
 faction（data/factions/）：<商业联合会>、<监证会>、<无胄盟>、<红松骑士团>、<临光家族>、<罗德岛>
-location（environment/Location/）：<大骑士领卡瓦莱利亚基>、<大骑士领竞技场>、<工坊区>、<商业联合会总部>
+location（data/environment/Location/）：<大骑士领卡瓦莱利亚基>、<大骑士领竞技场>、<工坊区>、<商业联合会总部>
 item（data/items/）：<感染者合同数据>、<临光的旧铠甲>
 
 # 剧情叙述：长夜临光

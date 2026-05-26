@@ -3,7 +3,10 @@
 """
 
 import json
+import logging
 from flask import jsonify, Response, stream_with_context
+
+logger = logging.getLogger(__name__)
 
 
 def json_error(message: str, status: int = 400):
@@ -36,3 +39,30 @@ def inject_memory_context(session, env_context: str) -> str:
     for m in recent_memories:
         lines.append(f"- 第{m['round_start']}-{m['round_end']}轮：{m['summary']}")
     return env_context + "\n".join(lines)
+
+
+def build_character_metas(session, doc_mgr):
+    """从 session overlay 和磁盘构建角色元数据列表，供战斗初始化使用。
+
+    对每个场景角色：加载角色文档 → 合并 session overlay 覆盖 →
+    返回合并后的 metadata 列表。
+    """
+    character_metas = []
+    character_names = session.scene_manager.get_scene_characters()
+
+    for name in character_names:
+        try:
+            doc = doc_mgr.read_document("characters", name)
+        except Exception:
+            logger.warning("Character doc not found: %s", name)
+            continue
+
+        merged_meta, _merged_content = session.overlay.apply_character_overrides(
+            name, doc["metadata"], doc.get("content", "")
+        )
+        character_metas.append(merged_meta)
+
+        if not session.overlay.has_character_overrides(name):
+            session.overlay.set_character_overrides(name, {})
+
+    return character_metas

@@ -49,7 +49,7 @@ class EnvironmentState:
         "记录", "信息", "情况", "程度", "水平",
     }
 
-    def __init__(self, data_dir: str = "environment"):
+    def __init__(self, data_dir: str = "data/environment"):
         self.data_dir = data_dir
         self.location = ""
         self.location_desc = ""
@@ -72,7 +72,7 @@ class EnvironmentState:
         self.load_weather("sunny")
 
     def load_location(self, name: str) -> bool:
-        """从 environment/Location/ 下加载地点描述及默认物品。
+        """从 data/environment/Location/ 下加载地点描述及默认物品。
 
         name 可以是文件名（含别名）或 frontmatter 中的 name 字段。
         支持实体文件夹（{name}/index.md）和传统 .md 文件。
@@ -119,20 +119,15 @@ class EnvironmentState:
 
     @staticmethod
     def _resolve_weather_path(data_dir: str, name: str) -> str | None:
-        """解析天气文件路径，优先实体文件夹再传统 .md 文件。"""
+        """解析天气文件路径（实体文件夹格式）。"""
         base = os.path.join(data_dir, "weather")
-        # 实体文件夹
         entity = os.path.join(base, name, "index.md")
         if os.path.isfile(entity):
             return entity
-        # 传统文件
-        legacy = os.path.join(base, f"{name}.md")
-        if os.path.isfile(legacy):
-            return legacy
         return None
 
     def load_weather(self, name: str) -> bool:
-        """从 environment/weather/ 加载天气描述。
+        """从 data/environment/weather/ 加载天气描述。
 
         name 可以是文件名(如 sunny)或 frontmatter name(如 晴天)。
         支持实体文件夹（{name}/index.md）和传统 .md 文件。
@@ -291,9 +286,7 @@ class EnvironmentState:
             meta = data.metadata
             content = data.content
 
-            fallback_name = os.path.basename(os.path.dirname(filepath)) \
-                if os.path.basename(filepath) == "index.md" \
-                else os.path.splitext(os.path.basename(filepath))[0]
+            fallback_name = os.path.basename(os.path.dirname(filepath))
             self.location = meta.get("name", fallback_name)
             self.location_desc = content
 
@@ -327,9 +320,7 @@ class EnvironmentState:
             meta = data.metadata
             content = data.content
             wtype = meta.get("weather_type", {})
-            fallback_name = os.path.basename(os.path.dirname(filepath)) \
-                if os.path.basename(filepath) == "index.md" \
-                else os.path.splitext(os.path.basename(filepath))[0]
+            fallback_name = os.path.basename(os.path.dirname(filepath))
             self.weather = wtype.get("name", fallback_name)
             self.weather_desc = content
             return True
@@ -416,7 +407,7 @@ class EnvironmentState:
         )
 
     def _list_locations(self) -> list[str]:
-        """递归扫描 environment/Location/ 下的地点（排除模板和索引）。
+        """递归扫描 data/environment/Location/ 下的地点（排除模板和索引）。
 
         支持实体文件夹和传统 .md 文件。
         """

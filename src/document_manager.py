@@ -704,32 +704,12 @@ class DocumentManager:
     def _resolve_path(self, category_id: str, doc_path: str) -> Optional[str]:
         """将 category_id + doc_path 解析为实际文件路径。
 
-        查找顺序：
-        1. 实体文件夹：{dir}/{doc_path}/index.md
-        2. 传统文件：{dir}/{doc_path}.md
-        3. 备用：basename 查找
+        使用实体文件夹格式：{dir}/{doc_path}/index.md
         """
         cat = self._categories.get(category_id)
         if not cat:
             return None
-
-        # 实体文件夹：目录/index.md
-        entity_path = os.path.join(cat.directory, doc_path, "index.md")
-        if os.path.isfile(entity_path):
-            return entity_path
-
-        # 传统文件：目录/名称.md
-        legacy_path = os.path.join(cat.directory, f"{doc_path}.md")
-        if os.path.isfile(legacy_path):
-            return legacy_path
-
-        # 备用：仅用 basename 查找
-        basename_path = os.path.join(cat.directory, f"{os.path.basename(doc_path)}.md")
-        if basename_path != legacy_path and os.path.isfile(basename_path):
-            return basename_path
-
-        # 返回实体路径（用于创建新文档等场景），fallback 到 legacy
-        return entity_path
+        return os.path.join(cat.directory, doc_path, "index.md")
 
     @staticmethod
     def _hash_file(filepath: str) -> str:

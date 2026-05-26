@@ -16,10 +16,11 @@ export default function SettingsPanel() {
     ollama_model: "",
     provider: "auto",
     enable_thinking: false,
+    reasoning_effort: "medium",
     auto_generate_choices: false,
     choice_count: 3,
     memory_interval: 5,
-    max_output_tokens: 2048,
+    max_output_tokens: 8192,
     edit_before_send: false,
     dialogue_bubble_mode: false,
   });
@@ -82,10 +83,11 @@ export default function SettingsPanel() {
         ollama_model: data.ollama_model || "",
         provider: data.provider || "auto",
         enable_thinking: data.enable_thinking || false,
+        reasoning_effort: data.reasoning_effort || "medium",
         auto_generate_choices: data.auto_generate_choices || false,
         choice_count: data.choice_count || 3,
         memory_interval: data.memory_interval || 5,
-        max_output_tokens: data.max_output_tokens ?? 2048,
+        max_output_tokens: data.max_output_tokens ?? 8192,
         edit_before_send: data.edit_before_send ?? false,
         dialogue_bubble_mode: data.dialogue_bubble_mode ?? false,
       });
@@ -111,6 +113,7 @@ export default function SettingsPanel() {
         ollama_model: config.ollama_model,
         provider: config.provider,
         enable_thinking: config.enable_thinking,
+        reasoning_effort: config.reasoning_effort,
         auto_generate_choices: config.auto_generate_choices,
         choice_count: config.choice_count,
         memory_interval: config.memory_interval,
@@ -363,17 +366,35 @@ export default function SettingsPanel() {
                 />
               </div>
               {config.provider === "deepseek" && (
-                <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={config.enable_thinking}
-                    onChange={(e) =>
-                      setConfig({ ...config, enable_thinking: e.target.checked })
-                    }
-                    className="rounded"
-                  />
-                  启用思考模式（reasoning_effort）
-                </label>
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={config.enable_thinking}
+                      onChange={(e) =>
+                        setConfig({ ...config, enable_thinking: e.target.checked })
+                      }
+                      className="rounded"
+                    />
+                    启用思考模式
+                  </label>
+                  {config.enable_thinking && (
+                    <div className="flex items-center gap-2 ml-6">
+                      <label className="text-xs text-gray-500 shrink-0">推理强度</label>
+                      <select
+                        className="input text-sm"
+                        value={config.reasoning_effort}
+                        onChange={(e) =>
+                          setConfig({ ...config, reasoning_effort: e.target.value })
+                        }
+                      >
+                        <option value="low">低（快速）</option>
+                        <option value="medium">中（均衡）</option>
+                        <option value="high">高（深度）</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
               )}
               <button
                 type="button"
@@ -478,21 +499,21 @@ export default function SettingsPanel() {
                 <input
                   type="number"
                   min={256}
-                  max={8192}
+                  max={16384}
                   step={256}
                   value={config.max_output_tokens}
                   onChange={(e) =>
                     setConfig({
                       ...config,
-                      max_output_tokens: Math.max(256, Math.min(8192, parseInt(e.target.value) || 2048)),
+                      max_output_tokens: Math.max(256, Math.min(16384, parseInt(e.target.value) || 8192)),
                     })
                   }
                   className="input text-sm w-24 text-center"
                 />
-                <span className="text-xs text-gray-500">token（256-8192）</span>
+                <span className="text-xs text-gray-500">token（256-16384）</span>
               </div>
               <p className="text-xs text-gray-600 mt-1">
-                控制每次 LLM 叙述输出的最大 token 数，值越大叙述越详细
+                安全上限：LLM 按 prompt 引导自然收尾，仅在超出此值时硬截断
               </p>
               <div className="border-t border-gray-700/50 pt-2 mt-2">
                 <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">

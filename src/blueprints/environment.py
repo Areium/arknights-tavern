@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 # Project root from inside blueprints/ is two levels up → src/
 _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_REPO_ROOT = Path(_project_root).parent  # repo root for data/ and environment/ access
+_REPO_ROOT = Path(_project_root).parent  # repo root for data/ access
 
 # 时间预设列表
 _TIME_PRESETS = ["清晨", "上午", "中午", "下午", "傍晚", "夜晚", "深夜"]
@@ -83,7 +83,7 @@ def register(app, managers):
     @bp.route("/api/environment/presets", methods=["GET"])
     def environment_presets():
         """扫描环境预设（地点、天气、时间）并返回可用选项。"""
-        env_root = _REPO_ROOT / "environment"
+        env_root = _REPO_ROOT / "data" / "environment"
 
         # 扫描地点
         locations: list[dict] = []

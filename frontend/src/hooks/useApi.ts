@@ -62,10 +62,11 @@ export function useApi() {
     // ── 会话 ──
     listSessions: () => request<any[]>("/api/sessions"),
     listPlots: () => request<any[]>("/api/plots"),
-    createSession: (mode: "free" | "story" = "free", name = "", plotId = "") =>
+    createSession: (mode: "free" | "story" = "free", name = "", plotId = "",
+      combatMode: "narrative" | "tactical" = "narrative") =>
       request<any>("/api/sessions", {
         method: "POST",
-        body: JSON.stringify({ mode, name, plot_id: plotId }),
+        body: JSON.stringify({ mode, name, plot_id: plotId, combat_mode: combatMode }),
       }),
     getSession: (id: string) => request<any>(`/api/sessions/${id}`),
     deleteSession: (id: string) =>
@@ -398,12 +399,6 @@ export function useApi() {
       ),
 
     // ── Combat ──
-    setCombatMode: (sessionId: string, mode: "narrative" | "tactical") =>
-      request<any>(`/api/sessions/${sessionId}/combat-mode`, {
-        method: "PUT",
-        body: JSON.stringify({ mode }),
-      }),
-
     combatStart: (sessionId: string, encounterId: string, characters: string[]) =>
       request<any>(`/api/sessions/${sessionId}/combat/start`, {
         method: "POST",
@@ -435,6 +430,12 @@ export function useApi() {
         method: "POST",
         body: JSON.stringify(data),
       }),
+
+    combatAbandon: (sessionId: string) =>
+      request<{ message: string; auto_narrate_action: string }>(
+        `/api/sessions/${sessionId}/combat/abandon`,
+        { method: "POST" },
+      ),
 
     // ── Combat Test (no session required) ──
     combatTestStart: (encounterId?: string) =>
@@ -541,6 +542,7 @@ function connectCombatSSE(
   }
 ): { close: () => void } {
   let closed = false;
+  const controller = new AbortController();
 
   async function connect() {
     const base = await getBaseUrl();
@@ -549,6 +551,7 @@ function connectCombatSSE(
     try {
       const res = await fetch(url, {
         headers: { "Accept": "text/event-stream" },
+        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -601,6 +604,7 @@ function connectCombatSSE(
   return {
     close: () => {
       closed = true;
+      controller.abort();
     },
   };
 }
@@ -623,11 +627,11 @@ function connectSSE(
   }
 ): { close: () => void } {
   let closed = false;
+  const controller = new AbortController();
 
   async function connect() {
     const base = await getBaseUrl();
     const url = `${base}${path}`;
-    const controller = new AbortController();
 
     try {
       const init: RequestInit = {
@@ -721,6 +725,7 @@ function connectSSE(
   return {
     close: () => {
       closed = true;
+      controller.abort();
     },
   };
 }

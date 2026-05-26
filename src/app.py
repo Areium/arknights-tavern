@@ -56,7 +56,6 @@ def create_app():
     from blueprints.wiki import register as reg_wiki
     from blueprints.environment import register as reg_environment
     from blueprints.assets import register as reg_assets
-    from blueprints.legacy import register as reg_legacy
     from blueprints.memories import register as reg_memories
 
     for reg in [
@@ -71,7 +70,6 @@ def create_app():
         reg_wiki,
         reg_environment,
         reg_assets,
-        reg_legacy,
         reg_memories,
     ]:
         reg(app, managers)
@@ -82,7 +80,7 @@ def create_app():
     return app
 
 
-# ── 向后兼容：模块级 app 变量 ──
+# ── 模块级 app 变量 ──
 app = create_app()
 
 

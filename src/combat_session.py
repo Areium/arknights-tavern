@@ -9,6 +9,7 @@ import queue
 import logging
 import os
 import sys
+import time
 import random
 from typing import Optional
 
@@ -39,13 +40,15 @@ class CombatSession:
         self.event_queue: queue.Queue[CombatEvent] = queue.Queue()
         self._character_metas: list[dict] = []
         self._encounter_id: str = ""
+        self.last_activity_at: float = time.time()
 
     # ── Setup ──
 
     def start(self, encounter_id: str,
               character_names: list[str] = None,
               character_metas: list[dict] = None,
-              enemies_override: list[dict] = None) -> dict:
+              enemies_override: list[dict] = None,
+              combat_params: dict = None) -> dict:
         """Initialize a battle from an encounter definition and character list.
 
         Args:
@@ -54,6 +57,9 @@ class CombatSession:
             character_metas: List of character metadata dicts (takes precedence over names)
             enemies_override: Optional list of {name, count, positions} dicts.
                               When provided, replaces encounter waves.
+            combat_params: Optional dict with narrative-driven combat modifiers.
+                           Supported keys:
+                           - status_effects: {name: {hp_penalty, atk_bonus, def_penalty}}
 
         Returns:
             dict: Initial combat state snapshot.
@@ -84,6 +90,10 @@ class CombatSession:
         for i, meta in enumerate(self._character_metas):
             unit = CombatUnit.from_character_metadata(meta, team="player")
             char_class = unit.char_class
+
+            # Apply narrative-driven status effects
+            if combat_params:
+                self._apply_status_effects(unit, combat_params)
 
             # Use class card pool; fall back to 辅助
             cards = get_starting_deck(char_class, count=7)
@@ -146,6 +156,56 @@ class CombatSession:
         except Exception as e:
             logger.error("Failed to load character %s: %s", name, e)
             return None
+
+    @staticmethod
+    def _clamp_penalty(value: float) -> float:
+        """Clamp a penalty value to [0, 1). Values > 1 are treated as percentages."""
+        if value >= 1:
+            value = value / 100.0
+        return max(0.0, min(value, 0.99))
+
+    @staticmethod
+    def _clamp_bonus(value: float) -> float:
+        """Clamp a bonus value to [-1, 5]."""
+        return max(-1.0, min(value, 5.0))
+
+    def _apply_status_effects(self, unit, combat_params: dict) -> None:
+        """Apply narrative-driven status effects to a combat unit."""
+        status_effects = combat_params.get("status_effects", {})
+        if not status_effects:
+            return
+
+        unit_name = unit.name
+        if unit_name not in status_effects:
+            return
+
+        effects = status_effects[unit_name]
+        if not isinstance(effects, dict):
+            return
+
+        hp_penalty = effects.get("hp_penalty")
+        if hp_penalty is not None:
+            penalty = self._clamp_penalty(float(hp_penalty))
+            new_hp = max(1, int(unit.hp * (1 - penalty)))
+            logger.info("Combat status: %s hp_penalty=%.2f, HP %d → %d",
+                        unit_name, penalty, unit.hp, new_hp)
+            unit.max_hp = max(1, int(unit.max_hp * (1 - penalty)))
+            unit.hp = new_hp
+
+        atk_bonus = effects.get("atk_bonus")
+        if atk_bonus is not None:
+            bonus = self._clamp_bonus(float(atk_bonus))
+            unit.PATK = max(0, int(unit.PATK * (1 + bonus)))
+            unit.MATK = max(0, int(unit.MATK * (1 + bonus)))
+            logger.info("Combat status: %s atk_bonus=%.2f, PATK=%.0f MATK=%.0f",
+                        unit_name, bonus, unit.PATK, unit.MATK)
+
+        def_penalty = effects.get("def_penalty")
+        if def_penalty is not None:
+            penalty = self._clamp_penalty(float(def_penalty))
+            unit.DEF = max(0, int(unit.DEF * (1 - penalty)))
+            logger.info("Combat status: %s def_penalty=%.2f, DEF=%d",
+                        unit_name, penalty, unit.DEF)
 
     # ── Event handling ──
 
@@ -234,6 +294,7 @@ class CombatSession:
             logger.exception("Error executing action")
             return {"ok": False, "error": str(e)}
 
+        self.last_activity_at = time.time()
         return {"ok": True, "state": self.get_state()}
 
     def end_turn(self) -> dict:
@@ -246,6 +307,7 @@ class CombatSession:
 
         self.engine.end_player_round()
         self._flush_engine_events()
+        self.last_activity_at = time.time()
 
         return {"ok": True, "state": self.get_state()}
 

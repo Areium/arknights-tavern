@@ -12,7 +12,7 @@ from pathlib import Path
 
 from flask import Blueprint, jsonify, request
 
-from shared.helpers import json_error, make_sse_response
+from shared.helpers import json_error, make_sse_response, build_character_metas
 
 logger = logging.getLogger(__name__)
 
@@ -37,33 +37,6 @@ def _load_combat_test_config() -> dict:
         raise ValueError("战斗测试配置文件不存在: data/plots/combat-test/index.md")
     with open(plot_path, "r", encoding="utf-8") as f:
         return dict(frontmatter.load(f).metadata)
-
-
-def _build_character_metas(session, doc_mgr):
-    """Build character_metas list from session overlay and disk for combat start."""
-    import frontmatter
-
-    character_metas = []
-    character_names = session.scene_manager.get_scene_characters()
-
-    for name in character_names:
-        try:
-            doc = doc_mgr.read_document("characters", name)
-        except Exception:
-            logger.warning("Character doc not found: %s", name)
-            continue
-
-        # Merge with session overrides
-        merged_meta, _merged_content = session.overlay.apply_character_overrides(
-            name, doc["metadata"], doc.get("content", "")
-        )
-        character_metas.append(merged_meta)
-
-        # Ensure overlay entry exists so edits persist
-        if not session.overlay.has_character_overrides(name):
-            session.overlay.set_character_overrides(name, {})
-
-    return character_metas
 
 
 def _build_sse_generator(combat, stream_prefix="combat"):
@@ -91,6 +64,42 @@ def _build_sse_generator(combat, stream_prefix="combat"):
                 yield f"data: {json.dumps({'type': 'heartbeat', 'data': {}}, ensure_ascii=False)}\n\n"
 
     return generate
+
+
+def _check_combat_timeout(session, timeout: int = 600):
+    """Check if a combat session has timed out. Returns error response or None.
+
+    When a combat times out, the engine is stopped, a battle_end event is pushed
+    to wake the SSE generator, and session.combat is cleared.
+    """
+    if not session.combat:
+        return None
+    combat = session.combat
+    if not hasattr(combat, 'last_activity_at'):
+        return None
+    if time.time() - combat.last_activity_at <= timeout:
+        return None
+
+    encounter_id = getattr(combat, '_encounter_id', '未知')
+    logger.warning("会话 %s: 战斗超时 (encounter=%s, idle=%.0fs)",
+                   getattr(session, 'id', '?'), encounter_id,
+                   time.time() - combat.last_activity_at)
+
+    # Stop the engine and wake the SSE generator
+    if combat.engine:
+        combat.engine.state.phase = "END"
+        try:
+            _Event = type("_CombatEvent", (), {})
+            ev = _Event()
+            ev.type = "battle_end"
+            ev.data = {"winner": "timeout", "reason": "战斗超时"}
+            combat.event_queue.put_nowait(ev)
+        except Exception:
+            pass
+
+    session.combat = None
+    session.scene_manager._log_event(f"⚔ 战斗超时：遭遇战「{encounter_id}」")
+    return json_error("战斗已超时，请重新开始", 410)
 
 
 def register(app, managers):
@@ -122,7 +131,7 @@ def register(app, managers):
         enemy_overrides = data.get("enemy_overrides")
 
         # Build character metas with overlay merge
-        character_metas = _build_character_metas(session, doc_mgr)
+        character_metas = build_character_metas(session, doc_mgr)
         if not character_metas:
             return json_error("没有可用角色，请先加载角色到场景中", 400)
 
@@ -165,6 +174,10 @@ def register(app, managers):
         if not session.combat:
             return json_error("没有进行中的战斗", 404)
 
+        err = _check_combat_timeout(session)
+        if err:
+            return err
+
         return jsonify(session.combat.get_state())
 
     @bp.route("/api/sessions/<session_id>/combat/action", methods=["POST"])
@@ -179,6 +192,10 @@ def register(app, managers):
 
         if not session.combat:
             return json_error("没有进行中的战斗", 404)
+
+        err = _check_combat_timeout(session)
+        if err:
+            return err
 
         data = request.json or {}
         result = session.combat.handle_action(data)
@@ -197,6 +214,10 @@ def register(app, managers):
 
         if not session.combat:
             return json_error("没有进行中的战斗", 404)
+
+        err = _check_combat_timeout(session)
+        if err:
+            return err
 
         result = session.combat.end_turn()
 
@@ -221,12 +242,21 @@ def register(app, managers):
         if "combat_history" not in overlay_data:
             overlay_data["combat_history"] = []
 
-        overlay_data["combat_history"].append({
+        # Accept frontend-submitted details (survivors, character_stats)
+        req_data = request.json or {}
+
+        history_entry = {
             "encounter_id": combat_data.get("encounter_id", ""),
             "result": combat_data.get("engine_state", {}).get("winner", ""),
             "rounds": combat_data.get("engine_state", {}).get("round_num", 0),
             "timestamp": time.time(),
-        })
+        }
+        # Store additional details from frontend
+        for key in ("survivors", "character_stats"):
+            if key in req_data:
+                history_entry[key] = req_data[key]
+
+        overlay_data["combat_history"].append(history_entry)
 
         # Keep only the last 20 entries
         if len(overlay_data["combat_history"]) > 20:
@@ -246,9 +276,56 @@ def register(app, managers):
 
         session.combat = None
 
+        # Generate auto-narrate action for frontend
+        auto_narrate_action = f"战斗结束，{result_desc}获胜，描述战斗后的场景"
+
         logger.info("会话 %s: 战斗结果已记录 (winner=%s, rounds=%d)",
                      session_id, winner, round_num)
-        return jsonify({"message": "战斗已结束", "history": combat_history})
+        return jsonify({
+            "message": "战斗已结束",
+            "history": combat_history,
+            "auto_narrate_action": auto_narrate_action,
+        })
+
+    # ── Combat abandon ──
+
+    @bp.route("/api/sessions/<session_id>/combat/abandon", methods=["POST"])
+    def combat_abandon(session_id: str):
+        """Abandon the active combat and return to dialogue."""
+        session = _get_session(session_mgr, session_id)
+        if not session:
+            return json_error("会话不存在", 404)
+
+        if not session.combat:
+            return json_error("没有进行中的战斗", 404)
+
+        combat = session.combat
+        encounter_id = getattr(combat, '_encounter_id', '未知')
+
+        # Push battle_end event to wake up the SSE generator immediately
+        # (otherwise it blocks on event_queue.get(timeout=30) for up to 30s)
+        if combat.engine:
+            combat.engine.state.phase = "END"
+            combat.engine.state.winner = "abandoned"
+            try:
+                _Event = type("_CombatEvent", (), {})
+                ev = _Event()
+                ev.type = "battle_end"
+                ev.data = {"winner": "abandoned", "reason": "战斗已放弃"}
+                combat.event_queue.put_nowait(ev)
+            except Exception:
+                pass
+
+        session.combat = None
+
+        result_text = f"⚔ 战斗已放弃：遭遇战「{encounter_id}」"
+        session.scene_manager._log_event(result_text)
+
+        logger.info("会话 %s: 战斗已放弃 (encounter=%s)", session_id, encounter_id)
+        return jsonify({
+            "message": "战斗已放弃",
+            "auto_narrate_action": "战斗已放弃，描述当前场景",
+        })
 
     @bp.route("/api/sessions/<session_id>/combat/events")
     def combat_events(session_id: str):
@@ -260,21 +337,6 @@ def register(app, managers):
             return make_sse_response(error_stream)
 
         return make_sse_response(_build_sse_generator(session.combat, stream_prefix="combat"))
-
-    @bp.route("/api/sessions/<session_id>/combat-mode", methods=["PUT"])
-    def combat_mode(session_id: str):
-        """Toggle session combat mode between narrative and tactical."""
-        session = _get_session(session_mgr, session_id)
-        if not session:
-            return json_error("会话不存在", 404)
-
-        data = request.json or {}
-        mode = data.get("mode", "")
-        if mode not in ("narrative", "tactical"):
-            return json_error("无效的战斗模式，可选值: narrative, tactical", 400)
-
-        session.overlay.set_combat_mode(mode)
-        return jsonify({"combat_mode": mode, "session_id": session_id})
 
     # ══════════════════════════════════════════════════════
     # Test Combat

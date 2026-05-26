@@ -266,10 +266,8 @@ def register(app, managers):
             return json_error(f"物品没有覆盖数据: {item_id}")
         return jsonify({"message": "已还原为模板"})
 
-    app.register_blueprint(bp)
-
     # 角色头像
-    @app.route("/api/characters/<name>/avatar")
+    @bp.route("/api/characters/<name>/avatar")
     def character_avatar(name: str):
         path = find_avatar_path(name)
         if not path:
@@ -279,7 +277,7 @@ def register(app, managers):
         return send_from_directory(directory, basename)
 
     # 角色立绘
-    @app.route("/api/characters/<name>/skin")
+    @bp.route("/api/characters/<name>/skin")
     def character_skin(name: str):
         from avatar_color import find_skin_path
         path = find_skin_path(name)
@@ -288,3 +286,5 @@ def register(app, managers):
         directory = os.path.dirname(path)
         basename = os.path.basename(path)
         return send_from_directory(directory, basename)
+
+    app.register_blueprint(bp)

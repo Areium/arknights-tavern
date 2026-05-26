@@ -64,9 +64,9 @@ data/
                     └──────────────┘
 
                     ┌──────────────┐
-                    │  environment/ │  ← 项目根目录下的环境数据（经 categories.yaml 注册）
+                    │  environment/ │  ← 环境数据（经 categories.yaml 注册）
                     │  Location/   │      locations / weather 由 SceneManager 管理
-                    │  weather/    │      不在 data/ 内但通过 categories.yaml 注册到系统
+                    │  weather/    │      位于 data/ 内，通过 categories.yaml 注册到系统
                     └──────────────┘
 
                     ┌──────────────┐

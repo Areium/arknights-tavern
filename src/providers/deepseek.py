@@ -33,6 +33,7 @@ class DeepSeekAdapter(OpenAIAdapter):
         tools: list[dict] | None = None,
         include_stream_options: bool = True,
         enable_thinking: bool = False,
+        reasoning_effort: str = "",
     ) -> dict:
         payload = super().build_payload(
             messages=messages,
@@ -42,9 +43,10 @@ class DeepSeekAdapter(OpenAIAdapter):
             tools=tools,
             include_stream_options=include_stream_options,
             enable_thinking=enable_thinking,
+            reasoning_effort=reasoning_effort,
         )
         if enable_thinking:
-            payload["reasoning_effort"] = self.DEFAULT_REASONING_EFFORT
-            logger.info("DeepSeek thinking mode enabled (reasoning_effort=%s)",
-                        self.DEFAULT_REASONING_EFFORT)
+            effort = reasoning_effort or self.DEFAULT_REASONING_EFFORT
+            payload["reasoning_effort"] = effort
+            logger.info("DeepSeek thinking mode enabled (reasoning_effort=%s)", effort)
         return payload

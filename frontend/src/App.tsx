@@ -125,7 +125,13 @@ export default function App() {
     <div className="h-screen w-screen flex flex-col overflow-hidden">
       <div className="flex flex-1 overflow-hidden">
         <Sidebar />
-        <main className="flex-1 overflow-auto">{renderView()}</main>
+        <main className="flex-1 overflow-auto">
+          {/* ChatView is always mounted to preserve SSE streams during navigation */}
+          <div style={{ display: currentView === "chat" ? undefined : "none", height: "100%" }}>
+            <ChatView />
+          </div>
+          {currentView !== "chat" && renderView()}
+        </main>
       </div>
       <StatusBar />
     </div>

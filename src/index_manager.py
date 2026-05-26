@@ -38,11 +38,8 @@ def _cache_valid() -> bool:
 def read_imports_from_file(filepath: str) -> list:
     """从单个文档 frontmatter 提取 imports 依赖路径列表。
 
-    支持两种格式：
-    - imports: [characters/博士, factions/罗德岛]      # 新格式
-    - index_refs: {characters: [博士], factions: [罗德岛]}  # 旧格式
-
-    同时存在时两种合并。
+    支持格式：
+    - imports: [characters/博士, factions/罗德岛]
     """
     try:
         with open(filepath, "r", encoding="utf-8") as f:
@@ -53,22 +50,12 @@ def read_imports_from_file(filepath: str) -> list:
     fm = post.metadata
     dep_paths = []
 
-    # 新格式
     imports_raw = fm.get("imports", [])
     if isinstance(imports_raw, list):
         for item in imports_raw:
             if isinstance(item, str) and item.strip():
                 path, _ = parse_import_entry(item.strip())
                 dep_paths.append(path)
-
-    # 旧格式
-    index_refs = fm.get("index_refs", {})
-    if isinstance(index_refs, dict):
-        for ref_cat, ref_ids in index_refs.items():
-            if isinstance(ref_ids, list):
-                for ref_id in ref_ids:
-                    if isinstance(ref_id, str) and ref_id.strip():
-                        dep_paths.append(f"{ref_cat}/{ref_id.strip()}")
 
     return dep_paths
 
@@ -158,20 +145,6 @@ def _scan_docs_in_category(category_dir: str) -> list[dict]:
                 })
             except Exception:
                 continue
-        else:
-            # 兼容传统单文件模式
-            legacy = os.path.join(category_dir, f"{item}.md")
-            if os.path.isfile(legacy):
-                try:
-                    with open(legacy, "r", encoding="utf-8") as f:
-                        fm_data = frontmatter.load(f)
-                    docs.append({
-                        "id": item,
-                        "name": fm_data.metadata.get("name", item),
-                        "path": legacy,
-                    })
-                except Exception:
-                    continue
     return docs
 
 

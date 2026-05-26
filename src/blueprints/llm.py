@@ -38,9 +38,9 @@ def register(app, managers):
             return json_error(f"未找到端点: {endpoint_id}", 404)
 
         llm_backend._primary = target
-        llm_backend._fallback = [
-            ep for ep in endpoints if ep.id != endpoint_id
-        ]
+        llm_backend._fallback = next(
+            (ep for ep in endpoints if ep.id != endpoint_id), None
+        )
         return jsonify(llm_backend.get_status())
 
     @bp.route("/api/llm/config", methods=["GET"])

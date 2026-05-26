@@ -30,12 +30,14 @@ class SceneManager:
     # 场景日志保留上限
     _MAX_SCENE_LOG = 20
 
-    def __init__(self, llm, registry, overlay=None, wiki_manager=None, session_context=None):
+    def __init__(self, llm, registry, overlay=None, wiki_manager=None, session_context=None,
+                 combat_mode: str = "narrative"):
         self._llm = llm
         self._registry = registry
         self._overlay = overlay  # SessionOverlay instance
         self._wiki_manager = wiki_manager
         self._session_context = session_context
+        self._combat_mode = combat_mode
 
         # {name: CharacterAgent}
         self._agents: dict[str, CharacterAgent] = {}
@@ -308,7 +310,7 @@ class SceneManager:
 1. 用第三人称叙述场景的进展，描写环境、角色的动作和表情
 2. 角色对话用「」标注，自然地融入叙述中
 3. 叙述生动但克制，不代替玩家做决定，不替玩家说话
-4. 每次叙述控制在 {word_limit} 字以内，保留悬念和继续的空间
+4. 每次叙述目标约 {word_limit} 字，在自然段落处收尾，不必填满字数限制，也允许稍有超出
 5. 如果是继续之前的对话，保持对话的连贯性
 6. 推进到当前场景的自然结束点时，在叙述末尾输出 [BEAT_COMPLETE]
 
@@ -318,7 +320,7 @@ class SceneManager:
     def _build_system_prompt(max_tokens: int | None, structured: bool = False,
                              choices_count: int = 0) -> str:
         """根据 max_tokens 构建系统提示词，动态调整软约束字数。"""
-        mt = max_tokens if max_tokens else 4096
+        mt = max_tokens if max_tokens else 8192
         word_limit = max(200, mt // 2)
         template = SceneManager._NARRATOR_SYSTEM_STRUCTURED if structured else SceneManager._NARRATOR_SYSTEM
         prompt = template.format(word_limit=word_limit)
@@ -339,7 +341,7 @@ class SceneManager:
 1. 用第三人称叙述场景的进展，描写环境、角色的动作和表情
 2. 叙述中的角色对话必须使用「」标注，严禁在 JSON 文本值中使用英文双引号 " 标注对话，因为这会破坏 JSON 结构
 3. 叙述生动但克制，不代替玩家做决定，不替玩家说话
-4. 每次叙述控制在 {word_limit} 字以内，保留悬念和继续的空间
+4. 每次叙述目标约 {word_limit} 字，在自然段落处收尾，不必填满字数限制，也允许稍有超出
 5. 如果是继续之前的对话，保持对话的连贯性
 6. 推进到当前场景的自然结束点时，在叙述末尾输出 [BEAT_COMPLETE]
 
@@ -354,10 +356,12 @@ speaker 必须从【场景角色】列表中选择。无法判断说话人时用
 
     @staticmethod
     def _build_conversation_history(history: list[dict],
-                                     max_chars: int = 3000) -> str:
+                                     max_chars: int = 3000,
+                                     structured: bool = False) -> str:
         """将最近对话历史格式化为提示词可注入的文本。
 
         从最近的轮次往前取，直到达到 max_chars 上限。
+        当 structured=True 时，优先使用历史中存储的 JSON 片段作为格式示例。
         """
         if not history:
             return ""
@@ -370,7 +374,11 @@ speaker 必须从【场景角色】列表中选择。无法判断说话人时用
             if entry.get("action"):
                 line += f" — 玩家: {entry['action']}"
             if entry.get("text"):
-                line += f"\n叙述: {entry['text']}"
+                if structured and entry.get("segments"):
+                    segments_json = json.dumps(entry["segments"], ensure_ascii=False)
+                    line += f"\n叙述(JSON): {segments_json}"
+                else:
+                    line += f"\n叙述: {entry['text']}"
             if total + len(line) > max_chars and parts:
                 break
             parts.append(line)
@@ -480,10 +488,7 @@ speaker 必须从【场景角色】列表中选择。无法判断说话人时用
                 context_parts.append(catalog)
 
         # 8. 战斗模式上下文
-        combat_mode = "narrative"
-        if self._overlay:
-            combat_mode = self._overlay.get_combat_mode()
-        if combat_mode == "narrative":
+        if self._combat_mode == "narrative":
             combat_instruction = (
                 "\n【战斗模式：叙事】如场景中出现战斗，通过剧情描述和关键判定推进，"
                 "不展示 HP/SP 等数值，提供有叙事含义的战术选项。"
@@ -495,7 +500,12 @@ speaker 必须从【场景角色】列表中选择。无法判断说话人时用
                 f"在叙述文本末尾输出单独一行：[COMBAT:遭遇ID]。"
                 f"可用遭遇：{encounter_str}。"
                 f"选择最匹配剧情的遭遇，如无匹配使用第一个。"
-                f"正常叙述中不要提到HP/SP数值，战斗系统会单独处理。"
+                f"正常叙述中不要提到HP/SP数值，战斗系统会单独处理。\n"
+                f"可选：在遭遇ID后附加 JSON 参数来描述叙事中的角色状态，"
+                f"例如：[COMBAT:初遇整合运动 {{\"status_effects\":{{\"阿米娅\":{{\"hp_penalty\":0.3,\"atk_bonus\":0.2}}}}}}]。"
+                f"status_effects 中可选的 key 为角色名，value 支持："
+                f"hp_penalty（HP降低比例,0~1）、atk_bonus（攻击加成比例）、def_penalty（防御降低比例,0~1）。"
+                f"JSON 参数是可选的，不传则使用默认属性。"
             )
         context_parts.append(combat_instruction)
 
