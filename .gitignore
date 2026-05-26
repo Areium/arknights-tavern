@@ -9,3 +9,5 @@ venv/
 .DS_Store
 .dev-pids
 assets/.vite
+.vite/
+scripts/data/memory/
