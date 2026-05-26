@@ -3,12 +3,9 @@ __pycache__/
 logs/
 .history/
 data/memory/
-src/data/
 config/llm_config.json
 venv/
 .venv/
-CLAUDE.md
 .DS_Store
 .dev-pids
 assets/.vite
-logs/
