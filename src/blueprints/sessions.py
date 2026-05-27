@@ -180,7 +180,7 @@ def register(app, managers):
     def list_plots():
         """列出所有可用剧情（从 data/plots/ 子目录扫描）。"""
         plots_dir = _REPO_ROOT / "data" / "plots"
-        if not plots_dir.is_file():
+        if not plots_dir.is_dir():
             return jsonify([])
 
         plots = []

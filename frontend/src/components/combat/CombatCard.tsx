@@ -31,6 +31,11 @@ const DMG_ICON_COLORS: Record<string, string> = {
   healing: "text-dmg-healing", mixed: "text-dmg-mixed",
 };
 
+const DMG_TEXT_COLORS: Record<string, string> = {
+  physical: "text-dmg-physical", arts: "text-dmg-arts",
+  healing: "text-dmg-healing", mixed: "text-dmg-mixed",
+};
+
 function cardArtGradient(cardId: string, damageType: string): string {
   const hash = cardId.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
   const hue1 = (hash * 37) % 360;
@@ -47,6 +52,15 @@ const CLASS_DOT_COLORS: Record<string, string> = {
   "狙击": "#3c8c4a", "术师": "#8b5ca8", "医疗": "#5c9a8b",
   "辅助": "#c4a83c", "特种": "#6b5c8a",
 };
+
+function renderStars(tier: string) {
+  const filled = tier === "elite" ? 3 : 1;
+  return Array.from({ length: 5 }, (_, i) => (
+    <span className={i < filled ? "text-yellow-400 text-[10px]" : "text-gray-700 text-[10px] star-empty"} key={i}>
+      ★
+    </span>
+  ));
+}
 
 export default function CombatCard({ card, index, affordable, selected, highlighted, skinUrl, skinCrop, playing, onClick, onDragStart, onDragEnd }: Props) {
   const classKey = CLASS_CSS[card.class_required] || "";
@@ -80,6 +94,17 @@ export default function CombatCard({ card, index, affordable, selected, highligh
 
   const classDotColor = CLASS_DOT_COLORS[card.class_required] || "#6b6b80";
   const showWatermark = !hasSkin;
+  const dmgColorClass = DMG_TEXT_COLORS[card.damage_type] || "text-dmg-physical";
+  const isHealing = card.damage_type === "healing";
+  const damageFormula = `基础${isHealing ? "治疗" : "伤害"} ${card.min_damage}-${card.max_damage} + 攻击力 × ${card.atk_scale.toFixed(1)}`;
+
+  const targetLabel = card.target === "SINGLE" ? "单体" :
+    card.target === "ADJACENT" ? "邻接" :
+    card.target === "CROSS" ? "十字" :
+    card.target === "LINE_3" ? "直线" :
+    card.target === "ROW" ? "整行" :
+    card.target;
+  const rangeLabel = card.range < 0 ? "全图" : `${card.range}格`;
 
   return (
     <button
@@ -90,13 +115,24 @@ export default function CombatCard({ card, index, affordable, selected, highligh
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      {/* Card art area */}
-      <div className="card-art-area w-full h-[80px] relative" style={hasSkin ? {} : { background: artBg }}>
+      {/* 头部：稀有度 + 职业 */}
+      <div className="card-header-bar">
+        <div className="card-rarity-stars">{renderStars(card.tier)}</div>
+        <div className="flex items-center gap-1 text-[10px] text-gray-500">
+          <span className="inline-block w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: classDotColor }} />
+          <span>{card.class_required === "any" ? "通用" : card.class_required}</span>
+          {card.owner && <span className="text-combat-gold">@{card.owner}</span>}
+        </div>
+      </div>
+
+      {/* 卡面（120px） */}
+      <div className="card-art-area w-full h-[120px] relative" style={hasSkin ? {} : { background: artBg }}>
         {hasSkin && skinCrop ? (
           <div className="card-art-crop">
             <img
               src={skinUrl}
               alt=""
+              draggable={false}
               style={{
                 position: "absolute",
                 left: `${-(skinCrop.x / skinCrop.w) * 100}%`,
@@ -111,6 +147,7 @@ export default function CombatCard({ card, index, affordable, selected, highligh
           <img
             src={skinUrl}
             alt=""
+            draggable={false}
             className="card-art-cover"
             onError={() => setImgError(true)}
           />
@@ -118,9 +155,6 @@ export default function CombatCard({ card, index, affordable, selected, highligh
         <span className={`absolute top-1 right-1 text-[10px] font-bold ${DMG_ICON_COLORS[card.damage_type] || "text-gray-400"}`}>
           {DMG_LABELS[card.damage_type]?.charAt(0) || "?"}
         </span>
-        {card.tier === "elite" && (
-          <span className="absolute top-1 left-7 text-yellow-400 text-sm">★</span>
-        )}
         {showWatermark && (
           <span className="text-gray-600 text-[9px] font-mono opacity-30 rotate-[-30deg] select-none absolute inset-0 flex items-center justify-center">
             {card.name.length > 4 ? card.name.slice(0, 2) : card.name}
@@ -128,7 +162,7 @@ export default function CombatCard({ card, index, affordable, selected, highligh
         )}
       </div>
 
-      {/* Card info */}
+      {/* 信息区 */}
       <div className="p-2 pt-1">
         <div className="flex justify-between items-start">
           <span className="text-xs font-bold text-gray-100 truncate max-w-[90px]">
@@ -137,29 +171,17 @@ export default function CombatCard({ card, index, affordable, selected, highligh
           <span className="text-[11px] text-combat-ap font-mono font-bold">{card.cost}</span>
         </div>
 
-        <div className="text-[10px] text-gray-400 mt-0.5 font-mono">
-          <span>{card.min_damage}-{card.max_damage}</span>
-          <span className="text-gray-600 ml-1">×{card.atk_scale.toFixed(1)}</span>
-        </div>
+        {card.description && (
+          <p className="card-description">{card.description}</p>
+        )}
 
-        <div className="text-[9px] text-gray-500 mt-0.5">
-          {card.target === "SINGLE" ? "单体" :
-           card.target === "ADJACENT" ? "邻接" :
-           card.target === "CROSS" ? "十字" :
-           card.target === "LINE_3" ? "直线" :
-           card.target === "ROW" ? "整行" :
-           card.target}
-          {" · "}
-          {card.range < 0 ? "全图" : `${card.range}格`}
-        </div>
-
-        <div className="text-[9px] text-gray-600 mt-1 flex justify-between">
-          <span className="flex items-center gap-0.5">
-            <span className="inline-block w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: classDotColor }} />
-            {card.class_required === "any" ? "通用" : card.class_required}
-            {card.owner && <span className="text-combat-gold ml-0.5">@{card.owner}</span>}
+        <div className="damage-range-row">
+          <span className={`font-mono font-bold ${dmgColorClass}`} title={damageFormula}>
+            {card.min_damage}-{card.max_damage}
           </span>
-          <span className="font-mono text-gray-700">[{index + 1}]</span>
+          <span className="text-gray-600">×{card.atk_scale.toFixed(1)}</span>
+          <span>·</span>
+          <span>{targetLabel} · {rangeLabel}</span>
         </div>
       </div>
     </button>

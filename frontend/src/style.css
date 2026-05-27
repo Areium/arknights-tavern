@@ -293,7 +293,7 @@ html.light .text-amber-100\/70 { color: rgba(120,53,15,0.85); }
   align-items: flex-end;
   gap: 0;
   padding: 2px 0 4px;
-  min-height: 210px;
+  min-height: 275px;
   perspective: 800px;
   position: relative;
   z-index: 20;
@@ -400,6 +400,44 @@ html.light .text-amber-100\/70 { color: rgba(120,53,15,0.85); }
     filter: brightness(2);
     box-shadow: 0 0 36px rgba(240, 192, 96, 0.8);
   }
+}
+
+/* ── 卡牌头部信息栏 ── */
+.card-header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 6px;
+  gap: 4px;
+}
+.card-rarity-stars {
+  display: flex;
+  gap: 1px;
+}
+/* ── 卡牌描述 ── */
+.card-description {
+  font-size: 10px;
+  line-height: 1.3;
+  color: #6b7280;
+  margin-top: 2px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* ── 伤害数值行 ── */
+.damage-range-row {
+  font-size: 10px;
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  color: #6b7280;
+}
+/* ── 禁止卡牌内图片拖拽虚影 ── */
+.combat-card img {
+  -webkit-user-drag: none;
+  user-drag: none;
 }
 
 /* ── 卡面图片 ── */
@@ -717,6 +755,10 @@ html.light .combat-card.selected {
   0%, 100% { box-shadow: 0 0 18px rgba(200, 160, 60, 0.45), 0 4px 16px rgba(0, 0, 0, 0.1); }
   50%      { box-shadow: 0 0 28px rgba(200, 160, 60, 0.6), 0 4px 20px rgba(0, 0, 0, 0.15); }
 }
+
+html.light .card-description { color: #9ca3af; }
+html.light .card-rarity-stars .star-empty { color: #d1d5db; }
+html.light .damage-range-row { color: #9ca3af; }
 
 /* ── HP 条 ── */
 html.light .combat-hp-bar {

@@ -2,8 +2,9 @@ import { useEffect, useLayoutEffect, useState, useCallback, useRef, useMemo } fr
 import { useAppStore } from "../../stores/appStore";
 import { useApi, createCombatSSE, createCombatTestSSE } from "../../hooks/useApi";
 import type { CombatEventDTO, CombatStateDTO, CardDTO } from "../../types";
-import CombatScene3D from "./CombatScene3D";
-import type { CombatScene3DHandle } from "./CombatScene3D";
+import PixiCombatScene from "./PixiCombatScene";
+import CombatGrid from "./CombatGrid";
+import { getCellCenter } from "./gridUtils";
 import CombatHand from "./CombatHand";
 import CombatEventLog from "./CombatEventLog";
 import CombatUnitTooltip from "./CombatUnitTooltip";
@@ -68,7 +69,6 @@ export default function CombatView() {
   const [showDeckViewer, setShowDeckViewer] = useState(false);
   const [deckFilterMode, setDeckFilterMode] = useState<"all" | "deck" | "discard">("all");
   const [resizeTick, setResizeTick] = useState(0);
-  const [unitPositions, setUnitPositions] = useState<Record<string, { x: number; y: number } | null>>({});
   const [isFullscreen, setIsFullscreen] = useState(
     () => window.innerWidth / screen.availWidth > 0.9 && window.innerHeight / screen.availHeight > 0.85
   );
@@ -78,8 +78,10 @@ export default function CombatView() {
   const sseRef = useRef<{ close: () => void } | null>(null);
   const stateRef = useRef(combatState);
   stateRef.current = combatState;
-  const sceneRef = useRef<CombatScene3DHandle | null>(null);
+  const gridRef = useRef<HTMLDivElement | null>(null);
   const relativeRef = useRef<HTMLDivElement | null>(null);
+  const [gridEl, setGridEl] = useState<HTMLDivElement | null>(null);
+  const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null);
   const dragMouseRef = useRef<{ clientX: number; clientY: number } | null>(null);
   const overlayCentersRef = useRef<({ x: number; y: number } | null)[][]>([]);
   const lastHoveredCellRef = useRef<string | null>(null);
@@ -110,11 +112,11 @@ export default function CombatView() {
   const spawnParticles = useCallback(
     (type: "spark" | "heal" | "death" | "victory", pos: [number, number], count?: number) => {
       const id = `emitter_${++emitterIdRef.current}`;
-      const scene = sceneRef.current;
+      const grid = gridRef.current;
       const rel = relativeRef.current;
       let x: number = 0, y: number = 0;
-      if (scene && rel) {
-        const sp = scene.getCellScreenPos(pos[0], pos[1]);
+      if (grid && rel) {
+        const sp = getCellCenter(grid, pos[0], pos[1]);
         if (sp) {
           const relRect = rel.getBoundingClientRect();
           x = sp.x - relRect.left;
@@ -217,18 +219,18 @@ export default function CombatView() {
     return () => window.removeEventListener("resize", handler);
   }, []);
 
-  // Precompute cell screen centers for overlay drag handling (uses 3D scene projection)
+  // Precompute cell screen centers for overlay drag handling
   const recomputeOverlayCenters = useCallback(() => {
-    const scene = sceneRef.current;
+    const grid = gridRef.current;
     const rel = relativeRef.current;
-    if (!scene || !rel) return;
+    if (!grid || !rel) return;
     const size = combatState?.grid_size ?? 7;
     const relRect = rel.getBoundingClientRect();
     const centers: ({ x: number; y: number } | null)[][] = [];
     for (let r = 0; r < size; r++) {
       const row: ({ x: number; y: number } | null)[] = [];
       for (let c = 0; c < size; c++) {
-        const sp = scene.getCellScreenPos(r, c);
+        const sp = getCellCenter(grid, r, c);
         if (sp) {
           row.push({ x: sp.x - relRect.left, y: sp.y - relRect.top });
         } else {
@@ -244,22 +246,10 @@ export default function CombatView() {
     recomputeOverlayCenters();
   }, [recomputeOverlayCenters, resizeTick]);
 
-  // Sync unit positions (damage numbers) — uses 3D scene projection
+  // Recompute cell screen centers when units or cell size changes
   useLayoutEffect(() => {
-    const scene = sceneRef.current;
-    const rel = relativeRef.current;
-    if (!scene || !rel) return;
-    const relRect = rel.getBoundingClientRect();
-    const positions: Record<string, { x: number; y: number } | null> = {};
-    for (const u of combatState?.units ?? []) {
-      if (u.is_alive) {
-        const sp = scene.getCellScreenPos(u.pos[0], u.pos[1]);
-        positions[u.unit_id] = sp ? { x: sp.x - relRect.left, y: sp.y - relRect.top } : null;
-      }
-    }
-    setUnitPositions(positions);
     recomputeOverlayCenters();
-  }, [combatState?.units, cfg.cellSize, resizeTick]);
+  }, [combatState?.units, cfg.cellSize, resizeTick, recomputeOverlayCenters]);
 
   const handleStartBattle = useCallback(async () => {
     if (!sessionId || startChars.length === 0) return;
@@ -982,7 +972,7 @@ export default function CombatView() {
           </div>
 
           {/* Grid with damage numbers overlay */}
-          <div className="relative" ref={relativeRef} style={{ "--cell-size": `${cfg.cellSize}px` } as React.CSSProperties}
+          <div className="relative" ref={(el) => { relativeRef.current = el; setContainerEl(el); }} style={{ "--cell-size": `${cfg.cellSize}px` } as React.CSSProperties}
             onMouseMove={(e) => {
               const rel = relativeRef.current;
               if (!rel) return;
@@ -1090,26 +1080,37 @@ export default function CombatView() {
               handleGridDragMove(null);
             }}
           >
-            <CombatScene3D
-              ref={sceneRef}
+            <CombatGrid
               gridSize={combatState.grid_size}
+              cellSize={cfg.cellSize}
               units={combatState.units}
               moveHighlights={moveHighlights}
               rangeHighlights={rangeHighlights}
               selectedUnitId={selectedUnitId}
+              uiMode={combatUIMode}
               cursor={cursor}
               dragCell={dragCell}
               onCellClick={handleCellClick}
+              onCellHover={handleCellHover}
+              onCellLeave={handleHoverLeave}
               onCellDrop={handleGridDrop}
+              onGridDragMove={handleGridDragMove}
+              onGridMount={(el) => { gridRef.current = el; setGridEl(el); }}
+            />
+            <PixiCombatScene
+              units={combatState.units}
+              gridEl={gridEl}
+              containerEl={containerEl}
+              resizeTick={resizeTick}
             />
 
             {/* Damage numbers */}
             {damageNumbers.map((d) => {
               const center = (() => {
-                const scene = sceneRef.current;
+                const grid = gridRef.current;
                 const rel = relativeRef.current;
-                if (!scene || !rel) return null;
-                const sp = scene.getCellScreenPos(d.pos[0], d.pos[1]);
+                if (!grid || !rel) return null;
+                const sp = getCellCenter(grid, d.pos[0], d.pos[1]);
                 if (!sp) return null;
                 const relRect = rel.getBoundingClientRect();
                 return { x: sp.x - relRect.left, y: sp.y - relRect.top };
@@ -1142,15 +1143,15 @@ export default function CombatView() {
               const m = dragMouseRef.current;
               const rel = relativeRef.current!;
               const pr = rel.getBoundingClientRect();
-              const scene = sceneRef.current;
+              const grid = gridRef.current;
               const fromPos = (() => {
-                if (!scene) return null;
-                const sp = scene.getCellScreenPos(arrowFrom[0], arrowFrom[1]);
+                if (!grid) return null;
+                const sp = getCellCenter(grid, arrowFrom[0], arrowFrom[1]);
                 return sp ? { x: sp.x - pr.left, y: sp.y - pr.top } : null;
               })();
               const toPos = (() => {
-                if (!scene) return null;
-                const sp = scene.getCellScreenPos(dragCell[0], dragCell[1]);
+                if (!grid) return null;
+                const sp = getCellCenter(grid, dragCell[0], dragCell[1]);
                 return sp ? { x: sp.x - pr.left, y: sp.y - pr.top } : null;
               })();
               const toPoint = m ? { x: m.clientX - pr.left, y: m.clientY - pr.top } : null;

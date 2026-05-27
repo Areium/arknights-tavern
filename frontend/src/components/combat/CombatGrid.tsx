@@ -45,12 +45,14 @@ interface Props {
   onCellDrop: (row: number, col: number) => void;
   onGridDragMove: (cell: [number, number] | null, clientX?: number, clientY?: number) => void;
   onGridMount?: (el: HTMLDivElement) => void;
+  children?: React.ReactNode;
 }
 
 export default function CombatGrid({
   gridSize, cellSize = 64, units,
   moveHighlights, rangeHighlights, selectedUnitId, uiMode, cursor,
   dragCell, onCellClick, onCellHover, onCellLeave, onCellDrop, onGridDragMove, onGridMount,
+  children,
 }: Props) {
   const posToUnit: Record<string, CombatUnitDTO> = {};
   for (const u of units) {
@@ -156,7 +158,7 @@ export default function CombatGrid({
 
   return (
     <div className="combat-grid-perspective">
-      <div className="combat-grid-3d">
+      <div className="combat-grid-3d" style={{ position: "relative" }}>
         <div
           ref={gridRef}
           className="flex flex-col gap-0.5 items-center relative"
@@ -189,6 +191,7 @@ export default function CombatGrid({
             </div>
           ))}
         </div>
+        {children}
       </div>
     </div>
   );

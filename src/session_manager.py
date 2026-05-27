@@ -512,7 +512,7 @@ class SessionManager:
             return
 
         max_counter = 0
-        to_restore: list[tuple[str, str, str, float]] = []  # (id, mode, name, created_at)
+        to_restore: list[tuple[str, str, str, float, str]] = []  # (id, mode, name, created_at, combat_mode)
 
         for entry in _SESSIONS_DIR.iterdir():
             if not entry.is_dir():
@@ -529,10 +529,10 @@ class SessionManager:
                     if meta:
                         to_restore.append(meta)
 
-        for sid, mode, name, created_at in to_restore:
+        for sid, mode, name, created_at, combat_mode in to_restore:
             try:
                 session = Session(sid, self._llm_backend, name=name, mode=mode,
-                                 wiki_manager=self._wiki_manager)
+                                 combat_mode=combat_mode, wiki_manager=self._wiki_manager)
                 session.created_at = created_at
                 self._sessions[sid] = session
 
@@ -558,7 +558,8 @@ class SessionManager:
                 with open(session_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 return (data["id"], data.get("mode", mode),
-                        data.get("name", ""), data.get("created_at", 0))
+                        data.get("name", ""), data.get("created_at", 0),
+                        data.get("combat_mode", "narrative"))
             except Exception:
                 pass
 
@@ -581,7 +582,7 @@ class SessionManager:
             self._save_session_meta_raw(sid, mode, name, created_at)
 
             logger.info("从 overrides.json 推断并补写 session.json: %s/%s", mode, sid)
-            return (sid, mode, name, created_at)
+            return (sid, mode, name, created_at, "narrative")
 
         return None
 

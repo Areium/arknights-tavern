@@ -203,6 +203,7 @@ export interface CardDTO {
   tier: "basic" | "elite";
   class_required: string;
   owner: string | null;
+  description: string;
 }
 
 /** 角色卡池（手牌 + 抽牌堆 + 弃牌堆 + 消耗堆） */

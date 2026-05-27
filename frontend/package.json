@@ -12,13 +12,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@esotericsoftware/spine-threejs": "~4.2.119",
-    "@react-three/drei": "^9.122.0",
-    "@react-three/fiber": "^8.18.0",
+    "@esotericsoftware/spine-pixi-v8": "^4.3.5",
+    "pixi.js": "^8.18.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",
-    "three": "~0.180.0",
     "zustand": "^4.5.0"
   },
   "devDependencies": {

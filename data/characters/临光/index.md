@@ -8,6 +8,7 @@ attributes:
   物理强度: 8
   生理耐受: 9
   魅力: 7
+card_face: char_148_nearl_2b.png
 class: 重装
 faction: 临光家族
 imports:
