@@ -46,6 +46,7 @@ export interface Session {
   };
   in_combat?: boolean;
   combat_mode: "narrative" | "tactical";
+  custom_prompt?: string;
 }
 
 /** 文档类别 */
@@ -178,6 +179,16 @@ export interface CombatUnitDTO {
   pos: [number, number];
   is_alive: boolean;
   attributes?: Record<string, number>;
+  skin_url: string;
+  skin_crop: SkinCrop | null;
+}
+
+/** 卡面裁剪参数（百分比，0-100） */
+export interface SkinCrop {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
 
 /** 卡牌 */

@@ -228,30 +228,45 @@ class SessionOverlay:
         self._data.pop("plot_context", None)
         self._save()
 
+    # ── 自定义 Prompt ──
+
+    def get_custom_prompt(self) -> str | None:
+        """获取用户自定义提示词。"""
+        return self._data.get("custom_prompt")
+
+    def set_custom_prompt(self, prompt: str):
+        """设置用户自定义提示词。"""
+        self._data["custom_prompt"] = prompt
+        self._save()
+        logger.info("会话 %s: 自定义提示词已更新 (%d 字)", self.session_id, len(prompt))
+
+    def delete_custom_prompt(self):
+        """删除用户自定义提示词。"""
+        if "custom_prompt" in self._data:
+            del self._data["custom_prompt"]
+            self._save()
+            logger.info("会话 %s: 自定义提示词已删除", self.session_id)
+
     # ── 剧情节拍跟踪 ──
 
     def init_beat_state(self, plot_id: str):
-        """解析 narrative.md 并初始化节拍跟踪状态。
+        """解析剧情节拍结构并初始化节拍跟踪状态。
 
-        从 narrative.md 提取章节/节拍结构，初始化为第一个节拍。
-        beat_state 持久化到 overrides.json，narrative 全文缓存在内存。
+        新格式：从 plot.md 提取「## 章节与节拍」节。
+        旧格式：读取 narrative.md。
+
+        beat_state 持久化到 overrides.json，节拍文本缓存在内存。
         """
-        resolved = _resolve_plot_dir(plot_id) or plot_id
-        narrative_path = _PROJECT_ROOT / "data" / "plots" / resolved / "narrative.md"
-
-        if not narrative_path.is_file():
-            logger.debug("剧情 %s 无 narrative.md，跳过节拍初始化", plot_id)
+        text = self._load_narrative_text(plot_id)
+        if not text:
+            logger.debug("剧情 %s 无节拍数据，跳过初始化", plot_id)
             self._narrative_beats = []
             self._narrative_text = ""
             return
 
-        with open(narrative_path, "r", encoding="utf-8") as f:
-            text = f.read()
-
         self._narrative_text = text
         self._narrative_beats = _parse_narrative_beats(text)
 
-        # 持久化节拍进度
         if "beat_state" not in self._data:
             self._data["beat_state"] = {
                 "chapter_idx": 0,
@@ -266,6 +281,25 @@ class SessionOverlay:
             "会话 %s: 节拍状态已初始化，共 %d 章 %d 个节拍",
             self.session_id, len(self._narrative_beats), total_beats,
         )
+
+    def _load_narrative_text(self, plot_id: str) -> str:
+        """加载剧情节拍文本。
+
+        新格式：从 plot.md 提取「## 章节与节拍」节。
+        旧格式：读取 narrative.md 全文。
+        """
+        if _is_new_plot_format(plot_id):
+            result = _read_plot_file(plot_id)
+            if result:
+                return _extract_section(result[1], "章节与节拍")
+            return ""
+
+        resolved = _resolve_plot_dir(plot_id) or plot_id
+        path = _PROJECT_ROOT / "data" / "plots" / resolved / "narrative.md"
+        if not path.is_file():
+            return ""
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
 
     def get_beat_state(self) -> dict:
         """获取当前节拍进度状态。"""
@@ -371,16 +405,8 @@ class SessionOverlay:
         if not beats:
             return ""
 
-        # 提取 narrative.md 开头的剧情概述（在第一个 ## 章节之前）
-        full_text = self.get_narrative_full_text()
-        overview = ""
-        if full_text:
-            import re
-            m = re.search(r"## 剧情概述\n\n(.+?)\n\n\*\*主视角\*\*[：:](.+?)\n\n", full_text, re.DOTALL)
-            if m:
-                overview = m.group(1).strip()
-                main_view = m.group(2).strip()
-                overview = f"{overview}\n主视角：{main_view}"
+        # 优先使用存储的剧情概述（由 init_session_docs 提取）
+        overview = self._data.get("plot_overview", "")
 
         parts = []
         if overview:
@@ -466,38 +492,36 @@ class SessionOverlay:
 
         仅在会话创建时调用一次。后续所有剧情上下文均从会话文档读取，
         不再重新加载模板文件。
-        """
-        resolved = _resolve_plot_dir(plot_id) or plot_id
-        narrative_path = _PROJECT_ROOT / "data" / "plots" / resolved / "narrative.md"
 
-        if not narrative_path.is_file():
-            logger.debug("剧情 %s 无 narrative.md，跳过文档初始化", plot_id)
+        新格式：从单一 plot.md 提取各节。
+        旧格式：读取 narrative.md + index.md。
+        """
+        plot_name = plot_id
+        overview = ""
+
+        if _is_new_plot_format(plot_id):
+            result = _read_plot_file(plot_id)
+            if result:
+                meta, body = result
+                plot_name = meta.get("name", plot_id)
+                # 提取剧情概述
+                overview = _extract_section(body, "剧情概述")
+                if not overview:
+                    # fallback: 从 summary frontmatter
+                    overview = meta.get("summary", "")
+                # 提取节拍文本
+                narrative_text = _extract_section(body, "章节与节拍")
+        else:
+            narrative_text = self._load_narrative_text(plot_id)
+
+        if not narrative_text:
+            logger.debug("剧情 %s 无节拍数据，跳过文档初始化", plot_id)
             self._narrative_beats = []
             self._narrative_text = ""
             return
 
-        with open(narrative_path, "r", encoding="utf-8") as f:
-            text = f.read()
-
-        self._narrative_text = text
-        self._narrative_beats = _parse_narrative_beats(text)
-
-        # 提取剧情名称
-        plot_name = resolved
-        index_path = _PROJECT_ROOT / "data" / "plots" / resolved / "index.md"
-        if index_path.is_file():
-            try:
-                with open(index_path, "r", encoding="utf-8") as f:
-                    fm = frontmatter.load(f)
-                plot_name = fm.metadata.get("name", resolved)
-            except Exception:
-                pass
-
-        # 提取剧情概述
-        overview = ""
-        m = re.search(r"## 剧情概述\n\n(.+?)\n\n\*\*主视角\*\*[：:](.+?)\n\n", text, re.DOTALL)
-        if m:
-            overview = f"{m.group(1).strip()}\n主视角：{m.group(2).strip()}"
+        self._narrative_text = narrative_text
+        self._narrative_beats = _parse_narrative_beats(narrative_text)
 
         # 初始化节拍状态
         if "beat_state" not in self._data:
@@ -715,6 +739,9 @@ class SessionOverlay:
             "quest_states": self._data.get("quest_states", {}),
             "has_plot_context": self.has_plot_context(),
         }
+        custom = self.get_custom_prompt()
+        if custom:
+            result["custom_prompt"] = custom
         if "index_config" in self._data:
             result["index_config"] = self._data["index_config"]
         return result
@@ -730,20 +757,25 @@ class SessionOverlay:
 
 
 def _resolve_plot_dir(plot_id: str) -> str | None:
-    """通过扫描 data/plots/ 子目录查找指定 plot_id 对应的目录名。"""
+    """通过扫描 data/plots/ 子目录查找指定 plot_id 对应的目录名。
+
+    支持新格式（plot.md）和旧格式（index.md），优先匹配 plot.md。
+    """
     base = _PROJECT_ROOT / "data" / "plots"
     if not base.is_dir():
         return None
     # 首先直接匹配目录名
-    if (base / plot_id / "index.md").is_file():
+    if (base / plot_id / "plot.md").is_file() or (base / plot_id / "index.md").is_file():
         return plot_id
     # 扫描所有子目录，匹配 frontmatter id
     for entry in sorted(base.iterdir()):
         if entry.is_dir():
-            index_md = entry / "index.md"
-            if index_md.is_file():
+            md = entry / "plot.md"
+            if not md.is_file():
+                md = entry / "index.md"
+            if md.is_file():
                 try:
-                    with open(index_md, "r", encoding="utf-8") as f:
+                    with open(md, "r", encoding="utf-8") as f:
                         fm = frontmatter.load(f)
                     if fm.metadata.get("id") == plot_id:
                         return entry.name
@@ -752,30 +784,75 @@ def _resolve_plot_dir(plot_id: str) -> str | None:
     return None
 
 
-def _parse_quests_md(plot_id: str) -> list[dict]:
-    """解析指定剧情的 quests.md，返回结构化任务列表。"""
-    import re
+def _is_new_plot_format(plot_id: str) -> bool:
+    """检测指定 plot 是否使用新格式（单一 plot.md 文件）。"""
+    resolved = _resolve_plot_dir(plot_id)
+    if not resolved:
+        return False
+    return (_PROJECT_ROOT / "data" / "plots" / resolved / "plot.md").is_file()
 
-    # 先尝试直接用 plot_id 作为目录名
-    path = _PROJECT_ROOT / "data" / "plots" / plot_id / "quests.md"
-    if not path.exists():
-        # 通过目录扫描解析实际目录名
-        resolved = _resolve_plot_dir(plot_id)
-        if resolved:
-            path = _PROJECT_ROOT / "data" / "plots" / resolved / "quests.md"
 
-    if not path.exists():
-        logger.warning("未找到剧情任务文件: %s (plot_id=%s)", path, plot_id)
-        return []
+def _read_plot_file(plot_id: str) -> tuple[dict, str] | None:
+    """读取 plot 主文件，返回 (frontmatter_metadata, body_text)。
 
-    with open(path, "r", encoding="utf-8") as f:
-        text = f.read()
+    新格式：读取 plot.md 的全部 frontmatter 和 body。
+    旧格式：读取 index.md 的 frontmatter，body 为空。
+    """
+    resolved = _resolve_plot_dir(plot_id)
+    if not resolved:
+        return None
 
+    base = _PROJECT_ROOT / "data" / "plots" / resolved
+
+    # 优先新格式
+    plot_md = base / "plot.md"
+    if plot_md.is_file():
+        with open(plot_md, "r", encoding="utf-8") as f:
+            post = frontmatter.load(f)
+        return (dict(post.metadata), post.content)
+
+    # 旧格式：只返回 index.md 的 frontmatter
+    index_md = base / "index.md"
+    if index_md.is_file():
+        with open(index_md, "r", encoding="utf-8") as f:
+            post = frontmatter.load(f)
+        return (dict(post.metadata), "")
+
+    return None
+
+
+def _extract_section(text: str, heading: str) -> str:
+    """从 markdown body 中提取指定 ## heading 节的内容。
+
+    从匹配的 `## heading` 行开始截取，到下一个同级或上级 `## `
+    （或 `# `）标题处停止，或到文本末尾。
+    """
+    pattern = rf"^## {re.escape(heading)}\s*$"
+    lines = text.split("\n")
+    start = None
+    for i, line in enumerate(lines):
+        if re.match(pattern, line):
+            start = i + 1
+            break
+    if start is None:
+        return ""
+
+    # 收集内容，直到遇到下一个同级或上级标题
+    result_lines = []
+    for i in range(start, len(lines)):
+        if re.match(r"^#{1,2}\s+\S", lines[i]):
+            break
+        result_lines.append(lines[i])
+
+    return "\n".join(result_lines).strip()
+
+
+def _parse_quests_text(text: str) -> list[dict]:
+    """解析任务文本为结构化任务列表（纯解析，不涉及文件 I/O）。"""
     quests = []
     current_chapter = ""
-    current_type = "main"  # "main" | "side" | "deep"
+    current_type = "main"
 
-    # 检测当前所在章节
     lines = text.split("\n")
     for i, line in enumerate(lines):
         # 追踪章节
@@ -797,7 +874,7 @@ def _parse_quests_md(plot_id: str) -> list[dict]:
             current_type = "deep"
             continue
 
-        # 匹配任务标题: #### M1-1：名称 或 #### S1-1：名称
+        # 匹配任务标题: #### M1-1：名称
         q_match = re.match(r"^#### ([A-Z]+\d*-[A-Za-z]?\d+)[：:](.+)", line)
         if not q_match:
             continue
@@ -805,23 +882,19 @@ def _parse_quests_md(plot_id: str) -> list[dict]:
         quest_id = q_match.group(1).strip()
         quest_name = q_match.group(2).strip()
 
-        # 读取该任务的属性表（后续几行中的 | **X** | **Y** | 格式）
+        # 读取该任务的属性表
         attrs = {"id": quest_id, "name": quest_name, "type": current_type, "chapter": current_chapter}
         for j in range(i + 1, min(i + 20, len(lines))):
             attr_line = lines[j].strip()
-            # 匹配 | **属性** | 内容 |
             m = re.match(r"^\|\s*\*\*(.+?)\*\*\s*\|\s*(.+?)\s*\|", attr_line)
             if not m:
-                # 也匹配 | 属性 | 内容 | (无粗体)
                 m = re.match(r"^\|\s*(.+?)\s*\|\s*(.+?)\s*\|", attr_line)
                 if not m:
-                    # 遇到下一个标题或空表行则停止
                     if re.match(r"^#### |^---$|^\s*$", attr_line) and j > i + 3:
                         break
                     continue
             key = m.group(1).strip()
             value = m.group(2).strip()
-            key_lower = key.lower()
 
             if key in ("目标", "**目标**"):
                 attrs["objective"] = value
@@ -841,6 +914,38 @@ def _parse_quests_md(plot_id: str) -> list[dict]:
         quests.append(attrs)
 
     return quests
+
+
+def _parse_quests_md(plot_id: str) -> list[dict]:
+    """解析指定剧情的任务，返回结构化任务列表。
+
+    新格式：从 plot.md 提取「## 任务」节后解析。
+    旧格式：读取 quests.md 后解析。
+    """
+    # 新格式：从 plot.md 提取
+    if _is_new_plot_format(plot_id):
+        result = _read_plot_file(plot_id)
+        if result:
+            section = _extract_section(result[1], "任务")
+            if section:
+                return _parse_quests_text(section)
+        return []
+
+    # 旧格式：读取 quests.md
+    path = _PROJECT_ROOT / "data" / "plots" / plot_id / "quests.md"
+    if not path.exists():
+        resolved = _resolve_plot_dir(plot_id)
+        if resolved:
+            path = _PROJECT_ROOT / "data" / "plots" / resolved / "quests.md"
+
+    if not path.exists():
+        logger.warning("未找到剧情任务: %s (plot_id=%s)", path, plot_id)
+        return []
+
+    with open(path, "r", encoding="utf-8") as f:
+        text = f.read()
+
+    return _parse_quests_text(text)
 
 
 def _parse_narrative_beats(text: str) -> list[dict]:

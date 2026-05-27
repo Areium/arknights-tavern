@@ -1,12 +1,13 @@
-import type { CardDTO } from "../../types";
+import type { CardDTO, SkinCrop } from "../../types";
 import CombatCard from "./CombatCard";
 
 interface Props {
   cards: CardDTO[];
-  activeAp: number;
+  getCardAp: (card: CardDTO) => number;
   selectedIndex: number | null;
   disabled?: boolean;
   highlightOwner?: string | null;
+  ownerSkins?: Record<string, { url: string; crop: SkinCrop | null }>;
   onCardClick: (index: number) => void;
   onCardDragStart?: (index: number) => void;
   onCardDragEnd?: () => void;
@@ -15,7 +16,7 @@ interface Props {
   fanMarginTop?: number;
 }
 
-export default function CombatHand({ cards, activeAp, selectedIndex, disabled, highlightOwner, onCardClick, onCardDragStart, onCardDragEnd, cardWidth, cardHeight, fanMarginTop }: Props) {
+export default function CombatHand({ cards, getCardAp, selectedIndex, disabled, highlightOwner, ownerSkins, onCardClick, onCardDragStart, onCardDragEnd, cardWidth, cardHeight, fanMarginTop }: Props) {
   const fanAngle = 3.5;
   const fanY = 8;
 
@@ -48,9 +49,11 @@ export default function CombatHand({ cards, activeAp, selectedIndex, disabled, h
             <CombatCard
               card={card}
               index={i}
-              affordable={!disabled && card.cost <= activeAp}
+              affordable={!disabled && card.cost <= getCardAp(card)}
               selected={selectedIndex === i}
               highlighted={!!highlightOwner && card.owner === highlightOwner}
+              skinUrl={card.owner ? ownerSkins?.[card.owner]?.url : undefined}
+              skinCrop={card.owner ? ownerSkins?.[card.owner]?.crop ?? undefined : undefined}
               onClick={() => onCardClick(i)}
               onDragStart={() => onCardDragStart?.(i)}
               onDragEnd={onCardDragEnd}

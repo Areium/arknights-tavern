@@ -291,6 +291,7 @@ class SceneManager:
 
         # 构建场景上下文注入
         scene_context = self._build_scene_context()
+        custom_prompt = self._overlay.get_custom_prompt() if self._overlay else None
 
         # 路由到角色代理
         response, env_updates, usage = agent.chat(
@@ -299,6 +300,7 @@ class SceneManager:
             env_context,
             scene_context=scene_context,
             stream_callback=stream_callback,
+            custom_prompt=custom_prompt,
         )
 
         # 更新场景日志
@@ -325,6 +327,7 @@ class SceneManager:
 
         identity = (player_info or {}).get("identity", "博士")
         scene_context = self._build_scene_context()
+        custom_prompt = self._overlay.get_custom_prompt() if self._overlay else None
         results = []
         total_usage = None
 
@@ -336,6 +339,7 @@ class SceneManager:
                     env_context,
                     scene_context=scene_context,
                     stream_callback=stream_callback,
+                    custom_prompt=custom_prompt,
                 )
                 results.append({
                     "character": name,
@@ -400,13 +404,17 @@ class SceneManager:
 </core_rules>"""
 
     @staticmethod
-    def _build_system_prompt(word_limit: int, structured: bool = False) -> str:
+    def _build_system_prompt(word_limit: int, structured: bool = False,
+                             custom_prompt: str | None = None) -> str:
         """根据 word_limit 构建系统提示词。
 
         模板通过 .format() 注入 word_limit。
         """
         template = SceneManager._NARRATOR_SYSTEM_STRUCTURED if structured else SceneManager._NARRATOR_SYSTEM
-        return template.format(word_limit=word_limit)
+        result = template.format(word_limit=word_limit)
+        if custom_prompt:
+            result += f"\n\n<custom_instruction>\n此外，请在整个对话过程中始终遵循以下用户自定义指示：\n{custom_prompt}\n</custom_instruction>"
+        return result
 
     _NARRATOR_SYSTEM_STRUCTURED = """\
 <role>
@@ -415,7 +423,8 @@ class SceneManager:
 
 <core_rules>
 - MUST：用第三人称叙述场景进展，描写环境、角色的动作和表情
-- MUST：叙述中的角色对话必须使用「」标注，严禁在 JSON 文本值中使用英文双引号 " 标注对话
+- MUST：角色有具体台词时，必须拆分为独立的 dialogue 段；narration 段只写叙述和描写，不包含角色的直接引语
+- MUST：严禁在 JSON 文本值中使用英文双引号 "；dialogue 的 text 字段直接写台词原文，无需额外标注
 - MUST：叙述生动但克制，不代替玩家做决定，不替玩家说话
 - MUST：每次叙述约 {word_limit} 字，在自然段落处收尾
 - MUST：保持对话的连贯性，不重复已发生的事件
@@ -424,10 +433,10 @@ class SceneManager:
 <output_format>
 严格输出 JSON 数组，禁止其他文字：
 [
-  {{"type": "narration", "text": "叙述文字（对话用「」标注）"}},
-  {{"type": "dialogue", "text": "对话内容", "speaker": "角色名"}}
+  {{"type": "narration", "text": "叙述文字，描写环境、动作、神态等"}},
+  {{"type": "dialogue", "text": "角色台词原文", "speaker": "角色名"}}
 ]
-type 枚举：narration / dialogue
+type 枚举：narration / dialogue，角色说的话一律用 dialogue
 speaker 必须从场景角色列表选择，无法判断时用 null
 相邻同类型元素合并
 </output_format>"""
@@ -699,15 +708,18 @@ speaker 必须从场景角色列表选择，无法判断时用 null
             context_parts.append("<reference>\n" + "\n\n".join(ref_parts) + "\n</reference>")
 
         # 收尾指令（recency 效应）
+        custom_prompt = self._overlay.get_custom_prompt() if self._overlay else None
         if structured:
             context_parts.append("MUST：只输出 JSON 数组，不要其他内容。")
-            system_prompt = self._build_system_prompt(word_limit, structured=True)
+            system_prompt = self._build_system_prompt(word_limit, structured=True,
+                                                      custom_prompt=custom_prompt)
         else:
             context_parts.append(
                 "请基于以上场景信息继续推进剧情。描写场景和角色的反应，"
                 "角色对话用「」标注。保持剧情连贯、自然，结束时留出继续的空间。"
             )
-            system_prompt = self._build_system_prompt(word_limit, structured=False)
+            system_prompt = self._build_system_prompt(word_limit, structured=False,
+                                                      custom_prompt=custom_prompt)
 
         context = "\n\n".join(context_parts)
         return [
@@ -993,59 +1005,6 @@ speaker 必须从场景角色列表选择，无法判断时用 null
         plain = "".join(parts) if parts else raw
 
         return segments, plain
-
-    def restructure_dialogue(self, narrative: str) -> list[dict]:
-        """将叙述文本重组为带说话人标签的对话片段。
-
-        仅在 dialogue_bubble_mode 开启时调用，通过二次 LLM 推理
-        识别叙述中「」内的对话及其说话人，返回结构化片段。
-
-        Returns:
-            list[dict]: [{"type": "narration"|"dialogue", "text": "...", "speaker": "..."}]
-            失败时返回空列表，由前端回退到文本解析。
-        """
-        chars = self.get_scene_characters()
-        if not chars:
-            return []
-
-        prompt = (
-            f"【叙述文本】\n{narrative}\n\n"
-            f"【场景角色】{', '.join(chars)}\n\n"
-            "将以上叙述文本拆分为结构化的 JSON 数组。每个元素包含：\n"
-            "- type: \"narration\"（叙述）或 \"dialogue\"（对话）\n"
-            "- text: 原文片段\n"
-            "- speaker: 说话人（仅 dialogue 需要；必须从【场景角色】中选择；"
-            "无法确定时用 null）\n\n"
-            "规则：\n"
-            "1. 「」内的文字是 dialogue，其外的叙述文字是 narration\n"
-            "2. 尽量从上下文中推断说话人（如\"XX说\"、\"XX道\"等提示）\n"
-            "3. 保持原文不变，只做拆分\n"
-            "4. 相邻的同类型片段应合并\n\n"
-            "只输出 JSON 数组，不要任何其他内容。"
-        )
-
-        messages = [
-            {"role": "system", "content": "你是文本结构化助手。只输出 JSON，不输出其他内容。"},
-            {"role": "user", "content": prompt},
-        ]
-
-        try:
-            result = self._llm.chat(messages, stream=False)
-            text = result.get("content", "") if isinstance(result, dict) else str(result)
-            # 提取 JSON 数组（LLM 可能包裹在 ```json ... ``` 中）
-            text = text.strip()
-            if text.startswith("```"):
-                lines = text.split("\n")
-                text = "\n".join(lines[1:]) if len(lines) > 1 else text
-                if text.endswith("```"):
-                    text = text[:-3].strip()
-            segments = json.loads(text)
-            if isinstance(segments, list) and len(segments) > 0:
-                return segments
-        except Exception:
-            logger.warning("对话重组失败，回退到前端解析", exc_info=True)
-
-        return []
 
     def _build_scene_context(self) -> str:
         """构建【同场角色】【场景物品】和【场景动态】上下文，注入角色 prompt。"""

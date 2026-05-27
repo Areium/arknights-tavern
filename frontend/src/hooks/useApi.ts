@@ -76,6 +76,11 @@ export function useApi() {
         method: "PUT",
         body: JSON.stringify({ name }),
       }),
+    saveCustomPrompt: (id: string, prompt: string) =>
+      request<any>(`/api/sessions/${id}/custom-prompt`, {
+        method: "PUT",
+        body: JSON.stringify({ prompt }),
+      }),
 
     // ── 场景角色 ──
     getSceneCharacters: (sessionId: string) =>
@@ -238,12 +243,14 @@ export function useApi() {
         method: "DELETE",
       }),
     getDefaultImage: (category: string, entity: string) =>
-      request<{ default_avatar: string; default_skin: string }>(`/api/assets/${category}/${encodeURIComponent(entity)}/default-image`),
-    setDefaultImage: (category: string, entity: string, type: "avatar" | "skin", filename: string) =>
+      request<{ default_avatar: string; default_skin: string; card_face: string; card_face_crop: import("../types").SkinCrop | null }>(`/api/assets/${category}/${encodeURIComponent(entity)}/default-image`),
+    setDefaultImage: (category: string, entity: string, type: "avatar" | "skin" | "card_face", filename: string, crop?: import("../types").SkinCrop | null) =>
       request<any>(`/api/assets/${category}/${encodeURIComponent(entity)}/default-image`, {
         method: "PUT",
-        body: JSON.stringify({ type, filename }),
+        body: JSON.stringify({ type, filename, ...(crop !== undefined ? { crop } : {}) }),
       }),
+    getCardFaceCrop: (name: string) =>
+      request<import("../types").SkinCrop | null>(`/api/characters/${encodeURIComponent(name)}/card-face-crop`),
 
     // ── 索引管理（基于 imports 的新系统） ──
     getIndexOverview: () =>

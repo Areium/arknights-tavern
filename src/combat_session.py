@@ -342,6 +342,8 @@ class CombatSession:
                 "pos": list(u.pos),
                 "is_alive": u.is_alive,
                 "attributes": dict(u.attributes) if u.attributes else {},
+                "skin_url": u.skin_url,
+                "skin_crop": u.skin_crop,
             })
 
         # Shared hand — always available from shared pool

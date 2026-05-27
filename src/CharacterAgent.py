@@ -122,7 +122,7 @@ class CharacterAgent:
 
     def chat(self, user_input: str, player_info: dict = None,
              environment_context: str = "", scene_context: str = "",
-             stream_callback=None) -> tuple[str, dict, dict | None]:
+             stream_callback=None, custom_prompt: str | None = None) -> tuple[str, dict, dict | None]:
         """
         与角色进行对话。
 
@@ -173,6 +173,15 @@ class CharacterAgent:
             catalog = self._wiki_manager.format_catalog_summary()
             if catalog:
                 system_parts.append(catalog)
+
+        # ── 自定义指令 ──
+        if custom_prompt:
+            system_parts.append(
+                f"<custom_instruction>\n"
+                f"此外，请在整个对话过程中始终遵循以下用户自定义指示：\n"
+                f"{custom_prompt}\n"
+                f"</custom_instruction>"
+            )
 
         system_content = "\n\n".join(system_parts)
 

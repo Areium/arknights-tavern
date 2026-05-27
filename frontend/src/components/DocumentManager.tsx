@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useApi } from "../hooks/useApi";
-import type { DocTreeCategory, DocTreeNode } from "../types";
+import type { DocTreeCategory, DocTreeNode, SkinCrop } from "../types";
 import MarkdownRenderer from "./MarkdownRenderer";
+import CropModal from "./assets/CropModal";
 
 interface ModalState {
   type: "createDoc" | "createFolder" | "rename" | "moveTo" | "delete";
@@ -100,7 +101,8 @@ export default function DocumentManager() {
     url: string; name: string; size: number; subdir: string;
     path: string; category: string; entity: string;
   } | null>(null);
-  const [defaultImages, setDefaultImages] = useState<Record<string, { default_avatar: string; default_skin: string }>>({});
+  const [defaultImages, setDefaultImages] = useState<Record<string, { default_avatar: string; default_skin: string; card_face: string; card_face_crop: import("../types").SkinCrop | null }>>({});
+  const [cropTarget, setCropTarget] = useState<{ url: string; name: string; category: string; entity: string } | null>(null);
 
   // ── Modal ──
   const [modal, setModal] = useState<ModalState | null>(null);
@@ -254,29 +256,44 @@ export default function DocumentManager() {
   };
 
   const loadDefaultImages = useCallback(async () => {
-    const newDefaults: Record<string, { default_avatar: string; default_skin: string }> = {};
+    const newDefaults: Record<string, { default_avatar: string; default_skin: string; card_face: string; card_face_crop: SkinCrop | null }> = {};
     for (const item of assetImages) {
       const key = `${item.category}/${item.entity}`;
       try {
         const data = await apiRef.current.getDefaultImage(item.category, item.entity);
-        newDefaults[key] = data;
+        newDefaults[key] = {
+          default_avatar: data.default_avatar || "",
+          default_skin: data.default_skin || "",
+          card_face: data.card_face || "",
+          card_face_crop: data.card_face_crop || null,
+        };
       } catch { /* skip */ }
     }
     setDefaultImages(newDefaults);
   }, [assetImages]);
 
-  const handleSetDefaultImage = async (category: string, entity: string, type: "avatar" | "skin", filename: string) => {
+  const handleSetDefaultImage = async (category: string, entity: string, type: "avatar" | "skin" | "card_face", filename: string, crop?: import("../types").SkinCrop | null) => {
     try {
-      await apiRef.current.setDefaultImage(category, entity, type, filename);
-      showToast(`已设为默认${type === "avatar" ? "头像" : "立绘"}`);
+      await apiRef.current.setDefaultImage(category, entity, type, filename, crop);
+      const label = type === "avatar" ? "头像" : type === "skin" ? "立绘" : "卡面";
+      showToast(`已设为默认${label}`);
       const key = `${category}/${entity}`;
-      setDefaultImages((prev) => ({
-        ...prev,
-        [key]: { ...prev[key], [`default_${type}`]: filename },
-      }));
+      setDefaultImages((prev) => {
+        const prevEntry = prev[key] || { default_avatar: "", default_skin: "", card_face: "", card_face_crop: null };
+        if (type === "card_face") {
+          return { ...prev, [key]: { ...prevEntry, card_face: filename, card_face_crop: crop ?? null } };
+        }
+        return { ...prev, [key]: { ...prevEntry, [`default_${type}`]: filename } };
+      });
     } catch (err: any) {
       showToast(err.message || "设置失败", "error");
     }
+  };
+
+  const handleCropSave = async (crop: SkinCrop) => {
+    if (!cropTarget) return;
+    await handleSetDefaultImage(cropTarget.category, cropTarget.entity, "card_face", cropTarget.name, crop);
+    setCropTarget(null);
   };
 
   useEffect(() => {
@@ -931,7 +948,8 @@ export default function DocumentManager() {
                           const isSelected = selectedImage?.path === img.path;
                           const isDefaultAvatar = defaults?.default_avatar === img.name;
                           const isDefaultSkin = defaults?.default_skin === img.name;
-                          const isDefault = isDefaultAvatar || isDefaultSkin;
+                          const isDefaultCardFace = defaults?.card_face === img.name;
+                          const isDefault = isDefaultAvatar || isDefaultSkin || isDefaultCardFace;
                           return (
                             <div
                               key={img.path}
@@ -962,7 +980,7 @@ export default function DocumentManager() {
                               {isDefault && (
                                 <span
                                   className="absolute top-0 left-0 text-yellow-400 text-[10px] px-0.5"
-                                  title={isDefaultAvatar ? "默认头像" : "默认立绘"}
+                                  title={isDefaultAvatar ? "默认头像" : isDefaultSkin ? "默认立绘" : "卡面"}
                                 >
                                   ★
                                 </span>
@@ -1329,7 +1347,7 @@ export default function DocumentManager() {
                   </div>
                 </div>
                 {/* Set as default buttons */}
-                <div className="mt-4 flex gap-2 justify-center">
+                <div className="mt-4 flex gap-2 justify-center flex-wrap">
                   {selectedImage.subdir === "avatar" && (
                     <button
                       onClick={() => handleSetDefaultImage(
@@ -1356,10 +1374,44 @@ export default function DocumentManager() {
                       设为默认立绘
                     </button>
                   )}
+                  {(selectedImage.subdir === "avatar" || selectedImage.subdir === "skin") && (
+                    <button
+                      onClick={() => handleSetDefaultImage(
+                        selectedImage.category,
+                        selectedImage.entity,
+                        "card_face",
+                        selectedImage.name
+                      )}
+                      className="text-xs px-3 py-1.5 rounded bg-amber-600/20 text-amber-400 hover:bg-amber-600/40 transition-colors"
+                    >
+                      设为卡面
+                    </button>
+                  )}
+                  {selectedImage.subdir === "card_face" && (
+                    <>
+                      <button
+                        onClick={() => handleSetDefaultImage(
+                          selectedImage.category,
+                          selectedImage.entity,
+                          "card_face",
+                          selectedImage.name
+                        )}
+                        className="text-xs px-3 py-1.5 rounded bg-amber-600/20 text-amber-400 hover:bg-amber-600/40 transition-colors"
+                      >
+                        设为默认卡面
+                      </button>
+                      <button
+                        onClick={() => setCropTarget(selectedImage)}
+                        className="text-xs px-3 py-1.5 rounded bg-green-600/20 text-green-400 hover:bg-green-600/40 transition-colors"
+                      >
+                        裁剪卡面
+                      </button>
+                    </>
+                  )}
                 </div>
-                {selectedImage.subdir && selectedImage.subdir !== "avatar" && selectedImage.subdir !== "skin" && (
+                {selectedImage.subdir && selectedImage.subdir !== "avatar" && selectedImage.subdir !== "skin" && selectedImage.subdir !== "card_face" && (
                   <p className="text-xs text-gray-600 text-center mt-3">
-                    仅 avatar/ 和 skin/ 子目录的图片可设为默认
+                    仅 avatar/、skin/ 和 card_face/ 子目录的图片可设为默认
                   </p>
                 )}
               </div>
@@ -2003,6 +2055,15 @@ export default function DocumentManager() {
             )}
           </div>
         </div>
+      )}
+
+      {/* ── CropModal ── */}
+      {cropTarget && (
+        <CropModal
+          imageUrl={cropTarget.url}
+          onSave={handleCropSave}
+          onClose={() => setCropTarget(null)}
+        />
       )}
 
       {/* ── Toast ── */}

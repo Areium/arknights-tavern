@@ -41,6 +41,9 @@ export default function ChatPanel() {
   })();
 
   const [characterColors, setCharacterColors] = useState<Record<string, string>>({});
+  const [customPromptOpen, setCustomPromptOpen] = useState(false);
+  const [customPromptDraft, setCustomPromptDraft] = useState("");
+  const [customPromptSaving, setCustomPromptSaving] = useState(false);
 
   const api = useApi();
 
@@ -58,6 +61,15 @@ export default function ChatPanel() {
     }).catch(() => {});
     return () => { cancelled = true; };
   }, [activeSessionId, characterRefreshKey, chatRefreshKey, api]);
+
+  // Sync custom prompt draft when modal opens or session changes
+  useEffect(() => {
+    if (customPromptOpen && activeSessionId) {
+      const session = sessions.find(s => s.id === activeSessionId);
+      setCustomPromptDraft(session?.custom_prompt || "");
+    }
+  }, [customPromptOpen, activeSessionId, sessions]);
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -587,6 +599,17 @@ export default function ChatPanel() {
             )}
           </div>
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => setCustomPromptOpen(true)}
+              className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${
+                activeSession.custom_prompt
+                  ? "bg-violet-700/50 text-violet-200 hover:bg-violet-700/60"
+                  : "bg-violet-700/30 text-violet-300 hover:bg-violet-700/50"
+              }`}
+              title={activeSession.custom_prompt ? `自定义提示词: ${activeSession.custom_prompt}` : "自定义提示词"}
+            >
+              T
+            </button>
             {sessionTokens && sessionTokens.total_tokens > 0 && (
               <div className="text-[10px] text-gray-500 select-none shrink-0">
                 {sessionTokens.total_tokens.toLocaleString()} tokens
@@ -876,6 +899,94 @@ export default function ChatPanel() {
           </button>
         </div>
       </div>
+
+      {/* Custom Prompt Modal */}
+      {customPromptOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-gray-800 border border-gray-700 rounded-xl w-[520px] flex flex-col shadow-2xl">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700">
+              <h2 className="text-base font-semibold">自定义提示词</h2>
+              <button
+                onClick={() => setCustomPromptOpen(false)}
+                className="text-gray-500 hover:text-gray-300 text-lg leading-none"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              <p className="text-xs text-gray-500 mb-3">
+                输入你对叙事风格、对话语气或剧情走向的指示。提示词将注入到当前会话的所有后续 LLM 调用中。
+              </p>
+              <textarea
+                className="w-full h-40 bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-100
+                           resize-y focus:outline-none focus:border-violet-500/50 placeholder-gray-500"
+                placeholder={`例如：
+用更简洁的语言叙述
+增加悬疑氛围
+角色对话更活泼一些
+避免使用过于华丽的修辞`}
+                value={customPromptDraft}
+                onChange={(e) => setCustomPromptDraft(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="flex items-center justify-between px-5 py-3 border-t border-gray-700">
+              <button
+                onClick={() => setCustomPromptOpen(false)}
+                className="text-xs px-3 py-1.5 rounded text-gray-400 hover:text-gray-200 hover:bg-gray-700/50 transition-colors"
+              >
+                取消
+              </button>
+              <div className="flex items-center gap-2">
+                {customPromptDraft.trim() && (
+                  <button
+                    onClick={async () => {
+                      if (!activeSessionId) return;
+                      setCustomPromptSaving(true);
+                      try {
+                        await api.saveCustomPrompt(activeSessionId, "");
+                        setCustomPromptDraft("");
+                        setSessions(sessions.map(s =>
+                          s.id === activeSessionId ? { ...s, custom_prompt: undefined } : s
+                        ));
+                      } catch (err: any) {
+                        alert("清除失败: " + (err.message || "未知错误"));
+                      } finally {
+                        setCustomPromptSaving(false);
+                      }
+                    }}
+                    className="text-xs px-3 py-1.5 rounded text-red-400 hover:text-red-300 hover:bg-red-700/20 transition-colors"
+                    disabled={customPromptSaving}
+                  >
+                    清除
+                  </button>
+                )}
+                <button
+                  onClick={async () => {
+                    if (!activeSessionId) return;
+                    setCustomPromptSaving(true);
+                    try {
+                      await api.saveCustomPrompt(activeSessionId, customPromptDraft.trim());
+                      setSessions(sessions.map(s =>
+                        s.id === activeSessionId ? { ...s, custom_prompt: customPromptDraft.trim() || undefined } : s
+                      ));
+                      setCustomPromptOpen(false);
+                    } catch (err: any) {
+                      alert("保存失败: " + (err.message || "未知错误"));
+                    } finally {
+                      setCustomPromptSaving(false);
+                    }
+                  }}
+                  className="btn-primary text-xs px-4 py-1.5"
+                  disabled={customPromptSaving}
+                >
+                  {customPromptSaving ? "保存中..." : "保存"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

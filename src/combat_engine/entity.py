@@ -82,6 +82,10 @@ class CombatUnit:
     # Optional: original attributes for reference
     attributes: dict = field(default_factory=dict)
 
+    # Card face / portrait
+    skin_url: str = ""
+    skin_crop: dict | None = None
+
     # Position on grid
     pos: tuple[int, int] = (-1, -1)  # (row, col)
 
@@ -149,6 +153,17 @@ class CombatUnit:
         max_ap = 1 + math.floor((MOB - 3) / 3)
         max_ap = max(1, min(max_ap, 4))
 
+        # Card face URL
+        skin_url = ""
+        skin_crop = None
+        try:
+            from avatar_color import find_card_face_path, get_card_face_crop
+            if find_card_face_path(name):
+                skin_url = f"/api/characters/{name}/card-face"
+                skin_crop = get_card_face_crop(name)
+        except Exception:
+            pass
+
         return cls(
             unit_id=unit_id or name,
             name=name,
@@ -167,6 +182,8 @@ class CombatUnit:
             AP=max_ap,
             MAX_AP=max_ap,
             attributes=a,
+            skin_url=skin_url,
+            skin_crop=skin_crop,
         )
 
     @classmethod
@@ -200,4 +217,6 @@ class CombatUnit:
             "SPD": self.SPD, "HIT": self.HIT, "EVA": self.EVA,
             "AP": self.AP, "MAX_AP": self.MAX_AP,
             "pos": list(self.pos),
+            "skin_url": self.skin_url,
+            "skin_crop": self.skin_crop,
         }

@@ -22,22 +22,30 @@ _REPO_ROOT = Path(_project_root).parent
 def _load_plot_opening(session, plot_id: str):
     """加载剧情的开场配置到会话中。
 
-    解析 opening.md，设置环境、加载初始角色、存储开场上下文，
-    使首次叙述调用能生成匹配剧情的开场描述。
+    新格式：从 plot.md frontmatter 读取所有开场字段。
+    旧格式：解析 opening.md。
     """
-    from session_overlay import _resolve_plot_dir
+    from session_overlay import _resolve_plot_dir, _is_new_plot_format, _read_plot_file
 
     resolved = _resolve_plot_dir(plot_id) or plot_id
     plot_dir = _REPO_ROOT / "data" / "plots" / resolved
-    opening_path = plot_dir / "opening.md"
-    if not opening_path.is_file():
-        logger.debug("剧情 %s 无 opening.md，跳过开场加载", plot_id)
-        return
 
     try:
-        with open(opening_path, "r", encoding="utf-8") as f:
-            post = frontmatter.load(f)
-        meta = post.metadata
+        if _is_new_plot_format(plot_id):
+            # 新格式：所有字段在 plot.md frontmatter 中
+            result = _read_plot_file(plot_id)
+            if not result:
+                return
+            meta, body = result
+        else:
+            # 旧格式：读取 opening.md
+            opening_path = plot_dir / "opening.md"
+            if not opening_path.is_file():
+                logger.debug("剧情 %s 无 opening.md，跳过开场加载", plot_id)
+                return
+            with open(opening_path, "r", encoding="utf-8") as f:
+                post = frontmatter.load(f)
+            meta = post.metadata
 
         # 1. 设置环境
         location = meta.get("initial_location", "")
@@ -71,7 +79,12 @@ def _load_plot_opening(session, plot_id: str):
         # 4. 存储开场上下文（首次叙述注入用）
         scene_desc = meta.get("opening_scene", "").strip()
         if not scene_desc:
-            scene_desc = post.content.strip()[:500]
+            # 尝试从 body 的「## 开场设置」节获取
+            if _is_new_plot_format(plot_id):
+                from session_overlay import _extract_section
+                scene_desc = _extract_section(body, "开场设置")
+            if not scene_desc:
+                scene_desc = body.strip()[:500] if body else ""
         if scene_desc:
             session.overlay.set_plot_context(scene_desc)
 
@@ -108,18 +121,12 @@ def register(app, managers):
         plot_id = data.get("plot_id", "").strip()
         plot_name = ""
         if plot_id and mode == "story":
-            from session_overlay import _resolve_plot_dir
-            resolved = _resolve_plot_dir(plot_id) or plot_id
-            plot_dir = _REPO_ROOT / "data" / "plots" / resolved
-            plot_index = plot_dir / "index.md"
-            if plot_index.is_file():
-                try:
-                    with open(plot_index, "r", encoding="utf-8") as pf:
-                        pfm = frontmatter.load(pf)
-                        plot_name = pfm.metadata.get("name", resolved)
-                except Exception:
-                    plot_name = resolved
-            else:
+            from session_overlay import _resolve_plot_dir, _read_plot_file
+            result = _read_plot_file(plot_id)
+            if result:
+                plot_name = result[0].get("name", "")
+            if not plot_name:
+                resolved = _resolve_plot_dir(plot_id) or plot_id
                 plot_name = resolved
 
         session = session_mgr.create_session(
@@ -169,11 +176,31 @@ def register(app, managers):
         session_mgr.rename_session(session_id, new_name)
         return jsonify({"message": "已重命名", "name": new_name})
 
+    @bp.route("/api/sessions/<session_id>/custom-prompt", methods=["PUT"])
+    def set_custom_prompt(session_id: str):
+        """设置会话的自定义提示词。"""
+        session_obj = session_mgr.get_session(session_id)
+        if not session_obj:
+            return json_error("会话不存在", 404)
+        data = request.json or {}
+        prompt = data.get("prompt", "").strip()
+        if prompt:
+            session_obj.overlay.set_custom_prompt(prompt)
+        else:
+            session_obj.overlay.delete_custom_prompt()
+        return jsonify({
+            "message": "自定义提示词已更新",
+            "custom_prompt": session_obj.overlay.get_custom_prompt(),
+        })
+
     # ── 剧情列表 ──
 
     @bp.route("/api/plots", methods=["GET"])
     def list_plots():
-        """列出所有可用剧情（从 data/plots/ 子目录扫描）。"""
+        """列出所有可用剧情（从 data/plots/ 子目录扫描）。
+
+        优先读取 plot.md（新格式），降级到 index.md（旧格式）。
+        """
         plots_dir = _REPO_ROOT / "data" / "plots"
         if not plots_dir.is_dir():
             return jsonify([])
@@ -182,11 +209,14 @@ def register(app, managers):
         for entry in sorted(plots_dir.iterdir()):
             if not entry.is_dir():
                 continue
-            index_md = entry / "index.md"
-            if not index_md.is_file():
+            # 优先新格式，降级旧格式
+            md = entry / "plot.md"
+            if not md.is_file():
+                md = entry / "index.md"
+            if not md.is_file():
                 continue
             try:
-                with open(index_md, "r", encoding="utf-8") as f:
+                with open(md, "r", encoding="utf-8") as f:
                     plot_data = frontmatter.load(f)
                 meta = plot_data.metadata
                 plots.append({

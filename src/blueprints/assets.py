@@ -120,9 +120,23 @@ def register(app, managers):
         try:
             with open(index_md, "r", encoding="utf-8") as f:
                 meta = _fm.load(f).metadata
+            crop = None
+            keys = ("card_face_crop_x", "card_face_crop_y", "card_face_crop_w", "card_face_crop_h")
+            if all(k in meta for k in keys):
+                try:
+                    crop = {
+                        "x": float(meta["card_face_crop_x"]),
+                        "y": float(meta["card_face_crop_y"]),
+                        "w": float(meta["card_face_crop_w"]),
+                        "h": float(meta["card_face_crop_h"]),
+                    }
+                except (ValueError, TypeError):
+                    crop = None
             return jsonify({
                 "default_avatar": meta.get("default_avatar", ""),
                 "default_skin": meta.get("default_skin", ""),
+                "card_face": meta.get("card_face", ""),
+                "card_face_crop": crop,
             })
         except Exception as e:
             return jsonify({"error": str(e)}), 500
@@ -145,15 +159,32 @@ def register(app, managers):
         img_type = data.get("type", "").strip()
         filename = data.get("filename", "").strip()
 
-        if img_type not in ("avatar", "skin"):
-            return jsonify({"error": "type 必须为 'avatar' 或 'skin'"}), 400
+        if img_type not in ("avatar", "skin", "card_face"):
+            return jsonify({"error": "type 必须为 'avatar'、'skin' 或 'card_face'"}), 400
 
-        field = f"default_{img_type}"
+        if img_type == "card_face":
+            field = "card_face"
+        else:
+            field = f"default_{img_type}"
 
         try:
             with open(index_md, "r", encoding="utf-8") as f:
                 post = _fm.load(f)
             post.metadata[field] = filename
+
+            # card_face 可附带裁剪参数
+            if img_type == "card_face":
+                crop = data.get("crop")
+                if crop and isinstance(crop, dict):
+                    post.metadata["card_face_crop_x"] = crop.get("x", 0)
+                    post.metadata["card_face_crop_y"] = crop.get("y", 0)
+                    post.metadata["card_face_crop_w"] = crop.get("w", 100)
+                    post.metadata["card_face_crop_h"] = crop.get("h", 100)
+                elif crop is None:
+                    # 清除裁剪
+                    for k in ("card_face_crop_x", "card_face_crop_y", "card_face_crop_w", "card_face_crop_h"):
+                        post.metadata.pop(k, None)
+
             with open(index_md, "w", encoding="utf-8") as f:
                 f.write(_fm.dumps(post))
             return jsonify({"message": "已更新", "field": field, "filename": filename})

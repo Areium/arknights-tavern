@@ -327,4 +327,22 @@ def register(app, managers):
         basename = os.path.basename(path)
         return send_from_directory(directory, basename)
 
+    # 角色卡面
+    @bp.route("/api/characters/<name>/card-face")
+    def character_card_face(name: str):
+        from avatar_color import find_card_face_path
+        path = find_card_face_path(name)
+        if not path:
+            abort(404)
+        directory = os.path.dirname(path)
+        basename = os.path.basename(path)
+        return send_from_directory(directory, basename)
+
+    # 卡面裁剪参数
+    @bp.route("/api/characters/<name>/card-face-crop")
+    def character_card_face_crop(name: str):
+        from avatar_color import get_card_face_crop
+        crop = get_card_face_crop(name)
+        return jsonify(crop or {})
+
     app.register_blueprint(bp)

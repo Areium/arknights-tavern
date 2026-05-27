@@ -274,12 +274,19 @@ class CombatEngine:
             self._emit("error", unit_id=unit_id, msg=f"卡牌 '{card.name}' 不在手牌中")
             return []
 
-        # AP check: player units use shared AP, enemies use personal AP
+        # AP check: player units use personal AP first, shared AP as fallback
+        from_personal = 0
+        from_shared = 0
         if unit.team == "player":
-            if self.shared_ap < card.cost:
-                self._emit("error", unit_id=unit_id, msg=f"共用 AP 不足 ({self.shared_ap} < {card.cost})")
+            total_available = unit.AP + self.shared_ap
+            if total_available < card.cost:
+                self._emit("error", unit_id=unit_id,
+                           msg=f"AP 不足 (个人 {unit.AP} + 共享 {self.shared_ap} < {card.cost})")
                 return []
-            self.shared_ap -= card.cost
+            from_personal = min(unit.AP, card.cost)
+            from_shared = card.cost - from_personal
+            unit.AP -= from_personal
+            self.shared_ap -= from_shared
         else:
             if unit.AP < card.cost:
                 self._emit("error", unit_id=unit_id, msg=f"AP 不足 ({unit.AP} < {card.cost})")
@@ -353,7 +360,8 @@ class CombatEngine:
         if not results:
             # No valid targets in range — refund AP, don't consume card
             if unit.team == "player":
-                self.shared_ap += card.cost
+                unit.AP += from_personal
+                self.shared_ap += from_shared
             else:
                 unit.AP += card.cost
             self._emit("error", unit_id=unit.unit_id,
@@ -369,14 +377,27 @@ class CombatEngine:
 
     def move_unit(self, unit_id: str, new_pos: tuple[int, int],
                   ap_cost: int = 1) -> bool:
-        """Move a unit on the grid (costs 1 AP from shared pool for players)."""
+        """Move a unit on the grid (costs AP: personal first for players)."""
         unit = self.units[unit_id]
         from_pos = unit.pos
+
+        # Distance validation (Chebyshev, mobility // 2)
+        dist = max(abs(unit.pos[0] - new_pos[0]), abs(unit.pos[1] - new_pos[1]))
+        max_move = unit.mobility // 2
+        if dist > max_move:
+            self._emit("error", unit_id=unit_id,
+                       msg=f"移动距离超限 ({dist} > {max_move})")
+            return False
+
         if unit.team == "player":
-            if self.shared_ap < ap_cost:
+            total_available = unit.AP + self.shared_ap
+            if total_available < ap_cost:
                 return False
+            from_personal = min(unit.AP, ap_cost)
+            from_shared = ap_cost - from_personal
             if self.grid.move_unit(unit, new_pos):
-                self.shared_ap -= ap_cost
+                unit.AP -= from_personal
+                self.shared_ap -= from_shared
                 self._emit("move", unit_id=unit_id, name=unit.name,
                           from_pos=list(from_pos), to_pos=list(new_pos))
                 return True

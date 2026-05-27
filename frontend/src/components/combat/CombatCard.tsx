@@ -1,4 +1,5 @@
-import type { CardDTO } from "../../types";
+import { useState } from "react";
+import type { CardDTO, SkinCrop } from "../../types";
 
 interface Props {
   card: CardDTO;
@@ -6,6 +7,8 @@ interface Props {
   affordable: boolean;
   selected: boolean;
   highlighted?: boolean;
+  skinUrl?: string;
+  skinCrop?: SkinCrop | null;
   onClick: () => void;
   onDragStart?: () => void;
   onDragEnd?: () => void;
@@ -38,13 +41,21 @@ function cardArtGradient(cardId: string, damageType: string): string {
   return `linear-gradient(135deg, hsl(${base}, 40%, 18%) 0%, hsl(${base + 30}, 35%, 12%) 50%, hsl(${base - 20}, 30%, 8%) 100%)`;
 }
 
-export default function CombatCard({ card, index, affordable, selected, highlighted, onClick, onDragStart, onDragEnd }: Props) {
+const CLASS_DOT_COLORS: Record<string, string> = {
+  "先锋": "#d4a574", "近卫": "#c44b3c", "重装": "#4a6b8a",
+  "狙击": "#3c8c4a", "术师": "#8b5ca8", "医疗": "#5c9a8b",
+  "辅助": "#c4a83c", "特种": "#6b5c8a",
+};
+
+export default function CombatCard({ card, index, affordable, selected, highlighted, skinUrl, skinCrop, onClick, onDragStart, onDragEnd }: Props) {
   const classKey = CLASS_CSS[card.class_required] || "";
   const tierClass = card.tier === "elite" ? "elite" : "";
   const selectedClass = selected ? "selected" : "";
   const highlightedClass = highlighted ? "highlighted" : "";
   const disabledClass = !affordable ? "disabled" : "";
   const artBg = cardArtGradient(card.card_id, card.damage_type);
+  const [imgError, setImgError] = useState(false);
+  const hasSkin = skinUrl && !imgError;
 
   const handleDragStart = (e: React.DragEvent) => {
     if (!affordable) {
@@ -53,7 +64,6 @@ export default function CombatCard({ card, index, affordable, selected, highligh
     }
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", String(index));
-    // Use a zero-size transparent canvas as drag image to hide browser's default ghost
     const canvas = document.createElement("canvas");
     canvas.width = 1;
     canvas.height = 1;
@@ -67,6 +77,9 @@ export default function CombatCard({ card, index, affordable, selected, highligh
     onDragEnd?.();
   };
 
+  const classDotColor = CLASS_DOT_COLORS[card.class_required] || "#6b6b80";
+  const showWatermark = !hasSkin;
+
   return (
     <button
       className={`combat-card ${classKey} ${tierClass} ${selectedClass} ${highlightedClass} ${disabledClass}`}
@@ -77,19 +90,41 @@ export default function CombatCard({ card, index, affordable, selected, highligh
       onDragEnd={handleDragEnd}
     >
       {/* Card art area */}
-      <div
-        className="w-full h-[80px] relative flex items-center justify-center"
-        style={{ background: artBg }}
-      >
+      <div className="card-art-area w-full h-[80px] relative" style={hasSkin ? {} : { background: artBg }}>
+        {hasSkin && skinCrop ? (
+          <div className="card-art-crop">
+            <img
+              src={skinUrl}
+              alt=""
+              style={{
+                position: "absolute",
+                left: `${-(skinCrop.x / skinCrop.w) * 100}%`,
+                top: `${-(skinCrop.y / skinCrop.h) * 100}%`,
+                width: `${(100 / skinCrop.w) * 100}%`,
+                height: `${(100 / skinCrop.h) * 100}%`,
+              }}
+              onError={() => setImgError(true)}
+            />
+          </div>
+        ) : hasSkin ? (
+          <img
+            src={skinUrl}
+            alt=""
+            className="card-art-cover"
+            onError={() => setImgError(true)}
+          />
+        ) : null}
         <span className={`absolute top-1 right-1 text-[10px] font-bold ${DMG_ICON_COLORS[card.damage_type] || "text-gray-400"}`}>
           {DMG_LABELS[card.damage_type]?.charAt(0) || "?"}
         </span>
         {card.tier === "elite" && (
           <span className="absolute top-1 left-7 text-yellow-400 text-sm">★</span>
         )}
-        <span className="text-gray-600 text-[9px] font-mono opacity-30 rotate-[-30deg] select-none">
-          {card.name.length > 4 ? card.name.slice(0, 2) : card.name}
-        </span>
+        {showWatermark && (
+          <span className="text-gray-600 text-[9px] font-mono opacity-30 rotate-[-30deg] select-none absolute inset-0 flex items-center justify-center">
+            {card.name.length > 4 ? card.name.slice(0, 2) : card.name}
+          </span>
+        )}
       </div>
 
       {/* Card info */}
@@ -118,7 +153,8 @@ export default function CombatCard({ card, index, affordable, selected, highligh
         </div>
 
         <div className="text-[9px] text-gray-600 mt-1 flex justify-between">
-          <span>
+          <span className="flex items-center gap-0.5">
+            <span className="inline-block w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: classDotColor }} />
             {card.class_required === "any" ? "通用" : card.class_required}
             {card.owner && <span className="text-combat-gold ml-0.5">@{card.owner}</span>}
           </span>

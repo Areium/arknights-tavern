@@ -328,24 +328,44 @@ export default function CombatView() {
   // Highlight cards belonging to the selected character
   const highlightOwner = selectedUnit ? selectedUnit.name : null;
 
+  // Calculate total available AP for a card (owner's personal AP + shared AP)
+  const getCardAp = useCallback((card: CardDTO) => {
+    if (!combatState) return 0;
+    const owner = combatState.units.find(
+      u => u.team === "player" && u.is_alive && u.name === card.owner
+    );
+    return (owner?.personal_ap ?? 0) + (combatState.shared_ap ?? 0);
+  }, [combatState]);
+
+  // Build owner name → {url, crop} mapping for card face images
+  const ownerSkins = useMemo(() => {
+    if (!combatState) return {};
+    const map: Record<string, { url: string; crop: import("../../types").SkinCrop | null }> = {};
+    for (const u of combatState.units) {
+      if (u.team === "player" && u.skin_url) {
+        map[u.name] = { url: u.skin_url, crop: u.skin_crop ?? null };
+      }
+    }
+    return map;
+  }, [combatState]);
+
   // Hovered unit for tooltip
   const hoveredUnit = hoveredUnitId
     ? combatState?.units.find((u) => u.unit_id === hoveredUnitId) ?? null
     : null;
 
-  // Move range from selected unit's mobility (Chebyshev distance)
+  // Move range from selected unit's mobility (Chebyshev distance, mobility//2)
   const moveHighlights = useMemo(() => {
     if (!selectedUnit || !selectedUnit.is_alive || selectedUnit.team !== "player") {
       return new Set<string>();
     }
-    const mobility = selectedUnit.mobility || 1;
+    const moveRange = Math.floor((selectedUnit.mobility || 1) / 2);
     const [r0, c0] = selectedUnit.pos;
     const gs = combatState?.grid_size ?? 7;
     const cells = new Set<string>();
-    for (let dr = -mobility; dr <= mobility; dr++) {
-      for (let dc = -mobility; dc <= mobility; dc++) {
+    for (let dr = -moveRange; dr <= moveRange; dr++) {
+      for (let dc = -moveRange; dc <= moveRange; dc++) {
         if (dr === 0 && dc === 0) continue;
-        if (Math.abs(dr) > mobility || Math.abs(dc) > mobility) continue;
         const r = r0 + dr;
         const c = c0 + dc;
         if (r >= 0 && r < gs && c >= 0 && c < gs) {
@@ -421,9 +441,12 @@ export default function CombatView() {
           }
           return;
         }
-        // AP check
-        if (card && (combatState.shared_ap ?? 0) < card.cost) {
-          setError(`AP 不足 (${combatState.shared_ap ?? 0} / ${card.cost})`);
+        // AP check: personal AP + shared AP
+        if (card && getCardAp(card) < card.cost) {
+          const owner = combatState?.units.find(u => u.name === card.owner && u.team === "player");
+          const pa = owner?.personal_ap ?? 0;
+          const sa = combatState?.shared_ap ?? 0;
+          setError(`AP 不足 (个人 ${pa} + 共享 ${sa} < ${card.cost})`);
           return;
         }
 
@@ -462,8 +485,11 @@ export default function CombatView() {
         }
         // Clicked a move-highlighted cell
         if (moveHighlights.has(`${row},${col}`)) {
-          if ((combatState.shared_ap ?? 0) < 1) {
-            setError("AP 不足，无法移动 (需要 1 AP)");
+          const totalAp = (selectedUnit?.personal_ap ?? 0) + (combatState?.shared_ap ?? 0);
+          if (totalAp < 1) {
+            const pa = selectedUnit?.personal_ap ?? 0;
+            const sa = combatState?.shared_ap ?? 0;
+            setError(`AP 不足，无法移动 (个人 ${pa} + 共享 ${sa} < 1)`);
             return;
           }
           setLoading(true);
@@ -1145,7 +1171,7 @@ export default function CombatView() {
       </div>
 
       {/* Bottom: hand + controls + event log */}
-      <div className="border-t border-combat-divider bg-surface-dark/80 pointer-events-none" style={{ marginTop: cfg.bottomBarMarginTop }}>
+      <div className="border-t border-combat-divider bg-surface-dark/80 pointer-events-none relative" style={{ marginTop: cfg.bottomBarMarginTop }}>
         {/* Action bar */}
         <div className="flex items-center gap-3 px-4 py-1 relative z-20 pointer-events-auto">
           <span className="text-xs text-gray-500 font-display">
@@ -1200,10 +1226,11 @@ export default function CombatView() {
         {/* Hand */}
         <CombatHand
           cards={displayedHand}
-          activeAp={sharedAp}
+          getCardAp={getCardAp}
           selectedIndex={selectedCardIndex}
           disabled={combatState.phase !== "PLAYER_TURN"}
           highlightOwner={highlightOwner}
+          ownerSkins={ownerSkins}
           onCardClick={handleCardClick}
           onCardDragStart={handleCardDragStart}
           onCardDragEnd={handleCardDragEnd}
@@ -1240,11 +1267,11 @@ export default function CombatView() {
         </div>
       )}
 
-      {/* Floating deck/discard pile buttons */}
+      {/* Deck/discard pile buttons — absolute relative to bottom container */}
       {combatState && combatState.phase === "PLAYER_TURN" && !combatState.battle_over && (
         <>
           <button
-            className="fixed left-60 bottom-24 z-30 flex items-center gap-2 px-3 py-2 bg-surface-card/90 hover:bg-surface-card border border-combat-border rounded-xl shadow-lg transition-all backdrop-blur-sm pointer-events-auto"
+            className="absolute left-4 bottom-full mb-2 z-30 flex items-center gap-2 px-3 py-2 bg-surface-card/90 hover:bg-surface-card border border-combat-border rounded-xl shadow-lg transition-all backdrop-blur-sm pointer-events-auto"
             onClick={() => { setDeckFilterMode("deck"); setShowDeckViewer(true); }}
             title="抽牌堆"
           >
@@ -1255,7 +1282,7 @@ export default function CombatView() {
             </span>
           </button>
           <button
-            className="fixed right-4 bottom-24 z-30 flex items-center gap-2 px-3 py-2 bg-surface-card/90 hover:bg-surface-card border border-combat-border rounded-xl shadow-lg transition-all backdrop-blur-sm pointer-events-auto"
+            className="absolute right-4 bottom-full mb-2 z-30 flex items-center gap-2 px-3 py-2 bg-surface-card/90 hover:bg-surface-card border border-combat-border rounded-xl shadow-lg transition-all backdrop-blur-sm pointer-events-auto"
             onClick={() => { setDeckFilterMode("discard"); setShowDeckViewer(true); }}
             title="弃牌堆"
           >

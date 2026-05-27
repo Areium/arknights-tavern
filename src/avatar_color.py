@@ -61,11 +61,28 @@ def extract_theme_color(image_path: str | Path) -> str:
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
+def _read_index_meta(name: str) -> dict:
+    """读取角色 index.md 的 frontmatter 元数据。"""
+    index_path = _REPO_ROOT / "data" / "characters" / name / "index.md"
+    if not index_path.exists():
+        return {}
+    try:
+        return frontmatter.loads(index_path.read_text(encoding="utf-8")).metadata
+    except Exception:
+        return {}
+
+
 def find_avatar_path(name: str) -> str | None:
-    """在角色目录下查找默认头像文件（最短文件名的 .png）。"""
+    """在角色目录下查找默认头像文件。优先读 index.md 的 default_avatar，否则取最短文件名。"""
     avatar_dir = _REPO_ROOT / "data" / "characters" / name / "avatar"
     if not avatar_dir.is_dir():
         return None
+    meta = _read_index_meta(name)
+    default = meta.get("default_avatar", "").strip()
+    if default:
+        path = avatar_dir / default
+        if path.is_file():
+            return str(path)
     pngs = sorted(
         [f for f in os.listdir(avatar_dir) if f.lower().endswith(".png")],
         key=lambda f: len(f),
@@ -74,15 +91,54 @@ def find_avatar_path(name: str) -> str | None:
 
 
 def find_skin_path(name: str) -> str | None:
-    """在角色目录下查找默认立绘文件（最短文件名的 .png）。"""
+    """在角色目录下查找默认立绘文件。优先读 index.md 的 default_skin，否则取最短文件名。"""
     skin_dir = _REPO_ROOT / "data" / "characters" / name / "skin"
     if not skin_dir.is_dir():
         return None
+    meta = _read_index_meta(name)
+    default = meta.get("default_skin", "").strip()
+    if default:
+        path = skin_dir / default
+        if path.is_file():
+            return str(path)
     pngs = sorted(
         [f for f in os.listdir(skin_dir) if f.lower().endswith(".png")],
         key=lambda f: len(f),
     )
     return str(skin_dir / pngs[0]) if pngs else None
+
+
+def find_card_face_path(name: str) -> str | None:
+    """查找角色卡面文件。优先读 index.md 的 card_face 字段，回退到 skin → avatar。"""
+    meta = _read_index_meta(name)
+    card_face = meta.get("card_face", "").strip()
+    if card_face:
+        card_face_dir = _REPO_ROOT / "data" / "characters" / name / "card_face"
+        if card_face_dir.is_dir():
+            path = card_face_dir / card_face
+            if path.is_file():
+                return str(path)
+    skin = find_skin_path(name)
+    if skin:
+        return skin
+    return find_avatar_path(name)
+
+
+def get_card_face_crop(name: str) -> dict | None:
+    """读取卡面裁剪参数（百分比）。返回 {x, y, w, h} 或 None。"""
+    meta = _read_index_meta(name)
+    keys = ("card_face_crop_x", "card_face_crop_y", "card_face_crop_w", "card_face_crop_h")
+    if all(k in meta for k in keys):
+        try:
+            return {
+                "x": float(meta["card_face_crop_x"]),
+                "y": float(meta["card_face_crop_y"]),
+                "w": float(meta["card_face_crop_w"]),
+                "h": float(meta["card_face_crop_h"]),
+            }
+        except (ValueError, TypeError):
+            return None
+    return None
 
 
 def get_theme_color(name: str) -> str | None:
