@@ -27,6 +27,7 @@ export interface Session {
   id: string;
   name: string;
   mode: "free" | "story";
+  plot_id: string | null;
   created_at: number;
   usable: boolean;
   characters: string[];
@@ -36,6 +37,7 @@ export interface Session {
     location: string;
     weather: string;
     time: string;
+    atmosphere: string[];
   };
   scene_log: string[];
   narration_count?: number;
@@ -123,6 +125,20 @@ export interface ElectronAPI {
   restartBackend: () => Promise<{ status: string }>;
   openDirectory: (dirPath: string) => Promise<{ success: boolean; error: string }>;
   onBackendStatus: (cb: (status: { status: string; url: string }) => void) => () => void;
+}
+
+/** 聊天消息 */
+export interface ChatMessage {
+  role: "user" | "assistant" | "character" | "system" | "narrator";
+  content: string;
+  character?: string;
+  choices?: string[];
+  round?: number;
+  variants?: string[];
+  variantIndex?: number;
+  dialogueSegments?: { type: string; text: string; speaker?: string }[];
+  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+  reasoning?: string;
 }
 
 /** 任务 */

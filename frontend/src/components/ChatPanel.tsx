@@ -2,23 +2,13 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useAppStore } from "../stores/appStore";
 import { useApi, createSSE } from "../hooks/useApi";
 import { parseDialogue } from "../utils/dialogueParser";
+import type { ChatMessage } from "../types";
 import DialogueBubble from "./chat/DialogueBubble";
 import NarrationText from "./chat/NarrationText";
 import LoadingIndicator from "./chat/LoadingIndicator";
 import TokenUsage from "./chat/TokenUsage";
 
-interface Message {
-  role: "user" | "assistant" | "character" | "system" | "narrator";
-  content: string;
-  character?: string;
-  choices?: string[];
-  round?: number;
-  variants?: string[];
-  variantIndex?: number;
-  dialogueSegments?: { type: string; text: string; speaker?: string }[];
-  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
-  reasoning?: string;
-}
+const EMPTY_MSGS: ChatMessage[] = [];
 
 function filterSceneLog(log: string[]): string[] {
   return log.filter(
@@ -70,22 +60,16 @@ export default function ChatPanel() {
     }
   }, [customPromptOpen, activeSessionId, sessions]);
 
-  const [messages, setMessages] = useState<Message[]>([]);
+  const messages = useAppStore(s => s.sessionMessages[activeSessionId || ""] ?? EMPTY_MSGS);
+  const streaming = useAppStore(s => s.sessionStreaming[activeSessionId || ""] ?? false);
+  const sending = useAppStore(s => s.sessionSending[activeSessionId || ""] ?? false);
+  const narrationCount = useAppStore(s => s.sessionNarrationCount[activeSessionId || ""] ?? 0);
   const [input, setInput] = useState("");
-  const [streaming, setStreaming] = useState(false);
-  const [sending, setSending] = useState(false);
   const [initialLoading, setInitialLoading] = useState(false);
-  const [narrationCount, setNarrationCount] = useState(0);
-  const narrationCountRef = useRef(0);
-  const updateNarrationCount = (value: number) => {
-    narrationCountRef.current = value;
-    setNarrationCount(value);
-  };
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
   const [regeneratingRound, setRegeneratingRound] = useState<number | null>(null);
   const [regenerationPrompt, setRegenerationPrompt] = useState("");
-  const abortRef = useRef<(() => void) | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const waitStartRef = useRef<number>(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -111,23 +95,20 @@ export default function ChatPanel() {
     }
   }, [sending, streaming]);
 
-  const storageKey = activeSessionId ? `ark_chat_${activeMode}_${activeSessionId}` : null;
-
   // ── Session load / restore ──
 
   useEffect(() => {
-    setMessages([]);
-    setStreaming(false);
-    setSending(false);
-    updateNarrationCount(0);
     setEditingIdx(null);
-    abortRef.current?.();
-    abortRef.current = null;
 
     if (!activeSessionId) return;
     const sid: string = activeSessionId;
-    const key = `ark_chat_${activeMode}_${sid}`;
+    const store = useAppStore.getState();
 
+    // If store already has messages for this session (from background SSE), skip loading
+    const existing = store.sessionMessages[sid];
+    if (existing && existing.length > 0) return;
+
+    const key = `ark_chat_${activeMode}_${sid}`;
     let cancelled = false;
 
     async function init() {
@@ -138,13 +119,13 @@ export default function ChatPanel() {
           const parsed = JSON.parse(cached);
           if (Array.isArray(parsed) && parsed.length > 0) {
             if (!cancelled) {
-              setMessages(parsed);
+              useAppStore.getState().setSessionMessages(sid, parsed);
               setInitialLoading(false);
               // Restore narrationCount from max round
               const maxRound = Math.max(0, ...parsed
-                .filter((m: Message) => m.round != null)
-                .map((m: Message) => m.round!));
-              updateNarrationCount(maxRound);
+                .filter((m: ChatMessage) => m.round != null)
+                .map((m: ChatMessage) => m.round!));
+              useAppStore.getState().setSessionNarrationCount(sid, maxRound);
             }
             return;
           }
@@ -156,9 +137,9 @@ export default function ChatPanel() {
       try {
         const session = await api.getSession(sid);
         if (cancelled) return;
-        updateNarrationCount(session.narration_count || 0);
+        useAppStore.getState().setSessionNarrationCount(sid, session.narration_count || 0);
 
-        const initialMessages: Message[] = [];
+        const initialMessages: ChatMessage[] = [];
         const log = filterSceneLog(session.scene_log || []);
         if (log.length > 0) {
           initialMessages.push({ role: "system", content: `【场景记录】\n${log.join("\n")}` });
@@ -177,7 +158,7 @@ export default function ChatPanel() {
             .join("、");
           initialMessages.push({ role: "system", content: `【已加载角色】${charList}` });
         }
-        if (!cancelled) setMessages(initialMessages);
+        if (!cancelled) useAppStore.getState().setSessionMessages(sid, initialMessages);
       } catch {
         // Fresh session
       } finally {
@@ -186,25 +167,33 @@ export default function ChatPanel() {
 
       // 3. Story mode auto-narrate
       if (chatMode === "story" && !cancelled) {
-        triggerNarrate(sid, setMessages, setStreaming, abortRef, triggerEnvRefresh, triggerMemoryRefresh, setNarrationCount, narrationCountRef);
+        triggerNarrate(sid);
       }
     }
 
     init();
-    return () => {
-      cancelled = true;
-      abortRef.current?.();
-    };
+    return () => { cancelled = true; };
   }, [activeSessionId, chatMode, api]);
 
-  // ── Persist ──
+  // ── Persist (subscribe to store, persists on every change including mid-stream) ──
 
   useEffect(() => {
-    if (!storageKey || messages.length === 0) return;
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(messages));
-    } catch { /* full */ }
-  }, [messages, storageKey]);
+    if (!activeSessionId) return;
+    const sid = activeSessionId;
+    const session = sessions.find(s => s.id === sid);
+    if (!session) return;
+    const key = `ark_chat_${session.mode}_${sid}`;
+
+    let prevMsgs: ChatMessage[] | undefined;
+    const unsub = useAppStore.subscribe((state) => {
+      const msgs = state.sessionMessages[sid];
+      if (msgs !== prevMsgs && msgs && msgs.length > 0) {
+        prevMsgs = msgs;
+        try { localStorage.setItem(key, JSON.stringify(msgs)); } catch {}
+      }
+    });
+    return unsub;
+  }, [activeSessionId, sessions]);
 
   // ── External rollback (from MemoryPanel) ──
 
@@ -214,8 +203,10 @@ export default function ChatPanel() {
       try {
         const session = await api.getSession(activeSessionId);
         const targetRound = session.narration_count || 0;
-        updateNarrationCount(targetRound);
-        setMessages((prev) => prev.filter((m) => !m.round || m.round <= targetRound));
+        useAppStore.getState().setSessionNarrationCount(activeSessionId, targetRound);
+        useAppStore.getState().setSessionMessages(activeSessionId, (prev) =>
+          prev.filter((m) => !m.round || m.round <= targetRound)
+        );
       } catch { /* ignore */ }
     })();
   }, [chatRefreshKey]);
@@ -224,10 +215,7 @@ export default function ChatPanel() {
 
   useEffect(() => {
     if (!activeSessionId || chatMode !== "story" || sceneSwitchKey === 0) return;
-    triggerNarrate(
-      activeSessionId, setMessages, setStreaming, abortRef,
-      triggerEnvRefresh, triggerMemoryRefresh, setNarrationCount, narrationCountRef,
-    );
+    triggerNarrate(activeSessionId);
   }, [sceneSwitchKey]);
 
   // ── Rollback ──
@@ -238,8 +226,10 @@ export default function ChatPanel() {
 
     try {
       await api.rollbackSession(activeSessionId, targetRound);
-      setMessages((prev) => prev.filter((m) => !m.round || m.round <= targetRound));
-      updateNarrationCount(targetRound);
+      useAppStore.getState().setSessionMessages(activeSessionId, (prev) =>
+        prev.filter((m) => !m.round || m.round <= targetRound)
+      );
+      useAppStore.getState().setSessionNarrationCount(activeSessionId, targetRound);
       triggerMemoryRefresh();
     } catch (err: any) {
       alert("回退失败: " + (err.message || "未知错误"));
@@ -272,12 +262,11 @@ export default function ChatPanel() {
     try {
       if (rollbackTo >= 0) {
         await api.rollbackSession(activeSessionId, rollbackTo);
-        updateNarrationCount(rollbackTo);
+        useAppStore.getState().setSessionNarrationCount(activeSessionId, rollbackTo);
         triggerMemoryRefresh();
       }
 
-      // 截断消息列表，添加用户编辑后的消息
-      setMessages((prev) => {
+      useAppStore.getState().setSessionMessages(activeSessionId, (prev) => {
         const keep = prev.slice(0, editingIdx);
         return [...keep, { role: "user", content: edited, round: rollbackTo + 1 }];
       });
@@ -285,15 +274,10 @@ export default function ChatPanel() {
       setEditingIdx(null);
       setEditText("");
 
-      // SSE 流式生成编辑后的叙述（newRound = rollbackTo + 1）
-      triggerNarrate(
-        activeSessionId, setMessages, setStreaming, abortRef,
-        triggerEnvRefresh, triggerMemoryRefresh, setNarrationCount,
-        narrationCountRef, edited,
-      );
+      triggerNarrate(activeSessionId, edited);
     } catch (err: any) {
       alert("编辑失败: " + (err.message || "未知错误"));
-      setStreaming(false);
+      useAppStore.getState().setSessionStreaming(activeSessionId, false);
     }
   }, [editingIdx, editText, activeSessionId, messages, api, triggerMemoryRefresh, cancelEdit]);
 
@@ -302,39 +286,36 @@ export default function ChatPanel() {
   const performSend = useCallback(
     async (text: string) => {
       if (!activeSessionId) return;
+      const sid = activeSessionId;
 
       // Story mode: use SSE streaming for progressive token display
       if (chatMode === "story") {
-        triggerNarrate(
-          activeSessionId, setMessages, setStreaming, abortRef,
-          triggerEnvRefresh, triggerMemoryRefresh, setNarrationCount, narrationCountRef,
-          text, setSending,
-        );
+        triggerNarrate(sid, text);
         return;
       }
 
       // Free mode: blocking POST (group chat)
-      setStreaming(true);
+      useAppStore.getState().setSessionStreaming(sid, true);
       try {
-        const res = await api.groupChat(activeSessionId, text);
+        const res = await api.groupChat(sid, text);
         const items: any[] = res.responses || res;
-        const responses: Message[] = items.map((r: any) => ({
+        const responses: ChatMessage[] = items.map((r: any) => ({
           role: "character",
           content: r.response,
           character: r.character,
           usage: r.usage,
         }));
-        setMessages((prev) => {
+        useAppStore.getState().setSessionMessages(sid, (prev) => {
           if (responses.length === 0) {
             return [...prev, { role: "system", content: "（没有角色回复 — 请先在右侧面板加载角色）" }];
           }
           return [...prev, ...responses];
         });
       } catch (err: any) {
-        setMessages((prev) => [...prev, { role: "system", content: `请求失败: ${err.message}` }]);
+        useAppStore.getState().setSessionMessages(sid, (prev) => [...prev, { role: "system", content: `请求失败: ${err.message}` }]);
       } finally {
-        setSending(false);
-        setStreaming(false);
+        useAppStore.getState().setSessionSending(sid, false);
+        useAppStore.getState().setSessionStreaming(sid, false);
       }
     },
     [activeSessionId, chatMode, api, triggerEnvRefresh, triggerMemoryRefresh]
@@ -345,15 +326,14 @@ export default function ChatPanel() {
     if (pendingAutoNarrate && activeSessionId) {
       const { action, settlement } = pendingAutoNarrate;
       setPendingAutoNarrate(null);
-      // 插入战斗结算系统消息
       if (settlement) {
         const winnerText = settlement.winner === "player" ? "玩家获胜" : settlement.winner === "enemy" ? "敌方获胜" : "战斗结束";
         const survivorsText = settlement.survivors.length > 0 ? `\n幸存：${settlement.survivors.join("、")}` : "";
-        const settlementMsg: Message = {
+        const settlementMsg: ChatMessage = {
           role: "system",
           content: `⚔ 战斗结束：遭遇战「${settlement.encounter_id}」— ${winnerText}，共 ${settlement.rounds} 回合。${survivorsText}`,
         };
-        setMessages(prev => [...prev, settlementMsg]);
+        useAppStore.getState().setSessionMessages(activeSessionId, prev => [...prev, settlementMsg]);
       }
       performSend(action);
     }
@@ -369,14 +349,15 @@ export default function ChatPanel() {
 
   const handleSend = useCallback(() => {
     const text = input.trim();
-    if (!text || sending || streaming) return;
+    if (!text || sending || streaming || !activeSessionId) return;
 
-    const curRound = narrationCountRef.current;
+    const sid = activeSessionId;
+    const curRound = useAppStore.getState().sessionNarrationCount[sid] || 0;
     setInput("");
-    setSending(true);
-    setMessages((prev) => [...prev, { role: "user", content: text, round: curRound }]);
+    useAppStore.getState().setSessionSending(sid, true);
+    useAppStore.getState().setSessionMessages(sid, (prev) => [...prev, { role: "user", content: text, round: curRound }]);
     performSend(text);
-  }, [input, sending, streaming, performSend]);
+  }, [input, sending, streaming, activeSessionId, performSend]);
 
   const handleChoiceClick = useCallback(
     (choice: string) => {
@@ -384,12 +365,14 @@ export default function ChatPanel() {
         setInput(choice);
         return;
       }
-      const curRound = narrationCountRef.current;
+      if (!activeSessionId) return;
+      const sid = activeSessionId;
+      const curRound = useAppStore.getState().sessionNarrationCount[sid] || 0;
       setInput("");
-      setMessages((prev) => [...prev, { role: "user", content: choice, round: curRound }]);
+      useAppStore.getState().setSessionMessages(sid, (prev) => [...prev, { role: "user", content: choice, round: curRound }]);
       performSend(choice);
     },
-    [performSend, editBeforeSend]
+    [activeSessionId, performSend, editBeforeSend]
   );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -407,7 +390,9 @@ export default function ChatPanel() {
   }, [activeSessionId, api]);
 
   const handleVariantPrev = useCallback((idx: number) => {
-    setMessages((prev) => {
+    if (!activeSessionId) return;
+    const sid = activeSessionId;
+    useAppStore.getState().setSessionMessages(sid, (prev) => {
       const msg = prev[idx];
       if (!msg.variants || (msg.variantIndex ?? 0) <= 0) return prev;
       const newIdx = (msg.variantIndex ?? 0) - 1;
@@ -416,10 +401,12 @@ export default function ChatPanel() {
       syncVariantToBackend(msg.round, narrative);
       return [...prev.slice(0, idx), updated, ...prev.slice(idx + 1)];
     });
-  }, [syncVariantToBackend]);
+  }, [activeSessionId, syncVariantToBackend]);
 
   const handleVariantNext = useCallback((idx: number) => {
-    setMessages((prev) => {
+    if (!activeSessionId) return;
+    const sid = activeSessionId;
+    useAppStore.getState().setSessionMessages(sid, (prev) => {
       const msg = prev[idx];
       if (!msg.variants) return prev;
       const curIdx = msg.variantIndex ?? 0;
@@ -432,7 +419,7 @@ export default function ChatPanel() {
       }
       return prev;
     });
-  }, [syncVariantToBackend]);
+  }, [activeSessionId, syncVariantToBackend]);
 
   const handleRegeneratePrompt = useCallback((round: number) => {
     setRegeneratingRound(round);
@@ -446,23 +433,24 @@ export default function ChatPanel() {
 
   const handleRegenerateSubmit = useCallback(async () => {
     if (!activeSessionId || regeneratingRound == null) return;
+    const sid = activeSessionId;
+    const round = regeneratingRound;
     const prompt = regenerationPrompt.trim();
     setRegenerationPrompt("");
     setRegeneratingRound(null);
-    setStreaming(true);
+    useAppStore.getState().setSessionStreaming(sid, true);
     try {
-      const data = await api.narrateVariant(activeSessionId, prompt);
+      const data = await api.narrateVariant(sid, prompt);
       const newNarrative: string = data.narrative;
-      setMessages((prev) => {
-        // Find the narrator message for this round
+      useAppStore.getState().setSessionMessages(sid, (prev) => {
         const idx = prev.findIndex(
-          (m) => m.role === "narrator" && m.round === regeneratingRound
+          (m) => m.role === "narrator" && m.round === round
         );
         if (idx === -1) return prev;
         const msg = prev[idx];
         const variants = msg.variants || [msg.content];
         const newIdx = variants.length;
-        const updated: Message = {
+        const updated: ChatMessage = {
           ...msg,
           content: newNarrative,
           variants: [...variants, newNarrative],
@@ -470,26 +458,25 @@ export default function ChatPanel() {
           dialogueSegments: data.dialogue_segments || msg.dialogueSegments,
           usage: data.usage || msg.usage,
         };
-        // Sync selected variant to backend
-        api.narrateUpdate(activeSessionId, regeneratingRound, newNarrative).catch(() => {});
+        api.narrateUpdate(sid, round, newNarrative).catch(() => {});
         return [...prev.slice(0, idx), updated, ...prev.slice(idx + 1)];
       });
     } catch (err: any) {
       alert("重新生成失败: " + (err.message || "未知错误"));
     } finally {
-      setStreaming(false);
+      useAppStore.getState().setSessionStreaming(sid, false);
     }
   }, [activeSessionId, regeneratingRound, regenerationPrompt, api]);
 
   const handleSelectVariant = useCallback(async (idx: number, variantIdx: number) => {
     if (!activeSessionId) return;
-    setMessages((prev) => {
+    const sid = activeSessionId;
+    useAppStore.getState().setSessionMessages(sid, (prev) => {
       const msg = prev[idx];
       if (!msg.variants) return prev;
       const updated = { ...msg, content: msg.variants[variantIdx], variantIndex: variantIdx };
-      // Sync selected variant to backend
       if (msg.round != null) {
-        api.narrateUpdate(activeSessionId, msg.round, msg.variants[variantIdx]).catch(() => {});
+        api.narrateUpdate(sid, msg.round, msg.variants[variantIdx]).catch(() => {});
       }
       return [...prev.slice(0, idx), updated, ...prev.slice(idx + 1)];
     });
@@ -498,11 +485,13 @@ export default function ChatPanel() {
   // ── Single message deletion ──
 
   const handleDeleteMessage = useCallback((idx: number) => {
-    setMessages((prev) => {
+    if (!activeSessionId) return;
+    const sid = activeSessionId;
+    useAppStore.getState().setSessionMessages(sid, (prev) => {
       if (idx < 0 || idx >= prev.length) return prev;
       return [...prev.slice(0, idx), ...prev.slice(idx + 1)];
     });
-  }, []);
+  }, [activeSessionId]);
 
   // ── Derive round groups for rollback dividers ──
 
@@ -523,7 +512,7 @@ export default function ChatPanel() {
 
   // ── Render ──
 
-  function renderMessageContent(msg: Message): React.ReactNode {
+  function renderMessageContent(msg: ChatMessage): React.ReactNode {
     if (!dialogueBubbleMode) {
       return <div className="whitespace-pre-wrap">{msg.content}</div>;
     }
@@ -638,8 +627,7 @@ export default function ChatPanel() {
                   <button
                     onClick={() => {
                       if (!activeSessionId) return;
-                      triggerNarrate(activeSessionId, setMessages, setStreaming, abortRef,
-                        triggerEnvRefresh, triggerMemoryRefresh, setNarrationCount, narrationCountRef);
+                      triggerNarrate(activeSessionId);
                     }}
                     className="btn-primary text-sm" disabled={!activeSessionId}
                   >
@@ -994,26 +982,23 @@ export default function ChatPanel() {
 // ── SSE narrate helper ──
 
 function triggerNarrate(
-  sessionId: string | null,
-  setMessages: React.Dispatch<React.SetStateAction<Message[]>>,
-  setStreaming: (v: boolean) => void,
-  abortRef: React.MutableRefObject<(() => void) | null>,
-  triggerEnvRefresh: () => void,
-  triggerMemoryRefresh: () => void,
-  setNarrationCount: React.Dispatch<React.SetStateAction<number>>,
-  narrationCountRef: React.MutableRefObject<number>,
+  sessionId: string,
   action?: string,
-  setSending?: (v: boolean) => void,
 ) {
-  if (!sessionId) return;
-  abortRef.current?.();
-  setStreaming(true);
+  const store = useAppStore.getState();
+
+  // Abort previous SSE for the SAME session only
+  const prevAbort = store.sessionAbortFns[sessionId];
+  prevAbort?.();
+
+  store.setSessionStreaming(sessionId, true);
+
+  const curCount = store.sessionNarrationCount[sessionId] || 0;
+  const newRound = curCount + 1;
+  store.setSessionNarrationCount(sessionId, newRound);
+
   let accumulated = "";
   let accumulatedReasoning = "";
-
-  const newRound = narrationCountRef.current + 1;
-  narrationCountRef.current = newRound;
-  setNarrationCount(newRound);
 
   const url = action
     ? `/api/sessions/${sessionId}/narrate?identity=${encodeURIComponent("博士")}&action=${encodeURIComponent(action)}`
@@ -1022,7 +1007,7 @@ function triggerNarrate(
   const sse = createSSE(url, {
       onReasoning: (token: string) => {
         accumulatedReasoning += token;
-        setMessages((prev) => {
+        useAppStore.getState().setSessionMessages(sessionId, (prev) => {
           const last = prev[prev.length - 1];
           if (last?.role === "narrator" && last.round === newRound) {
             return [...prev.slice(0, -1), { ...last, reasoning: accumulatedReasoning }];
@@ -1032,7 +1017,7 @@ function triggerNarrate(
       },
       onText: (token: string) => {
         accumulated += token;
-        setMessages((prev) => {
+        useAppStore.getState().setSessionMessages(sessionId, (prev) => {
           const last = prev[prev.length - 1];
           if (last?.role === "narrator" && last.round === newRound) {
             return [...prev.slice(0, -1), { role: "narrator", content: accumulated, round: newRound }];
@@ -1040,16 +1025,16 @@ function triggerNarrate(
           return [...prev, { role: "narrator", content: accumulated, round: newRound }];
         });
       },
-      onSceneEvent: () => triggerEnvRefresh(),
-      onMemoryEvent: () => triggerMemoryRefresh(),
+      onSceneEvent: () => useAppStore.getState().triggerEnvRefresh(),
+      onMemoryEvent: () => useAppStore.getState().triggerMemoryRefresh(),
       onChoice: (options: string[]) => {
-        setMessages((prev) => [
+        useAppStore.getState().setSessionMessages(sessionId, (prev) => [
           ...prev,
           { role: "system", content: "— 请选择 —", choices: options, round: newRound },
         ]);
       },
       onDialogueSegments: (segments) => {
-        setMessages((prev) => {
+        useAppStore.getState().setSessionMessages(sessionId, (prev) => {
           const last = prev[prev.length - 1];
           if (last?.role === "narrator" && last.round === newRound) {
             return [...prev.slice(0, -1), { ...last, dialogueSegments: segments }];
@@ -1058,7 +1043,7 @@ function triggerNarrate(
         });
       },
       onTokenUsage: (usage) => {
-        setMessages((prev) => {
+        useAppStore.getState().setSessionMessages(sessionId, (prev) => {
           const last = prev[prev.length - 1];
           if (last?.role === "narrator" && last.round === newRound) {
             return [...prev.slice(0, -1), { ...last, usage }];
@@ -1067,20 +1052,20 @@ function triggerNarrate(
         });
       },
       onCombatTrigger: (data: { encounter_id: string; session_id: string }) => {
-        setStreaming(false);
-        setSending?.(false);
+        useAppStore.getState().setSessionStreaming(sessionId, false);
+        useAppStore.getState().setSessionSending(sessionId, false);
         useAppStore.getState().setCombatContext({ sessionId: data.session_id });
         useAppStore.getState().setCurrentView("combat");
       },
       onError: (msg: string) => {
-        setStreaming(false);
-        setSending?.(false);
-        setMessages((prev) => [...prev, { role: "system", content: `错误: ${msg}` }]);
+        useAppStore.getState().setSessionStreaming(sessionId, false);
+        useAppStore.getState().setSessionSending(sessionId, false);
+        useAppStore.getState().setSessionMessages(sessionId, (prev) => [...prev, { role: "system", content: `错误: ${msg}` }]);
       },
       onDone: () => {
-        setStreaming(false);
-        setSending?.(false);
-        setMessages((prev) => {
+        useAppStore.getState().setSessionStreaming(sessionId, false);
+        useAppStore.getState().setSessionSending(sessionId, false);
+        useAppStore.getState().setSessionMessages(sessionId, (prev) => {
           const last = prev[prev.length - 1];
           if (last?.role === "narrator" && last.round === newRound) {
             return [...prev.slice(0, -1), { ...last, variants: [last.content], variantIndex: 0 }];
@@ -1091,5 +1076,5 @@ function triggerNarrate(
     }
   );
 
-  abortRef.current = () => sse.close();
+  useAppStore.getState().setSessionAbortFn(sessionId, () => sse.close());
 }

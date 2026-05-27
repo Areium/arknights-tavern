@@ -2,7 +2,7 @@
  * 应用全局状态
  */
 import { create } from "zustand";
-import type { BackendStatus, Session, LLMStatus, CombatStateDTO } from "../types";
+import type { BackendStatus, Session, LLMStatus, CombatStateDTO, ChatMessage } from "../types";
 
 type Theme = "dark" | "light";
 
@@ -80,9 +80,23 @@ interface AppState {
   // 战斗后自动叙述
   pendingAutoNarrate: { action: string; settlement?: { winner: string; survivors: string[]; rounds: number; encounter_id: string } } | null;
   setPendingAutoNarrate: (data: { action: string; settlement?: { winner: string; survivors: string[]; rounds: number; encounter_id: string } } | null) => void;
+
+  // 按会话存储的消息/流式状态（跨会话切换保留）
+  sessionMessages: Record<string, ChatMessage[]>;
+  sessionStreaming: Record<string, boolean>;
+  sessionSending: Record<string, boolean>;
+  sessionNarrationCount: Record<string, number>;
+  sessionAbortFns: Record<string, (() => void) | null>;
+
+  setSessionMessages: (sessionId: string, updater: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => void;
+  setSessionStreaming: (sessionId: string, streaming: boolean) => void;
+  setSessionSending: (sessionId: string, sending: boolean) => void;
+  setSessionNarrationCount: (sessionId: string, count: number) => void;
+  setSessionAbortFn: (sessionId: string, fn: (() => void) | null) => void;
+  clearSessionStream: (sessionId: string) => void;
 }
 
-export const useAppStore = create<AppState>((set) => ({
+export const useAppStore = create<AppState>((set, get) => ({
   // 视图
   currentView: "chat",
   setCurrentView: (view) => set({ currentView: view }),
@@ -171,4 +185,49 @@ export const useAppStore = create<AppState>((set) => ({
   // 战斗后自动叙述
   pendingAutoNarrate: null,
   setPendingAutoNarrate: (action) => set({ pendingAutoNarrate: action }),
+
+  // ── 按会话存储的消息/流式状态 ──
+  sessionMessages: {},
+  sessionStreaming: {},
+  sessionSending: {},
+  sessionNarrationCount: {},
+  sessionAbortFns: {},
+
+  setSessionMessages: (sessionId, updater) => set((state) => ({
+    sessionMessages: {
+      ...state.sessionMessages,
+      [sessionId]: typeof updater === "function"
+        ? (updater as (prev: ChatMessage[]) => ChatMessage[])(state.sessionMessages[sessionId] || [])
+        : updater,
+    },
+  })),
+  setSessionStreaming: (sessionId, streaming) => set((state) => ({
+    sessionStreaming: { ...state.sessionStreaming, [sessionId]: streaming },
+  })),
+  setSessionSending: (sessionId, sending) => set((state) => ({
+    sessionSending: { ...state.sessionSending, [sessionId]: sending },
+  })),
+  setSessionNarrationCount: (sessionId, count) => set((state) => ({
+    sessionNarrationCount: { ...state.sessionNarrationCount, [sessionId]: count },
+  })),
+  setSessionAbortFn: (sessionId, fn) => set((state) => ({
+    sessionAbortFns: { ...state.sessionAbortFns, [sessionId]: fn },
+  })),
+  clearSessionStream: (sessionId) => {
+    get().sessionAbortFns[sessionId]?.();
+    set(({ sessionMessages, sessionStreaming, sessionSending, sessionNarrationCount, sessionAbortFns }) => {
+      const { [sessionId]: _, ...restMessages } = sessionMessages;
+      const { [sessionId]: __, ...restStreaming } = sessionStreaming;
+      const { [sessionId]: ___, ...restSending } = sessionSending;
+      const { [sessionId]: ____, ...restNarration } = sessionNarrationCount;
+      const { [sessionId]: _____, ...restAbort } = sessionAbortFns;
+      return {
+        sessionMessages: restMessages,
+        sessionStreaming: restStreaming,
+        sessionSending: restSending,
+        sessionNarrationCount: restNarration,
+        sessionAbortFns: restAbort,
+      };
+    });
+  },
 }));

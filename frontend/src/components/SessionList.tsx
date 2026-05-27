@@ -92,6 +92,7 @@ export default function SessionList() {
     try {
       for (const id of selectedIds) {
         await api.deleteSession(id);
+        useAppStore.getState().clearSessionStream(id);
       }
       const keepIds = new Set(
         sessions.filter((s) => !selectedIds.has(s.id)).map((s) => s.id)
@@ -156,6 +157,7 @@ export default function SessionList() {
     if (!confirm("确定删除此会话？")) return;
     try {
       await api.deleteSession(id);
+      useAppStore.getState().clearSessionStream(id);
       setSessions(sessions.filter((s) => s.id !== id));
       if (activeSessionId === id) setActiveSession(null);
       const mode = sessions.find((s) => s.id === id)?.mode || "free";
