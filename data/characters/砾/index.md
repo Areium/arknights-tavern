@@ -13,18 +13,6 @@ faction: 罗德岛
 imports:
 - classes/特种
 - factions/罗德岛
-- factions/无胄盟
-- attributes/物理强度
-- attributes/战场机动
-- attributes/生理耐受
-- attributes/战术规划
-- attributes/战斗技巧
-- attributes/源石技艺适应性
-- attributes/情绪稳定性
-- attributes/魅力
-- characters/博士
-- characters/临光
-- characters/瑕光
 name: 砾
 race: 扎拉克
 relationships:

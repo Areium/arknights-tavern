@@ -10,14 +10,9 @@ core_attributes:
 damage_type: mixed
 deployment_cost_range: 18-30
 imports:
-- attributes/情绪稳定性
-- attributes/战场机动
-- attributes/战术规划
-- attributes/源石技艺适应性
 - attributes/物理强度
 - attributes/生理耐受
-- attributes/魅力
-- classes/辅助
+- attributes/情绪稳定性
 name: 重装
 summary: 重装干员是防线核心，负责吸收伤害、保护队友，具备多种防御和治疗能力。
 ---

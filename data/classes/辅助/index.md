@@ -10,12 +10,8 @@ core_attributes:
 damage_type: mixed
 deployment_cost_range: 15-20
 imports:
-- attributes/情绪稳定性
-- attributes/战场机动
-- attributes/战斗技巧
 - attributes/战术规划
 - attributes/源石技艺适应性
-- attributes/生理耐受
 - attributes/魅力
 name: 辅助
 summary: 辅助干员是战术多面手，通过减速、削弱、增益、召唤等方式改变战场态势。

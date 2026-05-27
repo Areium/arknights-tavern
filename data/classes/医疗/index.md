@@ -10,13 +10,9 @@ core_attributes:
 damage_type: healing
 deployment_cost_range: 15-20
 imports:
-- attributes/情绪稳定性
-- attributes/战场机动
-- attributes/战斗技巧
 - attributes/战术规划
+- attributes/情绪稳定性
 - attributes/源石技艺适应性
-- attributes/生理耐受
-- classes/辅助
 name: 医疗
 summary: 医疗干员负责治疗、状态解除和濒死抢救，卡牌系统以源石技艺和情绪稳定性为核心。
 ---

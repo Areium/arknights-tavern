@@ -41,9 +41,9 @@ race: "种族"
 faction: "所属势力"
 tags: ["标签1", "标签2", "标签3"]
 imports:
-- classes/职业 | 职业
-- races/种族 | 种族
-- factions/势力 | 势力
+- classes/职业
+- races/种族
+- factions/势力
 attributes:
   物理强度: 5
   战场机动: 5

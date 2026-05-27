@@ -19,15 +19,6 @@ imports:
 - classes/近卫
 - races/菲林
 - factions/维多利亚
-- attributes/物理强度
-- attributes/战场机动
-- attributes/生理耐受
-- attributes/战术规划
-- attributes/战斗技巧
-- attributes/源石技艺适应性
-- attributes/情绪稳定性
-- attributes/魅力
-- characters/博士
 name: 银灰
 race: 菲林
 relationships:

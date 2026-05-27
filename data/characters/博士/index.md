@@ -19,8 +19,6 @@ imports:
 - attributes/魅力
 - characters/阿米娅
 - items/博士的战术终端
-- classes/辅助
-- classes/重装
 - items/战术地图
 name: 博士
 race: 未知

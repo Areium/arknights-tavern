@@ -4,12 +4,9 @@ alignment: lawful_evil
 allies: []
 headquarters: 乌萨斯帝国首都
 imports:
-- classes/近卫
 - races/乌萨斯
 - factions/乌萨斯帝国
 - factions/整合运动
-- factions/罗德岛
-- factions/龙门
 key_members: []
 leader:
 - 乌萨斯皇帝

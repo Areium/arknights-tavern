@@ -14,9 +14,6 @@ imports:
 - classes/先锋
 - races/库兰塔
 - factions/临光家族
-- factions/卡西米尔
-- attributes/魅力
-- attributes/战场机动
 - characters/临光
 - characters/瑕光
 - characters/玛恩纳·临光

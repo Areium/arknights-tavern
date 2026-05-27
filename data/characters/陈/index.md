@@ -11,14 +11,9 @@ attributes:
 class: 近卫
 faction: 龙门
 imports:
-- attributes/生理耐受
-- attributes/战术规划
-- attributes/战斗技巧
-- attributes/源石技艺适应性
-- attributes/情绪稳定性
-- attributes/魅力
-- characters/博士
-- characters/阿米娅
+- classes/近卫
+- races/鲁珀
+- factions/龙门
 name: 陈
 race: 鲁珀
 relationships:

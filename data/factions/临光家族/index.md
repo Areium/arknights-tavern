@@ -5,9 +5,6 @@ allies: []
 headquarters: 卡瓦莱利亚基——临光家族宅邸
 imports:
 - factions/卡西米尔
-- factions/商业联合会
-- factions/监证会
-- factions/罗德岛
 key_members:
 - 临光（玛嘉烈）
 - 瑕光（玛莉娅）

@@ -15,21 +15,9 @@ imports:
 - classes/重装
 - races/库兰塔
 - factions/临光家族
-- factions/罗德岛
-- factions/监证会
-- attributes/物理强度
-- attributes/战场机动
-- attributes/生理耐受
-- attributes/战术规划
-- attributes/战斗技巧
-- attributes/源石技艺适应性
-- attributes/情绪稳定性
-- attributes/魅力
 - characters/瑕光
 - characters/玛恩纳·临光
-- characters/博士
 - characters/砾
-- factions/商业联合会
 name: 临光
 race: 库兰塔
 relationships:
