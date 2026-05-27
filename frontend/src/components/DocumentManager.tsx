@@ -1326,7 +1326,7 @@ export default function DocumentManager() {
 
         {/* ── 图像 Tab ── */}
         {activeTab === "images" && (
-          imagesLoading ? (
+          imagesLoading && assetImages.length === 0 ? (
             <p className="text-gray-500 text-sm text-center py-4">加载中...</p>
           ) : assetImages.length === 0 ? (
             <p className="text-gray-500 text-sm text-center py-4">暂无图像资产</p>

@@ -201,8 +201,8 @@ def register(app, managers):
                     post.metadata["card_face_crop_y"] = crop.get("y", 0)
                     post.metadata["card_face_crop_w"] = crop.get("w", 100)
                     post.metadata["card_face_crop_h"] = crop.get("h", 100)
-                elif crop is None:
-                    # 清除裁剪
+                elif "crop" in data and data["crop"] is None:
+                    # 仅当明确传入 crop=null 时清除裁剪
                     for k in ("card_face_crop_x", "card_face_crop_y", "card_face_crop_w", "card_face_crop_h"):
                         post.metadata.pop(k, None)
 

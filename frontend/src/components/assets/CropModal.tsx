@@ -16,6 +16,19 @@ export default function CropModal({ imageUrl, onSave, onClose }: Props) {
   const cropRef = useRef(crop);
   cropRef.current = crop;
 
+  // 图片加载后按卡面宽高比计算初始裁剪框（居中、宽 80%）
+  const initCrop = useCallback((iw: number, ih: number) => {
+    const aspect = CARD_ASPECT * (ih / iw);
+    const w = 80;
+    const h = Math.max(5, w / aspect);
+    // 裁剪框高度不能超过 100%
+    const h2 = Math.min(h, 100);
+    const w2 = h2 < h ? h2 * aspect : w;
+    const x = (100 - w2) / 2;
+    const y = (100 - h2) / 2;
+    return { x, y, w: w2, h: h2 };
+  }, []);
+
   type DragType = "move" | "resize_br" | "resize_tl" | "resize_tr" | "resize_bl";
 
   const dragRef = useRef<{
@@ -101,7 +114,16 @@ export default function CropModal({ imageUrl, onSave, onClose }: Props) {
 
   const handleImgLoad = () => {
     if (imgRef.current) {
-      setImgNatural({ w: imgRef.current.naturalWidth, h: imgRef.current.naturalHeight });
+      const iw = imgRef.current.naturalWidth;
+      const ih = imgRef.current.naturalHeight;
+      setImgNatural({ w: iw, h: ih });
+      setCrop(initCrop(iw, ih));
+    }
+  };
+
+  const handleReset = () => {
+    if (imgNatural) {
+      setCrop(initCrop(imgNatural.w, imgNatural.h));
     }
   };
 
@@ -114,7 +136,7 @@ export default function CropModal({ imageUrl, onSave, onClose }: Props) {
       <div className="flex items-center gap-3 flex-wrap justify-center px-4">
         <span className="text-gray-400 text-xs">拖拽移动选框 · 拖拽边角缩放</span>
         <button
-          onClick={() => setCrop({ x: 10, y: 10, w: 80, h: 70 })}
+          onClick={handleReset}
           className="px-3 py-1.5 text-xs rounded bg-gray-700/60 text-gray-300 hover:bg-gray-600/60 transition-colors"
         >
           重置
