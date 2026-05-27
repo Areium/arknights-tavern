@@ -78,8 +78,8 @@ interface AppState {
   setCombatContext: (partial: Partial<CombatContext> | null) => void;
 
   // 战斗后自动叙述
-  pendingAutoNarrate: string | null;
-  setPendingAutoNarrate: (action: string | null) => void;
+  pendingAutoNarrate: { action: string; settlement?: { winner: string; survivors: string[]; rounds: number; encounter_id: string } } | null;
+  setPendingAutoNarrate: (data: { action: string; settlement?: { winner: string; survivors: string[]; rounds: number; encounter_id: string } } | null) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({

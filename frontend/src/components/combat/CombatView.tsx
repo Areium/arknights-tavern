@@ -23,6 +23,7 @@ export default function CombatView() {
   const {
     activeSessionId,
     sessions,
+    setSessions,
     combatContext: ctx,
     setCombatContext,
     setCurrentView,
@@ -548,7 +549,7 @@ export default function CombatView() {
     try {
       const resp = await api.combatAbandon(sessionId);
       if (resp.auto_narrate_action) {
-        setPendingAutoNarrate(resp.auto_narrate_action);
+        setPendingAutoNarrate({ action: resp.auto_narrate_action });
       }
     } catch {
       alert("放弃战斗失败，请重试");
@@ -587,9 +588,19 @@ export default function CombatView() {
           rounds: combatState.round_num,
           character_stats: characterStats,
         });
-        // Store auto-narrate action for ChatPanel to pick up
+        // 立即更新 session 状态，不等 15s 轮询
+        setSessions(sessions.map(s => s.id === sessionId ? { ...s, in_combat: false, combat: null } : s));
+        // 传递自动叙述指令和结算数据给 ChatPanel
         if (resp.auto_narrate_action) {
-          setPendingAutoNarrate(resp.auto_narrate_action);
+          setPendingAutoNarrate({
+            action: resp.auto_narrate_action,
+            settlement: {
+              winner: combatState.winner || "unknown",
+              survivors,
+              rounds: combatState.round_num,
+              encounter_id: encounterId,
+            },
+          });
         }
       } catch {
         alert("战斗结果保存失败，请重试");
@@ -601,7 +612,7 @@ export default function CombatView() {
 
     setCombatContext(null);
     setCurrentView("chat");
-  }, [combatTestId, sessionId, combatState, encounterId, api, setCombatContext, setCurrentView, setPendingAutoNarrate]);
+  }, [combatTestId, sessionId, combatState, encounterId, api, setCombatContext, setCurrentView, setPendingAutoNarrate, setSessions, sessions]);
 
   // Click on main area → map to grid cell or deselect.
   // Cell mapping handles 3D-transformed cells (rows 4-8) that don't

@@ -331,13 +331,19 @@ export default function ChatPanel() {
   // Auto-narrate after combat: watch for pendingAutoNarrate being set
   useEffect(() => {
     if (pendingAutoNarrate && activeSessionId) {
-      const action = pendingAutoNarrate;
+      const { action, settlement } = pendingAutoNarrate;
       setPendingAutoNarrate(null);
-      // Delay slightly to ensure view switch completes before narrating
-      const timer = setTimeout(() => {
-        performSend(action);
-      }, 300);
-      return () => clearTimeout(timer);
+      // 插入战斗结算系统消息
+      if (settlement) {
+        const winnerText = settlement.winner === "player" ? "玩家获胜" : settlement.winner === "enemy" ? "敌方获胜" : "战斗结束";
+        const survivorsText = settlement.survivors.length > 0 ? `\n幸存：${settlement.survivors.join("、")}` : "";
+        const settlementMsg: Message = {
+          role: "system",
+          content: `⚔ 战斗结束：遭遇战「${settlement.encounter_id}」— ${winnerText}，共 ${settlement.rounds} 回合。${survivorsText}`,
+        };
+        setMessages(prev => [...prev, settlementMsg]);
+      }
+      performSend(action);
     }
   }, [pendingAutoNarrate, activeSessionId, performSend, setPendingAutoNarrate]);
 
