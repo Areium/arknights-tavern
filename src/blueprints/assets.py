@@ -167,6 +167,26 @@ def register(app, managers):
         else:
             field = f"default_{img_type}"
 
+        # card_face: 将文件复制到 card_face/ 目录（如果不在其中）
+        if img_type == "card_face":
+            import shutil as _shutil
+            entity_dir = _os.path.dirname(index_md)
+            card_face_dir = _os.path.join(entity_dir, "card_face")
+            dest = _os.path.join(card_face_dir, filename)
+            src_path = None
+            for sub in ("avatar", "skin"):
+                candidate = _os.path.join(entity_dir, sub, filename)
+                if _os.path.isfile(candidate):
+                    src_path = candidate
+                    break
+            if not src_path:
+                candidate = _os.path.join(entity_dir, filename)
+                if _os.path.isfile(candidate):
+                    src_path = candidate
+            if src_path and src_path != dest:
+                _os.makedirs(card_face_dir, exist_ok=True)
+                _shutil.copy2(src_path, dest)
+
         try:
             with open(index_md, "r", encoding="utf-8") as f:
                 post = _fm.load(f)
@@ -231,7 +251,7 @@ def _list_entity_images(doc_mgr):
         for entity_root, entity_name in entity_dirs.items():
             images = []
             for walk_root, walk_dirs, walk_files in os.walk(entity_root):
-                walk_dirs[:] = [d for d in walk_dirs if not d.startswith(".")]
+                walk_dirs[:] = [d for d in walk_dirs if not d.startswith(".") and d != "spine"]
                 for f in sorted(walk_files):
                     ext = os.path.splitext(f)[1].lower()
                     if ext not in _IMAGE_EXTS:
