@@ -22,30 +22,15 @@ _REPO_ROOT = Path(_project_root).parent
 def _load_plot_opening(session, plot_id: str):
     """加载剧情的开场配置到会话中。
 
-    新格式：从 plot.md frontmatter 读取所有开场字段。
-    旧格式：解析 opening.md。
+    从 index.md frontmatter 读取所有开场字段。
     """
-    from session_overlay import _resolve_plot_dir, _is_new_plot_format, _read_plot_file
-
-    resolved = _resolve_plot_dir(plot_id) or plot_id
-    plot_dir = _REPO_ROOT / "data" / "plots" / resolved
+    from session_overlay import _resolve_plot_dir, _read_plot_file
 
     try:
-        if _is_new_plot_format(plot_id):
-            # 新格式：所有字段在 plot.md frontmatter 中
-            result = _read_plot_file(plot_id)
-            if not result:
-                return
-            meta, body = result
-        else:
-            # 旧格式：读取 opening.md
-            opening_path = plot_dir / "opening.md"
-            if not opening_path.is_file():
-                logger.debug("剧情 %s 无 opening.md，跳过开场加载", plot_id)
-                return
-            with open(opening_path, "r", encoding="utf-8") as f:
-                post = frontmatter.load(f)
-            meta = post.metadata
+        result = _read_plot_file(plot_id)
+        if not result:
+            return
+        meta, body = result
 
         # 1. 设置环境
         location = meta.get("initial_location", "")
@@ -79,12 +64,10 @@ def _load_plot_opening(session, plot_id: str):
         # 4. 存储开场上下文（首次叙述注入用）
         scene_desc = meta.get("opening_scene", "").strip()
         if not scene_desc:
-            # 尝试从 body 的「## 开场设置」节获取
-            if _is_new_plot_format(plot_id):
-                from session_overlay import _extract_section
-                scene_desc = _extract_section(body, "开场设置")
-            if not scene_desc:
-                scene_desc = body.strip()[:500] if body else ""
+            from session_overlay import _extract_section
+            scene_desc = _extract_section(body, "开场设置")
+        if not scene_desc:
+            scene_desc = body.strip()[:500] if body else ""
         if scene_desc:
             session.overlay.set_plot_context(scene_desc)
 
@@ -197,22 +180,16 @@ def register(app, managers):
 
     @bp.route("/api/plots", methods=["GET"])
     def list_plots():
-        """列出所有可用剧情（从 data/plots/ 子目录扫描）。
-
-        优先读取 plot.md（新格式），降级到 index.md（旧格式）。
-        """
+        """列出所有可用剧情（从 data/plots/ 子目录扫描）。"""
         plots_dir = _REPO_ROOT / "data" / "plots"
-        if not plots_dir.is_dir():
+        if not plots_dir.is_file():
             return jsonify([])
 
         plots = []
         for entry in sorted(plots_dir.iterdir()):
             if not entry.is_dir():
                 continue
-            # 优先新格式，降级旧格式
-            md = entry / "plot.md"
-            if not md.is_file():
-                md = entry / "index.md"
+            md = entry / "index.md"
             if not md.is_file():
                 continue
             try:

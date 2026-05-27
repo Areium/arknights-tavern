@@ -29,12 +29,12 @@ def _get_session(session_mgr, session_id):
 
 
 def _load_combat_test_config() -> dict:
-    """Load the combat test plot config from data/plots/combat-test/plot.md."""
+    """Load the combat test plot config from data/plots/combat-test/index.md."""
     import frontmatter
 
     plot_path = _project_root / "data" / "plots" / "combat-test" / "index.md"
     if not plot_path.exists():
-        raise ValueError("战斗测试配置文件不存在: data/plots/combat-test/plot.md")
+        raise ValueError("战斗测试配置文件不存在: data/plots/combat-test/index.md")
     with open(plot_path, "r", encoding="utf-8") as f:
         return dict(frontmatter.load(f).metadata)
 
@@ -346,7 +346,7 @@ def register(app, managers):
     def combat_test_start():
         """Start a test combat session (no session required).
 
-        Reads config from data/plots/combat-test/plot.md.
+        Reads config from data/plots/combat-test/index.md.
         Randomly samples enemies from the configured enemy pool.
         """
         from combat_session import CombatSession
