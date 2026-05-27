@@ -7,7 +7,7 @@ interface Props {
   onClose: () => void;
 }
 
-const CARD_ASPECT = 154 / 80;
+const CARD_ASPECT = 154 / 120;
 
 export default function CropModal({ imageUrl, onSave, onClose }: Props) {
   const imgRef = useRef<HTMLImageElement>(null);

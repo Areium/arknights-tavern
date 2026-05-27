@@ -1,4 +1,5 @@
 import type { CombatUnitDTO } from "../../types";
+import AvatarPlaceholder from "../chat/AvatarPlaceholder";
 
 interface Props {
   units: CombatUnitDTO[];
@@ -10,25 +11,6 @@ interface Props {
   onUnitClick?: (unitId: string) => void;
   onUnitHover?: (unitId: string, rect: DOMRect) => void;
   onUnitLeave?: () => void;
-}
-
-const CLASS_COLORS: Record<string, string> = {
-  "先锋": "#d4a574", "近卫": "#c44b3c", "重装": "#4a6b8a",
-  "狙击": "#3c8c4a", "术师": "#8b5ca8", "医疗": "#5c9a8b",
-  "辅助": "#c4a83c", "特种": "#6b5c8a",
-};
-
-function AvatarPlaceholder({ name, charClass }: { name: string; charClass: string }) {
-  const bg = CLASS_COLORS[charClass] || "#555";
-  const initial = name.charAt(0);
-  return (
-    <div
-      className="w-10 h-10 rounded-lg flex items-center justify-center text-sm font-bold text-white/90 flex-shrink-0"
-      style={{ backgroundColor: bg, boxShadow: `0 0 8px ${bg}40` }}
-    >
-      {initial}
-    </div>
-  );
 }
 
 function HPBar({ current, max }: { current: number; max: number }) {
@@ -116,7 +98,7 @@ export default function UnitStatusPanel({
             className={`p-2 rounded-lg border transition-all cursor-pointer hover:brightness-110 ${borderClass}`}
           >
             <div className="flex items-center gap-2">
-              <AvatarPlaceholder name={u.name} charClass={u.char_class} />
+              <AvatarPlaceholder name={u.name} size="md" />
               <div className="flex-1 min-w-0">
                 <div className="flex justify-between items-center">
                   <span className={`text-xs font-bold truncate ${dead ? "text-gray-600" : "text-gray-200"}`}>

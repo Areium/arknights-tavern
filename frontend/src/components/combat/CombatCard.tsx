@@ -55,7 +55,7 @@ const CLASS_DOT_COLORS: Record<string, string> = {
 
 function renderStars(tier: string) {
   const filled = tier === "elite" ? 3 : 1;
-  return Array.from({ length: 5 }, (_, i) => (
+  return Array.from({ length: 6 }, (_, i) => (
     <span className={i < filled ? "text-yellow-400 text-[10px]" : "text-gray-700 text-[10px] star-empty"} key={i}>
       ★
     </span>
@@ -121,12 +121,12 @@ export default function CombatCard({ card, index, affordable, selected, highligh
         <div className="flex items-center gap-1 text-[10px] text-gray-500">
           <span className="inline-block w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: classDotColor }} />
           <span>{card.class_required === "any" ? "通用" : card.class_required}</span>
-          {card.owner && <span className="text-combat-gold">@{card.owner}</span>}
+          {card.owner && <span className="text-combat-gold">{card.owner}</span>}
         </div>
       </div>
 
-      {/* 卡面（120px） */}
-      <div className="card-art-area w-full h-[80px] relative" style={hasSkin ? {} : { background: artBg }}>
+      {/* 卡面 */}
+      <div className="card-art-area w-full h-[120px] relative" style={hasSkin ? {} : { background: artBg }}>
         {hasSkin && skinCrop ? (
           <div className="card-art-crop">
             <img
@@ -177,7 +177,7 @@ export default function CombatCard({ card, index, affordable, selected, highligh
             <span className={`font-mono font-bold ${dmgColorClass}`}>
               {Math.floor(card.min_damage)}~{Math.floor(card.max_damage)}
             </span>
-            伤害 · {targetLabel} · {rangeLabel}
+            伤害
           </div>
         )}
 
@@ -187,9 +187,15 @@ export default function CombatCard({ card, index, affordable, selected, highligh
             <span className={`font-mono font-bold ${dmgColorClass}`}>
               {Math.floor(card.min_damage)}~{Math.floor(card.max_damage)}
             </span>
-            伤害 · {targetLabel} · {rangeLabel}
+            伤害
           </div>
         )}
+
+        <div className="damage-range-row font-bold">
+          <span className="text-combat-gold">{targetLabel}</span>
+          <span> · </span>
+          <span className="text-combat-ap">{rangeLabel}</span>
+        </div>
       </div>
     </button>
   );

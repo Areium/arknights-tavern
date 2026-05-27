@@ -1102,6 +1102,7 @@ export default function CombatView() {
               gridEl={gridEl}
               containerEl={containerEl}
               resizeTick={resizeTick}
+              cellSize={cfg.cellSize}
             />
 
             {/* Damage numbers */}

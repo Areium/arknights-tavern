@@ -313,6 +313,21 @@ class CombatSession:
 
     # ── State queries ──
 
+    @staticmethod
+    def _refresh_skin_crop(u) -> dict | None:
+        """Re-read skin crop from disk for player units so asset edits take effect."""
+        if u.team != "player":
+            return u.skin_crop
+        try:
+            from avatar_color import get_card_face_crop
+            fresh = get_card_face_crop(u.name)
+            if fresh is not None:
+                u.skin_crop = fresh
+                return fresh
+        except Exception:
+            pass
+        return u.skin_crop
+
     def get_state(self) -> dict:
         """Return a full state snapshot for the frontend."""
         if not self.engine:
@@ -343,7 +358,7 @@ class CombatSession:
                 "is_alive": u.is_alive,
                 "attributes": dict(u.attributes) if u.attributes else {},
                 "skin_url": u.skin_url,
-                "skin_crop": u.skin_crop,
+                "skin_crop": self._refresh_skin_crop(u),
             })
 
         # Shared hand — always available from shared pool

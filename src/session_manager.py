@@ -429,6 +429,7 @@ class Session:
             "name": self.name,
             "mode": self.mode,
             "combat_mode": self.combat_mode,
+            "plot_id": self.overlay.get_plot_id(),
             "custom_prompt": self.overlay.get_custom_prompt(),
             "created_at": self.created_at,
             "usable": self.is_usable,

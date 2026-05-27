@@ -8,8 +8,9 @@
  * interaction.  Those are handled by the CSS-based CombatGrid.
  */
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Application, Container, Graphics, Text, Assets } from "pixi.js";
-import { Spine } from "@esotericsoftware/spine-pixi-v8";
+import { Application, Container, Graphics, Text, Texture } from "pixi.js";
+import { AtlasAttachmentLoader, SkeletonBinary, Spine } from "@pixi-spine/runtime-3.8";
+import { TextureAtlas } from "@pixi-spine/base";
 import type { CombatUnitDTO } from "../../types";
 import { getCellCenter } from "./gridUtils";
 
@@ -42,6 +43,8 @@ export interface PixiCombatSceneProps {
   containerEl: HTMLElement | null;
   /** Incremented on resize to trigger repositioning. */
   resizeTick: number;
+  /** Grid cell size in px (used to compute spine scale). */
+  cellSize?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -57,20 +60,82 @@ function spineAssetUrl(name: string, dir: "Front" | "Back"): string {
 interface UnitEntry {
   displayObject: Container;
   cell: [number, number];
+  yAnchorOffset: number;
+}
+
+/** Compute the y-offset so a display object's origin maps to the cell center
+ *  with a 1/4 cell downward nudge, plus 1 cell offset to align with grid. */
+function calcYOffset(renderHeight: number, cellSize: number): number {
+  return -renderHeight * 0.5 + cellSize * 1.25;
+}
+
+/** Load a Spine 3.8 character from .atlas + .skel files. */
+async function loadSpine(baseUrl: string, fn: string): Promise<Spine> {
+  const atlasUrl = `${baseUrl}/${fn}.atlas`;
+  const skelUrl = `${baseUrl}/${fn}.skel`;
+  console.log(`[loadSpine] Fetching atlas: ${atlasUrl}  skel: ${skelUrl}`);
+
+  const [atlasText, skelBuffer] = await Promise.all([
+    fetch(atlasUrl).then((r) => { console.log(`[loadSpine] Atlas OK for ${fn}, ${r.status}`); return r.text(); }),
+    fetch(skelUrl).then((r) => { console.log(`[loadSpine] Skel OK for ${fn}, ${r.status}`); return r.arrayBuffer(); }),
+  ]);
+  console.log(`[loadSpine] Atlas length=${atlasText.length}, Skel bytes=${skelBuffer.byteLength}`);
+
+  return new Promise((resolve, reject) => {
+    console.log(`[loadSpine] Creating TextureAtlas for ${fn}...`);
+    new TextureAtlas(
+      atlasText,
+      (path, loaderFn) => {
+        const imgUrl = `${baseUrl}/${path}`;
+        console.log(`[loadSpine] Loading texture: ${imgUrl}`);
+        Texture.fromURL(imgUrl).then((tex) => {
+          console.log(`[loadSpine] Texture loaded: ${path}  size=${tex.width}x${tex.height}  valid=${tex.baseTexture.valid}`);
+          loaderFn(tex.baseTexture);
+        }).catch((e) => {
+          console.error(`[loadSpine] Texture load error for ${path}:`, e);
+          loaderFn(null as any);
+        });
+      },
+      (atlas) => {
+        if (!atlas) { console.error(`[loadSpine] TextureAtlas callback got null`); reject(new Error("TextureAtlas returned null")); return; }
+        try {
+          console.log(`[loadSpine] Atlas ready, pages=${atlas.pages.length}, regions=${atlas.regions.length}`);
+          console.log(`[loadSpine] Creating SkeletonBinary...`);
+          const al = new AtlasAttachmentLoader(atlas);
+          console.log(`[loadSpine] Parsing skel data, version check...`);
+          const skeletonData = new SkeletonBinary(al).readSkeletonData(new Uint8Array(skelBuffer));
+          console.log(`[loadSpine] SkeletonData OK: name=${skeletonData.name}, version=${skeletonData.version}, width=${skeletonData.width}, height=${skeletonData.height}, bones=${skeletonData.bones.length}, animations=${skeletonData.animations.length}`);
+          const animNames = skeletonData.animations.map((a: any) => a.name);
+          console.log(`[loadSpine]   Animation names:`, animNames);
+          console.log(`[loadSpine] Creating Spine display object...`);
+          const spine = new Spine(skeletonData);
+          console.log(`[loadSpine] Spine OK for ${fn}`);
+          resolve(spine);
+        } catch (e) {
+          console.error(`[loadSpine] Parse/Skeleton error:`, e);
+          reject(e);
+        }
+      },
+    );
+  });
 }
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export default function PixiCombatScene({ units, gridEl, containerEl, resizeTick }: PixiCombatSceneProps) {
+export default function PixiCombatScene({ units, gridEl, containerEl, resizeTick, cellSize = 64 }: PixiCombatSceneProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const appRef = useRef<Application | null>(null);
   const unitLayerRef = useRef<Container | null>(null);
   const unitMapRef = useRef<Map<string, UnitEntry>>(new Map());
   const loadedRef = useRef<Set<string>>(new Set());
-  const loadingRef = useRef<Map<string, Promise<void>>>(new Map());
+  const loadingRef = useRef<Map<string, Promise<Spine | void>>>(new Map());
+  const loadingUnitsRef = useRef<Set<string>>(new Set());
   const [ready, setReady] = useState(false);
+  const [gridReady, setGridReady] = useState(false);
+  const [posTick, setPosTick] = useState(0);
+  const initialPosDoneRef = useRef(false);
   const canvasSizeRef = useRef({ w: 800, h: 600 });
 
   // ── Compute canvas size from container ────────────────────────────
@@ -83,6 +148,10 @@ export default function PixiCombatScene({ units, gridEl, containerEl, resizeTick
     appRef.current?.renderer.resize(w, h);
   }, [containerEl]);
 
+  // Keep a ref to the latest syncCanvasSize so the init effect can call it
+  const syncCanvasSizeRef = useRef(syncCanvasSize);
+  syncCanvasSizeRef.current = syncCanvasSize;
+
   // ── Compute a unit's screen position relative to the canvas ─────────
   const getCanvasPos = useCallback((row: number, col: number): [number, number] | null => {
     if (!gridEl || !containerEl) return null;
@@ -92,64 +161,110 @@ export default function PixiCombatScene({ units, gridEl, containerEl, resizeTick
     return [screen.x - cr.left, screen.y - cr.top];
   }, [gridEl, containerEl]);
 
+  // Keep a ref to latest getCanvasPos so async callbacks always use current positions
+  const getCanvasPosRef = useRef(getCanvasPos);
+  getCanvasPosRef.current = getCanvasPos;
+
   // ── Init / destroy PixiJS app ──────────────────────────────────────
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    let disposed = false;
     const { w, h } = canvasSizeRef.current;
 
-    (async () => {
-      const app = new Application();
-      await app.init({
-        width: w, height: h,
-        backgroundAlpha: 0,
-        antialias: true,
-        resolution: window.devicePixelRatio || 1,
-        autoDensity: true,
-      });
-      if (disposed) { app.destroy(true); return; }
+    const app = new Application({
+      width: w, height: h,
+      backgroundAlpha: 0,
+      antialias: true,
+      resolution: window.devicePixelRatio || 1,
+      autoDensity: true,
+    });
 
-      app.canvas.style.background = "transparent";
-      app.canvas.style.pointerEvents = "none";
-      container.appendChild(app.canvas);
-      appRef.current = app;
+    const canvas = app.view as HTMLCanvasElement;
+    canvas.style.background = "transparent";
+    canvas.style.pointerEvents = "none";
+    container.appendChild(canvas);
+    appRef.current = app;
 
-      const unitLayer = new Container();
-      app.stage.addChild(unitLayer);
-      unitLayerRef.current = unitLayer;
-      setReady(true);
-    })();
+    const unitLayer = new Container();
+    unitLayer.sortableChildren = true;
+    app.stage.addChild(unitLayer);
+    unitLayerRef.current = unitLayer;
+    setReady(true);
+    // Sync canvas size now that the renderer is initialized
+    syncCanvasSizeRef.current();
+    console.log("[PixiCombatScene] App ready, renderer:", app.renderer.width, "x", app.renderer.height);
 
     return () => {
-      disposed = true;
-      appRef.current?.destroy(true);
+      app.destroy(true);
       appRef.current = null;
       unitLayerRef.current = null;
       unitMapRef.current.clear();
       loadedRef.current.clear();
       loadingRef.current.clear();
+      loadingUnitsRef.current.clear();
+      initialPosDoneRef.current = false;
       setReady(false);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Wait for CSS 3D layout to settle before computing positions ─────
+  // Double rAF ensures both layout AND compositing of the 3D perspective are complete.
+  useEffect(() => {
+    if (gridEl && containerEl) {
+      let cancelled = false;
+      let pass = 0;
+      requestAnimationFrame(() => {
+        if (cancelled) return;
+        pass++;
+        // Verify grid cells have been laid out (non-zero rect)
+        const firstCell = getCellCenter(gridEl, 0, 0);
+        if (firstCell && firstCell.x > 0 && firstCell.y > 0) {
+          console.log(`[PixiCombatScene] gridReady pass ${pass}: cell(0,0)=`, firstCell, "containerRect=", containerEl.getBoundingClientRect());
+          requestAnimationFrame(() => {
+            if (!cancelled) {
+              pass++;
+              console.log(`[PixiCombatScene] gridReady pass ${pass}: setting gridReady=true`);
+              setGridReady(true);
+            }
+          });
+        } else {
+          console.warn(`[PixiCombatScene] gridReady pass ${pass}: cell(0,0) not ready, retrying`, firstCell);
+          requestAnimationFrame(() => {
+            if (!cancelled) {
+              pass++;
+              console.log(`[PixiCombatScene] gridReady pass ${pass}: setting gridReady=true (fallback)`);
+              setGridReady(true);
+            }
+          });
+        }
+      });
+      return () => { cancelled = true; };
+    } else {
+      setGridReady(false);
+      initialPosDoneRef.current = false;
+    }
+  }, [gridEl, containerEl]);
+
   // ── Resize canvas when container size changes ──────────────────────
   useEffect(() => {
+    if (!ready) return;
     syncCanvasSize();
     const onResize = () => syncCanvasSize();
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, [syncCanvasSize]);
+  }, [syncCanvasSize, ready]);
 
   // ── Unit management ───────────────────────────────────────────────
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || !gridReady) return;
     const ul = unitLayerRef.current;
-    if (!ul || !gridEl || !containerEl) return;
+    if (!ul) return;
 
     const alive = units.filter((u) => u.is_alive);
     const aliveIds = new Set(alive.map((u) => u.unit_id));
     const map = unitMapRef.current;
+
+    console.log(`[PixiCombatScene] unitEffect running, posTick=${posTick}, alive=${alive.length}, mapSize=${map.size}, gridEl.children=${gridEl?.children.length}`);
 
     // Remove departed
     for (const [id, entry] of map) {
@@ -166,69 +281,115 @@ export default function PixiCombatScene({ units, gridEl, containerEl, resizeTick
       const pos = getCanvasPos(u.pos[0], u.pos[1]);
       const sx = pos?.[0] ?? 0;
       const sy = pos?.[1] ?? 0;
+      const zIndex = u.pos[0]; // higher row = closer to camera = render on top
 
       if (exists) {
+        const oldX = exists.displayObject.x;
+        const oldY = exists.displayObject.y;
         exists.cell = [u.pos[0], u.pos[1]];
         exists.displayObject.x = sx;
-        exists.displayObject.y = sy;
+        exists.displayObject.y = sy + exists.yAnchorOffset;
+        if (exists.displayObject.zIndex !== zIndex) {
+          exists.displayObject.zIndex = zIndex;
+        }
+        if (oldX !== sx || oldY !== sy + exists.yAnchorOffset) {
+          console.log(`[PixiCombatScene] reposition ${u.name}: cell[${u.pos[0]},${u.pos[1]}] sx=${sx.toFixed(1)} sy=${sy.toFixed(1)} yOff=${exists.yAnchorOffset.toFixed(1)} (was x=${oldX.toFixed(1)} y=${oldY.toFixed(1)})`);
+        }
       } else if (hasSpine(u.name)) {
+        // Guard: skip if this unit is already being loaded (prevents duplicate on re-render)
+        if (loadingUnitsRef.current.has(u.unit_id)) continue;
+        loadingUnitsRef.current.add(u.unit_id);
+
         const dir: "Front" | "Back" = u.team === "player" ? "Front" : "Back";
         const baseUrl = spineAssetUrl(u.name, dir);
         const fn = spineFileName(u.name);
-        const skelAlias = `spine_skel_${fn}_${dir}`;
-        const atlasAlias = `spine_atlas_${fn}_${dir}`;
+        const cacheKey = `${fn}_${dir}`;
+
+        console.log(`[PixiCombatScene] start load ${u.name} cell[${u.pos[0]},${u.pos[1]}] sx=${sx.toFixed(1)} sy=${sy.toFixed(1)}`);
 
         (async () => {
           try {
-            if (!loadedRef.current.has(skelAlias)) {
-              const pending = loadingRef.current.get(skelAlias);
-              if (pending) { await pending; }
-              else {
-                const p = (async () => {
-                  Assets.add({ alias: skelAlias, src: `${baseUrl}/${fn}.skel` });
-                  Assets.add({ alias: atlasAlias, src: `${baseUrl}/${fn}.atlas` });
-                  await Assets.load([skelAlias, atlasAlias]);
-                  loadedRef.current.add(skelAlias);
-                })();
-                loadingRef.current.set(skelAlias, p);
-                await p;
-              }
+            console.log(`[PixiCombatScene] Loading Spine for ${u.name} (${fn}/${dir}) at cell [${u.pos[0]},${u.pos[1]}]...`);
+            let spine: Spine;
+            if (loadedRef.current.has(cacheKey)) {
+              const pending = loadingRef.current.get(cacheKey);
+              spine = (pending ? await pending : null) as Spine;
+            } else {
+              const p = loadSpine(baseUrl, fn);
+              loadingRef.current.set(cacheKey, p);
+              spine = await p;
+              loadedRef.current.add(cacheKey);
             }
-            if (!aliveIds.has(u.unit_id)) return;
+            if (!aliveIds.has(u.unit_id)) { loadingUnitsRef.current.delete(u.unit_id); return; }
+            if (!spine) { loadingUnitsRef.current.delete(u.unit_id); return; }
 
-            const opts = Spine.createOptions({ skeleton: skelAlias, atlas: atlasAlias, autoUpdate: true });
-            const spine = new Spine(opts);
-            spine.x = sx;
-            spine.y = sy;
-            spine.state.setAnimation(0, "idle", true);
-            if (u.team === "enemy") spine.scale.x = -1;
+            // Re-compute position from DOM now that Spine is ready (layout has settled)
+            const latestPos = getCanvasPosRef.current(u.pos[0], u.pos[1]);
+            const finalSx = latestPos?.[0] ?? sx;
+            const finalSy = latestPos?.[1] ?? sy;
+            console.log(`[PixiCombatScene] Spine ready, final pos: sx=${finalSx.toFixed(1)} sy=${finalSy.toFixed(1)} (captured sx=${sx.toFixed(1)} sy=${sy.toFixed(1)})`);
+
+            const rawHeight = spine.spineData.height || cellSize;
+            const scale = (cellSize * 1.6) / rawHeight;
+            const renderHeight = rawHeight * scale;
+            const yOff = calcYOffset(renderHeight, cellSize);
+            spine.zIndex = zIndex;
+            spine.x = finalSx;
+            spine.y = finalSy + yOff;
+            const animNames = spine.spineData.animations.map((a: any) => a.name);
+            const idleAnim = animNames.find((n: string) => /idle|relax|normal/i.test(n)) || animNames[0];
+            spine.state.setAnimation(0, idleAnim, true);
+            if (u.team === "enemy") { spine.scale.set(-scale, scale); }
+            else { spine.scale.set(scale); }
 
             ul.addChild(spine);
-            map.set(u.unit_id, { displayObject: spine, cell: [u.pos[0], u.pos[1]] });
+            map.set(u.unit_id, { displayObject: spine, cell: [u.pos[0], u.pos[1]], yAnchorOffset: yOff });
+            loadingUnitsRef.current.delete(u.unit_id);
+            setPosTick((t) => t + 1);
+            console.log(`[PixiCombatScene] Spine OK ${u.name} at sx=${finalSx.toFixed(1)} sy=${finalSy.toFixed(1)} yOff=${yOff.toFixed(1)} rawH=${rawHeight} scale=${scale.toFixed(3)}`);
           } catch (err) {
             console.error(`[PixiCombatScene] Spine load failed for ${u.name}:`, err);
+            if (err instanceof Error) {
+              console.error(`[PixiCombatScene]   message: ${err.message}`);
+              console.error(`[PixiCombatScene]   stack:`, err.stack);
+            }
             const fb = makeFallback(u, sx, sy);
+            fb.zIndex = zIndex;
             ul.addChild(fb);
-            map.set(u.unit_id, { displayObject: fb, cell: [u.pos[0], u.pos[1]] });
+            map.set(u.unit_id, { displayObject: fb, cell: [u.pos[0], u.pos[1]], yAnchorOffset: 0 });
+            loadingUnitsRef.current.delete(u.unit_id);
+            setPosTick((t) => t + 1);
           }
         })();
       } else {
         const fb = makeFallback(u, sx, sy);
+        fb.zIndex = zIndex;
         ul.addChild(fb);
-        map.set(u.unit_id, { displayObject: fb, cell: [u.pos[0], u.pos[1]] });
+        map.set(u.unit_id, { displayObject: fb, cell: [u.pos[0], u.pos[1]], yAnchorOffset: 0 });
       }
     }
-  }, [ready, units, getCanvasPos, gridEl, containerEl]);
+
+    ul.sortChildren();
+
+    // On first layout, re-check positions after browser fully settles CSS 3D transforms
+    if (!initialPosDoneRef.current && alive.length > 0) {
+      initialPosDoneRef.current = true;
+      requestAnimationFrame(() => {
+        console.log("[PixiCombatScene] posTick rAF fired, incrementing posTick");
+        setPosTick((t) => t + 1);
+      });
+    }
+  }, [ready, units, getCanvasPos, gridReady, posTick]);
 
   // ── Reposition units on resize ─────────────────────────────────────
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || !gridReady) return;
     const map = unitMapRef.current;
     for (const [, entry] of map) {
       const pos = getCanvasPos(entry.cell[0], entry.cell[1]);
       if (pos) {
         entry.displayObject.x = pos[0];
-        entry.displayObject.y = pos[1];
+        entry.displayObject.y = pos[1] + entry.yAnchorOffset;
       }
     }
   }, [ready, getCanvasPos, resizeTick]);
@@ -261,13 +422,13 @@ function makeFallback(unit: CombatUnitDTO, sx: number, sy: number): Container {
 
   const g = new Graphics();
   const color = unit.team === "player" ? 0x4488cc : 0xcc4444;
-  g.circle(0, 0, 10);
-  g.fill({ color });
+  g.beginFill(color);
+  g.drawCircle(0, 0, 10);
+  g.endFill();
   c.addChild(g);
 
-  const t = new Text({
-    text: unit.name.slice(0, 3),
-    style: { fontSize: 10, fill: 0xffffff, fontFamily: "sans-serif" },
+  const t = new Text(unit.name.slice(0, 3), {
+    fontSize: 10, fill: 0xffffff, fontFamily: "sans-serif",
   });
   t.anchor.set(0.5, -1.2);
   c.addChild(t);

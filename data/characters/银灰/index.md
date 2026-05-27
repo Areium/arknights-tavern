@@ -9,10 +9,10 @@ attributes:
   生理耐受: 7
   魅力: 9
 card_face: char_172_svrash_snow#1b.png
-card_face_crop_h: 41.76357051199219
-card_face_crop_w: 80.39487323558497
-card_face_crop_x: 12.105990589786463
-card_face_crop_y: 0.12816911037595524
+card_face_crop_h: 62.33766233766233
+card_face_crop_w: 80
+card_face_crop_x: 11.989843507099181
+card_face_crop_y: 3.244061358891914
 class: 近卫
 faction: 维多利亚
 imports:

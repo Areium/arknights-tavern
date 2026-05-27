@@ -977,7 +977,7 @@ export default function DocumentManager() {
                     <div key={subdir || "__root__"} className="mb-1 ml-1">
                       {subdir && (
                         <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-1 px-1">
-                          {subdir}
+                          {subdir === "card_face" ? "card art" : subdir}
                         </div>
                       )}
                       <div className="flex flex-wrap gap-1">
@@ -1375,7 +1375,7 @@ export default function DocumentManager() {
                   {selectedImage.subdir && (
                     <div className="flex justify-between">
                       <span className="text-gray-500">子目录</span>
-                      <span>{selectedImage.subdir}</span>
+                      <span>{selectedImage.subdir === "card_face" ? "card art" : selectedImage.subdir}</span>
                     </div>
                   )}
                   <div className="flex justify-between">
@@ -1448,7 +1448,7 @@ export default function DocumentManager() {
                 </div>
                 {selectedImage.subdir && selectedImage.subdir !== "avatar" && selectedImage.subdir !== "skin" && selectedImage.subdir !== "card_face" && (
                   <p className="text-xs text-gray-600 text-center mt-3">
-                    仅 avatar/、skin/ 和 card_face/ 子目录的图片可设为默认
+                    仅 avatar/、skin/ 和 card art/ 子目录的图片可设为默认
                   </p>
                 )}
               </div>
