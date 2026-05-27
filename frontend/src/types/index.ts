@@ -154,8 +154,6 @@ export interface PlotInfo {
   name: string;
   category: string;
   priority: number;
-  trigger_location: string[];
-  trigger_character: string[];
 }
 
 /** 战斗单位 */

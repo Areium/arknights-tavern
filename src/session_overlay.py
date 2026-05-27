@@ -504,6 +504,9 @@ class SessionOverlay:
             overview = _extract_section(body, "剧情概述")
             if not overview:
                 overview = meta.get("summary", "")
+            dialogue_ref = _extract_section(body, "关键对话参考")
+            if dialogue_ref:
+                self._data["dialogue_ref"] = dialogue_ref
             narrative_text = self._load_narrative_text(plot_id)
         else:
             narrative_text = ""
@@ -627,6 +630,11 @@ class SessionOverlay:
         overview_text = self._data.get("plot_overview", "")
         if overview_text:
             body_parts.append(f"## 剧情概要\n{overview_text}\n")
+
+        # 注入关键对话参考，帮助 LLM 校准角色语气
+        dialogue_ref = self._data.get("dialogue_ref", "")
+        if dialogue_ref:
+            body_parts.append(f"## 角色对话参考\n{dialogue_ref}\n")
 
         if beats:
             body_parts.append("## 章节结构")
@@ -786,7 +794,7 @@ def _read_plot_file(plot_id: str) -> tuple[dict, str] | None:
 
 # 顶层节的边界标题模式（用于 _extract_section 判断何时停止提取）
 _SECTION_BOUNDARY_PATTERN = re.compile(
-    r"^## (?:剧情概述|触发场景|开场设置|任务|场景配置|世界观设定|节奏设计|关键对话参考|章节\s+\d+[：:])\s*$"
+    r"^## (?:剧情概述|开场设置|关键对话参考|任务|章节\s+\d+[：:])\s*$"
 )
 
 

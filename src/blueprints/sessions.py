@@ -62,10 +62,8 @@ def _load_plot_opening(session, plot_id: str):
                 session.scene_manager.active = chars[0]
 
         # 4. 存储开场上下文（首次叙述注入用）
-        scene_desc = meta.get("opening_scene", "").strip()
-        if not scene_desc:
-            from session_overlay import _extract_section
-            scene_desc = _extract_section(body, "开场设置")
+        from session_overlay import _extract_section
+        scene_desc = _extract_section(body, "开场设置") if body else ""
         if not scene_desc:
             scene_desc = body.strip()[:500] if body else ""
         if scene_desc:
