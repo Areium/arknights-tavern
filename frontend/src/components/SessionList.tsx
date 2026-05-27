@@ -129,6 +129,7 @@ export default function SessionList() {
     if (chatMode === "story") {
       if (plotsLoading) return;
       if (plots.length > 0) {
+        setCombatMode("narrative");
         setShowPlotPicker(true);
         return;
       }
@@ -140,8 +141,14 @@ export default function SessionList() {
         });
         return;
       }
+      // 剧情模式无可用剧情时也显示选择器（可选择战斗模式）
+      setCombatMode("narrative");
+      setShowPlotPicker(true);
+      return;
     }
-    handleCreate("");
+    // 自由模式：也显示选择器，让用户选择战斗模式
+    setCombatMode("narrative");
+    setShowPlotPicker(true);
   };
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {

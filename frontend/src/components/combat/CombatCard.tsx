@@ -126,7 +126,7 @@ export default function CombatCard({ card, index, affordable, selected, highligh
       </div>
 
       {/* 卡面（120px） */}
-      <div className="card-art-area w-full h-[120px] relative" style={hasSkin ? {} : { background: artBg }}>
+      <div className="card-art-area w-full h-[80px] relative" style={hasSkin ? {} : { background: artBg }}>
         {hasSkin && skinCrop ? (
           <div className="card-art-crop">
             <img
@@ -172,17 +172,24 @@ export default function CombatCard({ card, index, affordable, selected, highligh
         </div>
 
         {card.description && (
-          <p className="card-description">{card.description}</p>
+          <div className="card-description" title={damageFormula}>
+            {card.description}，造成
+            <span className={`font-mono font-bold ${dmgColorClass}`}>
+              {Math.floor(card.min_damage)}~{Math.floor(card.max_damage)}
+            </span>
+            伤害 · {targetLabel} · {rangeLabel}
+          </div>
         )}
 
-        <div className="damage-range-row">
-          <span className={`font-mono font-bold ${dmgColorClass}`} title={damageFormula}>
-            {card.min_damage}-{card.max_damage}
-          </span>
-          <span className="text-gray-600">×{card.atk_scale.toFixed(1)}</span>
-          <span>·</span>
-          <span>{targetLabel} · {rangeLabel}</span>
-        </div>
+        {!card.description && (
+          <div className="card-description" title={damageFormula}>
+            造成
+            <span className={`font-mono font-bold ${dmgColorClass}`}>
+              {Math.floor(card.min_damage)}~{Math.floor(card.max_damage)}
+            </span>
+            伤害 · {targetLabel} · {rangeLabel}
+          </div>
+        )}
       </div>
     </button>
   );

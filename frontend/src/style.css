@@ -293,7 +293,7 @@ html.light .text-amber-100\/70 { color: rgba(120,53,15,0.85); }
   align-items: flex-end;
   gap: 0;
   padding: 2px 0 4px;
-  min-height: 275px;
+  min-height: 210px;
   perspective: 800px;
   position: relative;
   z-index: 20;
