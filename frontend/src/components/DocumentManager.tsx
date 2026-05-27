@@ -97,6 +97,7 @@ export default function DocumentManager() {
   const [assetImages, setAssetImages] = useState<any[]>([]);
   const [imagesLoading, setImagesLoading] = useState(false);
   const [imageFilter, setImageFilter] = useState("");
+  const [collapsedImageKeys, setCollapsedImageKeys] = useState<Set<string>>(new Set());
   const [selectedImage, setSelectedImage] = useState<{
     url: string; name: string; size: number; subdir: string;
     path: string; category: string; entity: string;
@@ -878,12 +879,31 @@ export default function DocumentManager() {
 
     return (
       <div>
-        <input
-          className="input text-xs w-full mb-2"
-          placeholder="过滤图片名称..."
-          value={imageFilter}
-          onChange={(e) => setImageFilter(e.target.value)}
-        />
+        <div className="flex items-center gap-1 mb-2">
+          <input
+            className="input text-xs flex-1"
+            placeholder="过滤图片名称..."
+            value={imageFilter}
+            onChange={(e) => setImageFilter(e.target.value)}
+          />
+          <button
+            onClick={() => {
+              if (collapsedImageKeys.size > 0) {
+                setCollapsedImageKeys(new Set());
+              } else {
+                const allKeys = new Set<string>();
+                for (const item of filtered) {
+                  allKeys.add(`${item.category}/${item.entity}`);
+                }
+                setCollapsedImageKeys(allKeys);
+              }
+            }}
+            className="text-[10px] text-gray-500 hover:text-gray-300 whitespace-nowrap px-1.5 py-1 rounded hover:bg-gray-700/50 transition-colors"
+            title={collapsedImageKeys.size > 0 ? "展开全部" : "折叠全部"}
+          >
+            {collapsedImageKeys.size > 0 ? "展开" : "折叠"}
+          </button>
+        </div>
         {filtered.length === 0 && (
           <p className="text-xs text-gray-500 text-center py-4">
             {imageFilter ? "无匹配结果" : "暂无图像资产"}
@@ -918,13 +938,26 @@ export default function DocumentManager() {
                 subdirGroups[sd].push(img);
               }
 
+              const isEntityCollapsed = collapsedImageKeys.has(entityKey);
+
               return (
-                <div key={`${cat}/${item.entity}`} className="mb-2 ml-1">
-                  <div className="flex items-center gap-1 text-xs text-gray-400 px-1 mb-1">
+                <div key={entityKey} className="mb-2 ml-1">
+                  <div
+                    className="flex items-center gap-1 text-xs text-gray-400 px-1 mb-1 cursor-pointer hover:text-gray-300 transition-colors select-none"
+                    onClick={() => {
+                      setCollapsedImageKeys((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(entityKey)) next.delete(entityKey);
+                        else next.add(entityKey);
+                        return next;
+                      });
+                    }}
+                  >
+                    <span className="text-[10px] w-3 text-center flex-shrink-0">{isEntityCollapsed ? "▶" : "▼"}</span>
                     <span className="truncate flex-1" title={item.entity_name}>
                       {item.entity_name}
                     </span>
-                    <label className="text-[10px] text-blue-400 hover:text-blue-300 cursor-pointer shrink-0" title="上传到该实体">
+                    <label className="text-[10px] text-blue-400 hover:text-blue-300 cursor-pointer shrink-0" title="上传到该实体" onClick={(e) => e.stopPropagation()}>
                       +
                       <input
                         type="file"
@@ -940,7 +973,7 @@ export default function DocumentManager() {
                       />
                     </label>
                   </div>
-                  {Object.entries(subdirGroups).map(([subdir, imgs]) => (
+                  {!isEntityCollapsed && Object.entries(subdirGroups).map(([subdir, imgs]) => (
                     <div key={subdir || "__root__"} className="mb-1 ml-1">
                       {subdir && (
                         <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-1 px-1">
