@@ -3,6 +3,7 @@ Assets blueprint — 静态资源服务。
 """
 
 from pathlib import Path
+from urllib.parse import quote
 from flask import Blueprint, jsonify, request, send_from_directory
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -73,7 +74,7 @@ def register(app, managers):
             "message": "上传成功",
             "name": file.filename,
             "path": path_key,
-            "url": f"/api/assets/{path_key}",
+            "url": f"/api/assets/{quote(path_key, safe='/')}",
             "size": file_stat.st_size,
         }), 201
 
@@ -267,7 +268,7 @@ def _list_entity_images(doc_mgr):
                     images.append({
                         "name": f,
                         "path": path_key,
-                        "url": f"/api/assets/{path_key}",
+                        "url": f"/api/assets/{quote(path_key, safe='/')}",
                         "size": file_stat.st_size,
                         "subdir": inner_rel if inner_rel != "." else "",
                     })
