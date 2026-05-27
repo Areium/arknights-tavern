@@ -14,3 +14,5 @@ scripts/prts_scraper/
 scripts/data/memory/
 data/characters/*/spine/
 temp_*.png
+tests/
+pytest.ini

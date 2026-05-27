@@ -2,7 +2,8 @@ import { useEffect, useLayoutEffect, useState, useCallback, useRef, useMemo } fr
 import { useAppStore } from "../../stores/appStore";
 import { useApi, createCombatSSE, createCombatTestSSE } from "../../hooks/useApi";
 import type { CombatEventDTO, CombatStateDTO, CardDTO } from "../../types";
-import CombatGrid from "./CombatGrid";
+import CombatScene3D from "./CombatScene3D";
+import type { CombatScene3DHandle } from "./CombatScene3D";
 import CombatHand from "./CombatHand";
 import CombatEventLog from "./CombatEventLog";
 import CombatUnitTooltip from "./CombatUnitTooltip";
@@ -11,9 +12,7 @@ import CombatParticles from "./CombatParticles";
 import CombatCard from "./CombatCard";
 import DeckViewer from "./DeckViewer";
 import AttackArrow from "./AttackArrow";
-import ChibiSprite from "./ChibiSprite";
 import CharacterIllustration from "./CharacterIllustration";
-import { getCellParentRelative } from "./gridUtils";
 import { getCombatConfig, type LayoutMode } from "./combatConfig";
 
 const DEFAULT_CHARACTERS = ["阿米娅", "博士", "银灰", "霜星"];
@@ -79,7 +78,7 @@ export default function CombatView() {
   const sseRef = useRef<{ close: () => void } | null>(null);
   const stateRef = useRef(combatState);
   stateRef.current = combatState;
-  const gridElRef = useRef<HTMLDivElement | null>(null);
+  const sceneRef = useRef<CombatScene3DHandle | null>(null);
   const relativeRef = useRef<HTMLDivElement | null>(null);
   const dragMouseRef = useRef<{ clientX: number; clientY: number } | null>(null);
   const overlayCentersRef = useRef<({ x: number; y: number } | null)[][]>([]);
@@ -111,22 +110,20 @@ export default function CombatView() {
   const spawnParticles = useCallback(
     (type: "spark" | "heal" | "death" | "victory", pos: [number, number], count?: number) => {
       const id = `emitter_${++emitterIdRef.current}`;
-      const center = gridElRef.current && relativeRef.current
-        ? getCellParentRelative(gridElRef.current, relativeRef.current, pos[0], pos[1])
-        : null;
-      let x: number, y: number;
-      if (center) {
-        x = center.x;
-        y = center.y;
-      } else {
-        const gap = 2;
-        const sz = cfg.cellSize;
-        x = sz + 5 + pos[1] * (sz + gap) + sz / 2;
-        y = sz - 12 + pos[0] * (sz + gap) + sz / 2;
+      const scene = sceneRef.current;
+      const rel = relativeRef.current;
+      let x: number = 0, y: number = 0;
+      if (scene && rel) {
+        const sp = scene.getCellScreenPos(pos[0], pos[1]);
+        if (sp) {
+          const relRect = rel.getBoundingClientRect();
+          x = sp.x - relRect.left;
+          y = sp.y - relRect.top;
+        }
       }
       setParticleEmitters((prev) => [...prev.slice(-30), { id, config: { type, x, y, count } }]);
     },
-    [cfg.cellSize]
+    [],
   );
 
   const removeEmitter = useCallback((id: string) => {
@@ -220,17 +217,23 @@ export default function CombatView() {
     return () => window.removeEventListener("resize", handler);
   }, []);
 
-  // Precompute cell screen centers for overlay drag handling
+  // Precompute cell screen centers for overlay drag handling (uses 3D scene projection)
   const recomputeOverlayCenters = useCallback(() => {
-    const g = gridElRef.current;
+    const scene = sceneRef.current;
     const rel = relativeRef.current;
-    if (!g || !rel) return;
+    if (!scene || !rel) return;
     const size = combatState?.grid_size ?? 7;
+    const relRect = rel.getBoundingClientRect();
     const centers: ({ x: number; y: number } | null)[][] = [];
     for (let r = 0; r < size; r++) {
       const row: ({ x: number; y: number } | null)[] = [];
       for (let c = 0; c < size; c++) {
-        row.push(getCellParentRelative(g, rel, r, c));
+        const sp = scene.getCellScreenPos(r, c);
+        if (sp) {
+          row.push({ x: sp.x - relRect.left, y: sp.y - relRect.top });
+        } else {
+          row.push(null);
+        }
       }
       centers.push(row);
     }
@@ -241,15 +244,17 @@ export default function CombatView() {
     recomputeOverlayCenters();
   }, [recomputeOverlayCenters, resizeTick]);
 
-  // Sync unit positions (chibi, damage numbers) after DOM commits — handles cellSize / layout changes
+  // Sync unit positions (damage numbers) — uses 3D scene projection
   useLayoutEffect(() => {
-    const g = gridElRef.current;
+    const scene = sceneRef.current;
     const rel = relativeRef.current;
-    if (!g || !rel) return;
+    if (!scene || !rel) return;
+    const relRect = rel.getBoundingClientRect();
     const positions: Record<string, { x: number; y: number } | null> = {};
     for (const u of combatState?.units ?? []) {
       if (u.is_alive) {
-        positions[u.unit_id] = getCellParentRelative(g, rel, u.pos[0], u.pos[1]);
+        const sp = scene.getCellScreenPos(u.pos[0], u.pos[1]);
+        positions[u.unit_id] = sp ? { x: sp.x - relRect.left, y: sp.y - relRect.top } : null;
       }
     }
     setUnitPositions(positions);
@@ -1085,52 +1090,30 @@ export default function CombatView() {
               handleGridDragMove(null);
             }}
           >
-            <CombatGrid
+            <CombatScene3D
+              ref={sceneRef}
               gridSize={combatState.grid_size}
-              cellSize={cfg.cellSize}
               units={combatState.units}
               moveHighlights={moveHighlights}
               rangeHighlights={rangeHighlights}
               selectedUnitId={selectedUnitId}
-              uiMode={combatUIMode}
               cursor={cursor}
               dragCell={dragCell}
               onCellClick={handleCellClick}
-              onCellHover={handleCellHover}
-              onCellLeave={handleHoverLeave}
               onCellDrop={handleGridDrop}
-              onGridDragMove={handleGridDragMove}
-              onGridMount={(el) => { gridElRef.current = el; }}
             />
-
-            {/* Chibi sprite overlay — uses pre-computed positions from useLayoutEffect */}
-            {combatState.units
-              .filter((u) => u.is_alive)
-              .map((u) => {
-                const center = unitPositions[u.unit_id];
-                if (!center) return null;
-                return (
-                  <div
-                    key={u.unit_id}
-                    className="chibi-overlay"
-                    style={{
-                      position: "absolute",
-                      left: center.x - 24,
-                      top: center.y - 30,
-                      zIndex: 25,
-                      pointerEvents: "none",
-                    }}
-                  >
-                    <ChibiSprite unit={u} />
-                  </div>
-                );
-              })}
 
             {/* Damage numbers */}
             {damageNumbers.map((d) => {
-              const center = gridElRef.current && relativeRef.current
-                ? getCellParentRelative(gridElRef.current, relativeRef.current, d.pos[0], d.pos[1])
-                : null;
+              const center = (() => {
+                const scene = sceneRef.current;
+                const rel = relativeRef.current;
+                if (!scene || !rel) return null;
+                const sp = scene.getCellScreenPos(d.pos[0], d.pos[1]);
+                if (!sp) return null;
+                const relRect = rel.getBoundingClientRect();
+                return { x: sp.x - relRect.left, y: sp.y - relRect.top };
+              })();
               return (
                 <span
                   key={d.id}
@@ -1155,17 +1138,30 @@ export default function CombatView() {
             />
 
             {/* Attack arrow during card drag */}
-            {arrowFrom && dragCell && gridElRef.current && relativeRef.current && (() => {
+            {arrowFrom && dragCell && relativeRef.current && (() => {
               const m = dragMouseRef.current;
-              const pr = relativeRef.current.getBoundingClientRect();
+              const rel = relativeRef.current!;
+              const pr = rel.getBoundingClientRect();
+              const scene = sceneRef.current;
+              const fromPos = (() => {
+                if (!scene) return null;
+                const sp = scene.getCellScreenPos(arrowFrom[0], arrowFrom[1]);
+                return sp ? { x: sp.x - pr.left, y: sp.y - pr.top } : null;
+              })();
+              const toPos = (() => {
+                if (!scene) return null;
+                const sp = scene.getCellScreenPos(dragCell[0], dragCell[1]);
+                return sp ? { x: sp.x - pr.left, y: sp.y - pr.top } : null;
+              })();
               const toPoint = m ? { x: m.clientX - pr.left, y: m.clientY - pr.top } : null;
+              if (!fromPos) return null;
               return (
                 <AttackArrow
-                  from={arrowFrom}
-                  to={dragCell}
+                  fromPos={fromPos}
+                  toPos={toPos}
                   toPoint={toPoint}
-                  gridEl={gridElRef.current!}
-                  parentEl={relativeRef.current}
+                  containerWidth={rel.clientWidth}
+                  containerHeight={rel.clientHeight}
                 />
               );
             })()}

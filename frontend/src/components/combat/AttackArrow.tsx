@@ -1,4 +1,4 @@
-import { type Point, getCellCenter } from "./gridUtils";
+import type { Point } from "./gridUtils";
 
 function qBezier(p0: Point, p1: Point, p2: Point, t: number): Point {
   const mt = 1 - t;
@@ -21,27 +21,22 @@ const TRIM_END = 0.82;
 const ARC_STEPS = 48;
 
 interface Props {
-  from: [number, number]; // [row, col]
-  to: [number, number];   // [row, col]
-  toPoint?: Point | null; // parent-relative override - draws arrow to exact mouse position
-  gridEl: HTMLElement;
-  parentEl: HTMLElement;
+  /** Parent-relative pixel position of source cell centre. */
+  fromPos: Point;
+  /** Parent-relative pixel position of target cell centre (optional when using toPoint). */
+  toPos?: Point | null;
+  /** Parent-relative mouse position override (used during card drag). */
+  toPoint?: Point | null;
+  /** Container pixel dimensions for SVG viewBox. */
+  containerWidth: number;
+  containerHeight: number;
 }
 
-export default function AttackArrow({ from, to, toPoint, gridEl, parentEl }: Props) {
-  const pFrom = getCellCenter(gridEl, from[0], from[1]);
-  const pTo = getCellCenter(gridEl, to[0], to[1]);
+export default function AttackArrow({ fromPos, toPos, toPoint, containerWidth, containerHeight }: Props) {
+  const relFrom = fromPos;
+  const relTo = toPoint || toPos;
 
-  // 调试：检查坐标是否成功获取
-  if (!pFrom || (!pTo && !toPoint)) {
-    console.warn('[AttackArrow] Failed to get cell centers', { pFrom, pTo, toPoint, from, to });
-    return null;
-  }
-
-  // Convert screen-space to parent-relative
-  const pr = parentEl.getBoundingClientRect();
-  const relFrom: Point = { x: pFrom.x - pr.left, y: pFrom.y - pr.top };
-  const relTo: Point = toPoint || { x: pTo!.x - pr.left, y: pTo!.y - pr.top };
+  if (!relTo) return null;
 
   const dx = relTo.x - relFrom.x;
   const dy = relTo.y - relFrom.y;
@@ -63,7 +58,6 @@ export default function AttackArrow({ from, to, toPoint, gridEl, parentEl }: Pro
   };
 
   // Build polyline from trimStart to trimEnd
-  // 舍入坐标到小数点后两位，处理高 DPI 屏幕的浮点精度问题
   const points: string[] = [];
   for (let i = 0; i <= ARC_STEPS; i++) {
     const t = TRIM_START + (TRIM_END - TRIM_START) * (i / ARC_STEPS);
@@ -101,7 +95,7 @@ export default function AttackArrow({ from, to, toPoint, gridEl, parentEl }: Pro
         pointerEvents: "none",
         overflow: "visible",
       }}
-      viewBox={`0 0 ${parentEl.clientWidth} ${parentEl.clientHeight}`}
+      viewBox={`0 0 ${containerWidth} ${containerHeight}`}
     >
       <g className="attack-arrow-group">
         <polyline
