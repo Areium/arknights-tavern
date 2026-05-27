@@ -285,6 +285,10 @@ export default function DocumentManager() {
         }
         return { ...prev, [key]: { ...prevEntry, [`default_${type}`]: filename } };
       });
+      // card_face 会复制新文件，刷新图片列表以显示 card_face 子目录分组
+      if (type === "card_face") {
+        loadImages();
+      }
     } catch (err: any) {
       showToast(err.message || "设置失败", "error");
     }
