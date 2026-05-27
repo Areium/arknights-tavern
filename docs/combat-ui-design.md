@@ -409,15 +409,35 @@ Timeline 风格，Unicode 图标：
 ### 5.5 攻击动画序列
 
 ```
-卡牌打出 → 攻击者闪烁 → 特效飞向目标 → 目标震动 + 伤害数字弹出
+卡牌打出动画 → API 请求并行 → 攻击者闪烁 → 特效飞向目标 → 目标震动 + 伤害数字弹出
 
-时间线:
-  0ms    : 卡牌动作提交
-  300ms  : 攻击者高亮闪烁
+时间线（乐观动画）:
+  0ms    : 卡牌打出动画开始（card-play-out: 放大 1.15× → 发光 → 淡出上浮 36px）
+  0ms    : API 请求并行发起
+  400ms  : 动画结束 + 手牌刷新，剩余卡牌 CSS transition 平滑重排（0.3s）
   600ms  : 目标震动（unit-hit-shake, 0.3s）
   700ms  : 伤害数字弹出
   1000ms : 粒子消散
 ```
+
+### 5.6 卡牌打出动画
+
+```css
+/* 打出时应用 .card-playing 类 */
+.combat-card.card-playing {
+  animation: card-play-out 0.45s ease-out forwards;
+  pointer-events: none;
+}
+
+@keyframes card-play-out {
+  0%   { transform: scale(1);    opacity: 1; filter: brightness(1);   box-shadow: ...; }
+  20%  { transform: scale(1.15); opacity: 1; filter: brightness(1.5); box-shadow: ...; }
+  100% { transform: scale(1.2) translateY(-36px); opacity: 0; filter: brightness(2); }
+}
+```
+
+手牌重排依赖 React key 稳定性：使用 `${card_id}-${owner}` 代替 `${card_id}-${index}`，
+打出后剩余卡牌 DOM 节点保留，CSS `transition: transform 0.3s ease` 自动处理扇形位置过渡。
 
 ### 5.6 战斗结束 Overlay
 
@@ -514,6 +534,8 @@ colors: {
 | 卡牌悬停抬起 | hover | 250ms | CSS transition |
 | 卡牌选中浮起 | click | 250ms | CSS transition |
 | 卡牌选中光晕 | 持续 | 1.5s loop | CSS @keyframes |
+| 卡牌打出（放大淡出） | play_card API 调用 | 0.45s | CSS @keyframes |
+| 手牌重排 | 打出后 state 刷新 | 0.3s | CSS transition |
 | 伤害数字弹出 | SSE damage 事件 | 1s | CSS @keyframes |
 | 角色受击震动 | SSE damage 事件 | 0.3s | CSS @keyframes |
 | HP 条变化 | state 更新 | 400ms | CSS transition |

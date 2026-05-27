@@ -9,6 +9,7 @@ interface Props {
   highlighted?: boolean;
   skinUrl?: string;
   skinCrop?: SkinCrop | null;
+  playing?: boolean;
   onClick: () => void;
   onDragStart?: () => void;
   onDragEnd?: () => void;
@@ -47,7 +48,7 @@ const CLASS_DOT_COLORS: Record<string, string> = {
   "辅助": "#c4a83c", "特种": "#6b5c8a",
 };
 
-export default function CombatCard({ card, index, affordable, selected, highlighted, skinUrl, skinCrop, onClick, onDragStart, onDragEnd }: Props) {
+export default function CombatCard({ card, index, affordable, selected, highlighted, skinUrl, skinCrop, playing, onClick, onDragStart, onDragEnd }: Props) {
   const classKey = CLASS_CSS[card.class_required] || "";
   const tierClass = card.tier === "elite" ? "elite" : "";
   const selectedClass = selected ? "selected" : "";
@@ -82,10 +83,10 @@ export default function CombatCard({ card, index, affordable, selected, highligh
 
   return (
     <button
-      className={`combat-card ${classKey} ${tierClass} ${selectedClass} ${highlightedClass} ${disabledClass}`}
+      className={`combat-card ${classKey} ${tierClass} ${selectedClass} ${highlightedClass} ${disabledClass} ${playing ? 'card-playing' : ''}`}
       onClick={onClick}
-      disabled={!affordable}
-      draggable={affordable}
+      disabled={!affordable || playing}
+      draggable={affordable && !playing}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >

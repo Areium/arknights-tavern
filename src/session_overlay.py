@@ -285,13 +285,24 @@ class SessionOverlay:
     def _load_narrative_text(self, plot_id: str) -> str:
         """加载剧情节拍文本。
 
-        新格式：从 plot.md 提取「## 章节与节拍」节。
+        新格式：从 plot.md 提取所有「## 章节 N」节，到下一个非章节的「## 」标题为止。
         旧格式：读取 narrative.md 全文。
         """
         if _is_new_plot_format(plot_id):
             result = _read_plot_file(plot_id)
             if result:
-                return _extract_section(result[1], "章节与节拍")
+                body = result[1]
+                # 找到第一个 ## 章节 N
+                ch_match = re.search(r'^## 章节\s+\d+[：:]', body, re.MULTILINE)
+                if not ch_match:
+                    return ""
+                start = ch_match.start()
+                # 找到下一个非章节的 ## 标题作为结束
+                remaining = body[start:]
+                end_match = re.search(r'^## (?!章节\s+\d+[：:])\S', remaining, re.MULTILINE)
+                if end_match:
+                    return remaining[:end_match.start()].strip()
+                return remaining.strip()
             return ""
 
         resolved = _resolve_plot_dir(plot_id) or plot_id
@@ -504,13 +515,12 @@ class SessionOverlay:
             if result:
                 meta, body = result
                 plot_name = meta.get("name", plot_id)
-                # 提取剧情概述
+                # 提取剧情概述（「## 剧情概述」节）
                 overview = _extract_section(body, "剧情概述")
                 if not overview:
-                    # fallback: 从 summary frontmatter
                     overview = meta.get("summary", "")
-                # 提取节拍文本
-                narrative_text = _extract_section(body, "章节与节拍")
+                # 提取节拍文本（所有「## 章节 N」节）
+                narrative_text = self._load_narrative_text(plot_id)
         else:
             narrative_text = self._load_narrative_text(plot_id)
 
@@ -821,11 +831,18 @@ def _read_plot_file(plot_id: str) -> tuple[dict, str] | None:
     return None
 
 
+# 顶层节的边界标题模式（用于 _extract_section 判断何时停止提取）
+_SECTION_BOUNDARY_PATTERN = re.compile(
+    r"^## (?:剧情概述|触发场景|开场设置|任务|场景配置|世界观设定|节奏设计|关键对话参考|章节\s+\d+[：:])\s*$"
+)
+
+
 def _extract_section(text: str, heading: str) -> str:
     """从 markdown body 中提取指定 ## heading 节的内容。
 
-    从匹配的 `## heading` 行开始截取，到下一个同级或上级 `## `
-    （或 `# `）标题处停止，或到文本末尾。
+    从匹配的 `## heading` 行开始截取，到下一个顶层 ## 标题处停止。
+    顶层标题匹配 _SECTION_BOUNDARY_PATTERN，嵌套的 ## 子标题（如任务内的
+    「## 主线任务」、开场设置内的「## 一、开场总览」）不会中断提取。
     """
     pattern = rf"^## {re.escape(heading)}\s*$"
     lines = text.split("\n")
@@ -837,10 +854,9 @@ def _extract_section(text: str, heading: str) -> str:
     if start is None:
         return ""
 
-    # 收集内容，直到遇到下一个同级或上级标题
     result_lines = []
     for i in range(start, len(lines)):
-        if re.match(r"^#{1,2}\s+\S", lines[i]):
+        if _SECTION_BOUNDARY_PATTERN.match(lines[i]):
             break
         result_lines.append(lines[i])
 

@@ -1,7 +1,7 @@
 # 系统更新设计与维护文档
 
 > 记录战斗系统的架构演进、关键修改与未来规划方向
-> 最后更新：2026-05-25
+> 最后更新：2026-05-27
 
 ---
 
@@ -15,6 +15,17 @@
 ---
 
 ## 更新记录
+
+### 2026-05-27 — 卡牌打出动画 + 手牌重排 + 剧情格式迁移
+
+- 新增卡牌打出动画（`card-play-out`）：打出时卡牌放大 1.15× → 发光 → 淡出上浮 36px，时长 0.45s
+- 乐观动画时序：动画立即播放，API 并行调用，保证最小 400ms 显示
+- 手牌重排：React key 从 `card_id-index` 改为 `card_id-owner`，剩余卡牌 CSS transition 平滑过渡（0.3s）
+- `cardPlayInProgressRef` 防重复守卫覆盖点击/拖拽/键盘三种出牌路径
+- 剧情格式迁移：`combat-test` 和 `near-light` 从旧多文件格式迁移到单一 `plot.md`
+- `session_overlay.py`：`_extract_section` 改用顶层边界表头模式，避免嵌套子标题提前截断
+- `combat.py`：测试战斗配置读取从 `index.md` → `plot.md`
+- `.gitignore` 新增 `data/characters/*/spine/`、`temp_*.png`
 
 ### 2026-05-25 — 战斗卡牌数据拆分 + UI 微调 + 配置清理
 

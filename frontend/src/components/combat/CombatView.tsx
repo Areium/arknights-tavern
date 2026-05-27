@@ -59,6 +59,8 @@ export default function CombatView() {
   const [cursor, setCursor] = useState<[number, number] | null>(null);
   const [dragCardIndex, setDragCardIndex] = useState<number | null>(null);
   const [dragCell, setDragCell] = useState<[number, number] | null>(null);
+  const [playingCardIndex, setPlayingCardIndex] = useState<number | null>(null);
+  const cardPlayInProgressRef = useRef(false);
   const [startChars, setStartChars] = useState<string[]>(DEFAULT_CHARACTERS);
   const [encounterId, setEncounterId] = useState(DEFAULT_ENCOUNTER);
   const [charInput, setCharInput] = useState("");
@@ -450,19 +452,31 @@ export default function CombatView() {
           return;
         }
 
+        if (cardPlayInProgressRef.current) return;
+        cardPlayInProgressRef.current = true;
+        const cardIdx = selectedCardIndex;
+        setPlayingCardIndex(cardIdx);
+        setCombatContext({ selectedCardIndex: null, selectedUnitId: null, uiMode: "VIEWING" });
+
         setLoading(true);
+        const playStart = Date.now();
         try {
           await doAction({
             action: "play_card",
-            card_index: selectedCardIndex,
+            card_index: cardIdx,
             target: [row, col],
           });
-          setCombatContext({ selectedCardIndex: null, selectedUnitId: null, uiMode: "VIEWING" });
-          await fetchState();
+          const elapsed = Date.now() - playStart;
+          if (elapsed < 400) {
+            await new Promise(r => setTimeout(r, 400 - elapsed));
+          }
         } catch (e: any) {
           setError(e?.message || "操作失败");
         } finally {
           setLoading(false);
+          setPlayingCardIndex(null);
+          cardPlayInProgressRef.current = false;
+          await fetchState();
         }
         return;
       }
@@ -525,6 +539,7 @@ export default function CombatView() {
 
   const handleCardClick = useCallback(
     (index: number) => {
+      if (cardPlayInProgressRef.current) return;
       if (combatUIMode === "TARGETING" && selectedCardIndex === index) {
         setCombatContext({ selectedCardIndex: null, uiMode: "VIEWING", selectedUnitId: null });
         return;
@@ -684,6 +699,7 @@ export default function CombatView() {
   );
 
   const handleCardDragStart = useCallback((index: number) => {
+    if (cardPlayInProgressRef.current) return;
     setDragCardIndex(index);
     setCombatContext({ selectedCardIndex: index, uiMode: "TARGETING" });
     const state = stateRef.current;
@@ -743,7 +759,16 @@ export default function CombatView() {
         return;
       }
 
+      if (cardPlayInProgressRef.current) return;
+      cardPlayInProgressRef.current = true;
+      const cardIdx = dragCardIndex;
+      setPlayingCardIndex(cardIdx);
+      setDragCardIndex(null);
+      setDragCell(null);
+      setCombatContext({ selectedCardIndex: null, selectedUnitId: null, uiMode: "VIEWING" });
+
       setLoading(true);
+      const playStart = Date.now();
       try {
         const doAction = (action: { action: string; card_index?: number; target: [number, number] }) =>
           combatTestId
@@ -751,17 +776,22 @@ export default function CombatView() {
             : api.combatAction(sessionId!, action);
         await doAction({
           action: "play_card",
-          card_index: dragCardIndex,
+          card_index: cardIdx,
           target: [row, col],
         });
-        setCombatContext({ selectedCardIndex: null, selectedUnitId: null, uiMode: "VIEWING" });
-        await fetchState();
+        const elapsed = Date.now() - playStart;
+        if (elapsed < 400) {
+          await new Promise(r => setTimeout(r, 400 - elapsed));
+        }
       } catch (e: any) {
         setError(e?.message || "操作失败");
       } finally {
         setLoading(false);
+        setPlayingCardIndex(null);
+        cardPlayInProgressRef.current = false;
         setDragCardIndex(null);
         setDragCell(null);
+        await fetchState();
       }
     },
     [effectiveId, combatTestId, sessionId, combatState, dragCardIndex, rangeHighlights, displayedHand, api, fetchState, setCombatContext]
@@ -795,6 +825,7 @@ export default function CombatView() {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!combatState || combatState.battle_over) return;
+      if (cardPlayInProgressRef.current) return;
       if (e.key === "f" || e.key === "F") {
         handleEndTurn();
         return;
@@ -1234,6 +1265,7 @@ export default function CombatView() {
           onCardClick={handleCardClick}
           onCardDragStart={handleCardDragStart}
           onCardDragEnd={handleCardDragEnd}
+          playingIndex={playingCardIndex}
           cardWidth={cfg.cardWidth}
           cardHeight={cfg.cardHeight}
           fanMarginTop={cfg.handFanMarginTop}

@@ -11,12 +11,13 @@ interface Props {
   onCardClick: (index: number) => void;
   onCardDragStart?: (index: number) => void;
   onCardDragEnd?: () => void;
+  playingIndex?: number | null;
   cardWidth?: number;
   cardHeight?: number;
   fanMarginTop?: number;
 }
 
-export default function CombatHand({ cards, getCardAp, selectedIndex, disabled, highlightOwner, ownerSkins, onCardClick, onCardDragStart, onCardDragEnd, cardWidth, cardHeight, fanMarginTop }: Props) {
+export default function CombatHand({ cards, getCardAp, selectedIndex, disabled, highlightOwner, ownerSkins, playingIndex, onCardClick, onCardDragStart, onCardDragEnd, cardWidth, cardHeight, fanMarginTop }: Props) {
   const fanAngle = 3.5;
   const fanY = 8;
 
@@ -39,7 +40,7 @@ export default function CombatHand({ cards, getCardAp, selectedIndex, disabled, 
 
         return (
           <div
-            key={`${card.card_id}-${i}`}
+            key={`${card.card_id}-${card.owner || 'none'}`}
             className="hand-card-wrapper"
             style={{
               transform: `rotate(${rotation}deg) translateY(${translateY}px)`,
@@ -54,6 +55,7 @@ export default function CombatHand({ cards, getCardAp, selectedIndex, disabled, 
               highlighted={!!highlightOwner && card.owner === highlightOwner}
               skinUrl={card.owner ? ownerSkins?.[card.owner]?.url : undefined}
               skinCrop={card.owner ? ownerSkins?.[card.owner]?.crop ?? undefined : undefined}
+              playing={playingIndex === i}
               onClick={() => onCardClick(i)}
               onDragStart={() => onCardDragStart?.(i)}
               onDragEnd={onCardDragEnd}

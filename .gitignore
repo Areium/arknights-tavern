@@ -12,4 +12,5 @@ assets/
 .vite/
 scripts/prts_scraper/
 scripts/data/memory/
-prompt.md
+data/characters/*/spine/
+temp_*.png
