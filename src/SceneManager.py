@@ -632,54 +632,17 @@ speaker 必须从场景角色列表选择，无法判断时用 null
             active_mark = " ← 对话中" if name == self.active else ""
             char_summaries.append(f"- {name}{tag_str}{active_mark}")
 
-        # 战术模式：在用户消息最前面提示战术模式（primacy 效应）
+        # 构建用户消息，稳定内容在前（利用 API 前缀缓存），易变内容在后（recency 效应）
         context_parts = []
+
+        # ── 模式提示（稳定，始终首位）──
         if self._combat_mode == "tactical":
             context_parts.append(
                 "当前处于战术模式。如果场景中存在战斗/敌对冲突，"
                 "请详细描述战斗局势。战斗触发将由系统自动处理。"
             )
 
-        # 场景状态
-        if is_first_turn:
-            context_parts.append(f"<scene_state>\n{env_context or '当前场景'}\n</scene_state>")
-        else:
-            brief_lines = []
-            for line in (env_context or "").split("\n"):
-                stripped = line.strip()
-                if not stripped or stripped.startswith("【"):
-                    continue
-                if stripped.startswith(("位置:", "天气:", "时间:")):
-                    brief_lines.append(stripped)
-            if brief_lines:
-                context_parts.append("<scene_state>\n" + " / ".join(brief_lines) + "\n</scene_state>")
-
-        # 对话历史
-        if conversation_history:
-            context_parts.append(f"<conversation_history>\n{conversation_history}\n</conversation_history>")
-
-        # 场景角色 + 遭遇
-        chars = "\n".join(char_summaries) if char_summaries else "（无）"
-        context_parts.append(f"<characters>\n{chars}\n</characters>")
-        if self._combat_mode == "tactical":
-            encounter_str = self._list_encounters()
-            context_parts.append(
-                f"<encounters>\n可用的战斗遭遇：{encounter_str}\n"
-                f"</encounters>"
-            )
-
-        # 玩家
-        player_lines = [f"身份：{identity}"]
-        if user_action:
-            player_lines.append(f"操作：{user_action}")
-        context_parts.append(f"<player>\n" + "\n".join(player_lines) + "\n</player>")
-
-        # 场景动态
-        recent = self._scene_log[-8:]
-        if recent:
-            context_parts.append("<scene_events>\n" + "\n".join(recent) + "\n</scene_events>")
-
-        # 参考层：剧情开场、结构、预加载资料、文档目录
+        # ── 参考层：剧情结构、预加载资料、文档目录（稳定，放前面利用缓存）──
         ref_parts = []
         if self._overlay and self._overlay.has_plot_context():
             opening = self._overlay.get_plot_context()
@@ -698,6 +661,9 @@ speaker 必须从场景角色列表选择，无法判断时用 null
             preloaded_text = self._session_context.format_preloaded()
             if preloaded_text:
                 ref_parts.append(preloaded_text)
+            retrieved_text = self._session_context.format_wiki_retrieved()
+            if retrieved_text:
+                ref_parts.append(retrieved_text)
         if self._wiki_manager:
             catalog = self._wiki_manager.format_catalog_summary(
                 self._wiki_manager.NARRATIVE_CATALOG_CATS
@@ -706,6 +672,46 @@ speaker 必须从场景角色列表选择，无法判断时用 null
                 ref_parts.append(catalog)
         if ref_parts:
             context_parts.append("<reference>\n" + "\n\n".join(ref_parts) + "\n</reference>")
+
+        # 场景角色 + 遭遇（稳定）
+        chars = "\n".join(char_summaries) if char_summaries else "（无）"
+        context_parts.append(f"<characters>\n{chars}\n</characters>")
+        if self._combat_mode == "tactical":
+            encounter_str = self._list_encounters()
+            context_parts.append(
+                f"<encounters>\n可用的战斗遭遇：{encounter_str}\n"
+                f"</encounters>"
+            )
+
+        # ── 动态层：场景状态、历史、玩家动作（易变，放后面）──
+        # 场景状态
+        if is_first_turn:
+            context_parts.append(f"<scene_state>\n{env_context or '当前场景'}\n</scene_state>")
+        else:
+            brief_lines = []
+            for line in (env_context or "").split("\n"):
+                stripped = line.strip()
+                if not stripped or stripped.startswith("【"):
+                    continue
+                if stripped.startswith(("位置:", "天气:", "时间:")):
+                    brief_lines.append(stripped)
+            if brief_lines:
+                context_parts.append("<scene_state>\n" + " / ".join(brief_lines) + "\n</scene_state>")
+
+        # 对话历史
+        if conversation_history:
+            context_parts.append(f"<conversation_history>\n{conversation_history}\n</conversation_history>")
+
+        # 玩家
+        player_lines = [f"身份：{identity}"]
+        if user_action:
+            player_lines.append(f"操作：{user_action}")
+        context_parts.append(f"<player>\n" + "\n".join(player_lines) + "\n</player>")
+
+        # 场景动态
+        recent = self._scene_log[-8:]
+        if recent:
+            context_parts.append("<scene_events>\n" + "\n".join(recent) + "\n</scene_events>")
 
         # 收尾指令（recency 效应）
         custom_prompt = self._overlay.get_custom_prompt() if self._overlay else None

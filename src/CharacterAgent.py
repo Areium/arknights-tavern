@@ -142,7 +142,7 @@ class CharacterAgent:
             identity = player_info.get("identity", "博士")
             player_section = f"\n当前玩家身份: {identity}\n"
 
-        # 构建 system prompt 各部分，按三层结构排列
+        # 构建 system prompt，稳定内容在前（利用 API 前缀缓存），易变内容在后（recency 效应）
         system_parts = [self.character]
 
         # ── Identity：Registry 上下文（仅在无预加载时作为 fallback）──
@@ -153,24 +153,15 @@ class CharacterAgent:
                 if registry_context:
                     system_parts.append(registry_context)
 
-        # ── Situation：当前情境 ──
-        if player_section:
-            system_parts.append(player_section)
-        if environment_context:
-            system_parts.append(environment_context)
-        if scene_context:
-            system_parts.append(scene_context)
-
-        # ── Context：记忆与历史 ──
-        system_parts.append(memory_context)
-
-        # ── Reference：参考资料（供按需查阅）──
+        # ── Knowledge：参考资料（稳定，放前面利用缓存）──
         if self._session_context and self._session_context.preloaded:
             preloaded_text = self._session_context.format_preloaded()
             if preloaded_text:
                 system_parts.append(preloaded_text)
         if self._wiki_manager:
-            catalog = self._wiki_manager.format_catalog_summary()
+            catalog = self._wiki_manager.format_catalog_summary(
+                self._wiki_manager.CHARACTER_CATALOG_CATS
+            )
             if catalog:
                 system_parts.append(catalog)
 
@@ -182,6 +173,17 @@ class CharacterAgent:
                 f"{custom_prompt}\n"
                 f"</custom_instruction>"
             )
+
+        # ── Situation：当前情境 ──
+        if player_section:
+            system_parts.append(player_section)
+        if environment_context:
+            system_parts.append(environment_context)
+        if scene_context:
+            system_parts.append(scene_context)
+
+        # ── Context：记忆与历史（易变，放最后利用 recency 效应）──
+        system_parts.append(memory_context)
 
         system_content = "\n\n".join(system_parts)
 
