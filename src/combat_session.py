@@ -23,6 +23,7 @@ for _p in (_src_dir, _project_root):
 from combat_engine.entity import CombatUnit
 from combat_engine.card import Card, CardPool
 from combat_engine.card_data import get_starting_deck
+from combat_engine.card_loader import load_character_cards
 from combat_engine.engine import CombatEngine, CombatEvent
 from combat_engine.grid import resolve_targets, range_between, TOTAL_ROWS, TOTAL_COLS, ENEMY_COL_START
 from combat_data_loader import CombatDataLoader
@@ -95,11 +96,14 @@ class CombatSession:
             if combat_params:
                 self._apply_status_effects(unit, combat_params)
 
-            # Use class card pool; fall back to 辅助
-            cards = get_starting_deck(char_class, count=7)
+            # Load cards: prefer character-specific JSON, fall back to class pool
+            char_name = meta.get("name", "")
+            cards = load_character_cards(char_name)
             if not cards:
-                cards = get_starting_deck("辅助", count=7)
-                logger.warning("No card pool for class '%s', using 辅助 fallback", char_class)
+                cards = get_starting_deck(char_class, count=7)
+                if not cards:
+                    cards = get_starting_deck("辅助", count=7)
+                    logger.warning("No card pool for class '%s', using 辅助 fallback", char_class)
 
             pos = default_positions[i] if i < len(default_positions) else (4 + i % 3, 0)
             self.engine.add_player_unit(unit, cards, pos)

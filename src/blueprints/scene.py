@@ -7,7 +7,7 @@ from pathlib import Path
 from flask import Blueprint, jsonify, request, send_from_directory, abort
 
 from shared.helpers import json_error
-from document_manager import DocumentNotFoundError
+from document_manager import DocumentNotFoundError, ConflictError
 from avatar_color import find_avatar_path, get_theme_color, ensure_theme_color
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -304,7 +304,33 @@ def register(app, managers):
         return jsonify({
             "content": doc["content"],
             "metadata": doc["metadata"],
+            "hash": doc.get("hash", ""),
         })
+
+    @bp.route("/api/items/<path:name>", methods=["PUT"])
+    def item_save(name: str):
+        """永久保存物品源文件（含 hash 冲突检测）。"""
+        data = request.json or {}
+        content = data.get("content", "")
+        metadata = data.get("metadata")
+        expected_hash = data.get("hash", "")
+
+        try:
+            result = doc_mgr.save_document(
+                "items", name, content,
+                metadata=metadata,
+                expected_hash=expected_hash or None,
+            )
+        except ConflictError:
+            return json_error(
+                "保存冲突：文件已被其他进程修改。请刷新后重试。", 409
+            )
+        except DocumentNotFoundError:
+            return json_error(f"物品不存在: {name}", 404)
+        except Exception as e:
+            return json_error(f"保存失败: {e}", 500)
+
+        return jsonify(result)
 
     # 角色头像
     @bp.route("/api/characters/<name>/avatar")

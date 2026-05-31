@@ -265,6 +265,40 @@ html.light .text-amber-100\/70 { color: rgba(120,53,15,0.85); }
   box-shadow: inset 0 0 14px rgba(0, 180, 255, 0.2), 0 0 10px rgba(0, 180, 255, 0.35);
 }
 
+.combat-cell.highlight-aoe {
+  border-color: rgba(234, 179, 8, 0.8) !important;
+  background: rgba(234, 179, 8, 0.2) !important;
+  overflow: hidden;
+}
+
+.combat-cell.highlight-aoe::before {
+  content: '';
+  position: absolute;
+  inset: -14px;
+  z-index: 0;
+  background: repeating-linear-gradient(
+    45.099deg,
+    transparent,
+    transparent 6px,
+    rgba(234, 179, 8, 0.22) 6px,
+    rgba(234, 179, 8, 0.22) 12px
+  );
+  animation: stripe-flow 1.2s linear infinite;
+  will-change: transform;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+.combat-cell.highlight-aoe > * {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes stripe-flow {
+  from { transform: translateX(0); }
+  to   { transform: translateX(17px); }  /* 12px / cos(45.099°) = 17.00px ≈ one full cycle */
+}
+
 .combat-cell.highlight-target {
   border-color: rgba(240, 192, 96, 0.85) !important;
   box-shadow: inset 0 0 14px rgba(240, 192, 96, 0.2), 0 0 10px rgba(240, 192, 96, 0.35);
@@ -317,6 +351,7 @@ html.light .text-amber-100\/70 { color: rgba(120,53,15,0.85); }
   border-radius: 8px;
   background: linear-gradient(160deg, #16192b 0%, #111827 50%, #0d1525 100%);
   border: 2px solid #2a3a5e;
+  padding: 0;
   position: relative;
   overflow: hidden;
   cursor: pointer;
@@ -404,19 +439,25 @@ html.light .text-amber-100\/70 { color: rgba(120,53,15,0.85); }
 
 /* ── 卡牌头部信息栏 ── */
 .card-header-bar {
+  position: absolute;
+  top: 8px;
+  left: 0;
+  right: 0;
+  z-index: 3;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 2px 6px;
+  padding: 0 6px 1px 6px;
   gap: 4px;
+  line-height: 1;
 }
 .card-rarity-stars {
   display: flex;
-  gap: 1px;
+  gap: 0;
 }
 /* ── 卡牌描述 ── */
 .card-description {
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.3;
   color: #6b7280;
   margin-top: 2px;
@@ -427,7 +468,7 @@ html.light .text-amber-100\/70 { color: rgba(120,53,15,0.85); }
 }
 /* ── 伤害数值行 ── */
 .damage-range-row {
-  font-size: 10px;
+  font-size: 11px;
   margin-top: 2px;
   display: flex;
   align-items: center;
@@ -722,6 +763,35 @@ html.light .combat-cell.highlight-move {
 html.light .combat-cell.highlight-range {
   border-color: rgba(0, 120, 200, 0.8) !important;
   box-shadow: inset 0 0 14px rgba(0, 120, 200, 0.15), 0 0 10px rgba(0, 120, 200, 0.25);
+}
+
+html.light .combat-cell.highlight-aoe {
+  border-color: rgba(180, 130, 10, 0.8) !important;
+  background: rgba(234, 179, 8, 0.15) !important;
+  overflow: hidden;
+}
+
+html.light .combat-cell.highlight-aoe::before {
+  content: '';
+  position: absolute;
+  inset: -14px;
+  z-index: 0;
+  background: repeating-linear-gradient(
+    45.099deg,
+    transparent,
+    transparent 6px,
+    rgba(180, 130, 10, 0.18) 6px,
+    rgba(180, 130, 10, 0.18) 12px
+  );
+  animation: stripe-flow 1.2s linear infinite;
+  will-change: transform;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+html.light .combat-cell.highlight-aoe > * {
+  position: relative;
+  z-index: 1;
 }
 
 /* ── 卡牌 ── */

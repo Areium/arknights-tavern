@@ -66,30 +66,25 @@ interface UnitEntry {
 /** Compute the y-offset so a display object's origin maps to the cell center
  *  with a 1/4 cell downward nudge, plus 1 cell offset to align with grid. */
 function calcYOffset(renderHeight: number, cellSize: number): number {
-  return -renderHeight * 0.5 + cellSize * 1.25;
+  return -renderHeight * 0.5 + cellSize * 1.0;
 }
 
 /** Load a Spine 3.8 character from .atlas + .skel files. */
 async function loadSpine(baseUrl: string, fn: string): Promise<Spine> {
   const atlasUrl = `${baseUrl}/${fn}.atlas`;
   const skelUrl = `${baseUrl}/${fn}.skel`;
-  console.log(`[loadSpine] Fetching atlas: ${atlasUrl}  skel: ${skelUrl}`);
 
   const [atlasText, skelBuffer] = await Promise.all([
-    fetch(atlasUrl).then((r) => { console.log(`[loadSpine] Atlas OK for ${fn}, ${r.status}`); return r.text(); }),
-    fetch(skelUrl).then((r) => { console.log(`[loadSpine] Skel OK for ${fn}, ${r.status}`); return r.arrayBuffer(); }),
+    fetch(atlasUrl).then((r) => r.text()),
+    fetch(skelUrl).then((r) => r.arrayBuffer()),
   ]);
-  console.log(`[loadSpine] Atlas length=${atlasText.length}, Skel bytes=${skelBuffer.byteLength}`);
 
   return new Promise((resolve, reject) => {
-    console.log(`[loadSpine] Creating TextureAtlas for ${fn}...`);
     new TextureAtlas(
       atlasText,
       (path, loaderFn) => {
         const imgUrl = `${baseUrl}/${path}`;
-        console.log(`[loadSpine] Loading texture: ${imgUrl}`);
         Texture.fromURL(imgUrl).then((tex) => {
-          console.log(`[loadSpine] Texture loaded: ${path}  size=${tex.width}x${tex.height}  valid=${tex.baseTexture.valid}`);
           loaderFn(tex.baseTexture);
         }).catch((e) => {
           console.error(`[loadSpine] Texture load error for ${path}:`, e);
@@ -99,17 +94,9 @@ async function loadSpine(baseUrl: string, fn: string): Promise<Spine> {
       (atlas) => {
         if (!atlas) { console.error(`[loadSpine] TextureAtlas callback got null`); reject(new Error("TextureAtlas returned null")); return; }
         try {
-          console.log(`[loadSpine] Atlas ready, pages=${atlas.pages.length}, regions=${atlas.regions.length}`);
-          console.log(`[loadSpine] Creating SkeletonBinary...`);
           const al = new AtlasAttachmentLoader(atlas);
-          console.log(`[loadSpine] Parsing skel data, version check...`);
           const skeletonData = new SkeletonBinary(al).readSkeletonData(new Uint8Array(skelBuffer));
-          console.log(`[loadSpine] SkeletonData OK: name=${skeletonData.name}, version=${skeletonData.version}, width=${skeletonData.width}, height=${skeletonData.height}, bones=${skeletonData.bones.length}, animations=${skeletonData.animations.length}`);
-          const animNames = skeletonData.animations.map((a: any) => a.name);
-          console.log(`[loadSpine]   Animation names:`, animNames);
-          console.log(`[loadSpine] Creating Spine display object...`);
           const spine = new Spine(skeletonData);
-          console.log(`[loadSpine] Spine OK for ${fn}`);
           resolve(spine);
         } catch (e) {
           console.error(`[loadSpine] Parse/Skeleton error:`, e);
@@ -192,7 +179,6 @@ export default function PixiCombatScene({ units, gridEl, containerEl, resizeTick
     setReady(true);
     // Sync canvas size now that the renderer is initialized
     syncCanvasSizeRef.current();
-    console.log("[PixiCombatScene] App ready, renderer:", app.renderer.width, "x", app.renderer.height);
 
     return () => {
       app.destroy(true);
@@ -212,27 +198,18 @@ export default function PixiCombatScene({ units, gridEl, containerEl, resizeTick
   useEffect(() => {
     if (gridEl && containerEl) {
       let cancelled = false;
-      let pass = 0;
       requestAnimationFrame(() => {
         if (cancelled) return;
-        pass++;
-        // Verify grid cells have been laid out (non-zero rect)
         const firstCell = getCellCenter(gridEl, 0, 0);
         if (firstCell && firstCell.x > 0 && firstCell.y > 0) {
-          console.log(`[PixiCombatScene] gridReady pass ${pass}: cell(0,0)=`, firstCell, "containerRect=", containerEl.getBoundingClientRect());
           requestAnimationFrame(() => {
             if (!cancelled) {
-              pass++;
-              console.log(`[PixiCombatScene] gridReady pass ${pass}: setting gridReady=true`);
               setGridReady(true);
             }
           });
         } else {
-          console.warn(`[PixiCombatScene] gridReady pass ${pass}: cell(0,0) not ready, retrying`, firstCell);
           requestAnimationFrame(() => {
             if (!cancelled) {
-              pass++;
-              console.log(`[PixiCombatScene] gridReady pass ${pass}: setting gridReady=true (fallback)`);
               setGridReady(true);
             }
           });
@@ -264,8 +241,6 @@ export default function PixiCombatScene({ units, gridEl, containerEl, resizeTick
     const aliveIds = new Set(alive.map((u) => u.unit_id));
     const map = unitMapRef.current;
 
-    console.log(`[PixiCombatScene] unitEffect running, posTick=${posTick}, alive=${alive.length}, mapSize=${map.size}, gridEl.children=${gridEl?.children.length}`);
-
     // Remove departed
     for (const [id, entry] of map) {
       if (!aliveIds.has(id)) {
@@ -284,16 +259,11 @@ export default function PixiCombatScene({ units, gridEl, containerEl, resizeTick
       const zIndex = u.pos[0]; // higher row = closer to camera = render on top
 
       if (exists) {
-        const oldX = exists.displayObject.x;
-        const oldY = exists.displayObject.y;
         exists.cell = [u.pos[0], u.pos[1]];
         exists.displayObject.x = sx;
         exists.displayObject.y = sy + exists.yAnchorOffset;
         if (exists.displayObject.zIndex !== zIndex) {
           exists.displayObject.zIndex = zIndex;
-        }
-        if (oldX !== sx || oldY !== sy + exists.yAnchorOffset) {
-          console.log(`[PixiCombatScene] reposition ${u.name}: cell[${u.pos[0]},${u.pos[1]}] sx=${sx.toFixed(1)} sy=${sy.toFixed(1)} yOff=${exists.yAnchorOffset.toFixed(1)} (was x=${oldX.toFixed(1)} y=${oldY.toFixed(1)})`);
         }
       } else if (hasSpine(u.name)) {
         // Guard: skip if this unit is already being loaded (prevents duplicate on re-render)
@@ -305,11 +275,8 @@ export default function PixiCombatScene({ units, gridEl, containerEl, resizeTick
         const fn = spineFileName(u.name);
         const cacheKey = `${fn}_${dir}`;
 
-        console.log(`[PixiCombatScene] start load ${u.name} cell[${u.pos[0]},${u.pos[1]}] sx=${sx.toFixed(1)} sy=${sy.toFixed(1)}`);
-
         (async () => {
           try {
-            console.log(`[PixiCombatScene] Loading Spine for ${u.name} (${fn}/${dir}) at cell [${u.pos[0]},${u.pos[1]}]...`);
             let spine: Spine;
             if (loadedRef.current.has(cacheKey)) {
               const pending = loadingRef.current.get(cacheKey);
@@ -327,8 +294,6 @@ export default function PixiCombatScene({ units, gridEl, containerEl, resizeTick
             const latestPos = getCanvasPosRef.current(u.pos[0], u.pos[1]);
             const finalSx = latestPos?.[0] ?? sx;
             const finalSy = latestPos?.[1] ?? sy;
-            console.log(`[PixiCombatScene] Spine ready, final pos: sx=${finalSx.toFixed(1)} sy=${finalSy.toFixed(1)} (captured sx=${sx.toFixed(1)} sy=${sy.toFixed(1)})`);
-
             const rawHeight = spine.spineData.height || cellSize;
             const scale = (cellSize * 1.6) / rawHeight;
             const renderHeight = rawHeight * scale;
@@ -346,7 +311,6 @@ export default function PixiCombatScene({ units, gridEl, containerEl, resizeTick
             map.set(u.unit_id, { displayObject: spine, cell: [u.pos[0], u.pos[1]], yAnchorOffset: yOff });
             loadingUnitsRef.current.delete(u.unit_id);
             setPosTick((t) => t + 1);
-            console.log(`[PixiCombatScene] Spine OK ${u.name} at sx=${finalSx.toFixed(1)} sy=${finalSy.toFixed(1)} yOff=${yOff.toFixed(1)} rawH=${rawHeight} scale=${scale.toFixed(3)}`);
           } catch (err) {
             console.error(`[PixiCombatScene] Spine load failed for ${u.name}:`, err);
             if (err instanceof Error) {
@@ -375,7 +339,6 @@ export default function PixiCombatScene({ units, gridEl, containerEl, resizeTick
     if (!initialPosDoneRef.current && alive.length > 0) {
       initialPosDoneRef.current = true;
       requestAnimationFrame(() => {
-        console.log("[PixiCombatScene] posTick rAF fired, incrementing posTick");
         setPosTick((t) => t + 1);
       });
     }

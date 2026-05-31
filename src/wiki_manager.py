@@ -70,19 +70,38 @@ class WikiManager:
         logger.info("WikiManager: 已索引 %d 个文档, %d 个类别", total, len(self._by_category))
 
     def _scan_category(self, cat_name: str, dir_path: str):
-        """扫描一个类别目录，提取所有实体文档。"""
+        """扫描一个类别目录，提取所有实体文档。
+
+        支持两层嵌套：Region/Location/index.md → category/Region/Location。
+        """
         ids = []
 
         for item in sorted(os.listdir(dir_path)):
             item_path = os.path.join(dir_path, item)
-            # 实体文件夹 (item/index.md)
+            if not os.path.isdir(item_path):
+                continue
+
+            # 实体文件夹 (item/index.md) — 一级
             index_md = os.path.join(item_path, "index.md")
-            if os.path.isdir(item_path) and os.path.isfile(index_md):
+            if os.path.isfile(index_md):
                 entry = self._parse_doc(cat_name, item, index_md)
                 if entry:
                     self._catalog[f"{cat_name}/{item}"] = entry
                     ids.append(item)
                 continue
+
+            # 没有 index.md 但有子目录 → 递归扫描二级 (Region/Location/index.md)
+            for sub_item in sorted(os.listdir(item_path)):
+                sub_path = os.path.join(item_path, sub_item)
+                if not os.path.isdir(sub_path):
+                    continue
+                sub_index = os.path.join(sub_path, "index.md")
+                if os.path.isfile(sub_index):
+                    combined_id = f"{item}/{sub_item}"
+                    entry = self._parse_doc(cat_name, combined_id, sub_index)
+                    if entry:
+                        self._catalog[f"{cat_name}/{combined_id}"] = entry
+                        ids.append(combined_id)
 
         # 传统 .md 文件 (item.md)
         for fn in sorted(os.listdir(dir_path)):
@@ -171,9 +190,7 @@ class WikiManager:
                 continue
 
             content = ""
-            if depth == 0:
-                content = self._read_content(entry["path"])
-            elif depth == 1:
+            if depth <= 1:
                 content = self._extract_core(entry["category"], entry["path"])
             # depth >= 2: content 为空，仅注入 summary
 
@@ -405,6 +422,10 @@ class WikiManager:
 
     # 剧情叙述模式下注入的文档目录类别
     NARRATIVE_CATALOG_CATS = {"characters", "factions", "locations", "items", "world"}
+
+    # 角色对话模式下注入的文档目录类别（排除剧情/天气/敌人/战斗/规则）
+    CHARACTER_CATALOG_CATS = {"characters", "factions", "locations", "items",
+                               "races", "classes", "attributes", "world"}
 
     def format_catalog_summary(self, categories: set[str] | None = None) -> str:
         """格式化轻量目录，按类别分组，供 system prompt 注入。

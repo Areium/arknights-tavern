@@ -22,15 +22,56 @@ export function getCellCenter(
   }
 }
 
-/** Get cell center relative to a parent element (for absolute positioning of overlays). */
-export function getCellParentRelative(
-  gridEl: HTMLElement,
-  parentEl: HTMLElement,
-  row: number,
-  col: number,
-): Point | null {
-  const screen = getCellCenter(gridEl, row, col);
-  if (!screen) return null;
-  const pr = parentEl.getBoundingClientRect();
-  return { x: screen.x - pr.left, y: screen.y - pr.top };
+/** Mirror of Python resolve_targets() in src/combat_engine/grid.py.
+ *  Given a card's target pattern and origin cell, return affected positions. */
+export function resolveTargetPattern(
+  pattern: string,
+  origin: [number, number],
+  gridSize: number,
+  direction: [number, number] = [0, 1],
+): [number, number][] {
+  const [r, c] = origin;
+  let cells: [number, number][] = [];
+
+  switch (pattern) {
+    case "SINGLE":
+    case "SELF":
+      cells = [origin];
+      break;
+    case "ADJACENT":
+      cells = [origin];
+      for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as [number, number][]) {
+        cells.push([r + dr, c + dc]);
+      }
+      break;
+    case "CROSS":
+      cells = [origin];
+      for (const [dr, dc] of [[-2, 0], [-1, 0], [1, 0], [2, 0], [0, -2], [0, -1], [0, 1], [0, 2]] as [number, number][]) {
+        cells.push([r + dr, c + dc]);
+      }
+      break;
+    case "LINE_3": {
+      const [dr, dc] = direction;
+      for (let i = 0; i < 3; i++) {
+        cells.push([r + dr * i, c + dc * i]);
+      }
+      break;
+    }
+    case "ROW":
+      for (let col = 0; col < gridSize; col++) {
+        cells.push([r, col]);
+      }
+      break;
+    case "AREA_2X2":
+      for (let dr = 0; dr < 2; dr++) {
+        for (let dc = 0; dc < 2; dc++) {
+          cells.push([r + dr, c + dc]);
+        }
+      }
+      break;
+    default:
+      cells = [origin];
+  }
+
+  return cells.filter(([rr, cc]) => rr >= 0 && rr < gridSize && cc >= 0 && cc < gridSize);
 }

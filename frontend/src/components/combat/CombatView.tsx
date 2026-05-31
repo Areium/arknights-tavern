@@ -4,13 +4,12 @@ import { useApi, createCombatSSE, createCombatTestSSE } from "../../hooks/useApi
 import type { CombatEventDTO, CombatStateDTO, CardDTO } from "../../types";
 import PixiCombatScene from "./PixiCombatScene";
 import CombatGrid from "./CombatGrid";
-import { getCellCenter } from "./gridUtils";
+import { getCellCenter, resolveTargetPattern } from "./gridUtils";
 import CombatHand from "./CombatHand";
 import CombatEventLog from "./CombatEventLog";
 import CombatUnitTooltip from "./CombatUnitTooltip";
 import UnitStatusPanel from "./UnitStatusPanel";
 import CombatParticles from "./CombatParticles";
-import CombatCard from "./CombatCard";
 import DeckViewer from "./DeckViewer";
 import AttackArrow from "./AttackArrow";
 import CharacterIllustration from "./CharacterIllustration";
@@ -57,6 +56,7 @@ export default function CombatView() {
   const [result, setResult] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [cursor, setCursor] = useState<[number, number] | null>(null);
+  const [hoverCell, setHoverCell] = useState<[number, number] | null>(null);
   const [dragCardIndex, setDragCardIndex] = useState<number | null>(null);
   const [dragCell, setDragCell] = useState<[number, number] | null>(null);
   const [playingCardIndex, setPlayingCardIndex] = useState<number | null>(null);
@@ -412,6 +412,37 @@ export default function CombatView() {
     return cells;
   }, [combatUIMode, selectedCardIndex, displayedHand, rangeOrigin]);
 
+  // AOE pattern preview: cells affected by target pattern when hovering a valid range cell
+  const aoeHighlights = useMemo(() => {
+    // Prefer dragCell during drag, hoverCell during normal hover
+    const effectiveCell = dragCell ?? hoverCell;
+    if (combatUIMode !== "TARGETING" || selectedCardIndex === null || !effectiveCell || !rangeOrigin) {
+      return new Set<string>();
+    }
+    const [hr, hc] = effectiveCell;
+    if (!rangeHighlights.has(`${hr},${hc}`)) {
+      return new Set<string>();
+    }
+    const card = displayedHand[selectedCardIndex];
+    if (!card) return new Set<string>();
+    const gs = combatState?.grid_size ?? 7;
+    const patternCells = resolveTargetPattern(card.target, effectiveCell, gs);
+    // Filter by range from origin (mirrors backend engine.py range filter)
+    const [r0, c0] = rangeOrigin.pos;
+    const cells = new Set<string>();
+    for (const [pr, pc] of patternCells) {
+      if (card.range < 0) {
+        cells.add(`${pr},${pc}`);
+      } else {
+        const dist = Math.max(Math.abs(pr - r0), Math.abs(pc - c0));
+        if (dist <= card.range) {
+          cells.add(`${pr},${pc}`);
+        }
+      }
+    }
+    return cells;
+  }, [combatUIMode, selectedCardIndex, hoverCell, dragCell, rangeOrigin, rangeHighlights, displayedHand, combatState?.grid_size]);
+
   const handleCellClick = useCallback(
     async (row: number, col: number) => {
       if (!effectiveId || !combatState) return;
@@ -577,6 +608,7 @@ export default function CombatView() {
   const handleCancel = useCallback(() => {
     setCombatContext({ uiMode: "VIEWING", selectedCardIndex: null, selectedUnitId: null });
     setCursor(null);
+    setHoverCell(null);
   }, [setCombatContext]);
 
   const handleAbandon = useCallback(async () => {
@@ -814,6 +846,11 @@ export default function CombatView() {
   const handleHoverLeave = useCallback(() => {
     setHoveredUnitId(null);
     setHoveredUnitRect(null);
+  }, []);
+
+  // Track hovered cell for AOE preview in TARGETING mode
+  const handleGridCellHover = useCallback((cell: [number, number] | null) => {
+    setHoverCell(cell);
   }, []);
 
   // Keyboard shortcuts
@@ -1086,6 +1123,7 @@ export default function CombatView() {
               units={combatState.units}
               moveHighlights={moveHighlights}
               rangeHighlights={rangeHighlights}
+              aoeHighlights={aoeHighlights}
               selectedUnitId={selectedUnitId}
               uiMode={combatUIMode}
               cursor={cursor}
@@ -1093,6 +1131,7 @@ export default function CombatView() {
               onCellClick={handleCellClick}
               onCellHover={handleCellHover}
               onCellLeave={handleHoverLeave}
+              onCellHoverCell={handleGridCellHover}
               onCellDrop={handleGridDrop}
               onGridDragMove={handleGridDragMove}
               onGridMount={(el) => { gridRef.current = el; setGridEl(el); }}
@@ -1267,6 +1306,7 @@ export default function CombatView() {
           cardWidth={cfg.cardWidth}
           cardHeight={cfg.cardHeight}
           fanMarginTop={cfg.handFanMarginTop}
+          compact={!isFullscreen}
         />
 
         {/* Event log */}

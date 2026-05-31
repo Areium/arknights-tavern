@@ -316,6 +316,27 @@ class SessionOverlay:
             return beats[ci]["beats"][bi]
         return None
 
+    def get_next_beat(self) -> dict | None:
+        """获取下一节拍的完整信息（content + dialogue + reveals）。
+
+        用于预取 hook 提前加载下一节拍可能需要的 wiki 文档。
+        如果当前是最后一个节拍则返回 None。
+        """
+        beats = self._narrative_beats if hasattr(self, "_narrative_beats") else []
+        bs = self._data.get("beat_state", {})
+        if not beats or not bs:
+            return None
+        ci = bs.get("chapter_idx", 0)
+        bi = bs.get("beat_idx", 0)
+        ch = beats[ci] if ci < len(beats) else None
+        if not ch:
+            return None
+        if bi + 1 < len(ch["beats"]):
+            return ch["beats"][bi + 1]
+        if ci + 1 < len(beats) and beats[ci + 1]["beats"]:
+            return beats[ci + 1]["beats"][0]
+        return None
+
     def get_current_chapter(self) -> dict | None:
         """获取当前章节信息。"""
         beats = self._narrative_beats if hasattr(self, "_narrative_beats") else []
@@ -328,7 +349,7 @@ class SessionOverlay:
         return None
 
     def _build_beat_roadmap(self) -> str:
-        """构建节拍路线图——展示全剧情结构并标注当前位置。"""
+        """构建节拍路线图——展示当前章节 ±1，远章节折叠为一行。"""
         beats = self._narrative_beats if hasattr(self, "_narrative_beats") else []
         bs = self._data.get("beat_state", {})
         if not beats:
@@ -339,16 +360,26 @@ class SessionOverlay:
 
         lines = []
         for i, ch in enumerate(beats):
-            marker = ">>" if i == ci else ("OK" if all(b["id"] in completed for b in ch["beats"]) else "  ")
+            if i < ci - 1 or i > ci + 1:
+                continue
+
+            if i == ci - 1:
+                # 上一章：折叠为一行的已完成摘要
+                lines.append(f"OK Chapter {i + 1}: {ch['title']}（已完成）")
+                continue
+
+            marker = ">>" if i == ci else "  "
             lines.append(f"{marker} Chapter {i + 1}: {ch['title']}")
-            for j, b in enumerate(ch["beats"]):
-                if b["id"] in completed:
-                    bmarker = "  [DONE]"
-                elif i == ci and j == bi:
-                    bmarker = "  [HERE]"
-                else:
-                    bmarker = "  [    ]"
-                lines.append(f"{bmarker} {b['id']} — {b['summary'][:60]}")
+            if i == ci:
+                for j, b in enumerate(ch["beats"]):
+                    if b["id"] in completed:
+                        bmarker = "  [DONE]"
+                    elif j == bi:
+                        bmarker = "  [HERE]"
+                    else:
+                        bmarker = "  [    ]"
+                    lines.append(f"{bmarker} {b['id']} — {b['summary'][:60]}")
+            # 下一章（i == ci + 1）：仅显示章节标题，不展开节拍
         return "\n".join(lines)
 
     def get_beat_context(self) -> str:
@@ -507,6 +538,13 @@ class SessionOverlay:
             dialogue_ref = _extract_section(body, "关键对话参考")
             if dialogue_ref:
                 self._data["dialogue_ref"] = dialogue_ref
+            # 解析偏离点 stat_check 备用
+            self._plot_stat_checks = _parse_deviation_stat_checks(body)
+            if self._plot_stat_checks:
+                logger.info(
+                    "会话 %s: 已缓存 %d 个偏离点检定节点",
+                    self.session_id, len(self._plot_stat_checks),
+                )
             narrative_text = self._load_narrative_text(plot_id)
         else:
             narrative_text = ""
@@ -728,6 +766,119 @@ class SessionOverlay:
         self._save()
         logger.info("会话 %s: 已加载剧情 %s，共 %d 个任务（全部隐藏）", self.session_id, plot_id, len(quests))
 
+    # ── 角色运行时状态 ──
+
+    def get_character_state(self, name: str) -> dict:
+        """获取指定角色的运行时状态（conditions + check_history）。"""
+        states = self._data.get("character_states", {})
+        return states.get(name, {"conditions": [], "check_history": []})
+
+    def add_condition(self, name: str, condition: dict) -> None:
+        """给角色添加一个临时状态（受伤/疲劳/buff等）。
+
+        condition 格式：
+            {"name": "轻伤", "modifier": -1, "applies_to": "all", "round": 3}
+        """
+        if "character_states" not in self._data:
+            self._data["character_states"] = {}
+        if name not in self._data["character_states"]:
+            self._data["character_states"][name] = {"conditions": [], "check_history": []}
+
+        state = self._data["character_states"][name]
+        condition["round"] = condition.get("round", self._data.get("narration_round", 0))
+        state["conditions"].append(condition)
+        self._save()
+        logger.info("会话 %s: %s 获得状态 %s", self.session_id, name, condition["name"])
+
+    def remove_condition(self, name: str, condition_name: str) -> bool:
+        """移除角色指定名称的状态。"""
+        state = self.get_character_state(name)
+        conds = state.get("conditions", [])
+        for i, c in enumerate(conds):
+            if c.get("name") == condition_name:
+                conds.pop(i)
+                self._data["character_states"][name]["conditions"] = conds
+                self._save()
+                logger.info("会话 %s: %s 移除了状态 %s", self.session_id, name, condition_name)
+                return True
+        return False
+
+    def get_condition_modifier(self, name: str, attribute: str) -> int:
+        """汇总角色所有 condition 对指定属性的修正值。
+
+        applies_to="all" 的条件对所有属性生效，
+        具名条件只对匹配的属性名生效。
+        """
+        state = self.get_character_state(name)
+        total = 0
+        for c in state.get("conditions", []):
+            applies = c.get("applies_to", "all")
+            if applies == "all" or applies == attribute:
+                total += c.get("modifier", 0)
+        return total
+
+    def record_check(self, name: str, result: dict) -> None:
+        """记录一次属性检定结果到角色检定历史。
+
+        result 格式：DiceSystem.roll_d20_structured() 的返回值
+        附加 round 字段。
+        """
+        if "character_states" not in self._data:
+            self._data["character_states"] = {}
+        if name not in self._data["character_states"]:
+            self._data["character_states"][name] = {"conditions": [], "check_history": []}
+
+        entry = {
+            "round": self._data.get("narration_round", 0),
+            "attribute": result.get("attribute", ""),
+            "roll": result.get("roll", 0),
+            "modifier": result.get("modifier", 0),
+            "dc": result.get("difficulty"),
+            "success": result.get("success"),
+        }
+        history = self._data["character_states"][name].get("check_history", [])
+        history.append(entry)
+        # 只保留最近 20 条
+        if len(history) > 20:
+            history = history[-20:]
+        self._data["character_states"][name]["check_history"] = history
+        self._save()
+
+    def get_check_history(self, name: str, limit: int = 10) -> list[dict]:
+        """获取角色最近的检定历史。"""
+        state = self.get_character_state(name)
+        history = state.get("check_history", [])
+        return history[-limit:] if len(history) > limit else history
+
+    # ── 剧情偏离点检定节点 ──
+
+    def get_plot_stat_checks(self) -> dict:
+        """获取缓存的剧情偏离点 stat_check 映射。
+
+        Returns:
+            {偏离点ID: {"trigger": str, "stat_check": {属性: dc}, "fail_forward": str}}
+        """
+        if not hasattr(self, "_plot_stat_checks"):
+            self._plot_stat_checks = {}
+        return self._plot_stat_checks
+
+    def get_stat_check_for_context(self, user_action: str) -> dict | None:
+        """根据用户动作匹配剧情偏离点的 stat_check。
+
+        简单匹配：检查 user_action 是否包含偏离点的 trigger 关键词。
+        返回最匹配的偏离点 stat_check，或 None。
+        """
+        checks = self.get_plot_stat_checks()
+        if not checks:
+            return None
+        for dp_id, dp in checks.items():
+            trigger = dp.get("trigger", "")
+            if trigger and any(
+                keyword in user_action for keyword in trigger.split() if len(keyword) >= 2
+            ):
+                return dp.get("stat_check")
+        return None
+
     # ── 全量导出 ──
 
     def to_dict(self) -> dict:
@@ -739,6 +890,7 @@ class SessionOverlay:
             "items": self._data.get("items", {}),
             "environment": self._data.get("environment", {}),
             "quest_states": self._data.get("quest_states", {}),
+            "character_states": self._data.get("character_states", {}),
             "has_plot_context": self.has_plot_context(),
         }
         custom = self.get_custom_prompt()
@@ -962,17 +1114,35 @@ def _parse_narrative_beats(text: str) -> list[dict]:
                 current_chapter["summary"] = sum_m.group(1)
                 continue
 
-        # 节拍标题: #### beat_name（keep_on_deviate: true）
-        beat_m = re.match(r"^####\s+(beat_\w+)\s*([（(].+[）)])?$", line)
+        # 节拍标题: #### beat_name（keep_on_deviate: true）或 #### beat_name（check: 魅力 DC14）
+        beat_m = re.match(r"^####\s+(beat_\w+)\s*(?:[（(]([^）)]+)[）)])?\s*$", line)
         if beat_m:
             flush_beat()
             beat_id = beat_m.group(1)
+            flags_str = (beat_m.group(2) or "").strip()
+            keep_on_deviate = "keep_on_deviate" in flags_str.lower()
+            stat_check = None
+            # 解析 check: 属性 DC14, 属性2 DC15 格式
+            if flags_str:
+                check_m = re.search(
+                    r"check\s*[：:]\s*(.+?)(?:\s*[,，]\s*(?:keep_on_deviate|$)|$)",
+                    flags_str, re.IGNORECASE,
+                )
+                if check_m:
+                    check_body = check_m.group(1).strip()
+                    attr_entries = re.findall(
+                        r"([一-鿿]+)\s*[Dd][Cc]\s*(\d+)", check_body
+                    )
+                    if attr_entries:
+                        stat_check = {attr: int(dc) for attr, dc in attr_entries}
             current_beat = {
                 "id": beat_id,
                 "summary": "",
                 "content": "",
                 "dialogue": "",
                 "reveals": "",
+                "keep_on_deviate": keep_on_deviate,
+                "stat_check": stat_check,
             }
             continue
 
@@ -1024,6 +1194,53 @@ def _parse_narrative_beats(text: str) -> list[dict]:
                 b["summary"] = b["content"][:80].replace("\n", " ")
 
     return chapters
+
+
+def _parse_deviation_stat_checks(body: str) -> dict:
+    """从剧情 body 中解析偏离点（deviation points）的 stat_check。
+
+    扫描 `#### 偏离 DN：...` 标题块，提取其中的 stat_check JSON
+    和 trigger/fail_forward 文本。
+
+    Returns:
+        {偏离点ID: {"trigger": str, "stat_check": {属性: dc}, "fail_forward": str}}
+    """
+    import json as _json
+
+    checks = {}
+    # 分割为偏离点块
+    blocks = re.split(r"^####\s+偏离\s+(\S+)[：:]", body, flags=re.MULTILINE)
+    # blocks[0] = 标题前内容, blocks[1]=D1, blocks[2]=D1内容, blocks[3]=D2, ...
+    for i in range(1, len(blocks), 2):
+        dp_id = blocks[i].strip()
+        dp_body = blocks[i + 1] if i + 1 < len(blocks) else ""
+
+        # 提取 stat_check JSON
+        sc_match = re.search(r"stat_check\s*[：:]\s*(\{[^}]+\})", dp_body)
+        stat_check = None
+        if sc_match:
+            try:
+                stat_check = _json.loads(sc_match.group(1))
+            except _json.JSONDecodeError:
+                continue
+
+        # 提取触发场景
+        trigger = ""
+        trig_match = re.search(r"\*\*触发场景\*\*[：:](.+)", dp_body)
+        if trig_match:
+            trigger = trig_match.group(1).strip()
+
+        # 提取 fail_forward
+        ff_match = re.search(r"\*\*fail_forward\*\*[：:](.+)", dp_body)
+        fail_forward = ff_match.group(1).strip() if ff_match else ""
+
+        checks[dp_id] = {
+            "trigger": trigger,
+            "stat_check": stat_check,
+            "fail_forward": fail_forward,
+        }
+
+    return checks
 
 
 def _deep_merge(base: dict, override: dict) -> dict:

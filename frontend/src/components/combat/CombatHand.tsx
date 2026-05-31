@@ -15,9 +15,10 @@ interface Props {
   cardWidth?: number;
   cardHeight?: number;
   fanMarginTop?: number;
+  compact?: boolean;
 }
 
-export default function CombatHand({ cards, getCardAp, selectedIndex, disabled, highlightOwner, ownerSkins, playingIndex, onCardClick, onCardDragStart, onCardDragEnd, cardWidth, cardHeight, fanMarginTop }: Props) {
+export default function CombatHand({ cards, getCardAp, selectedIndex, disabled, highlightOwner, ownerSkins, playingIndex, onCardClick, onCardDragStart, onCardDragEnd, cardWidth, cardHeight, fanMarginTop, compact }: Props) {
   const fanAngle = 3.5;
   const fanY = 8;
 
@@ -56,6 +57,7 @@ export default function CombatHand({ cards, getCardAp, selectedIndex, disabled, 
               skinUrl={card.owner ? ownerSkins?.[card.owner]?.url : undefined}
               skinCrop={card.owner ? ownerSkins?.[card.owner]?.crop ?? undefined : undefined}
               playing={playingIndex === i}
+              compact={compact}
               onClick={() => onCardClick(i)}
               onDragStart={() => onCardDragStart?.(i)}
               onDragEnd={onCardDragEnd}

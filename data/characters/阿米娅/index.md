@@ -8,6 +8,11 @@ attributes:
   物理强度: 6
   生理耐受: 5
   魅力: 8
+card_face: char_002_amiya_1+b.png
+card_face_crop_h: 51.776507770764766
+card_face_crop_w: 80
+card_face_crop_x: 11.1093282406583
+card_face_crop_y: 12.265549047068763
 class: 术师
 faction: 罗德岛
 imports:

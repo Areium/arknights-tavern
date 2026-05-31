@@ -34,9 +34,12 @@ CORE_SECTIONS: dict[str, list[tuple[str, int | None]]] = {
         ("## 外貌描写", 2),
     ],
     "characters": [
+        ("# 角色背景", 2),
+        ("## 整体印象", None),
+        ("## 装束", None),
+        ("## 特殊细节", None),
         ("# 对话风格", None),
         ("# 性格特点", 3),
-        ("# 角色背景", 2),
     ],
 }
 

@@ -358,6 +358,54 @@ export function useApi() {
         method: "DELETE",
       }),
 
+
+    // ── 卡牌 CRUD ──
+    getCharacterCards: (name: string) =>
+      request<any>(`/api/cards/${encodeURIComponent(name)}`),
+    saveCharacterCards: (name: string, data: Record<string, any>) =>
+      request<any>(`/api/cards/${encodeURIComponent(name)}`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+    getClassCards: (className: string) =>
+      request<any>(`/api/cards/classes/${encodeURIComponent(className)}`),
+    saveClassCards: (className: string, data: Record<string, any>) =>
+      request<any>(`/api/cards/classes/${encodeURIComponent(className)}`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+    listCharactersWithCards: () =>
+      request<{ characters: string[] }>("/api/cards"),
+    listClassesWithCards: () =>
+      request<{ classes: string[] }>("/api/cards/classes"),
+    getCardsTree: () =>
+      request<import("../types").CardsTreeDTO>("/api/cards/tree"),
+    deleteCharacterCard: (name: string, cardId: string) =>
+      request<any>(`/api/cards/${encodeURIComponent(name)}/cards/${encodeURIComponent(cardId)}`, {
+        method: "DELETE",
+      }),
+    deleteClassCard: (className: string, cardId: string) =>
+      request<any>(`/api/cards/classes/${encodeURIComponent(className)}/cards/${encodeURIComponent(cardId)}`, {
+        method: "DELETE",
+      }),
+    createCharacterCard: (name: string, card: Record<string, any>) =>
+      request<any>(`/api/cards/${encodeURIComponent(name)}/cards`, {
+        method: "POST",
+        body: JSON.stringify(card),
+      }),
+    createClassCard: (className: string, card: Record<string, any>) =>
+      request<any>(`/api/cards/classes/${encodeURIComponent(className)}/cards`, {
+        method: "POST",
+        body: JSON.stringify(card),
+      }),
+
+    // ── 物品永久保存 ──
+    saveItem: (itemId: string, content: string, metadata?: Record<string, any>, hash?: string) =>
+      request<any>(`/api/items/${encodeURIComponent(itemId)}`, {
+        method: "PUT",
+        body: JSON.stringify({ content, metadata, hash }),
+      }),
+
     // ── 文档创建 ──
     createDocument: (
       category: string,
@@ -481,6 +529,11 @@ export function createSSE(
     onDialogueSegments?: (segments: { type: string; text: string; speaker?: string }[]) => void;
     onTokenUsage?: (usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }) => void;
     onCombatTrigger?: (data: { encounter_id: string; session_id: string }) => void;
+    onAttributeRoll?: (data: {
+      attribute: string; character: string; roll: number;
+      modifier: number; total: number; dc: number;
+      success: boolean; text: string; source: string; stream_id: string;
+    }) => void;
     onError?: (message: string) => void;
     onDone?: () => void;
   }
@@ -503,6 +556,11 @@ export function createPostSSE(
     onDialogueSegments?: (segments: { type: string; text: string; speaker?: string }[]) => void;
     onTokenUsage?: (usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }) => void;
     onCombatTrigger?: (data: { encounter_id: string; session_id: string }) => void;
+    onAttributeRoll?: (data: {
+      attribute: string; character: string; roll: number;
+      modifier: number; total: number; dc: number;
+      success: boolean; text: string; source: string; stream_id: string;
+    }) => void;
     onError?: (message: string) => void;
     onDone?: () => void;
   }
@@ -629,6 +687,11 @@ function connectSSE(
     onDialogueSegments?: (segments: { type: string; text: string; speaker?: string }[]) => void;
     onTokenUsage?: (usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }) => void;
     onCombatTrigger?: (data: { encounter_id: string; session_id: string }) => void;
+    onAttributeRoll?: (data: {
+      attribute: string; character: string; roll: number;
+      modifier: number; total: number; dc: number;
+      success: boolean; text: string; source: string; stream_id: string;
+    }) => void;
     onError?: (message: string) => void;
     onDone?: () => void;
   }
@@ -709,6 +772,9 @@ function connectSSE(
                 break;
               case "combat_trigger":
                 handlers.onCombatTrigger?.(event.data);
+                break;
+              case "attribute_roll":
+                handlers.onAttributeRoll?.(event.data);
                 break;
               case "error":
                 handlers.onError?.(event.data.message);

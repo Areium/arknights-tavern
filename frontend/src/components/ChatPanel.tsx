@@ -1057,6 +1057,20 @@ function triggerNarrate(
         useAppStore.getState().setCombatContext({ sessionId: data.session_id });
         useAppStore.getState().setCurrentView("combat");
       },
+      onAttributeRoll: (data: {
+        attribute: string; character: string; roll: number;
+        modifier: number; total: number; dc: number;
+        success: boolean; text: string; source: string; stream_id: string;
+      }) => {
+        useAppStore.getState().setSessionMessages(sessionId, (prev) => [
+          ...prev,
+          {
+            role: "system",
+            content: data.text,
+            rollData: data,
+          },
+        ]);
+      },
       onError: (msg: string) => {
         useAppStore.getState().setSessionStreaming(sessionId, false);
         useAppStore.getState().setSessionSending(sessionId, false);

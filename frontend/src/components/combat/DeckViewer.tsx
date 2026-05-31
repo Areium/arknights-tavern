@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { CardDTO, CombatUnitDTO, PlayerPoolDTO } from "../../types";
+import { DMG_LABELS, DMG_COLORS } from "./combatConfig";
 
 export type DeckFilterMode = "all" | "deck" | "discard";
 
@@ -23,15 +24,6 @@ const TITLES: Record<DeckFilterMode, string> = {
   all: "卡组查看",
   deck: "抽牌堆",
   discard: "弃牌堆",
-};
-
-const DMG_LABELS: Record<string, string> = {
-  physical: "物理", arts: "法术", healing: "治疗", mixed: "混合",
-};
-
-const DMG_COLORS: Record<string, string> = {
-  physical: "text-dmg-physical", arts: "text-dmg-arts",
-  healing: "text-dmg-healing", mixed: "text-dmg-mixed",
 };
 
 const TARGET_LABELS: Record<string, string> = {

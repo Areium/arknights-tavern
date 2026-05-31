@@ -3,6 +3,7 @@ import { useApi } from "../hooks/useApi";
 import type { DocTreeCategory, DocTreeNode, SkinCrop } from "../types";
 import MarkdownRenderer from "./MarkdownRenderer";
 import CropModal from "./assets/CropModal";
+import CardEditor from "./combat/CardEditor";
 
 interface ModalState {
   type: "createDoc" | "createFolder" | "rename" | "moveTo" | "delete";
@@ -44,7 +45,6 @@ const CATEGORY_LABELS: Record<string, string> = {
   classes: "职业",
   enemies: "叙事敌人",
   combat_enemies: "战斗敌人",
-  combat_cards: "卡牌",
   combat_encounters: "遭遇战",
   weather: "天气",
   world: "世界观",
@@ -81,7 +81,13 @@ export default function DocumentManager() {
   apiRef.current = api;
 
   // ── Tab ──
-  const [activeTab, setActiveTab] = useState<"docs" | "images">("docs");
+  const [activeTab, setActiveTab] = useState<"docs" | "images" | "cards">("docs");
+
+  // ── Cards ──
+  const [cardsTree, setCardsTree] = useState<import("../types").CardsTreeDTO | null>(null);
+  const [cardsCollapsed, setCardsCollapsed] = useState<{ characters: boolean; classes: boolean }>({ characters: false, classes: false });
+  const [selectedCardEntity, setSelectedCardEntity] = useState<string | null>(null);
+  const [selectedCardEntityType, setSelectedCardEntityType] = useState<"character" | "class" | null>(null);
 
   // ── Tree ──
   const [tree, setTree] = useState<DocTreeCategory[]>([]);
@@ -314,6 +320,19 @@ export default function DocumentManager() {
       loadDefaultImages();
     }
   }, [assetImages, activeTab, loadDefaultImages]);
+
+  const loadCardsTree = useCallback(async () => {
+    try {
+      const data = await apiRef.current.getCardsTree();
+      setCardsTree(data);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "cards") {
+      loadCardsTree();
+    }
+  }, [activeTab, loadCardsTree]);
 
   // ── Tree collapse ──
 
@@ -1211,7 +1230,7 @@ export default function DocumentManager() {
                 ? "bg-blue-600/30 text-blue-300"
                 : "text-gray-500 hover:text-gray-300"
             }`}
-            onClick={() => { setActiveTab("docs"); setSelectedImage(null); }}
+            onClick={() => { setActiveTab("docs"); setSelectedImage(null); setSelectedCardEntity(null); setSelectedCardEntityType(null); }}
           >
             文档
           </button>
@@ -1221,9 +1240,19 @@ export default function DocumentManager() {
                 ? "bg-blue-600/30 text-blue-300"
                 : "text-gray-500 hover:text-gray-300"
             }`}
-            onClick={() => setActiveTab("images")}
+            onClick={() => { setActiveTab("images"); setSelectedCardEntity(null); setSelectedCardEntityType(null); }}
           >
             图像
+          </button>
+          <button
+            className={`text-xs px-3 py-1 rounded transition-colors ${
+              activeTab === "cards"
+                ? "bg-blue-600/30 text-blue-300"
+                : "text-gray-500 hover:text-gray-300"
+            }`}
+            onClick={() => { setActiveTab("cards"); setSelectedPath(null); setSelectedImage(null); }}
+          >
+            卡牌
           </button>
           <div className="flex-1" />
           <button
@@ -1245,7 +1274,11 @@ export default function DocumentManager() {
             📂
           </button>
           <button
-            onClick={() => (activeTab === "docs" ? loadTree() : loadImages())}
+            onClick={() => {
+              if (activeTab === "docs") loadTree();
+              else if (activeTab === "images") loadImages();
+              else loadCardsTree();
+            }}
             className="text-xs text-gray-500 hover:text-gray-300"
             title="刷新"
           >
@@ -1334,13 +1367,126 @@ export default function DocumentManager() {
             renderImageTree()
           )
         )}
+
+        {/* ── 卡牌 Tab ── */}
+        {activeTab === "cards" && (
+          !cardsTree ? (
+            <p className="text-gray-500 text-sm text-center py-4">加载中...</p>
+          ) : (
+            <div className="space-y-2">
+              {/* Characters group */}
+              <div>
+                <div
+                  className="flex items-center gap-1 cursor-pointer rounded text-xs font-medium text-gray-400 hover:text-gray-200 py-0.5 select-none"
+                  onClick={() => setCardsCollapsed((c) => ({ ...c, characters: !c.characters }))}
+                >
+                  <span className="w-3 text-center shrink-0">{cardsCollapsed.characters ? "▶" : "▼"}</span>
+                  <span>角色卡牌</span>
+                </div>
+                {!cardsCollapsed.characters && (
+                  <div className="ml-3 border-l border-gray-700/30 pl-2">
+                    {cardsTree.characters.length === 0 ? (
+                      <p className="text-xs text-gray-600 italic pl-5">(空)</p>
+                    ) : (
+                      cardsTree.characters.map((name) => (
+                        <div
+                          key={name}
+                          className={`group flex items-center gap-1 cursor-pointer rounded text-sm transition-colors select-none py-0.5 ${
+                            selectedCardEntity === name && selectedCardEntityType === "character"
+                              ? "bg-blue-600/20 text-blue-300"
+                              : "text-gray-400 hover:text-gray-200 hover:bg-gray-700/50"
+                          }`}
+                          style={{ paddingLeft: 20 }}
+                          onClick={() => {
+                            setSelectedPath(null);
+                            setSelectedImage(null);
+                            setSelectedCardEntity(name);
+                            setSelectedCardEntityType("character");
+                          }}
+                        >
+                          <span className="w-4 text-center text-purple-500 shrink-0">🃏</span>
+                          <span className="truncate">{name}</span>
+                          {cardsTree.character_class_map[name] && (
+                            <span className="text-[10px] text-gray-600 ml-1">{cardsTree.character_class_map[name]}</span>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Classes group */}
+              <div>
+                <div
+                  className="flex items-center gap-1 cursor-pointer rounded text-xs font-medium text-gray-400 hover:text-gray-200 py-0.5 select-none"
+                  onClick={() => setCardsCollapsed((c) => ({ ...c, classes: !c.classes }))}
+                >
+                  <span className="w-3 text-center shrink-0">{cardsCollapsed.classes ? "▶" : "▼"}</span>
+                  <span>职业卡牌</span>
+                </div>
+                {!cardsCollapsed.classes && (
+                  <div className="ml-3 border-l border-gray-700/30 pl-2">
+                    {cardsTree.classes.length === 0 ? (
+                      <p className="text-xs text-gray-600 italic pl-5">(空)</p>
+                    ) : (
+                      cardsTree.classes.map((name) => (
+                        <div
+                          key={name}
+                          className={`group flex items-center gap-1 cursor-pointer rounded text-sm transition-colors select-none py-0.5 ${
+                            selectedCardEntity === name && selectedCardEntityType === "class"
+                              ? "bg-blue-600/20 text-blue-300"
+                              : "text-gray-400 hover:text-gray-200 hover:bg-gray-700/50"
+                          }`}
+                          style={{ paddingLeft: 20 }}
+                          onClick={() => {
+                            setSelectedPath(null);
+                            setSelectedImage(null);
+                            setSelectedCardEntity(name);
+                            setSelectedCardEntityType("class");
+                          }}
+                        >
+                          <span className="w-4 text-center text-amber-500 shrink-0">🃏</span>
+                          <span className="truncate">{name}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        )}
       </div>
 
       {/* ── Editor / Preview panel ── */}
       <div className="flex-1 flex flex-col min-w-0">
-        {!selectedPath && !selectedImage ? (
+        {!selectedPath && !selectedImage && !selectedCardEntity ? (
           <div className="flex items-center justify-center h-full text-gray-500">
-            <p>{activeTab === "images" ? "选择左侧图片预览" : "选择左侧文档查看或编辑"}</p>
+            <p>{activeTab === "images" ? "选择左侧图片预览" : activeTab === "cards" ? "选择左侧卡牌进行编辑" : "选择左侧文档查看或编辑"}</p>
+          </div>
+        ) : selectedCardEntity && selectedCardEntityType ? (
+          /* ── 卡牌编辑器面板 ── */
+          <div className="flex flex-col h-full">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
+              <h2 className="text-sm font-medium text-gray-300 truncate max-w-[60%]">
+                {selectedCardEntityType === "character" ? "角色" : "职业"}: {selectedCardEntity}
+              </h2>
+              <button
+                onClick={() => { setSelectedCardEntity(null); setSelectedCardEntityType(null); }}
+                className="text-xs text-gray-500 hover:text-gray-300"
+              >
+                ✕ 关闭
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <CardEditor
+                key={`${selectedCardEntityType}-${selectedCardEntity}`}
+                embedded
+                entityName={selectedCardEntity}
+                entityType={selectedCardEntityType}
+              />
+            </div>
           </div>
         ) : activeTab === "images" && selectedImage && !selectedPath ? (
           /* ── 图片预览面板 ── */

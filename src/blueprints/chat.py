@@ -9,6 +9,7 @@ import logging
 from flask import Blueprint, jsonify, request, Response, stream_with_context
 
 from shared.helpers import json_error, make_sse_response, inject_memory_context, build_character_metas
+from hooks.base import HookContext
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +155,7 @@ def register(app, managers):
     session_mgr = managers["session"]
     llm_backend = managers["llm_backend"]
     _doc_mgr = managers["document"]
+    hook_pipeline = managers.get("hook_pipeline")
 
     # ── 1. 单角色聊天 ──
 
@@ -252,8 +254,41 @@ def register(app, managers):
         user_action = request.args.get("action", "").strip()
         env_context = session.environment.build_context()
 
+        def _run_intra_round_hooks(hook_ctx, narrative):
+            """Phase 1 和 Phase 2 之间的 hook 执行。
+
+            Returns:
+                (events_list, modified_narrative_or_None)
+            """
+            if not hook_pipeline:
+                return [], None
+            hook_ctx.narrative_text = narrative
+            events = hook_pipeline.execute_between_phases(hook_ctx)
+            injection = hook_pipeline.collect_prompt_injections(hook_ctx)
+            modified = (injection + "\n\n" + narrative) if injection else None
+            return events, modified
+
         def generate():
             yield f"data: {json.dumps({'type': 'meta', 'data': {'stream_id': stream_id}})}\n\n"
+
+            # ── Hook: inter-round（两轮叙述之间）──
+            hook_ctx = HookContext(
+                session=session,
+                player_info=player_info,
+                user_action=user_action,
+                env_context=env_context,
+                stream_id=stream_id,
+            )
+            hook_injection_text = ""
+            if hook_pipeline:
+                try:
+                    for event in hook_pipeline.execute_before_narration(hook_ctx):
+                        yield f"data: {json.dumps(event)}\n\n"
+                    injection = hook_pipeline.collect_prompt_injections(hook_ctx)
+                    if injection:
+                        hook_injection_text = injection
+                except Exception:
+                    logger.warning("Hook inter-round 执行异常", exc_info=True)
 
             try:
                 config = llm_backend.get_config()
@@ -272,6 +307,8 @@ def register(app, managers):
 
                 # 注入记忆上下文
                 context_with_memory = inject_memory_context(session, env_context)
+                if hook_injection_text:
+                    context_with_memory = context_with_memory + "\n\n" + hook_injection_text
 
                 # — 叙述生成 —
                 dialogue_segments = None
@@ -303,6 +340,13 @@ def register(app, managers):
                     if stream_text:
                         narrative = stream_text
 
+                    # ── Hook: intra-round（Phase 1 → Phase 2）──
+                    intra_events, intra_narrative = _run_intra_round_hooks(hook_ctx, narrative)
+                    for evt in intra_events:
+                        yield f"data: {json.dumps(evt)}\n\n"
+                    if intra_narrative:
+                        narrative = intra_narrative
+
                     # 两阶段提取：从叙事文本中提取标记（Call 2）
                     if _should_extract_markers(session, 0):
                         markers = session.scene_manager.extract_markers(
@@ -333,6 +377,13 @@ def register(app, managers):
                     )
                     if stream_text:
                         narrative = stream_text
+
+                    # ── Hook: intra-round（Phase 1 → Phase 2）──
+                    intra_events, intra_narrative = _run_intra_round_hooks(hook_ctx, narrative)
+                    for evt in intra_events:
+                        yield f"data: {json.dumps(evt)}\n\n"
+                    if intra_narrative:
+                        narrative = intra_narrative
 
                     # 两阶段提取：从叙事文本中提取标记（Call 2）
                     if _should_extract_markers(session, choices_count):
@@ -369,6 +420,13 @@ def register(app, managers):
                     )
                     if stream_text:
                         narrative = stream_text
+
+                    # ── Hook: intra-round（Phase 1 → Phase 2）──
+                    intra_events, intra_narrative = _run_intra_round_hooks(hook_ctx, narrative)
+                    for evt in intra_events:
+                        yield f"data: {json.dumps(evt)}\n\n"
+                    if intra_narrative:
+                        narrative = intra_narrative
 
                     # 两阶段提取：从叙事文本中提取标记（Call 2）
                     if _should_extract_markers(session, choices_count):
@@ -455,9 +513,28 @@ def register(app, managers):
         data = request.json or {}
         player_info = {"identity": data.get("identity", "博士")}
         env_context = session.environment.build_context()
+        user_action = data.get("action", "")
 
         # 注入记忆上下文
         context_with_memory = inject_memory_context(session, env_context)
+
+        # ── Hook: inter-round ──
+        roll_events = []
+        hook_ctx = HookContext(
+            session=session,
+            player_info=player_info,
+            user_action=user_action,
+            env_context=context_with_memory,
+            stream_id="",
+        )
+        if hook_pipeline:
+            try:
+                roll_events = hook_pipeline.execute_before_narration(hook_ctx)
+                injection = hook_pipeline.collect_prompt_injections(hook_ctx)
+                if injection:
+                    context_with_memory = context_with_memory + "\n\n" + injection
+            except Exception:
+                logger.warning("Hook inter-round 执行异常", exc_info=True)
 
         try:
             config = llm_backend.get_config()
@@ -474,7 +551,7 @@ def register(app, managers):
 
             narrative, env_updates, usage = session.scene_manager.narrate(
                 player_info, context_with_memory,
-                user_action=data.get("action", ""),
+                user_action=user_action,
                 structured=bubble_mode,
                 max_tokens=max_tokens,
                 word_limit=word_limit,
@@ -491,6 +568,18 @@ def register(app, managers):
             )
             if stream_text:
                 narrative = stream_text
+
+            # ── Hook: intra-round ──
+            if hook_pipeline:
+                try:
+                    hook_ctx.narrative_text = narrative
+                    intra_events = hook_pipeline.execute_between_phases(hook_ctx)
+                    roll_events.extend(intra_events)
+                    injection = hook_pipeline.collect_prompt_injections(hook_ctx)
+                    if injection:
+                        narrative = injection + "\n\n" + narrative
+                except Exception:
+                    logger.warning("Hook intra-round 执行异常", exc_info=True)
 
             # 两阶段提取：从叙事文本中提取标记（Call 2）
             inline_choices = None
@@ -513,7 +602,7 @@ def register(app, managers):
             # 回忆系统
             response_extra = {}
             if session.mode == "story":
-                session.add_narration(narrative, data.get("action", ""), dialogue_segments)
+                session.add_narration(narrative, user_action, dialogue_segments)
                 session.overlay.append_plot_log(
                     plot_summary if plot_summary else narrative[:300].replace('\n', ' ')
                 )
@@ -536,6 +625,8 @@ def register(app, managers):
                 response_extra["combat_triggered"] = True
                 response_extra["encounter_id"] = session.combat._encounter_id if session.combat else ""
 
+            if roll_events:
+                response_extra["roll_events"] = roll_events
             return jsonify({
                 "narrative": narrative,
                 "env_updates": env_updates,

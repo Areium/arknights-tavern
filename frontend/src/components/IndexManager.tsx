@@ -13,7 +13,6 @@ const CATEGORY_LABELS: Record<string, string> = {
   classes: "职业",
   enemies: "叙事敌人",
   combat_enemies: "战斗敌人",
-  combat_cards: "卡牌",
   combat_encounters: "遭遇战",
   weather: "天气",
   world: "世界观",

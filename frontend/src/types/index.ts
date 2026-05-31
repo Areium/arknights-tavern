@@ -139,6 +139,21 @@ export interface ChatMessage {
   dialogueSegments?: { type: string; text: string; speaker?: string }[];
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
   reasoning?: string;
+  rollData?: AttributeRollData;
+}
+
+/** 属性检定结果 */
+export interface AttributeRollData {
+  attribute: string;
+  character: string;
+  roll: number;
+  modifier: number;
+  total: number;
+  dc: number;
+  success: boolean;
+  text: string;
+  source: string;
+  stream_id: string;
 }
 
 /** 任务 */
@@ -222,6 +237,69 @@ export interface CardDTO {
   description: string;
 }
 
+/** 战斗卡牌（扩展字段 — combat.json schema） */
+export interface CombatCardDTO extends CardDTO {
+  rarity: number;
+  category: "exclusive" | "class";
+  card_type: string[];
+  cost_type: "sp" | "passive";
+  base_value: number | null;
+  base_value_formula: string | null;
+  effect: string;
+  check: {
+    description?: string;
+    roll?: string;
+    vs?: string;
+  } | null;
+  plot_impact: string | null;
+  usage_limit: { scope: string; count: number } | null;
+  condition: string | null;
+  tags: string[];
+  _needs_review?: boolean;
+  _review_reasons?: string[];
+}
+
+/** 角色卡牌集合（combat.json 结构） */
+export interface CombatCardsDTO {
+  version: number;
+  exclusive_cards: CombatCardDTO[];
+  class_cards: CombatCardDTO[];
+  class_name: string | null;
+  _hash: string;
+}
+
+/** 职业卡牌（cards.json 简化 schema） */
+export interface ClassCardDTO {
+  card_id: string;
+  name: string;
+  description: string;
+  damage_type: string;
+  min_damage: number;
+  max_damage: number;
+  atk_scale: number;
+  target: string;
+  range: number;
+  cost: number;
+  tier: string;
+  class_required: string;
+  owner: string | null;
+}
+
+/** 职业卡牌集合（cards.json 结构） */
+export interface ClassCardsDTO {
+  version: number;
+  class_name: string;
+  cards: ClassCardDTO[];
+  _hash: string;
+}
+
+/** 卡牌管理导航树 */
+export interface CardsTreeDTO {
+  characters: string[];
+  classes: string[];
+  character_class_map: Record<string, string>;
+}
+
 /** 角色卡池（手牌 + 抽牌堆 + 弃牌堆 + 消耗堆） */
 export interface PlayerPoolDTO {
   deck: CardDTO[];
@@ -247,14 +325,6 @@ export interface CombatStateDTO {
   active_unit_id: string | null;
   grid: Record<string, string>;
   battle_over: boolean;
-}
-
-/** 战斗操作 */
-export interface CombatAction {
-  action: "play_card" | "move";
-  card_index?: number;
-  unit_id?: string;
-  target: [number, number];
 }
 
 /** 战斗 SSE 事件 */

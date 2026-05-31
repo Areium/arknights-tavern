@@ -7,6 +7,7 @@ SessionContext — 会话级文档缓存。
 - 角色变化时刷新预加载
 """
 
+import re
 import logging
 
 logger = logging.getLogger(__name__)
@@ -32,19 +33,33 @@ class SessionContext:
             return
 
         entry_paths = [f"characters/{name}" for name in character_names]
-        self.preloaded = wiki_manager.resolve_imports_chain(entry_paths, max_depth=2)
+        self.preloaded = wiki_manager.resolve_imports_chain(entry_paths, max_depth=1)
 
         depth0 = sum(1 for d in self.preloaded.values() if d["depth"] == 0)
         depth1 = sum(1 for d in self.preloaded.values() if d["depth"] == 1)
-        depth2 = sum(1 for d in self.preloaded.values() if d["depth"] >= 2)
         logger.info(
-            "SessionContext: 预加载 %d 个文档 (depth0=%d depth1=%d depth2=%d)",
-            len(self.preloaded), depth0, depth1, depth2,
+            "SessionContext: 预加载 %d 个文档 (depth0=%d depth1=%d)",
+            len(self.preloaded), depth0, depth1,
         )
 
     def add_wiki_result(self, path: str, content: str):
-        """缓存一次 Wiki 查询结果。"""
-        self.wiki_retrieved[path] = content
+        """缓存一次 Wiki 查询结果。key 规范化为 canonical path 格式。
+
+        content 首行格式为 【category/id】name，从中提取 canonical path。
+        如果 path 已经是 "category/id" 格式则直接使用。
+        """
+        normalized = self._normalize_wiki_key(path, content)
+        self.wiki_retrieved[normalized] = content
+
+    @staticmethod
+    def _normalize_wiki_key(path: str, content: str) -> str:
+        """从 query_str 或 content 中提取 canonical path。"""
+        if "/" in path and not path.startswith("【"):
+            return path
+        match = re.match(r"【(.+?)】", content)
+        if match:
+            return match.group(1)
+        return path
 
     def format_preloaded(self) -> str:
         """将预加载文档格式化为 system prompt 可注入的文本。"""

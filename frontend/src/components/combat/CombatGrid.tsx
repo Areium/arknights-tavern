@@ -35,6 +35,7 @@ interface Props {
   units: CombatUnitDTO[];
   moveHighlights: Set<string>;
   rangeHighlights: Set<string>;
+  aoeHighlights?: Set<string>;
   selectedUnitId: string | null;
   uiMode: string;
   cursor: [number, number] | null;
@@ -42,6 +43,7 @@ interface Props {
   onCellClick: (row: number, col: number) => void;
   onCellHover?: (unit: CombatUnitDTO, rect: DOMRect) => void;
   onCellLeave?: () => void;
+  onCellHoverCell?: (cell: [number, number] | null) => void;
   onCellDrop: (row: number, col: number) => void;
   onGridDragMove: (cell: [number, number] | null, clientX?: number, clientY?: number) => void;
   onGridMount?: (el: HTMLDivElement) => void;
@@ -50,8 +52,8 @@ interface Props {
 
 export default function CombatGrid({
   gridSize, cellSize = 64, units,
-  moveHighlights, rangeHighlights, selectedUnitId, uiMode, cursor,
-  dragCell, onCellClick, onCellHover, onCellLeave, onCellDrop, onGridDragMove, onGridMount,
+  moveHighlights, rangeHighlights, aoeHighlights, selectedUnitId, uiMode, cursor,
+  dragCell, onCellClick, onCellHover, onCellLeave, onCellHoverCell, onCellDrop, onGridDragMove, onGridMount,
   children,
 }: Props) {
   const posToUnit: Record<string, CombatUnitDTO> = {};
@@ -118,9 +120,11 @@ export default function CombatGrid({
     for (let c = 0; c < gridSize; c++) {
       const key = `${r},${c}`;
       const unit = posToUnit[key] || null;
-      let highlight: "" | "cursor" | "target" | "move" | "selected" | "range" = "";
+      let highlight: "" | "cursor" | "target" | "move" | "selected" | "range" | "aoe" = "";
 
-      if (dragCell && dragCell[0] === r && dragCell[1] === c) {
+      if (aoeHighlights?.has(key)) {
+        highlight = "aoe";
+      } else if (dragCell && dragCell[0] === r && dragCell[1] === c) {
         highlight = "target";
       } else if (cursor && cursor[0] === r && cursor[1] === c) {
         highlight = "cursor";
@@ -144,8 +148,12 @@ export default function CombatGrid({
             if (unit && onCellHover) {
               onCellHover(unit, (e.currentTarget as HTMLElement).getBoundingClientRect());
             }
+            onCellHoverCell?.([r, c]);
           }}
-          onMouseLeave={onCellLeave}
+          onMouseLeave={() => {
+            onCellLeave?.();
+            onCellHoverCell?.(null);
+          }}
         />
       );
     }

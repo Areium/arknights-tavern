@@ -44,6 +44,17 @@ def create_app():
         managers["llm_backend"], wiki_manager=managers["wiki"]
     )
 
+    # ── Hook 管道 ──
+    from hooks.pipeline import HookPipeline
+    from hooks.attribute_roll import AttributeRollHook
+    from hooks.wiki_prefetch import WikiPreFetchHook
+    from services.attribute_loader import AttributeLoader
+
+    hook_pipeline = HookPipeline()
+    hook_pipeline.register(AttributeRollHook(AttributeLoader()))
+    hook_pipeline.register(WikiPreFetchHook())
+    managers["hook_pipeline"] = hook_pipeline
+
     # ── 注册所有 Blueprints ──
     from blueprints.status import register as reg_status
     from blueprints.sessions import register as reg_sessions
@@ -57,6 +68,7 @@ def create_app():
     from blueprints.environment import register as reg_environment
     from blueprints.assets import register as reg_assets
     from blueprints.memories import register as reg_memories
+    from blueprints.cards import register as reg_cards
 
     for reg in [
         reg_status,
@@ -71,6 +83,7 @@ def create_app():
         reg_environment,
         reg_assets,
         reg_memories,
+        reg_cards,
     ]:
         reg(app, managers)
 
