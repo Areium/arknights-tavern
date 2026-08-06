@@ -37,7 +37,7 @@ Electron 主进程管理窗口 + Python 子进程生命周期（`frontend/electr
 - `llm_backend_manager.py` — 多 Provider 编排，主/备自动降级
 - `load_llm.py` — Ollama / OpenAI 兼容 HTTP 客户端
 - `combat_session.py` — 战斗会话包装器：组装 CombatEngine + CombatDataLoader，管理生命周期、玩家操作、敌人 AI、SSE 推送
-- `combat_data_loader.py` — 从 `data/combat/enemies/*.md` 和 `encounters/*.md` 加载战斗数据
+- `combat_data_loader.py` — 从 `data/combat/enemies/*.md`、`encounters/*.md` 和 `backgrounds/` 加载战斗数据（含背景图解析）
 - `avatar_color.py` — 从角色 PNG 头像提取主导色（hex），用于 UI 主题配色
 - `index_manager.py` — 基于 `imports` 字段的文档关系图，YAML 导出/导入
 

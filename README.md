@@ -146,6 +146,8 @@ cd frontend && npm run dev
 
 **数据回写**：战斗结束后，角色的 HP 变化、受伤、死亡等状态会自动回写到当前会话。
 
+**战斗背景**：战斗界面会按场景显示背景图——遭遇战配置（`background` 字段）优先，其次取当前剧情地点（`combat_bg` 字段），都没有则用默认背景。背景图存放于 `data/combat/backgrounds/`，可用 `python tools/generate_combat_backgrounds.py` 通过 AI 批量生成（详见 `docs/combat-background-prompts.md`）。
+
 ## 架构概览
 
 ```

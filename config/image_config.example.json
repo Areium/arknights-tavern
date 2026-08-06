@@ -1,0 +1,7 @@
+{
+  "api_key": "your-image-api-key-here",
+  "base_url": "https://api.openai.com/v1",
+  "model": "dall-e-3",
+  "size": "1920x1080",
+  "response_format": "b64_json"
+}

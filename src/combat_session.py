@@ -41,6 +41,7 @@ class CombatSession:
         self.event_queue: queue.Queue[CombatEvent] = queue.Queue()
         self._character_metas: list[dict] = []
         self._encounter_id: str = ""
+        self._background_url: str | None = None
         self.last_activity_at: float = time.time()
 
     # ── Setup ──
@@ -49,7 +50,8 @@ class CombatSession:
               character_names: list[str] = None,
               character_metas: list[dict] = None,
               enemies_override: list[dict] = None,
-              combat_params: dict = None) -> dict:
+              combat_params: dict = None,
+              location: str = "") -> dict:
         """Initialize a battle from an encounter definition and character list.
 
         Args:
@@ -61,6 +63,8 @@ class CombatSession:
             combat_params: Optional dict with narrative-driven combat modifiers.
                            Supported keys:
                            - status_effects: {name: {hp_penalty, atk_bonus, def_penalty}}
+            location: Current narrative location name, used to resolve the
+                      combat background when the encounter doesn't specify one.
 
         Returns:
             dict: Initial combat state snapshot.
@@ -70,6 +74,7 @@ class CombatSession:
             raise ValueError(f"Encounter not found: {encounter_id}")
 
         self._encounter_id = encounter_id
+        self._background_url = self.loader.resolve_background(encounter, location)
         self.engine = CombatEngine()
 
         # Events flow through _flush_engine_events() only — no on_event callback
@@ -400,6 +405,7 @@ class CombatSession:
             "phase": e.state.phase,
             "winner": e.state.winner or None,
             "grid_size": max(TOTAL_ROWS, TOTAL_COLS),
+            "background_url": self._background_url,
             "shared_ap": e.shared_ap,
             "shared_ap_max": e.SHARED_AP_MAX,
             "units": units,
@@ -518,6 +524,12 @@ class CombatSession:
             engine.enemy_pools[uid] = pool
 
         cs.engine = engine
+
+        # Re-resolve background (location context is not persisted; the
+        # encounter-level field or the default background still applies)
+        if cs._encounter_id:
+            encounter = cs.loader.load_encounter(cs._encounter_id)
+            cs._background_url = cs.loader.resolve_background(encounter)
         return cs
 
 

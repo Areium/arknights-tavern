@@ -172,7 +172,8 @@ class Session:
             character_names = self.scene_manager.get_scene_characters()
         combat = CombatSession(self.id)
         combat.start(encounter_id, character_names=character_names,
-                     character_metas=character_metas, combat_params=combat_params)
+                     character_metas=character_metas, combat_params=combat_params,
+                     location=self.environment.location or "")
         self.combat = combat
         return combat
 

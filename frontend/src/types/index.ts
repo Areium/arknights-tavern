@@ -314,6 +314,8 @@ export interface CombatStateDTO {
   phase: string;
   winner: string | null;
   grid_size: number;
+  /** 战斗背景图 URL（无图时为 null，前端回退纯色背景） */
+  background_url?: string | null;
   units: CombatUnitDTO[];
   shared_hand: CardDTO[];
   player_hands: Record<string, CardDTO[]>;

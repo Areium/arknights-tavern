@@ -15,6 +15,7 @@ categories:
   enemies: data/enemies/
   combat_enemies: data/combat/enemies/
   combat_encounters: data/combat/encounters/
+  combat_backgrounds: data/combat/backgrounds/
   rules: data/rules/
 
 # 层级定义（用于文档管理界面分组）
@@ -37,4 +38,4 @@ hierarchy:
       categories: [plots, enemies, combat_encounters]
     - level: 5
       label: 战斗组件
-      categories: [combat_enemies]
+      categories: [combat_enemies, combat_backgrounds]

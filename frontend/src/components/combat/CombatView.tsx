@@ -963,9 +963,22 @@ export default function CombatView() {
 
   const sharedAp = combatState.shared_ap ?? 0;
   const sharedApMax = combatState.shared_ap_max ?? 6;
+  const bgUrl = combatState.background_url ?? null;
 
   return (
-    <div className="flex flex-col h-full bg-combat-bg relative" onDragOver={(e) => e.preventDefault()}>
+    <div
+      className="flex flex-col h-full bg-combat-bg relative"
+      style={bgUrl ? {
+        // 场景图之上叠压暗渐变：顶部托住回合文字、底部托住手牌区，中部尽量露出画面
+        backgroundImage: [
+          "linear-gradient(to bottom, rgba(10,14,23,0.72) 0%, rgba(10,14,23,0.30) 30%, rgba(10,14,23,0.28) 55%, rgba(10,14,23,0.80) 100%)",
+          `url(${bgUrl})`,
+        ].join(", "),
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+      } : undefined}
+      onDragOver={(e) => e.preventDefault()}
+    >
       {/* Main area: status panels + grid */}
       <div className="flex-1 flex items-start justify-between px-2 gap-2 relative z-10 select-none" onClick={handleGridBackgroundClick}>
         {/* Player status — left panel */}

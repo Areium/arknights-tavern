@@ -1,7 +1,7 @@
 # 系统更新设计与维护文档
 
 > 记录战斗系统的架构演进、关键修改与未来规划方向
-> 最后更新：2026-05-27
+> 最后更新：2026-08-06
 
 ---
 
@@ -15,6 +15,19 @@
 ---
 
 ## 更新记录
+
+### 2026-08-06 — 战斗背景系统 + AI 生成工作流
+
+- 战斗界面支持场景背景图：根容器由纯色改为 `backgroundImage` + 压暗渐变遮罩（顶/底压暗保证文字与手牌可读，中部露出画面），无图时回退原纯色
+- 背景选用优先级：遭遇战 frontmatter `background` → 地点 frontmatter `combat_bg` → `default` 背景；后端在 `CombatSession.start()` 解析为 `background_url` 透传进战斗状态 DTO
+- `combat_data_loader.py` 新增 `load_background` / `background_image_url` / `resolve_background`；`from_dict` 恢复时按遭遇战重新解析
+- 新增资产类别 `combat_backgrounds`（data/categories.yaml），图片走现有 `/api/assets/` 路由，文档管理界面可直接编辑提示词与上传图片
+- 数据约定：`data/combat/backgrounds/<bg_id>/index.md`（提示词 + 元信息）+ 图片文件；内置 `default`（含程序化生成的占位图）与 `wasteland_ruins`（待生成）两个条目
+- `session_manager.start_combat()` 传入当前剧情地点；剧情模式战斗背景随场景联动
+- 新增 `tools/generate_combat_backgrounds.py`：`--scaffold` 为被引用但缺失的背景建提示词草稿、`--dry-run` 导出提示词、默认调用 OpenAI 兼容 images 接口批量出图（配置 `config/image_config.json`）
+- 新增 `docs/combat-background-prompts.md`：构图规范（轻微俯视 + 中央开阔地面 + 远景地标 + 无人物无文字 + 偏暗重暗角）、基础提示词模板、场景配方与各平台参数
+- 地点模板 TEMPLATE.md 补充 `combat_bg` 字段说明；遭遇战「初遇整合运动」指定 `background: wasteland_ruins`
+
 
 ### 2026-05-27 — 卡牌打出动画 + 手牌重排 + 剧情格式迁移
 
