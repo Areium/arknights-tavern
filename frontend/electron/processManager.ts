@@ -94,11 +94,18 @@ export class PythonProcessManager {
   private spawnProcess(): void {
     const { projectRoot } = this.options;
 
-    // 优先使用项目 .venv 的 Python
-    const venvPython = path.join(projectRoot, ".venv", "bin", "python3");
+    // 优先使用项目虚拟环境的 Python。
+    // Windows 与 Unix 的 venv 布局不同；Windows 没有 `python3` 命令，
+    // 回退到 PATH 中的 `python`（Store 占位符 python3 不可用）。
+    const fs = require("fs") as typeof import("fs");
+    const isWindows = process.platform === "win32";
+    const venvPython = isWindows
+      ? path.join(projectRoot, ".venv", "Scripts", "python.exe")
+      : path.join(projectRoot, ".venv", "bin", "python3");
+    const fallback = isWindows ? "python" : "python3";
     const pythonPath =
       this.options.pythonPath ||
-      (require("fs").existsSync(venvPython) ? venvPython : "python3");
+      (fs.existsSync(venvPython) ? venvPython : fallback);
 
     const appPath = path.join(projectRoot, "src", "app.py");
     const env = {
