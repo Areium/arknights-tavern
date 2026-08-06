@@ -74,6 +74,30 @@ class SessionOverlay:
             json.dump(self._data, f, ensure_ascii=False, indent=2)
             f.write("\n")
 
+    # ── 场景状态（场景角色/物品/当前对话目标） ──
+
+    def get_scene_state(self) -> dict:
+        """读取持久化的场景状态：{characters, items, active}。"""
+        scene = self._data.get("scene")
+        if not isinstance(scene, dict):
+            return {"characters": [], "items": [], "active": None}
+        chars = scene.get("characters")
+        items = scene.get("items")
+        return {
+            "characters": chars if isinstance(chars, list) else [],
+            "items": items if isinstance(items, list) else [],
+            "active": scene.get("active"),
+        }
+
+    def save_scene_state(self, characters: list, items: list, active) -> None:
+        """持久化场景状态到 overrides.json（后端重启后恢复用）。"""
+        self._data["scene"] = {
+            "characters": list(characters),
+            "items": items,
+            "active": active,
+        }
+        self._save()
+
     # ── 角色覆盖 ──
 
     def get_character_overrides(self, name: str) -> dict:

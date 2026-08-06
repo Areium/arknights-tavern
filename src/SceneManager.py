@@ -142,6 +142,19 @@ class SceneManager:
             for item_id, data in self._scene_items.items()
         ]
 
+    def _persist_scene(self):
+        """持久化当前场景状态（角色/物品/当前目标）到会话覆盖层。"""
+        if not self._overlay:
+            return
+        try:
+            self._overlay.save_scene_state(
+                list(self._agents.keys()),
+                [{"id": item_id, **data} for item_id, data in self._scene_items.items()],
+                self.active,
+            )
+        except Exception:
+            logger.exception("保存场景状态失败")
+
     def add_item(self, item_id: str, item_data: dict) -> bool:
         """添加物品到场景。会自动合并会话覆盖。"""
         if item_id in self._scene_items:
@@ -151,6 +164,7 @@ class SceneManager:
             item_data, _ = self._overlay.apply_item_overrides(item_id, item_data, "")
         self._scene_items[item_id] = item_data
         self._log_event(f"📦 {item_data.get('name', item_id)} 出现在场景中")
+        self._persist_scene()
         return True
 
     def remove_item(self, item_id: str) -> bool:
@@ -159,6 +173,7 @@ class SceneManager:
             return False
         data = self._scene_items.pop(item_id)
         self._log_event(f"📦 {data.get('name', item_id)} 从场景中移除")
+        self._persist_scene()
         return True
 
     def get_scene_characters(self) -> list[str]:
@@ -216,6 +231,7 @@ class SceneManager:
 
         self._log_event(f"{name} 进入了场景")
         logger.info("角色加入场景: %s", name)
+        self._persist_scene()
         return True
 
     def unload_character(self, name: str) -> bool:
@@ -238,6 +254,7 @@ class SceneManager:
 
         self._log_event(f"{name} 离开了场景")
         logger.info("角色离开场景: %s", name)
+        self._persist_scene()
         return True
 
     def switch_active(self, name: str) -> bool:
@@ -258,6 +275,7 @@ class SceneManager:
         if old and old != name:
             self._log_event(f"玩家将注意力转向了 {name}")
         logger.info("对话目标切换: %s → %s", old, name)
+        self._persist_scene()
         return True
 
     def chat(self, user_input: str, player_info: dict | None = None,

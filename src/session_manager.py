@@ -94,6 +94,7 @@ class Session:
         self.total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
         self._load_memories()
+        self._restore_scene()
 
     @property
     def is_usable(self) -> bool:
@@ -117,6 +118,57 @@ class Session:
                 self.scene_manager._overlay = self.overlay
             return True
         return False
+
+    def _restore_scene(self):
+        """从持久化场景状态恢复角色/物品/当前对话目标（后端重启后不丢失）。
+
+        story 会话无持久化场景状态时（修复前创建的旧会话），兜底从剧情的
+        initial_characters 重新加载——story 模式不允许卸载角色，角色集合稳定。
+        """
+        state = self.overlay.get_scene_state()
+        characters = state.get("characters")
+        if not characters and self.mode == "story":
+            characters = self._plot_initial_characters()
+        if not characters:
+            return  # 无场景角色，无需恢复（也不触发 LLM 探测）
+        # 先确保 LLM 就绪，使恢复的角色可立即对话
+        if self._llm is None:
+            self.refresh_llm()
+        for name in characters:
+            try:
+                self.scene_manager.load_character(name)
+            except Exception as e:
+                logger.warning("恢复场景角色失败 %s: %s", name, e)
+        for item in state.get("items", []):
+            item_id = item.get("id") if isinstance(item, dict) else str(item)
+            try:
+                self.scene_manager.add_item(item_id, item)
+            except Exception as e:
+                logger.warning("恢复场景物品失败 %s: %s", item_id, e)
+        active = state.get("active")
+        if active and active in self.scene_manager.get_scene_characters():
+            self.scene_manager.active = active
+        # 统一落盘最终态（恢复过程会触发中间态持久化，需覆盖）
+        self.scene_manager._persist_scene()
+
+    def _plot_initial_characters(self) -> list[str]:
+        """读取绑定剧情的 initial_characters（排除玩家"博士"）。"""
+        try:
+            from session_overlay import _read_plot_file
+            plot_id = self.overlay.get_plot_id()
+            if not plot_id:
+                return []
+            result = _read_plot_file(plot_id)
+            if not result:
+                return []
+            player = {"博士"}
+            return [
+                n.strip() for n in result[0].get("initial_characters", [])
+                if n.strip() and n.strip() not in player
+            ]
+        except Exception as e:
+            logger.warning("读取剧情初始角色失败: %s", e)
+            return []
 
     # ── 回忆系统 ──
 
