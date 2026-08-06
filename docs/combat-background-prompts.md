@@ -121,17 +121,15 @@ Arknights style anime background art, frozen tundra of Ursus under a blizzard, b
 
 ### 单个会话：会话级覆盖（不调全局）
 
-每个会话有独立背景目录，最方便的管理方式是 UI：「📄 文档 → 图像」页顶部切换到「会话覆盖」，选择背景 ID 后上传即可（支持替换和删除，全局条目上会显示"会话覆盖"徽标）。
-
-资源实际存放于（会话详情接口 `backgrounds_dir` 字段给出绝对路径）：
+每个会话有独立背景目录（会话详情接口 `backgrounds_dir` 字段给出绝对路径）：
 
 ```
 data/memory/sessions/<story|free>/<会话ID>/backgrounds/
 ```
 
-也可以直接把图片文件丢进该目录，按文件名生效：
+直接把图片文件丢进去即可，按文件名生效：
 
 - `<bg_id>.jpg`（如 `wasteland_ruins.jpg`）——替换该场战斗中对应 ID 的背景
 - `default.jpg`——替换本会话的兜底背景
 
-适合边玩边换：生成一张图 → 上传/放进目录 → 下一场战斗自动用上，不影响其他会话和全局条目。完整选用优先级：**会话覆盖图 > 全局图**，同一背景 ID 内先查会话目录；背景 ID 本身仍按「遭遇战 `background` → 地点 `combat_bg` → default」确定。
+适合边玩边换：生成一张图 → 放进目录 → 下一场战斗自动用上，不影响其他会话和全局条目。完整选用优先级：**会话覆盖图 > 全局图**，同一背景 ID 内先查会话目录；背景 ID 本身仍按「遭遇战 `background` → 地点 `combat_bg` → default」确定。

@@ -338,24 +338,6 @@ export interface CombatEventDTO {
   data: Record<string, any>;
 }
 
-// ── 会话背景管理 ──
-
-/** 会话背景覆盖文件 */
-export interface SessionBackgroundDTO {
-  name: string;
-  url: string;
-  size: number;
-  bg_id: string;
-  /** 同 ID 全局背景的图 URL（无全局图时为 null） */
-  global_url: string | null;
-}
-
-export interface SessionBackgroundListDTO {
-  backgrounds: SessionBackgroundDTO[];
-  available_bg_ids: string[];
-  backgrounds_dir: string;
-}
-
 declare global {
   interface Window {
     electronAPI?: ElectronAPI;

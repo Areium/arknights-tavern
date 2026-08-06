@@ -8,7 +8,7 @@ venv/
 .venv/
 .DS_Store
 .dev-pids
-/assets/
+assets/
 .vite/
 scripts/prts_scraper/
 scripts/data/memory/

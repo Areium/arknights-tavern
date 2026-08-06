@@ -242,31 +242,6 @@ export function useApi() {
       request<any>(`/api/assets/${category}/${encodeURIComponent(filePath)}`, {
         method: "DELETE",
       }),
-
-    // ── 会话背景管理 ──
-    listSessionBackgrounds: (sessionId: string) =>
-      request<import("../types").SessionBackgroundListDTO>(`/api/sessions/${sessionId}/backgrounds`),
-    uploadSessionBackground: async (sessionId: string, bgId: string, file: File) => {
-      const base = await getBaseUrl();
-      const formData = new FormData();
-      formData.append("bg_id", bgId);
-      formData.append("file", file);
-      const res = await fetch(`${base}/api/sessions/${sessionId}/backgrounds/upload`, {
-        method: "POST",
-        body: formData,
-      });
-      if (!res.ok) {
-        const body = await res.text();
-        let message = body;
-        try { message = JSON.parse(body).error || body; } catch {}
-        throw new Error(message);
-      }
-      return res.json();
-    },
-    deleteSessionBackground: (sessionId: string, filename: string) =>
-      request<any>(`/api/sessions/${sessionId}/backgrounds/${encodeURIComponent(filename)}`, {
-        method: "DELETE",
-      }),
     getDefaultImage: (category: string, entity: string) =>
       request<{ default_avatar: string; default_skin: string; card_face: string; card_face_crop: import("../types").SkinCrop | null }>(`/api/assets/${category}/${encodeURIComponent(entity)}/default-image`),
     setDefaultImage: (category: string, entity: string, type: "avatar" | "skin" | "card_face", filename: string, crop?: import("../types").SkinCrop | null) =>
