@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useApi } from "../hooks/useApi";
+import { useAppStore } from "../stores/appStore";
 import type { DocTreeCategory, DocTreeNode, SkinCrop } from "../types";
 import MarkdownRenderer from "./MarkdownRenderer";
 import CropModal from "./assets/CropModal";
+import SessionBackgrounds from "./assets/SessionBackgrounds";
 import CardEditor from "./combat/CardEditor";
 
 interface ModalState {
@@ -110,6 +112,14 @@ export default function DocumentManager() {
   } | null>(null);
   const [defaultImages, setDefaultImages] = useState<Record<string, { default_avatar: string; default_skin: string; card_face: string; card_face_crop: import("../types").SkinCrop | null }>>({});
   const [cropTarget, setCropTarget] = useState<{ url: string; name: string; category: string; entity: string } | null>(null);
+
+  // ── 图像作用域：全局资源库 / 会话覆盖 ──
+  const [imageScope, setImageScope] = useState<"global" | "session">("global");
+  const activeSessionId = useAppStore((s) => s.activeSessionId);
+  const activeSessionName = useAppStore(
+    (s) => s.sessions.find((x) => x.id === s.activeSessionId)?.name ?? ""
+  );
+  const [sessionBgIds, setSessionBgIds] = useState<Set<string>>(new Set());
 
   // ── Modal ──
   const [modal, setModal] = useState<ModalState | null>(null);
@@ -320,6 +330,17 @@ export default function DocumentManager() {
       loadDefaultImages();
     }
   }, [assetImages, activeTab, loadDefaultImages]);
+
+  // 拉取当前会话的背景覆盖 ID，用于全局条目上的"被会话覆盖"徽标
+  useEffect(() => {
+    if (activeTab !== "images" || !activeSessionId) {
+      setSessionBgIds(new Set());
+      return;
+    }
+    api.listSessionBackgrounds(activeSessionId)
+      .then((d) => setSessionBgIds(new Set(d.backgrounds.map((b) => b.bg_id))))
+      .catch(() => setSessionBgIds(new Set()));
+  }, [activeTab, activeSessionId, api]);
 
   const loadCardsTree = useCallback(async () => {
     try {
@@ -976,6 +997,14 @@ export default function DocumentManager() {
                     <span className="truncate flex-1" title={item.entity_name}>
                       {item.entity_name}
                     </span>
+                    {item.category === "combat_backgrounds" && sessionBgIds.has(item.entity) && (
+                      <span
+                        className="text-[9px] px-1 rounded bg-amber-900/60 text-amber-300 border border-amber-700/50 shrink-0"
+                        title="当前会话已上传同 ID 的覆盖图"
+                      >
+                        会话覆盖
+                      </span>
+                    )}
                     <label className="text-[10px] text-blue-400 hover:text-blue-300 cursor-pointer shrink-0" title="上传到该实体" onClick={(e) => e.stopPropagation()}>
                       +
                       <input
@@ -1359,13 +1388,41 @@ export default function DocumentManager() {
 
         {/* ── 图像 Tab ── */}
         {activeTab === "images" && (
-          imagesLoading && assetImages.length === 0 ? (
-            <p className="text-gray-500 text-sm text-center py-4">加载中...</p>
-          ) : assetImages.length === 0 ? (
-            <p className="text-gray-500 text-sm text-center py-4">暂无图像资产</p>
-          ) : (
-            renderImageTree()
-          )
+          <div className="flex flex-col h-full">
+            {/* 作用域切换：全局资源库 / 会话覆盖 */}
+            <div className="flex gap-1 px-1 pb-2 shrink-0">
+              {(["global", "session"] as const).map((scope) => (
+                <button
+                  key={scope}
+                  className={`flex-1 text-xs px-2 py-1 rounded transition-colors truncate ${
+                    imageScope === scope
+                      ? "bg-blue-600/20 text-blue-300 border border-blue-700/50"
+                      : "text-gray-500 border border-transparent hover:text-gray-300"
+                  }`}
+                  onClick={() => { setImageScope(scope); setSelectedImage(null); }}
+                >
+                  {scope === "global"
+                    ? "全局资源库"
+                    : `会话覆盖${activeSessionName ? `（${activeSessionName}）` : ""}`}
+                </button>
+              ))}
+            </div>
+            {imageScope === "session" ? (
+              activeSessionId ? (
+                <SessionBackgrounds sessionId={activeSessionId} onToast={showToast} />
+              ) : (
+                <p className="text-gray-500 text-xs text-center py-8 leading-relaxed">
+                  请先在对话页选择一个会话，<br />再回到这里管理它的背景覆盖。
+                </p>
+              )
+            ) : imagesLoading && assetImages.length === 0 ? (
+              <p className="text-gray-500 text-sm text-center py-4">加载中...</p>
+            ) : assetImages.length === 0 ? (
+              <p className="text-gray-500 text-sm text-center py-4">暂无图像资产</p>
+            ) : (
+              renderImageTree()
+            )}
+          </div>
         )}
 
         {/* ── 卡牌 Tab ── */}

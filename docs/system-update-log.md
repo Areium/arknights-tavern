@@ -16,6 +16,14 @@
 
 ## 更新记录
 
+### 2026-08-06 — 资源管理两层体系：全局 / 会话作用域
+
+- 文档管理器图像页新增作用域切换「全局资源库 / 会话覆盖」，会话作用域下直接管理当前会话的背景覆盖（上传/替换/删除/全局原图对比），不再依赖手动文件操作
+- 新增 `SessionBackgrounds.tsx` 组件；全局 `combat_backgrounds` 条目显示"会话覆盖"徽标（当前会话存在同 ID 覆盖图时）
+- 后端补齐会话背景管理 API：`GET /api/sessions/<id>/backgrounds`（列表 + 全局可用 ID + 全局原图 URL）、`POST .../backgrounds/upload`（bg_id 校验 `[a-z0-9_]`、同 ID 自动替换）、`DELETE .../backgrounds/<file>`
+- `CombatDataLoader.list_background_ids()` 支持上传时的 ID 选择
+- 修复排查发现：Windows 下 Flask 多进程可同绑 5000 端口（SO_REUSEADDR），旧进程不退会导致新代码不生效
+
 ### 2026-08-06 — 会话级战斗背景覆盖
 
 - 每个会话新增背景覆盖目录 `data/memory/sessions/<mode>/<session_id>/backgrounds/`：丢入 `<bg_id>.<ext>` 替换对应背景、`default.<ext>` 替换兜底背景，只影响当前会话

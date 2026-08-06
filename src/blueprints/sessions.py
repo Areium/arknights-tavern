@@ -3,6 +3,7 @@ Sessions blueprint — 会话管理与剧情列表。
 """
 
 import os
+import re
 import logging
 from pathlib import Path
 
@@ -196,6 +197,90 @@ def register(app, managers):
             if filepath.is_file():
                 return send_from_directory(str(bg_dir), safe_name)
         return json_error("文件不存在", 404)
+
+    # ── 会话背景管理 ──
+
+    def _session_bg_dir(session) -> Path:
+        return _REPO_ROOT / "data" / "memory" / "sessions" / session.mode / session.id / "backgrounds"
+
+    @bp.route("/api/sessions/<session_id>/backgrounds", methods=["GET"])
+    def list_session_backgrounds(session_id: str):
+        """列出会话背景覆盖文件 + 全局可用背景 ID。"""
+        from combat_data_loader import CombatDataLoader
+        session = session_mgr.get_session(session_id)
+        if not session:
+            return json_error("会话不存在", 404)
+        loader = CombatDataLoader()
+        bg_dir = _session_bg_dir(session)
+        items = []
+        if bg_dir.is_dir():
+            for f in sorted(bg_dir.iterdir()):
+                if not f.is_file() or f.suffix.lower() not in _SESSION_BG_EXTS:
+                    continue
+                bg_id = f.stem
+                items.append({
+                    "name": f.name,
+                    "url": f"/api/sessions/{session_id}/backgrounds/{f.name}",
+                    "size": f.stat().st_size,
+                    "bg_id": bg_id,
+                    "global_url": loader.background_image_url(bg_id),
+                })
+        return jsonify({
+            "backgrounds": items,
+            "available_bg_ids": loader.list_background_ids(),
+            "backgrounds_dir": str(bg_dir),
+        })
+
+    @bp.route("/api/sessions/<session_id>/backgrounds/upload", methods=["POST"])
+    def upload_session_background(session_id: str):
+        """上传/替换会话背景覆盖图。multipart 字段：file + bg_id。"""
+        session = session_mgr.get_session(session_id)
+        if not session:
+            return json_error("会话不存在", 404)
+        bg_id = (request.form.get("bg_id") or "").strip()
+        if not re.fullmatch(r"[a-z0-9_]+", bg_id):
+            return json_error("bg_id 只能包含小写字母、数字和下划线", 400)
+        if "file" not in request.files:
+            return json_error("缺少上传文件", 400)
+        file = request.files["file"]
+        if not file.filename:
+            return json_error("文件名为空", 400)
+        ext = os.path.splitext(file.filename)[1].lower()
+        if ext not in _SESSION_BG_EXTS:
+            return json_error(f"不支持的文件格式: {ext}", 400)
+
+        bg_dir = _session_bg_dir(session)
+        bg_dir.mkdir(parents=True, exist_ok=True)
+        # 同一 bg_id 只保留一份：清掉其他扩展名的旧文件（即"替换"语义）
+        for old in bg_dir.glob(f"{bg_id}.*"):
+            if old.is_file() and old.suffix.lower() in _SESSION_BG_EXTS:
+                os.remove(old)
+        filename = f"{bg_id}{ext}"
+        file.save(bg_dir / filename)
+        return jsonify({
+            "message": "上传成功",
+            "name": filename,
+            "url": f"/api/sessions/{session_id}/backgrounds/{filename}",
+            "size": (bg_dir / filename).stat().st_size,
+        }), 201
+
+    @bp.route("/api/sessions/<session_id>/backgrounds/<path:filename>", methods=["DELETE"])
+    def delete_session_background(session_id: str, filename: str):
+        """删除会话背景覆盖文件。"""
+        session = session_mgr.get_session(session_id)
+        if not session:
+            return json_error("会话不存在", 404)
+        safe_name = filename.replace("\\", "/")
+        bg_dir = _session_bg_dir(session)
+        filepath = (bg_dir / safe_name).resolve()
+        if not str(filepath).startswith(str(bg_dir.resolve()) + os.sep):
+            return json_error("无效的文件路径", 403)
+        if filepath.suffix.lower() not in _SESSION_BG_EXTS:
+            return json_error("不允许的文件类型", 403)
+        if not filepath.is_file():
+            return json_error("文件不存在", 404)
+        os.remove(filepath)
+        return jsonify({"message": "已删除", "name": safe_name})
 
     # ── 剧情列表 ──
 

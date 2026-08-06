@@ -93,6 +93,14 @@ class CombatDataLoader:
             logger.error("Failed to load background %s: %s", bg_id, e)
             return None
 
+    def list_background_ids(self) -> list[str]:
+        """List all global background IDs under data/combat/backgrounds/."""
+        root = self._root / "backgrounds"
+        if not root.is_dir():
+            return []
+        return sorted(p.name for p in root.iterdir()
+                      if p.is_dir() and (p / "index.md").is_file())
+
     def background_image_url(self, bg_id: str) -> str | None:
         """Return the asset URL of a background's image file, or None if absent.
 
