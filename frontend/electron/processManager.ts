@@ -113,6 +113,8 @@ export class PythonProcessManager {
       FLASK_DEBUG: "false",
       API_HOST: "127.0.0.1",
       API_PORT: String(this.options.port),
+      // 强制 Python 输出 UTF-8，避免 Windows 下 GBK 输出被 Node 按 UTF-8 解码成乱码
+      PYTHONIOENCODING: "utf-8",
     };
 
     console.log(`[Backend] Starting: ${pythonPath} ${appPath}`);
