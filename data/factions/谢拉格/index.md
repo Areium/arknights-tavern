@@ -2,7 +2,7 @@
 name: "谢拉格"
 summary: "被雪山环抱的泰拉小国，喀兰贸易的发源地，以耶拉冈德信仰与三族共治立国。"
 alias: "Kjerag"
-type: organization
+type: nation
 scale: national
 alignment: lawful_neutral
 headquarters: "谢拉格·圣山与大典广场"
