@@ -108,22 +108,6 @@ export function useApi() {
       uploadMultipart(`/api/sessions/${sessionId}/resources/characters/${encodeURIComponent(name)}/${mediaType}`, {}, file),
     deleteSessionCharacterMedia: (sessionId: string, name: string, mediaType: string) =>
       request<any>(`/api/sessions/${sessionId}/resources/characters/${encodeURIComponent(name)}/${mediaType}`, { method: "DELETE" }),
-    listSessionDocs: (sessionId: string) =>
-      request<any>(`/api/sessions/${sessionId}/resources/docs`),
-    importSessionDoc: (sessionId: string, category: string, docPath: string) =>
-      request<any>(`/api/sessions/${sessionId}/resources/docs/import`, {
-        method: "POST",
-        body: JSON.stringify({ category, path: docPath }),
-      }),
-    getSessionDoc: (sessionId: string, docPath: string) =>
-      request<import("../types").SessionDocContentDTO>(`/api/sessions/${sessionId}/resources/docs/${docPath}`),
-    saveSessionDoc: (sessionId: string, docPath: string, content: string, metadata: Record<string, any> = {}) =>
-      request<any>(`/api/sessions/${sessionId}/resources/docs/${docPath}`, {
-        method: "PUT",
-        body: JSON.stringify({ content, metadata }),
-      }),
-    deleteSessionDoc: (sessionId: string, docPath: string) =>
-      request<any>(`/api/sessions/${sessionId}/resources/docs/${docPath}`, { method: "DELETE" }),
     exportSession: async (sessionId: string) => {
       // 导出会话存档 zip 并触发浏览器下载
       const base = await getBaseUrl();

@@ -6,9 +6,8 @@ data/memory/sessions/<mode>/<id>/）：
 
 - characters/<name>/avatar.<ext> | skin.<ext> | card_face.<ext>
     会话角色形象覆盖（媒体=覆盖式：只存被替换的图，删覆盖即还原全局）
-- docs/                                会话文档副本（文档=副本式：改会话不碰全局）
 
-解析优先：会话覆盖/副本 > 全局（角色媒体见 blueprints/scene.py 的
+解析优先：会话覆盖 > 全局（角色媒体见 blueprints/scene.py 的
 avatar/skin/card-face 端点；背景覆盖见 combat_data_loader.resolve_background）。
 """
 
@@ -34,11 +33,6 @@ def session_resources_dir(session_dir: str | Path) -> Path:
 def session_media_dir(session_dir: str | Path, name: str) -> Path:
     """会话角色形象覆盖目录：<session_dir>/resources/characters/<name>"""
     return session_resources_dir(session_dir) / "characters" / name
-
-
-def session_docs_dir(session_dir: str | Path) -> Path:
-    """会话文档副本目录：<session_dir>/resources/docs"""
-    return session_resources_dir(session_dir) / "docs"
 
 
 def normalize_media_type(media_type: str) -> str:

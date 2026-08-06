@@ -4,7 +4,6 @@ import { useApi } from "../../hooks/useApi";
 import type {
   SessionResourcesDTO,
   SessionResourceDTO,
-  SessionResourceDocDTO,
 } from "../../types";
 
 const MEDIA_LABEL: Record<string, string> = {
@@ -62,12 +61,6 @@ export default function SessionResourcePanel() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
-  const [newDocPath, setNewDocPath] = useState("");
-  const [importDocPath, setImportDocPath] = useState("");
-  // 当前编辑的会话文档副本
-  const [editingDoc, setEditingDoc] = useState<SessionResourceDocDTO | null>(null);
-  const [editContent, setEditContent] = useState("");
-  const [editLoading, setEditLoading] = useState(false);
 
   const load = useCallback(async () => {
     if (!activeSessionId) {
@@ -146,87 +139,6 @@ export default function SessionResourcePanel() {
       await refresh();
     } catch (err: any) {
       alert("删除失败: " + err.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const openDoc = async (doc: SessionResourceDocDTO) => {
-    if (!activeSessionId) return;
-    setEditingDoc(doc);
-    setEditLoading(true);
-    try {
-      const d = await api.getSessionDoc(activeSessionId, doc.path);
-      setEditContent(d.content);
-    } catch (err: any) {
-      alert("读取失败: " + err.message);
-      setEditingDoc(null);
-    } finally {
-      setEditLoading(false);
-    }
-  };
-
-  const saveDoc = async () => {
-    if (!activeSessionId || !editingDoc) return;
-    setBusy(true);
-    try {
-      await api.saveSessionDoc(activeSessionId, editingDoc.path, editContent, {});
-      await load();
-    } catch (err: any) {
-      alert("保存失败: " + err.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const deleteDoc = async (doc: SessionResourceDocDTO) => {
-    if (!activeSessionId) return;
-    if (!window.confirm(`删除会话文档副本「${doc.path}」？（全局文档不受影响）`)) return;
-    setBusy(true);
-    try {
-      await api.deleteSessionDoc(activeSessionId, doc.path);
-      if (editingDoc?.path === doc.path) setEditingDoc(null);
-      await load();
-    } catch (err: any) {
-      alert("删除失败: " + err.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const createDoc = async () => {
-    if (!activeSessionId || !newDocPath.trim()) return;
-    const path = newDocPath.trim();
-    setBusy(true);
-    try {
-      await api.saveSessionDoc(activeSessionId, path, "", {});
-      setNewDocPath("");
-      await load();
-    } catch (err: any) {
-      alert("新建失败: " + err.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const importDoc = async () => {
-    if (!activeSessionId || !importDocPath.trim()) return;
-    const raw = importDocPath.trim();
-    // 格式：category/path 或 category/path.md
-    const slash = raw.indexOf("/");
-    if (slash <= 0) {
-      alert("请输入「类别/路径」，如 characters/银灰");
-      return;
-    }
-    const category = raw.slice(0, slash);
-    const docPath = raw.slice(slash + 1).replace(/\.md$/i, "");
-    setBusy(true);
-    try {
-      await api.importSessionDoc(activeSessionId, category, docPath);
-      setImportDocPath("");
-      await load();
-    } catch (err: any) {
-      alert("导入失败: " + err.message);
     } finally {
       setBusy(false);
     }
@@ -479,109 +391,6 @@ export default function SessionResourcePanel() {
                 </div>
               );
             })}
-          </div>
-        )}
-      </section>
-
-      {/* ── 会话文档副本 ── */}
-      <section>
-        <h3 className="text-xs font-semibold text-gray-400 mb-2">会话文档</h3>
-        <p className="text-gray-600 text-[11px] mb-2">
-          会话内文档副本，编辑不影响全局原文。
-        </p>
-        <div className="flex gap-1 mb-2">
-          <input
-            value={newDocPath}
-            onChange={(e) => setNewDocPath(e.target.value)}
-            placeholder="新建路径，如 characters/我的设定"
-            className="flex-1 min-w-0 bg-gray-800 rounded px-2 py-1 text-xs text-gray-200 placeholder-gray-600"
-          />
-          <button
-            disabled={busy || !newDocPath.trim()}
-            onClick={createDoc}
-            className="text-[10px] px-2 py-1 rounded bg-green-700/30 text-green-300 hover:bg-green-700/50"
-          >
-            新建
-          </button>
-        </div>
-        <div className="flex gap-1 mb-2">
-          <input
-            value={importDocPath}
-            onChange={(e) => setImportDocPath(e.target.value)}
-            placeholder="从全局导入，如 characters/银灰"
-            className="flex-1 min-w-0 bg-gray-800 rounded px-2 py-1 text-xs text-gray-200 placeholder-gray-600"
-          />
-          <button
-            disabled={busy || !importDocPath.trim()}
-            onClick={importDoc}
-            className="text-[10px] px-2 py-1 rounded bg-violet-700/30 text-violet-300 hover:bg-violet-700/50"
-          >
-            导入
-          </button>
-        </div>
-
-        {data && data.docs.length > 0 && (
-          <div className="space-y-1">
-            {data.docs.map((doc) => (
-              <div
-                key={doc.path}
-                className="flex items-center justify-between px-2 py-1.5 rounded bg-gray-800/50 text-xs"
-              >
-                <button
-                  className="truncate text-left text-gray-200 hover:text-blue-300"
-                  onClick={() => openDoc(doc)}
-                  title={doc.path}
-                >
-                  {doc.path}
-                </button>
-                <div className="flex gap-1 shrink-0 ml-2">
-                  <button
-                    onClick={() => openDoc(doc)}
-                    className="text-[10px] text-gray-400 hover:text-blue-300"
-                  >
-                    编辑
-                  </button>
-                  <button
-                    onClick={() => deleteDoc(doc)}
-                    className="text-[10px] text-gray-400 hover:text-red-400"
-                  >
-                    删除
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {editingDoc && (
-          <div className="mt-2 border border-gray-700 rounded p-2">
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[11px] text-gray-400 truncate">{editingDoc.path}</span>
-              <button
-                onClick={() => setEditingDoc(null)}
-                className="text-[10px] text-gray-500 hover:text-gray-300"
-              >
-                关闭
-              </button>
-            </div>
-            {editLoading ? (
-              <p className="text-gray-500 text-xs">加载中...</p>
-            ) : (
-              <>
-                <textarea
-                  value={editContent}
-                  onChange={(e) => setEditContent(e.target.value)}
-                  className="w-full h-40 bg-gray-900 rounded p-2 text-xs text-gray-200 font-mono resize-y"
-                />
-                <button
-                  disabled={busy}
-                  onClick={saveDoc}
-                  className="mt-1.5 text-[10px] px-2 py-1 rounded bg-blue-700/40 text-blue-200 hover:bg-blue-700/60"
-                >
-                  保存副本
-                </button>
-              </>
-            )}
           </div>
         )}
       </section>

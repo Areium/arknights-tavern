@@ -425,13 +425,6 @@ export interface SessionResourceDTO {
   has_global: boolean;
 }
 
-/** 会话文档副本条目 */
-export interface SessionResourceDocDTO {
-  path: string;
-  name: string;
-  size: number;
-}
-
 /** 会话资源总览（GET /api/sessions/<id>/resources） */
 export interface SessionResourcesDTO {
   session_id: string;
@@ -439,14 +432,6 @@ export interface SessionResourcesDTO {
   available_background_ids: string[];
   character_media: SessionResourceDTO[];
   scene_characters: string[];
-  docs: SessionResourceDocDTO[];
   resources_dir: string;
   backgrounds_dir: string;
-}
-
-/** 会话文档副本内容 */
-export interface SessionDocContentDTO {
-  path: string;
-  content: string;
-  metadata: Record<string, any>;
 }

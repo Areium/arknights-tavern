@@ -25,37 +25,6 @@ _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _REPO_ROOT = Path(_project_root).parent
 
 
-def _session_docs_dir(session_dir: Path) -> Path:
-    """会话文档副本目录：<session_dir>/resources/docs。"""
-    return Path(session_dir) / "resources" / "docs"
-
-
-def _list_session_docs(session_dir: Path) -> list[dict]:
-    """枚举会话文档副本（resources/docs/ 下 .md 文件，路径不含 .md）。"""
-    docs_dir = _session_docs_dir(session_dir)
-    if not docs_dir.is_dir():
-        return []
-    result = []
-    for f in sorted(docs_dir.rglob("*.md")):
-        rel = f.relative_to(docs_dir)
-        result.append({
-            "path": rel.with_suffix("").as_posix(),
-            "name": f.name,
-            "size": f.stat().st_size,
-        })
-    return result
-
-
-def _resolve_session_doc_path(session_dir: Path, doc_path: str) -> Path | None:
-    """把会话文档相对路径解析为安全绝对路径（防路径穿越），目录不存在则创建。"""
-    docs_dir = _session_docs_dir(session_dir)
-    docs_dir.mkdir(parents=True, exist_ok=True)
-    target = (docs_dir / doc_path).resolve()
-    if not str(target).startswith(str(docs_dir.resolve()) + os.sep):
-        return None
-    return target
-
-
 def _load_plot_opening(session, plot_id: str):
     """加载剧情的开场配置到会话中。
 
@@ -116,7 +85,6 @@ def _load_plot_opening(session, plot_id: str):
 def register(app, managers):
     bp = Blueprint("sessions", __name__)
     session_mgr = managers["session"]
-    doc_mgr = managers["document"]
 
     # ── 会话 CRUD ──
 
@@ -283,16 +251,12 @@ def register(app, managers):
                 "has_global": True,
             })
 
-        # 会话文档副本
-        docs = _list_session_docs(session_dir)
-
         return jsonify({
             "session_id": session_id,
             "backgrounds": backgrounds,
             "available_background_ids": loader.list_background_ids(),
             "character_media": character_media,
             "scene_characters": list(session.scene_manager.get_scene_characters()),
-            "docs": docs,
             "resources_dir": str(session_resources_dir(session_dir)),
             "backgrounds_dir": str(bg_dir),
         })
@@ -415,103 +379,6 @@ def register(app, managers):
         if not removed:
             return json_error("该角色没有此类型的会话形象覆盖", 404)
         return jsonify({"message": "已删除，还原为全局形象", "key": name, "media_type": media_type})
-
-    # ── 会话文档副本 ──
-
-    @bp.route("/api/sessions/<session_id>/resources/docs", methods=["GET"])
-    def session_docs_list(session_id: str):
-        """列出会话文档副本。"""
-        session = session_mgr.get_session(session_id)
-        if not session:
-            return json_error("会话不存在", 404)
-        return jsonify({"docs": _list_session_docs(Path(session.data_dir))})
-
-    @bp.route("/api/sessions/<session_id>/resources/docs/import", methods=["POST"])
-    def session_docs_import(session_id: str):
-        """从全局文档复制到会话副本（全局无损）。body: {category, path}"""
-        session = session_mgr.get_session(session_id)
-        if not session:
-            return json_error("会话不存在", 404)
-        data = request.json or {}
-        category = (data.get("category") or "").strip()
-        doc_path = (data.get("path") or "").strip()
-        if not category or not doc_path:
-            return json_error("需要 category 和 path")
-        from document_manager import DocumentNotFoundError
-        try:
-            doc = doc_mgr.read_document(category, doc_path)
-        except DocumentNotFoundError:
-            return json_error("全局文档不存在", 404)
-
-        target = _resolve_session_doc_path(Path(session.data_dir),
-                                           f"{category}/{doc_path}.md")
-        if not target:
-            return json_error("非法的文档路径", 403)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        post = frontmatter.Post(doc["content"], **doc["metadata"])
-        target.write_text(frontmatter.dumps(post), encoding="utf-8")
-        return jsonify({
-            "message": "已导入会话副本",
-            "path": f"{category}/{doc_path}",
-        }), 201
-
-    @bp.route("/api/sessions/<session_id>/resources/docs/<path:doc_path>", methods=["GET"])
-    def session_docs_read(session_id: str, doc_path: str):
-        """读取会话文档副本（含 frontmatter 元数据）。"""
-        session = session_mgr.get_session(session_id)
-        if not session:
-            return json_error("会话不存在", 404)
-        target = _resolve_session_doc_path(Path(session.data_dir), f"{doc_path}.md")
-        if not target or not target.is_file():
-            return json_error("会话文档不存在", 404)
-        try:
-            post = frontmatter.loads(target.read_text(encoding="utf-8"))
-        except Exception:
-            return json_error("文档解析失败", 500)
-        return jsonify({
-            "path": doc_path,
-            "content": post.content,
-            "metadata": post.metadata,
-        })
-
-    @bp.route("/api/sessions/<session_id>/resources/docs/<path:doc_path>", methods=["PUT"])
-    def session_docs_save(session_id: str, doc_path: str):
-        """保存会话文档副本（仅影响会话，不碰全局）。"""
-        session = session_mgr.get_session(session_id)
-        if not session:
-            return json_error("会话不存在", 404)
-        data = request.json or {}
-        content = data.get("content", "")
-        metadata = data.get("metadata") or {}
-        target = _resolve_session_doc_path(Path(session.data_dir), f"{doc_path}.md")
-        if not target:
-            return json_error("非法的文档路径", 403)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        post = frontmatter.Post(content, **metadata)
-        target.write_text(frontmatter.dumps(post), encoding="utf-8")
-        return jsonify({"message": "已保存会话文档", "path": doc_path})
-
-    @bp.route("/api/sessions/<session_id>/resources/docs/<path:doc_path>", methods=["DELETE"])
-    def session_docs_delete(session_id: str, doc_path: str):
-        """删除会话文档副本（全局无损）。"""
-        session = session_mgr.get_session(session_id)
-        if not session:
-            return json_error("会话不存在", 404)
-        target = _resolve_session_doc_path(Path(session.data_dir), f"{doc_path}.md")
-        if not target or not target.is_file():
-            return json_error("会话文档不存在", 404)
-        target.unlink()
-        try:
-            parent = target.parent
-            docs_root = _session_docs_dir(Path(session.data_dir))
-            while parent != docs_root and str(parent).startswith(str(docs_root) + os.sep):
-                if any(parent.iterdir()):
-                    break
-                parent.rmdir()
-                parent = parent.parent
-        except OSError:
-            pass
-        return jsonify({"message": "已删除会话文档", "path": doc_path})
 
     # ── 会话存档导入导出 ──
 
