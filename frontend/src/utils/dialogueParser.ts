@@ -69,6 +69,48 @@ export function parseDialogue(
 }
 
 /**
+ * Normalize dialogue segments before rendering — LLM 输出的结构化片段
+ * 可能缺字段/含非法类型，这里做容错规范化：
+ * - 过滤 text 为空或非字符串的段
+ * - dialogue 缺 speaker 时继承上一条 dialogue 的说话人（连续对话场景）
+ * - 未知 type 降级为叙述，避免产生错误气泡
+ */
+export function normalizeSegments(
+  segments: ReadonlyArray<{ type?: string; text?: unknown; speaker?: unknown }>,
+): DialogueSegment[] {
+  if (!Array.isArray(segments)) return [];
+  const result: DialogueSegment[] = [];
+  let lastSpeaker: string | undefined;
+
+  for (const seg of segments) {
+    if (!seg || typeof seg !== "object") continue;
+    const text = typeof seg.text === "string" ? seg.text.trim() : "";
+    if (!text) continue;
+
+    if (seg.type === "narration") {
+      result.push({ type: "narration", text });
+      continue;
+    }
+
+    if (seg.type === "dialogue") {
+      let speaker =
+        typeof seg.speaker === "string" && seg.speaker.trim()
+          ? seg.speaker.trim()
+          : undefined;
+      if (!speaker) speaker = lastSpeaker;
+      if (speaker) lastSpeaker = speaker;
+      result.push({ type: "dialogue", text, speaker });
+      continue;
+    }
+
+    // 未知 type：降级为叙述，避免渲染出错误气泡
+    result.push({ type: "narration", text });
+  }
+
+  return result;
+}
+
+/**
  * Find a scene character name in the text preceding 「.
  * Searches the entire preceding text, preferring the name closest
  * to the dialogue bracket.

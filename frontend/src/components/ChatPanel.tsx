@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useAppStore } from "../stores/appStore";
 import { useApi, createSSE } from "../hooks/useApi";
-import { parseDialogue } from "../utils/dialogueParser";
+import { parseDialogue, normalizeSegments } from "../utils/dialogueParser";
 import type { ChatMessage } from "../types";
 import DialogueBubble from "./chat/DialogueBubble";
 import NarrationText from "./chat/NarrationText";
@@ -527,6 +527,8 @@ export default function ChatPanel() {
     if (!segments || segments.length === 0) {
       segments = parseDialogue(msg.content, msg.character, sceneCharacters);
     }
+    // 容错规范化：过滤空段、dialogue 缺 speaker 继承上下文、未知 type 降级叙述
+    segments = normalizeSegments(segments);
     const hasDialogue = segments.some((s) => s.type === "dialogue");
     if (!hasDialogue) {
       return <div className="whitespace-pre-wrap">{msg.content}</div>;
