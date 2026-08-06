@@ -13,6 +13,8 @@ from shared.helpers import json_error
 
 logger = logging.getLogger(__name__)
 
+_SESSION_BG_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
+
 # Project root = src/ (from blueprints/sessions.py)
 _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Repository root for data/ access
@@ -173,6 +175,27 @@ def register(app, managers):
             "message": "自定义提示词已更新",
             "custom_prompt": session_obj.overlay.get_custom_prompt(),
         })
+
+    @bp.route("/api/sessions/<session_id>/backgrounds/<path:filename>", methods=["GET"])
+    def session_background(session_id: str, filename: str):
+        """会话级战斗背景覆盖图：data/memory/sessions/<mode>/<id>/backgrounds/<file>。"""
+        from flask import send_from_directory
+
+        sessions_dir = _REPO_ROOT / "data" / "memory" / "sessions"
+        safe_name = filename.replace("\\", "/")
+        for mode in ("story", "free"):
+            bg_dir = sessions_dir / mode / session_id / "backgrounds"
+            if not bg_dir.is_dir():
+                continue
+            filepath = (bg_dir / safe_name).resolve()
+            # 防路径穿越
+            if not str(filepath).startswith(str(bg_dir.resolve()) + os.sep):
+                return json_error("无效的文件路径", 403)
+            if filepath.suffix.lower() not in _SESSION_BG_EXTS:
+                return json_error("不允许的文件类型", 403)
+            if filepath.is_file():
+                return send_from_directory(str(bg_dir), safe_name)
+        return json_error("文件不存在", 404)
 
     # ── 剧情列表 ──
 

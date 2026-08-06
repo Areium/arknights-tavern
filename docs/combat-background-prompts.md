@@ -118,3 +118,18 @@ Arknights style anime background art, frozen tundra of Ursus under a blizzard, b
 3. 把 index.md 的 `image` 字段改为图片文件名——下一次进入相关战斗即生效
 
 也可以运行 `python tools/generate_combat_backgrounds.py --dry-run`，把所有缺图背景的提示词打印出来，逐条粘贴到自己顺手的生图工具里。
+
+### 单个会话：会话级覆盖（不调全局）
+
+每个会话有独立背景目录（会话详情接口 `backgrounds_dir` 字段给出绝对路径）：
+
+```
+data/memory/sessions/<story|free>/<会话ID>/backgrounds/
+```
+
+直接把图片文件丢进去即可，按文件名生效：
+
+- `<bg_id>.jpg`（如 `wasteland_ruins.jpg`）——替换该场战斗中对应 ID 的背景
+- `default.jpg`——替换本会话的兜底背景
+
+适合边玩边换：生成一张图 → 放进目录 → 下一场战斗自动用上，不影响其他会话和全局条目。完整选用优先级：**会话覆盖图 > 全局图**，同一背景 ID 内先查会话目录；背景 ID 本身仍按「遭遇战 `background` → 地点 `combat_bg` → default」确定。

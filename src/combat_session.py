@@ -42,6 +42,7 @@ class CombatSession:
         self._character_metas: list[dict] = []
         self._encounter_id: str = ""
         self._background_url: str | None = None
+        self._session_dir: str = ""
         self.last_activity_at: float = time.time()
 
     # ── Setup ──
@@ -51,7 +52,8 @@ class CombatSession:
               character_metas: list[dict] = None,
               enemies_override: list[dict] = None,
               combat_params: dict = None,
-              location: str = "") -> dict:
+              location: str = "",
+              session_dir: str = "") -> dict:
         """Initialize a battle from an encounter definition and character list.
 
         Args:
@@ -65,6 +67,8 @@ class CombatSession:
                            - status_effects: {name: {hp_penalty, atk_bonus, def_penalty}}
             location: Current narrative location name, used to resolve the
                       combat background when the encounter doesn't specify one.
+            session_dir: Owning session's data directory; its backgrounds/
+                      subfolder can override global background images.
 
         Returns:
             dict: Initial combat state snapshot.
@@ -74,7 +78,9 @@ class CombatSession:
             raise ValueError(f"Encounter not found: {encounter_id}")
 
         self._encounter_id = encounter_id
-        self._background_url = self.loader.resolve_background(encounter, location)
+        self._session_dir = session_dir
+        self._background_url = self.loader.resolve_background(
+            encounter, location, session_dir=session_dir, session_id=self.session_id)
         self.engine = CombatEngine()
 
         # Events flow through _flush_engine_events() only — no on_event callback

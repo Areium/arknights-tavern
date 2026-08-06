@@ -148,6 +148,8 @@ cd frontend && npm run dev
 
 **战斗背景**：战斗界面会按场景显示背景图——遭遇战配置（`background` 字段）优先，其次取当前剧情地点（`combat_bg` 字段），都没有则用默认背景。背景图存放于 `data/combat/backgrounds/`，可用 `python tools/generate_combat_backgrounds.py` 通过 AI 批量生成（详见 `docs/combat-background-prompts.md`）。
 
+**会话级背景覆盖**：每个会话有自己的背景目录 `data/memory/sessions/<模式>/<会话ID>/backgrounds/`（会话详情接口的 `backgrounds_dir` 字段返回该路径）。直接把图片放进去即可覆盖本场战斗的背景——文件名对应背景 ID（如 `wasteland_ruins.jpg` 替换该背景，`default.jpg` 替换兜底背景），只影响当前会话，不改动全局资源。
+
 ## 架构概览
 
 ```

@@ -16,6 +16,14 @@
 
 ## 更新记录
 
+### 2026-08-06 — 会话级战斗背景覆盖
+
+- 每个会话新增背景覆盖目录 `data/memory/sessions/<mode>/<session_id>/backgrounds/`：丢入 `<bg_id>.<ext>` 替换对应背景、`default.<ext>` 替换兜底背景，只影响当前会话
+- 选用优先级变为：会话覆盖图 > 全局图；背景 ID 仍按「遭遇战 `background` → 地点 `combat_bg` → default」确定
+- `resolve_background()` 新增 `session_dir`/`session_id` 参数；`CombatSession.start()` 接收会话数据目录；`Session.data_dir` 属性统一会话路径
+- 会话详情接口新增 `backgrounds_dir` 字段（绝对路径，方便用户直接打开目录放图）
+- 新增路由 `GET /api/sessions/<id>/backgrounds/<file>` 提供会话覆盖图（含路径穿越与文件类型防护）
+
 ### 2026-08-06 — 战斗背景系统 + AI 生成工作流
 
 - 战斗界面支持场景背景图：根容器由纯色改为 `backgroundImage` + 压暗渐变遮罩（顶/底压暗保证文字与手牌可读，中部露出画面），无图时回退原纯色

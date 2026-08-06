@@ -120,6 +120,11 @@ class Session:
 
     # ── 回忆系统 ──
 
+    @property
+    def data_dir(self) -> Path:
+        """会话数据目录（记忆存档、会话文档、会话级资源覆盖）。"""
+        return _SESSIONS_DIR / self.mode / self.id
+
     def _memories_path(self) -> Path:
         return _SESSIONS_DIR / self.mode / self.id / "memories.json"
 
@@ -173,7 +178,8 @@ class Session:
         combat = CombatSession(self.id)
         combat.start(encounter_id, character_names=character_names,
                      character_metas=character_metas, combat_params=combat_params,
-                     location=self.environment.location or "")
+                     location=self.environment.location or "",
+                     session_dir=str(self.data_dir))
         self.combat = combat
         return combat
 
@@ -454,6 +460,7 @@ class Session:
             "overridden_items": overridden_items,
             "narration_count": self.narration_count,
             "total_usage": self.total_usage,
+            "backgrounds_dir": str(self.data_dir / "backgrounds"),
             "in_combat": self.combat is not None,
             "combat": self.combat.get_state() if self.combat else None,
         }

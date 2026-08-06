@@ -121,12 +121,16 @@ class CombatDataLoader:
         return None
 
     def resolve_background(self, encounter: dict | None,
-                           location_name: str = "") -> str | None:
+                           location_name: str = "",
+                           session_dir: str | Path | None = None,
+                           session_id: str = "") -> str | None:
         """Pick the combat background image URL.
 
         Priority: encounter `background` field → location doc `combat_bg`
-        field → the "default" background. Returns None when no candidate
-        has an image (frontend falls back to the solid background color).
+        field → the "default" background. At each level, a session-local
+        override (<session_dir>/backgrounds/<bg_id>.<ext>) wins over the
+        global image. Returns None when no candidate has an image
+        (frontend falls back to the solid background color).
         """
         bg_id = str((encounter or {}).get("background") or "")
         if not bg_id and location_name:
@@ -137,9 +141,23 @@ class CombatDataLoader:
             candidates.append(self._DEFAULT_BG_ID)
 
         for cand in candidates:
+            if session_dir and session_id:
+                url = self._session_background_url(Path(session_dir), session_id, cand)
+                if url:
+                    return url
             url = self.background_image_url(cand)
             if url:
                 return url
+        return None
+
+    def _session_background_url(self, session_dir: Path, session_id: str,
+                                bg_id: str) -> str | None:
+        """Session-local override: <session_dir>/backgrounds/<bg_id>.<ext>."""
+        bg_dir = session_dir / "backgrounds"
+        for ext in self._BG_IMAGE_EXTS:
+            f = bg_dir / f"{bg_id}{ext}"
+            if f.is_file():
+                return f"/api/sessions/{session_id}/backgrounds/{f.name}"
         return None
 
     def _location_combat_bg(self, location_name: str) -> str:
