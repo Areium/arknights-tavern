@@ -332,9 +332,28 @@ def register(app, managers):
 
         return jsonify(result)
 
+    def _session_media_override(session_id, name: str, media_type: str):
+        """会话角色形象覆盖优先：resources/characters/<name>/<type>.<ext>。
+
+        命中返回 (directory, basename)，否则 None（回退全局媒体）。
+        """
+        if not session_id:
+            return None
+        session = _get_session(session_mgr, session_id)
+        if not session:
+            return None
+        from session_resources import find_session_media_path
+        override = find_session_media_path(session.data_dir, name, media_type)
+        if not override:
+            return None
+        return os.path.dirname(override), os.path.basename(override)
+
     # 角色头像
     @bp.route("/api/characters/<name>/avatar")
     def character_avatar(name: str):
+        override = _session_media_override(request.args.get("session_id"), name, "avatar")
+        if override:
+            return send_from_directory(override[0], override[1])
         path = find_avatar_path(name)
         if not path:
             abort(404)
@@ -346,6 +365,9 @@ def register(app, managers):
     @bp.route("/api/characters/<name>/skin")
     def character_skin(name: str):
         from avatar_color import find_skin_path
+        override = _session_media_override(request.args.get("session_id"), name, "skin")
+        if override:
+            return send_from_directory(override[0], override[1])
         path = find_skin_path(name)
         if not path:
             abort(404)
@@ -357,6 +379,9 @@ def register(app, managers):
     @bp.route("/api/characters/<name>/card-face")
     def character_card_face(name: str):
         from avatar_color import find_card_face_path
+        override = _session_media_override(request.args.get("session_id"), name, "card_face")
+        if override:
+            return send_from_directory(override[0], override[1])
         path = find_card_face_path(name)
         if not path:
             abort(404)

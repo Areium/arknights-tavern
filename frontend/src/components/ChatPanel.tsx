@@ -19,7 +19,7 @@ function filterSceneLog(log: string[]): string[] {
 }
 
 export default function ChatPanel() {
-  const { activeSessionId, chatMode, sessions, setSessions, triggerEnvRefresh, triggerMemoryRefresh, chatRefreshKey, characterRefreshKey, editBeforeSend, sceneSwitchKey, dialogueBubbleMode, currentView, setCurrentView, setCombatContext, pendingAutoNarrate, setPendingAutoNarrate } = useAppStore();
+  const { activeSessionId, chatMode, sessions, setSessions, triggerEnvRefresh, triggerMemoryRefresh, chatRefreshKey, characterRefreshKey, editBeforeSend, sceneSwitchKey, dialogueBubbleMode, currentView, setCurrentView, setCombatContext, pendingAutoNarrate, setPendingAutoNarrate, resourcePanelOpen, setResourcePanelOpen } = useAppStore();
   const activeMode = sessions.find((s) => s.id === activeSessionId)?.mode || "free";
 
   const sceneCharacters: string[] = (() => {
@@ -544,6 +544,7 @@ export default function ChatPanel() {
               text={seg.text}
               speaker={seg.speaker}
               color={characterColors[seg.speaker]}
+              sessionId={activeSessionId ?? undefined}
             />
           );
         })}
@@ -588,6 +589,17 @@ export default function ChatPanel() {
             )}
           </div>
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => setResourcePanelOpen(!resourcePanelOpen)}
+              className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${
+                resourcePanelOpen
+                  ? "bg-blue-700/50 text-blue-200 hover:bg-blue-700/60"
+                  : "bg-blue-700/30 text-blue-300 hover:bg-blue-700/50"
+              }`}
+              title="会话资源管理（可折叠面板）"
+            >
+              🗂
+            </button>
             <button
               onClick={() => setCustomPromptOpen(true)}
               className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${

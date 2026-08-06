@@ -73,6 +73,13 @@ interface AppState {
   indexSessionId: string | null;
   setIndexSessionId: (id: string | null) => void;
 
+  // 会话资源面板（右侧可折叠）
+  resourcePanelOpen: boolean;
+  setResourcePanelOpen: (open: boolean) => void;
+  // 会话覆盖图缓存爆破（上传/删除覆盖后 +1，通知头像等刷新）
+  resourceVersion: number;
+  bumpResourceVersion: () => void;
+
   // 战斗
   combatContext: CombatContext;
   setCombatContext: (partial: Partial<CombatContext> | null) => void;
@@ -156,6 +163,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   // 索引管理跳转
   indexSessionId: null,
   setIndexSessionId: (id) => set({ indexSessionId: id }),
+
+  // 会话资源面板
+  resourcePanelOpen: false,
+  setResourcePanelOpen: (open) => set({ resourcePanelOpen: open }),
+  resourceVersion: 0,
+  bumpResourceVersion: () => set((state) => ({ resourceVersion: state.resourceVersion + 1 })),
 
   // 战斗
   combatContext: {

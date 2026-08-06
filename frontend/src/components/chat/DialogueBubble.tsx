@@ -10,13 +10,15 @@ interface DialogueBubbleProps {
   text: string;
   speaker?: string;
   color?: string;
+  /** 会话 ID：传入时头像走会话覆盖（会话优先，回退全局） */
+  sessionId?: string;
 }
 
 const FALLBACK_NAME_COLOR = "#d8b4fe";
 const FALLBACK_BG = "rgba(88, 28, 135, 0.25)";
 const FALLBACK_BORDER = "rgba(147, 51, 234, 0.3)";
 
-export default function DialogueBubble({ text, speaker, color }: DialogueBubbleProps) {
+export default function DialogueBubble({ text, speaker, color, sessionId }: DialogueBubbleProps) {
   const isUnknown = !speaker;
 
   const rgb = color ? hexToRgb(color) : null;
@@ -33,7 +35,7 @@ export default function DialogueBubble({ text, speaker, color }: DialogueBubbleP
       {isUnknown ? (
         <div className="w-8 h-8 rounded-full flex-shrink-0 border border-dashed border-gray-600/50" />
       ) : (
-        <AvatarPlaceholder name={speaker!} size="sm" />
+        <AvatarPlaceholder name={speaker!} size="sm" sessionId={sessionId} />
       )}
 
       <div className="flex flex-col max-w-[75%]">

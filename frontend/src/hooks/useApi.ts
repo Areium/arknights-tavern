@@ -15,6 +15,21 @@ async function getBaseUrl(): Promise<string> {
   return FALLBACK_URL;
 }
 
+async function uploadMultipart(path: string, fields: Record<string, string>, file: File): Promise<any> {
+  const base = await getBaseUrl();
+  const formData = new FormData();
+  for (const [k, v] of Object.entries(fields)) formData.append(k, v);
+  formData.append("file", file);
+  const res = await fetch(`${base}${path}`, { method: "POST", body: formData });
+  if (!res.ok) {
+    const body = await res.text();
+    let message: string;
+    try { message = JSON.parse(body).error || body; } catch { message = body; }
+    throw new Error(message || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 const REQUEST_TIMEOUT = 60000; // 60s — needs headroom for dual LLM calls (narrate + dialogue restructure)
 
 async function request<T>(
@@ -81,6 +96,59 @@ export function useApi() {
         method: "PUT",
         body: JSON.stringify({ prompt }),
       }),
+
+    // ── 会话资源空间（背景覆盖 + 角色形象覆盖 + 文档副本） ──
+    getSessionResources: (sessionId: string) =>
+      request<import("../types").SessionResourcesDTO>(`/api/sessions/${sessionId}/resources`),
+    uploadSessionBackground: (sessionId: string, bgId: string, file: File) =>
+      uploadMultipart(`/api/sessions/${sessionId}/resources/backgrounds`, { bg_id: bgId }, file),
+    deleteSessionBackground: (sessionId: string, bgId: string) =>
+      request<any>(`/api/sessions/${sessionId}/resources/backgrounds/${encodeURIComponent(bgId)}`, { method: "DELETE" }),
+    uploadSessionCharacterMedia: (sessionId: string, name: string, mediaType: string, file: File) =>
+      uploadMultipart(`/api/sessions/${sessionId}/resources/characters/${encodeURIComponent(name)}/${mediaType}`, {}, file),
+    deleteSessionCharacterMedia: (sessionId: string, name: string, mediaType: string) =>
+      request<any>(`/api/sessions/${sessionId}/resources/characters/${encodeURIComponent(name)}/${mediaType}`, { method: "DELETE" }),
+    listSessionDocs: (sessionId: string) =>
+      request<any>(`/api/sessions/${sessionId}/resources/docs`),
+    importSessionDoc: (sessionId: string, category: string, docPath: string) =>
+      request<any>(`/api/sessions/${sessionId}/resources/docs/import`, {
+        method: "POST",
+        body: JSON.stringify({ category, path: docPath }),
+      }),
+    getSessionDoc: (sessionId: string, docPath: string) =>
+      request<import("../types").SessionDocContentDTO>(`/api/sessions/${sessionId}/resources/docs/${docPath}`),
+    saveSessionDoc: (sessionId: string, docPath: string, content: string, metadata: Record<string, any> = {}) =>
+      request<any>(`/api/sessions/${sessionId}/resources/docs/${docPath}`, {
+        method: "PUT",
+        body: JSON.stringify({ content, metadata }),
+      }),
+    deleteSessionDoc: (sessionId: string, docPath: string) =>
+      request<any>(`/api/sessions/${sessionId}/resources/docs/${docPath}`, { method: "DELETE" }),
+    exportSession: async (sessionId: string) => {
+      // 导出会话存档 zip 并触发浏览器下载
+      const base = await getBaseUrl();
+      const res = await fetch(`${base}/api/sessions/${sessionId}/export`);
+      if (!res.ok) {
+        const body = await res.text();
+        let message: string;
+        try { message = JSON.parse(body).error || body; } catch { message = body; }
+        throw new Error(message || `HTTP ${res.status}`);
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const m = disposition.match(/filename="?([^";]+)"?/i);
+      const filename = m?.[1] || `session-${sessionId}.zip`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    },
+    importSession: (file: File) =>
+      uploadMultipart("/api/sessions/import", {}, file),
 
     // ── 场景角色 ──
     getSceneCharacters: (sessionId: string) =>

@@ -614,6 +614,25 @@ class SessionManager:
         with self._lock:
             return self._sessions.get(session_id)
 
+    def import_session_dir(self, mode: str, session_id: str) -> Optional[Session]:
+        """从磁盘注册一个已放置的会话目录到内存（会话导入用）。"""
+        meta = self._read_session_meta(_SESSIONS_DIR / mode / session_id,
+                                       session_id, mode)
+        if not meta:
+            return None
+        _sid, _mode, name, created_at, combat_mode = meta
+        try:
+            session = Session(_sid, self._llm_backend, name=name, mode=_mode,
+                              combat_mode=combat_mode, wiki_manager=self._wiki_manager)
+        except Exception as e:
+            logger.warning("导入会话构造失败 %s/%s: %s", mode, session_id, e)
+            return None
+        session.created_at = created_at
+        with self._lock:
+            self._sessions[_sid] = session
+        logger.info("导入会话: %s (mode=%s)", _sid, _mode)
+        return session
+
     def delete_session(self, session_id: str) -> bool:
         """销毁会话（含覆盖数据）。"""
         with self._lock:

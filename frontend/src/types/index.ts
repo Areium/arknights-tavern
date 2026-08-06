@@ -407,3 +407,46 @@ export interface IndexVerifyResult {
   broken_refs: BrokenRefDoc[];
   mode?: string;
 }
+
+// ── 会话资源空间 ──
+
+/** 会话资源条目（背景覆盖 / 角色形象覆盖） */
+export interface SessionResourceDTO {
+  type: "background" | "character_media";
+  key: string;
+  /** character_media 时存在：avatar | skin | card_face */
+  media_type?: string;
+  name: string;
+  /** 会话覆盖图 URL（带 session_id，覆盖优先于全局） */
+  url: string;
+  /** 全局原图 URL（不带 session_id） */
+  global_url: string | null;
+  size: number;
+  has_global: boolean;
+}
+
+/** 会话文档副本条目 */
+export interface SessionResourceDocDTO {
+  path: string;
+  name: string;
+  size: number;
+}
+
+/** 会话资源总览（GET /api/sessions/<id>/resources） */
+export interface SessionResourcesDTO {
+  session_id: string;
+  backgrounds: SessionResourceDTO[];
+  available_background_ids: string[];
+  character_media: SessionResourceDTO[];
+  scene_characters: string[];
+  docs: SessionResourceDocDTO[];
+  resources_dir: string;
+  backgrounds_dir: string;
+}
+
+/** 会话文档副本内容 */
+export interface SessionDocContentDTO {
+  path: string;
+  content: string;
+  metadata: Record<string, any>;
+}

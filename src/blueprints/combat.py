@@ -155,6 +155,8 @@ def register(app, managers):
                 encounter_id,
                 character_metas=character_metas,
                 enemies_override=enemies_override,
+                location=session.environment.location or "",
+                session_dir=str(session.data_dir),
             )
             session.combat = combat
             return jsonify(state)

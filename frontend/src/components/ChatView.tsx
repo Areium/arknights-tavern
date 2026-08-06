@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useAppStore } from "../stores/appStore";
 import SessionList from "./SessionList";
 import CharacterPanel from "./CharacterPanel";
 import ItemPanel from "./ItemPanel";
@@ -8,8 +9,10 @@ import CharacterBrowser from "./CharacterBrowser";
 import ItemBrowser from "./ItemBrowser";
 import MemoryPanel from "./MemoryPanel";
 import QuestPanel from "./QuestPanel";
+import SessionResourcePanel from "./session/SessionResourcePanel";
 
 export default function ChatView() {
+  const resourcePanelOpen = useAppStore((s) => s.resourcePanelOpen);
   const [charBrowserOpen, setCharBrowserOpen] = useState(false);
   const [itemBrowserOpen, setItemBrowserOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -36,6 +39,9 @@ export default function ChatView() {
       <div className="flex-1 flex flex-col min-w-0">
         <ChatPanel />
       </div>
+
+      {/* Right panel: 会话资源（可折叠） */}
+      {resourcePanelOpen && <SessionResourcePanel />}
 
       {/* Character browser modal */}
       <CharacterBrowser

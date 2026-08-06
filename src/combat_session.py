@@ -452,6 +452,7 @@ class CombatSession:
             "active": True,
             "encounter_id": self._encounter_id,
             "session_id": self.session_id,
+            "session_dir": self._session_dir,
             "engine_state": {
                 "round_num": self.engine.state.round_num,
                 "phase": self.engine.state.phase,
@@ -470,6 +471,7 @@ class CombatSession:
         """Restore from a saved state."""
         cs = cls(session_id=data.get("session_id", ""))
         cs._encounter_id = data.get("encounter_id", "")
+        cs._session_dir = data.get("session_dir", "")
         cs._character_metas = data.get("character_metas", [])
 
         # Reconstruct engine
@@ -532,10 +534,12 @@ class CombatSession:
         cs.engine = engine
 
         # Re-resolve background (location context is not persisted; the
-        # encounter-level field or the default background still applies)
+        # encounter-level field or the default background still applies).
+        # Session-local overrides are restored via the persisted session_dir.
         if cs._encounter_id:
             encounter = cs.loader.load_encounter(cs._encounter_id)
-            cs._background_url = cs.loader.resolve_background(encounter)
+            cs._background_url = cs.loader.resolve_background(
+                encounter, session_dir=cs._session_dir, session_id=cs.session_id)
         return cs
 
 
