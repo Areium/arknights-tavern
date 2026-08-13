@@ -2,6 +2,20 @@ import { useMemo, useState } from "react";
 import MarkdownRenderer from "./MarkdownRenderer";
 import tutorialMd from "../../../docs/tutorial.md?raw";
 
+// 文档中的相对图片路径（images/xxx.jpg）→ Vite 打包后的资源 URL
+const imageUrls = import.meta.glob("../../../docs/images/*", {
+  eager: true,
+  query: "?url",
+  import: "default",
+}) as Record<string, string>;
+
+function resolveImages(md: string): string {
+  return md.replace(/!\[([^\]]*)\]\((images\/[^)]+)\)/g, (_m, alt, src) => {
+    const url = imageUrls["../../../docs/" + src];
+    return url ? "![" + alt + "](" + url + ")" : _m;
+  });
+}
+
 interface TocItem {
   id: string;
   text: string;
@@ -28,7 +42,8 @@ function extractToc(md: string): TocItem[] {
 }
 
 export default function DocsView() {
-  const toc = useMemo(() => extractToc(tutorialMd), []);
+  const content = useMemo(() => resolveImages(tutorialMd), []);
+  const toc = useMemo(() => extractToc(content), []);
   const [active, setActive] = useState<string>("");
 
   const scrollTo = (id: string, text: string) => {
@@ -66,7 +81,7 @@ export default function DocsView() {
       {/* 右侧正文 */}
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-6 py-6">
-          <MarkdownRenderer content={tutorialMd} />
+          <MarkdownRenderer content={content} clickableImages />
         </div>
       </div>
     </div>
