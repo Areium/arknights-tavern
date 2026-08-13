@@ -9,6 +9,7 @@ import DocumentManager from "./components/DocumentManager";
 import SettingsPanel from "./components/SettingsPanel";
 import IndexManager from "./components/IndexManager";
 import WorldBookManager from "./components/WorldBookManager";
+import DocsView from "./components/DocsView";
 
 export default function App() {
   const { currentView, setBackendStatus, setLLMStatus, setSessions, theme, setTheme, setEditBeforeSend, setDialogueBubbleMode } =
@@ -121,6 +122,8 @@ export default function App() {
         return <IndexManager />;
       case "worldbook":
         return <WorldBookManager />;
+      case "docs":
+        return <DocsView />;
     }
   };
 
