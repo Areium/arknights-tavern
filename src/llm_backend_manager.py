@@ -19,7 +19,7 @@ from typing import Optional
 
 import httpx
 
-from load_llm import ApiLLM, ApiModelConfig, LocalLLM, ModelConfig
+from load_llm import ApiLLM, ApiModelConfig, LLMError, LocalLLM, ModelConfig
 from providers import get_adapter
 
 logger = logging.getLogger(__name__)
@@ -115,12 +115,17 @@ class LLMBackendManager:
         self._lock = threading.Lock()
         self._last_fail_time: float = 0.0
         self._endpoint_fail_time: dict[str, float] = {}
+        self._verified_at: dict[str, float] = {}  # 端点最近一次健康检查通过时间
         self._detected = False
         self._provider: str = "auto"
         self._enable_thinking: bool = False
         self._reasoning_effort: str = "medium"
         self._ensure_config()
         self._load_config()
+
+    # 健康检查 TTL：DSH 式「信任路由，真实失败驱动降级」——ping 只作为
+    # 低频探活（每端点每 120s 至多一次），而非每次取实例都测一次。
+    VERIFY_TTL = 120.0
 
     @staticmethod
     def _ensure_config():
@@ -321,6 +326,10 @@ class LLMBackendManager:
     def get_llm(self) -> tuple[ApiLLM | LocalLLM | None, str]:
         """获取当前可用的 LLM 实例。
 
+        DSH 式路由：信任近期验证过的端点直接返回实例（不每次 ping）；
+        真实调用失败由客户端 on_failure 回调标记降级冷却；
+        健康检查仅在验证缓存过期时低频执行一次。
+
         Returns:
             tuple[ApiLLM | LocalLLM | None, str]: (llm 实例, 使用中的后端 id)
             均不可用时返回 (None, "")。
@@ -339,23 +348,28 @@ class LLMBackendManager:
             candidates.append((ep, role))
 
         for ep, role in candidates:
+            # 验证缓存未过期：跳过 ping，直接返回实例（真实失败会标记端点）
+            if now - self._verified_at.get(ep.id, 0.0) < self.VERIFY_TTL:
+                try:
+                    return self._instantiate(ep), ep.id
+                except Exception:
+                    self._endpoint_fail_time[ep.id] = now
+                    continue
+
             try:
                 llm = self._instantiate(ep)
-                if llm:
-                    test = llm.chat([{"role": "user", "content": "."}], max_tokens=1)
-                    test_text = test.get("content", "") if isinstance(test, dict) else str(test)
-                    # Thinking models may return empty content (output in reasoning_content).
-                    # Accept if HTTP 200 with no error text, regardless of content emptiness.
-                    if isinstance(test, dict) and test.get("type") == "text":
-                        if "错误" not in test_text:
-                            return llm, ep.id
-                    elif test_text and "错误" not in test_text:
-                        return llm, ep.id
+                test = llm.chat([{"role": "user", "content": "."}], max_tokens=1)
+                # 能返回即视为健康（错误不再伪装成文本，直接抛 LLMError）
+                self._verified_at[ep.id] = now
+                return llm, ep.id
+            except LLMError:
+                self._endpoint_fail_time[ep.id] = now
+                continue
             except Exception:
-                pass
-            self._endpoint_fail_time[ep.id] = now
+                self._endpoint_fail_time[ep.id] = now
+                continue
 
-        # 都失败：重试一次主后端
+        # 都失败：重试一次主后端（不 ping，信任最后一次探测结果）
         if self._primary:
             try:
                 llm = self._instantiate(self._primary)
@@ -367,6 +381,12 @@ class LLMBackendManager:
         self._last_fail_time = now
         return None, ""
 
+    def mark_endpoint_failed(self, endpoint_id: str):
+        """标记端点调用失败，进入降级冷却（由客户端 on_failure 回调触发）。"""
+        self._endpoint_fail_time[endpoint_id] = time.time()
+        logger.warning("LLM 端点 %s 标记失败，%ss 内降级到备用后端",
+                       endpoint_id, 30.0)
+
     def get_llm_for_endpoint(self, endpoint_id: str) -> ApiLLM | LocalLLM | None:
         """为指定端点创建 LLM 实例（前端手动选择时用）。"""
         self._ensure_detected()
@@ -376,7 +396,10 @@ class LLMBackendManager:
         return None
 
     def _instantiate(self, ep: LLMEndpoint) -> ApiLLM | LocalLLM:
-        """根据端点类型创建 LLM 实例。"""
+        """根据端点类型创建 LLM 实例（真实失败经 on_failure 标记端点降级）。"""
+        def _on_failure(code: str):
+            self.mark_endpoint_failed(ep.id)
+
         if ep.type == "cloud":
             adapter = get_adapter(
                 self._provider,
@@ -386,12 +409,13 @@ class LLMBackendManager:
             )
             return ApiLLM(adapter=adapter,
                           enable_thinking=self._enable_thinking,
-                          reasoning_effort=self._reasoning_effort)
+                          reasoning_effort=self._reasoning_effort,
+                          on_failure=_on_failure)
         elif ep.type == "local":
             config = ModelConfig()
             config.base_url = self.OLLAMA_URL
             config.model = ep.model
-            return LocalLLM(config)
+            return LocalLLM(config, on_failure=_on_failure)
         return None
 
     # ── 状态查询 ──

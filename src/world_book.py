@@ -575,8 +575,12 @@ class WorldBook:
         """格式化注入文本。
 
         Returns:
-            (before, after)：position=0 的条目文本、position=1 的条目文本。
-            应用 {{user}}/{{char}} 宏替换与 token 预算（budget_tokens>0 时截断）。
+            (before, after)：稳定层与动态层条目文本。
+
+        前缀缓存纪律（对齐 DSH）：稳定层只收「position=0 且常驻」的条目——
+        它们在会话内字节不变，可安全留在请求前缀；**触发型条目即使声明
+        position=0 也一律进动态层**，否则每次触发的不同注入会破坏前缀缓存。
+        应用 {{user}}/{{char}} 宏替换与 token 预算（budget_tokens>0 时截断）。
         """
         before_parts: list[str] = []
         after_parts: list[str] = []
@@ -593,7 +597,7 @@ class WorldBook:
                 continue
             used += cost
             included_any = True
-            if entry.position == 0:
+            if entry.position == 0 and entry.always_active:
                 before_parts.append(text)
             else:
                 after_parts.append(text)

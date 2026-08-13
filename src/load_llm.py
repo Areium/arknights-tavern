@@ -1,9 +1,87 @@
 import httpx
 import json
+import hashlib
 import logging
 import os
+import time
+
+from world_book import estimate_tokens
 
 logger = logging.getLogger(__name__)
+
+
+# ── 结构化 LLM 错误（对齐 DSH：错误是事件/异常，绝不伪装成模型可读内容）──
+
+class LLMError(Exception):
+    """结构化 LLM 调用错误的基类。
+
+    code: connect | timeout | http | unknown
+    """
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+class LLMConnectError(LLMError):
+    def __init__(self, message: str):
+        super().__init__("connect", message)
+
+
+class LLMTimeoutError(LLMError):
+    def __init__(self, message: str):
+        super().__init__("timeout", message)
+
+
+class LLMHTTPError(LLMError):
+    def __init__(self, status_code: int, body: str = ""):
+        super().__init__("http", f"HTTP {status_code}")
+        self.status_code = status_code
+        self.body = body
+
+
+def _request_fingerprint(messages: list) -> tuple[str, int]:
+    """计算请求内容的 sha1 指纹与粗 token 估算。
+
+    指纹是前缀缓存漂移的测量标尺：同一会话内指纹稳定 = 前缀缓存有效；
+    指纹无故变化 = 找到了漂移源。
+    """
+    try:
+        text = json.dumps(messages, ensure_ascii=False, sort_keys=True)
+    except (TypeError, ValueError):
+        text = repr(messages)
+    try:
+        est = estimate_tokens(text)
+    except Exception:
+        est = len(text) // 4
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:12], est
+
+
+def _post_with_retry(client: httpx.Client, path: str, payload: dict,
+                     max_retries: int = 2) -> httpx.Response:
+    """POST 并在可重试失败（连接错误/429/5xx）上指数退避重试。
+
+    读超时不重试（模型可能只是慢，重试会双倍计费）。
+    """
+    last_connect_error: LLMConnectError | None = None
+    for attempt in range(max_retries + 1):
+        try:
+            response = client.post(path, json=payload)
+        except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+            last_connect_error = LLMConnectError(str(e))
+            if attempt < max_retries:
+                time.sleep(0.5 * (attempt + 1))
+                continue
+            raise last_connect_error from e
+        if response.status_code in (429, 500, 502, 503, 504) and attempt < max_retries:
+            logger.warning("LLM %s 返回 %s，%.0fs 后重试 (%d/%d)",
+                           path, response.status_code, 2 ** attempt, attempt + 1, max_retries)
+            time.sleep(2 ** attempt)
+            continue
+        return response
+    raise last_connect_error or LLMError("unknown", "request failed after retries")
+
 
 class ModelConfig:
     """模型配置"""
@@ -53,12 +131,25 @@ def _parse_tool_calls_openai(message: dict) -> list[dict] | None:
 
 
 class LocalLLM:
-    def __init__(self, config: ModelConfig = ModelConfig()):
+    def __init__(self, config: ModelConfig = ModelConfig(), on_failure=None):
         """
         初始化本地大语言模型接口。
+
+        Args:
+            config: 模型配置。
+            on_failure: 可选回调 `fn(code: str)`，真实调用失败（结构化错误）时触发，
+                用于后端管理器标记端点失败并降级（DSH 式：真实失败驱动路由）。
         """
         self.config = config
+        self._on_failure = on_failure
         self.client = httpx.Client(base_url=config.base_url, timeout=config.timeout)
+
+    def _notify_failure(self, code: str):
+        try:
+            if self._on_failure:
+                self._on_failure(code)
+        except Exception:
+            logger.exception("on_failure 回调异常（忽略）")
 
     def chat(self, messages: list, stream: bool = False, on_token=None,
              on_reasoning=None, tools: list[dict] | None = None,
@@ -94,7 +185,11 @@ class LocalLLM:
             if tools:
                 payload["tools"] = tools
 
-            response = self.client.post("/api/chat", json=payload)
+            fingerprint, est_tokens = _request_fingerprint(messages)
+            logger.info("[LLM] request fingerprint=%s est_tokens=%d messages=%d model=%s",
+                        fingerprint, est_tokens, len(messages), self.config.model)
+
+            response = _post_with_retry(self.client, "/api/chat", payload)
             response.raise_for_status()
 
             if effective_stream:
@@ -155,16 +250,24 @@ class LocalLLM:
 
         except httpx.ReadTimeout as e:
             logger.error("Ollama 请求超时 (读取): %s", e)
-            return {"type": "text", "content": f"错误: Ollama 响应超时（{self.config.timeout}s），请确认模型是否正常运行。", "usage": None}
-        except httpx.ConnectError as e:
-            logger.error("Ollama 连接失败: %s", e)
-            return {"type": "text", "content": f"错误: 无法连接到 Ollama ({self.config.base_url})，请确认 Ollama 已启动。", "usage": None}
+            self._notify_failure("timeout")
+            raise LLMTimeoutError(f"Ollama 响应超时（{self.config.timeout}s）") from e
+        except httpx.HTTPStatusError as e:
+            logger.error("Ollama HTTP 错误: %s", e)
+            self._notify_failure("http")
+            raise LLMHTTPError(e.response.status_code, e.response.text[:200]) from e
+        except LLMError as e:
+            # 来自重试助手（连接失败耗尽）等结构化错误：补一次失败通知
+            self._notify_failure(e.code)
+            raise
         except httpx.RequestError as e:
             logger.error("请求本地大模型时出错: %s", e)
-            return {"type": "text", "content": f"错误: 请求失败 ({type(e).__name__}: {e})", "usage": None}
+            self._notify_failure("connect")
+            raise LLMConnectError(str(e)) from e
         except Exception as e:
             logger.error("发生未知错误: %s", e)
-            return {"type": "text", "content": f"错误: 处理请求时发生未知错误 ({type(e).__name__})。", "usage": None}
+            self._notify_failure("unknown")
+            raise LLMError("unknown", f"处理请求时发生未知错误 ({type(e).__name__})") from e
 
 
 class ApiModelConfig:
@@ -180,7 +283,8 @@ class ApiModelConfig:
 
 class ApiLLM:
     def __init__(self, config: ApiModelConfig = ApiModelConfig(), adapter=None,
-                 enable_thinking: bool = False, reasoning_effort: str = "medium"):
+                 enable_thinking: bool = False, reasoning_effort: str = "medium",
+                 on_failure=None):
         """
         初始化API大语言模型接口。
 
@@ -189,11 +293,13 @@ class ApiLLM:
             adapter: 可选的 ProviderAdapter，用于非 OpenAI 兼容平台。
             enable_thinking: 启用思考模式（DeepSeek reasoning_effort）。
             reasoning_effort: 推理强度 (low / medium / high)。
+            on_failure: 可选回调 `fn(code: str)`，真实调用失败时触发（端点降级标记）。
         """
         self.config = config
         self.adapter = adapter
         self.enable_thinking = enable_thinking
         self.reasoning_effort = reasoning_effort
+        self._on_failure = on_failure
         # If adapter provides auth headers, prefer them
         headers = {"Authorization": f"Bearer {self.config.api_key}"}
         if adapter:
@@ -205,6 +311,13 @@ class ApiLLM:
             timeout=config.timeout,
             headers=headers,
         )
+
+    def _notify_failure(self, code: str):
+        try:
+            if self._on_failure:
+                self._on_failure(code)
+        except Exception:
+            logger.exception("on_failure 回调异常（忽略）")
 
     def embed(self, texts: list[str]) -> list[list[float]] | None:
         """
@@ -282,7 +395,11 @@ class ApiLLM:
                 return payload
 
             payload = _build_payload(True)
-            response = self.client.post("/chat/completions", json=payload)
+            fingerprint, est_tokens = _request_fingerprint(messages)
+            logger.info("[LLM] request fingerprint=%s est_tokens=%d messages=%d model=%s",
+                        fingerprint, est_tokens, len(messages), self.config.model)
+
+            response = _post_with_retry(self.client, "/chat/completions", payload)
 
             # Graceful degradation: retry without stream_options on 400/422
             if response.status_code in (400, 422) and effective_stream:
@@ -357,18 +474,23 @@ class ApiLLM:
 
         except httpx.ReadTimeout as e:
             logger.error("API 请求超时 (读取): %s", e)
-            return {"type": "text", "content": f"错误: API 响应超时（{self.config.timeout}s）。思考模型可能需要更长时间，请调大超时。", "usage": None}
-        except httpx.ConnectTimeout as e:
-            logger.error("API 请求超时 (连接): %s", e)
-            return {"type": "text", "content": f"错误: 连接超时，请检查网络或 API 地址: {self.config.base_url}", "usage": None}
-        except httpx.ConnectError as e:
-            logger.error("API 连接失败: %s", e)
-            return {"type": "text", "content": f"错误: 无法连接到 {self.config.base_url}，请检查地址和网络。", "usage": None}
+            self._notify_failure("timeout")
+            raise LLMTimeoutError(f"API 响应超时（{self.config.timeout}s）。思考模型可能需要更长时间，请调大超时。") from e
+        except httpx.HTTPStatusError as e:
+            logger.error("API HTTP 错误: %s", e)
+            self._notify_failure("http")
+            raise LLMHTTPError(e.response.status_code, e.response.text[:200]) from e
+        except LLMError as e:
+            # 来自重试助手等结构化错误：补一次失败通知
+            self._notify_failure(e.code)
+            raise
         except httpx.RequestError as e:
             logger.error("请求API模型时出错: %s", e)
-            return {"type": "text", "content": f"错误: 请求失败 ({type(e).__name__}: {e})", "usage": None}
+            self._notify_failure("connect")
+            raise LLMConnectError(f"请求失败 ({type(e).__name__}: {e})") from e
         except Exception as e:
             logger.error("发生未知错误: %s", e)
-            return {"type": "text", "content": f"错误: 处理请求时发生未知错误 ({type(e).__name__})。", "usage": None}
+            self._notify_failure("unknown")
+            raise LLMError("unknown", f"处理请求时发生未知错误 ({type(e).__name__})") from e
 
 
