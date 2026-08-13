@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { id: "worldbook" as const, label: "世界书", icon: "📖" },
   { id: "index" as const, label: "索引", icon: "🔗" },
   { id: "combat" as const, label: "战斗", icon: "⚔️" },
+  { id: "docs" as const, label: "文档", icon: "📘" },
   { id: "settings" as const, label: "设置", icon: "⚙️" },
 ];
 
