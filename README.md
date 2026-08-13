@@ -24,7 +24,7 @@ python src/app.py
 cd frontend && npm run dev
 ```
 
-访问 `http://localhost:5173` 进入 Web 界面。
+访问 `http://localhost:5173` 进入 Web 界面（Electron 桌面端用 `cd frontend && npm run dev:electron`）。
 
 ### 3. 配置 LLM
 
@@ -32,6 +32,14 @@ cd frontend && npm run dev
 
 - **云端 API** — 填写 API Key、接口地址和模型名称，点击「测试连接」验证可用性
 - **Ollama 本地** — 填写 Ollama 地址和模型名称（需先[安装 Ollama](https://ollama.com)并拉取模型）
+
+### 4. 运行测试
+
+```bash
+python -m pytest tests/ -q
+```
+
+> 注：`tests/` 目录被 .gitignore 忽略（仓库约定），仅本地运行。
 
 
 
@@ -119,7 +127,16 @@ cd frontend && npm run dev
 
 ### 文档编辑
 
-左侧导航切换到「📄 文档」可浏览和编辑数据文档（角色、物品、世界观设定等），支持在线编辑和保存。
+左侧导航切换到「📄 资产」可浏览和编辑数据文档（角色、物品、世界观设定等），支持在线编辑和保存；「🔗 索引」管理文档间 `imports` 引用关系。
+
+### 世界书
+
+左侧导航「📖 世界书」管理酒馆（SillyTavern）Lorebook 兼容的世界书：
+
+- **导入** — 支持酒馆世界书导出 JSON（v1/v2）、角色卡内嵌世界书、聊天备份 `.jsonl`，自动探测格式并报告导入/跳过/警告
+- **触发机制** — 条目按主/副关键词扫描最近对话自动注入叙述与对话的提示词；支持常驻、选择性、概率、大小写、全词匹配等酒馆语义
+- **绑定** — 每本书可绑定到指定会话，未绑定时回落到全局默认书
+- **导出** — 一键导出回酒馆 v1 格式，无损回灌（保留 `disable`/`extensions` 等原始字段）
 
 ### 战斗系统
 
@@ -174,61 +191,55 @@ API 层           │  Flask API (src/app.py)
 ```
 arknights-tavern/
 ├── src/                          # Python 后端
-│   ├── app.py                    # Flask Web API 服务（create_app 工厂）
-│   ├── constants.py               # 共享常量
-│   ├── blueprints/                # Flask Blueprints（API 路由）
-│   ├── shared/                    # 共享工具（缓存/SSE/错误响应）
-│   ├── services/                  # 服务层（Buff 池/骰子系统）
-│   ├── SceneManager.py           # 场景管理器：多角色同场对话 + 物品
-│   ├── CharacterAgent.py         # 角色代理：角色扮演 + 记忆
-│   ├── session_manager.py        # 多会话管理
-│   ├── session_overlay.py        # 会话覆盖层
-│   ├── session_context.py         # 会话文档缓存
-│   ├── combat_session.py         # 战斗会话管理
-│   ├── combat_data_loader.py     # 战斗数据加载器（遭遇战/敌人）
-│   ├── combat_engine/            # 战斗引擎
-│   │   ├── engine.py             # 核心战斗逻辑
-│   │   ├── entity.py             # 战斗实体
-│   │   ├── grid.py               # 网格系统
-│   │   ├── card.py               # 卡牌逻辑
-│   │   ├── card_data.py          # 卡牌数据
-│   │   └── dice.py               # 骰子系统
-│   ├── document_manager.py       # 文档 CRUD + 冲突检测
-│   ├── wiki_manager.py            # Wiki 文档索引与查询
-│   ├── index_manager.py           # 全局索引导入/导出/校验
-│   ├── llm_backend_manager.py    # LLM 多后端检测与自动降级
-│   ├── load_llm.py               # LLM 加载器 (Ollama / API)
+│   ├── app.py                    # Flask Web API 服务（create_app 工厂 + Blueprint 注册）
+│   ├── constants.py              # 共享常量
+│   ├── blueprints/               # Flask Blueprints（chat/combat/cards/documents/
+│   │                             #   sessions/scene/environment/index/wiki/llm/
+│   │                             #   assets/memories/status/worldbook）
+│   ├── shared/                   # 共享工具（SSE 响应工厂/记忆注入/缓存）
+│   ├── services/                 # 服务层（Buff 池/骰子系统/属性加载器）
+│   ├── hooks/                    # Hook 管道（attribute_roll / wiki_prefetch）
+│   ├── providers/                # LLM Provider 适配器（openai / deepseek）
+│   ├── SceneManager.py           # 场景管理器：多角色同场 + 两阶段叙述
+│   ├── CharacterAgent.py         # 角色代理：角色扮演 + 记忆 + wiki function calling
+│   ├── session_manager.py        # 多会话管理（CRUD/回滚/叙述变体）
+│   ├── session_overlay.py        # 会话覆盖层（角色/物品/环境/节拍/任务/世界书绑定）
+│   ├── session_context.py        # 会话文档缓存（预加载 + wiki 查询缓存）
+│   ├── session_resources.py      # 会话级资源（背景覆盖/角色形象覆盖）
+│   ├── session_export.py         # 会话存档导出
+│   ├── world_book.py             # 世界书（酒馆 Lorebook 兼容）：解析/触发/注入/回灌
+│   ├── document_manager.py       # 文档 CRUD + 哈希冲突检测
+│   ├── wiki_manager.py           # Wiki 文档索引与查询
+│   ├── index_manager.py          # 全局索引导入/导出/校验
+│   ├── llm_backend_manager.py    # LLM 多后端检测与降级（验证缓存 + 失败冷却）
+│   ├── load_llm.py               # LLM 客户端（结构化错误/重试/请求指纹日志）
 │   ├── environment_state.py      # 环境状态追踪
 │   ├── memory.py                 # 向量记忆系统 (ChromaDB)
+│   ├── avatar_color.py           # 头像主导色提取
+│   ├── combat_session.py         # 战斗会话管理
+│   ├── combat_data_loader.py     # 战斗数据加载器（遭遇战/敌人/背景）
+│   └── combat_engine/            # 战斗引擎（engine/entity/grid/card/card_data/
+│                                 #   card_loader/dice）
 ├── frontend/                     # Electron + React 前端
+│   ├── electron/                 # Electron 主进程
 │   └── src/
-│       ├── App.tsx               # 主应用布局
-│       ├── components/           # UI 组件
-│       │   ├── combat/           # 战斗系统组件
-│       │   │   ├── CombatView.tsx         # 战斗主界面
-│       │   │   ├── CombatGrid.tsx         # 地图网格（3D 透视 + 拖放）
-│       │   │   ├── GridCell.tsx           # 单个格子
-│       │   │   ├── CombatCard.tsx         # 卡牌（程序化卡面）
-│       │   │   ├── CombatHand.tsx         # 手牌区（弧形排列）
-│       │   │   ├── ChibiSprite.tsx        # 像素战斗小人
-│       │   │   ├── UnitStatusPanel.tsx    # 角色状态面板
-│       │   │   ├── CombatUnitTooltip.tsx  # 单位悬浮提示框
-│       │   │   ├── CombatEventLog.tsx     # 事件日志
-│       │   │   └── CombatParticles.tsx    # Canvas 粒子特效
-│       │   └── ...
-│       ├── hooks/useApi.ts       # API 客户端封装
-│       ├── stores/appStore.ts    # 全局状态
-│       └── style.css             # 全局样式
-├── data/                         # 数据文件（角色/物品/世界观等）
-│   ├── combat/                   # 战斗数据
-│   │   ├── enemies/              # 敌人数据
-│   │   └── encounters/           # 遭遇战配置
-│   └── ...
+│       ├── App.tsx               # 主应用布局（Sidebar + 视图切换）
+│       ├── components/           # UI 组件（chat/combat/session 子目录 + WorldBookManager）
+│       ├── hooks/useApi.ts       # REST + SSE 客户端封装
+│       ├── stores/appStore.ts    # 全局状态（Key 刷新模式）
+│       ├── audio/                # 战斗音效管理
+│       └── utils/                # dialogueParser / baseUrl 等
+├── data/                         # 数据文件（角色/职业/物品/世界观等）
+│   ├── categories.yaml           # 类别注册表
+│   ├── characters/               # 角色（含 <name>/combat.json 专属战斗卡牌）
+│   ├── classes/                  # 职业（含 <class>/cards.json 职业卡池）
+│   ├── plots/                    # 剧情（index.md 剧情定义）
+│   ├── environment/              # 环境预设（地点/天气）
+│   ├── combat/                   # 战斗数据（enemies/ encounters/ backgrounds）
+│   ├── rules/                    # 游戏机制规则（buff-pool/combat-system 等）
+│   └── worldbooks/               # 世界书运行时数据（gitignored）
+├── tools/                        # 脚本工具（音频下载/Spine 导入/背景生成等）
 ├── docs/                         # 设计文档
-│   ├── combat-design.md          # 战斗引擎设计
-│   ├── combat-numerical-design.md # 战斗数值设计
-│   ├── combat-ui-design.md       # 战斗 UI 设计
-│   └── system-update-log.md      # 系统更新日志
-├── environment/                  # 环境预设（地点/天气）
+├── tests/                        # pytest 测试（gitignored）
 └── requirements.txt
 ```

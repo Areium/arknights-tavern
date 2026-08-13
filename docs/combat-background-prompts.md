@@ -106,7 +106,7 @@ Arknights style anime background art, frozen tundra of Ursus under a blizzard, b
 
 ### 作者：写剧本时提前生成
 
-1. 给地点文件加 `combat_bg: <bg_id>`，或在遭遇战 frontmatter 加 `background: <bg_id>`
+1. 给地点文件（`data/environment/Location/**/index.md`）加 `combat_bg: <bg_id>`，或在遭遇战 frontmatter 加 `background: <bg_id>`
 2. 运行 `python tools/generate_combat_backgrounds.py --scaffold`：为引用了但还不存在的背景自动建目录和 index.md，并按地点文档的「描述/视觉」段落拼好提示词草稿
 3. 人工审一遍提示词草稿（重点改 `{scene}` 和配色槽）
 4. 配置 `config/image_config.json` 后运行 `python tools/generate_combat_backgrounds.py` 批量出图，图片和 image 字段自动写入
