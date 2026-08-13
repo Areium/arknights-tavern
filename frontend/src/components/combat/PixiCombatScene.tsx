@@ -7,28 +7,32 @@
  * This component does NOT render cells, highlights, labels, or handle
  * interaction.  Those are handled by the CSS-based CombatGrid.
  */
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from "react";
 import { Application, Container, Graphics, Text, Texture } from "pixi.js";
 import { AtlasAttachmentLoader, SkeletonBinary, Spine } from "@pixi-spine/runtime-3.8";
 import { TextureAtlas } from "@pixi-spine/base";
 import type { CombatUnitDTO } from "../../types";
 import { getCellCenter } from "./gridUtils";
+import { resolveAnimSpec, type AnimSpec } from "./spineAnimSpecs";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
+// 战斗变体（含 Idle/Attack/Die/Skill 动画）。基础/大厅变体（char_148_nearl 等）
+// 只有 Relax/Default，无战斗动画，故切换到这里。
+// 玛恩纳·临光用 iteration_3（动画名干净，Skill_1_* 兜底攻击）。
 const SPINE_VARIANT: Record<string, string> = {
-  "临光": "char_148_nearl",
-  "佐菲娅": "char_265_sophia",
-  "德克萨斯": "char_1028_texas2",
-  "玛恩纳·临光": "char_4064_mlynar",
-  "瑕光": "char_423_blemsh",
-  "砾": "char_237_gravel",
-  "银灰": "char_172_svrash_ambienceSynesthesia_4",
-  "闪灵": "char_147_shining",
-  "阿米娅": "char_002_amiya_epoque_4",
-  "陈": "char_010_chen",
+  "临光": "char_148_nearl_summer_2",
+  "佐菲娅": "char_265_sophia_epoque_11",
+  "德克萨斯": "char_1028_texas2_epoque_36",
+  "玛恩纳·临光": "char_4064_mlynar/char_4064_mlynar_iteration_3",
+  "瑕光": "char_423_blemsh/char_423_blemsh_witch_2",
+  "砾": "char_237_gravel/char_237_gravel_winter_2",
+  "银灰": "char_172_svrash/char_172_svrash_snow_1",
+  "闪灵": "char_147_shining/char_147_shining_summer_1",
+  "阿米娅": "char_002_amiya/char_002_amiya_test_1",
+  "陈": "char_010_chen/char_010_chen_nian_2",
 };
 
 // ---------------------------------------------------------------------------
@@ -52,7 +56,10 @@ export interface PixiCombatSceneProps {
 // ---------------------------------------------------------------------------
 
 function hasSpine(name: string): boolean { return name in SPINE_VARIANT; }
-function spineFileName(name: string): string { return SPINE_VARIANT[name]; }
+function spineFileName(name: string): string {
+  // 变体可能是嵌套路径（如 char_4064_mlynar/char_4064_mlynar_iteration_3），文件名取 basename
+  return SPINE_VARIANT[name].split("/").pop()!;
+}
 function spineAssetUrl(name: string, dir: "Front" | "Back"): string {
   return `/api/assets/characters/${encodeURIComponent(name)}/spine/${SPINE_VARIANT[name]}/${dir}`;
 }
@@ -61,6 +68,16 @@ interface UnitEntry {
   displayObject: Container;
   cell: [number, number];
   yAnchorOffset: number;
+  /** 是否为 Spine（false = fallback 圆点，动画方法 no-op） */
+  isSpine?: boolean;
+  spec?: AnimSpec;
+  /** 是否正在播死亡动画（销毁前不再 remove） */
+  dying?: boolean;
+  /** 移动 tween 进行中（防止 resize 重排覆盖） */
+  tweening?: boolean;
+  baseScale?: number;
+  flipped?: boolean;
+  killTimeout?: ReturnType<typeof setTimeout>;
 }
 
 /** Compute the y-offset so a display object's origin maps to the cell center
@@ -111,7 +128,35 @@ async function loadSpine(baseUrl: string, fn: string): Promise<Spine> {
 // Component
 // ---------------------------------------------------------------------------
 
-export default function PixiCombatScene({ units, gridEl, containerEl, resizeTick, cellSize = 64 }: PixiCombatSceneProps) {
+export interface PixiCombatSceneHandle {
+  playAttack(unitId: string): void;
+  playHit(unitId: string): void;
+  playDeath(unitId: string): void;
+  playStart(unitId: string): void;
+  moveTo(unitId: string, to: [number, number], durationMs?: number): void;
+}
+
+/** 顺序播放动画链，末段结束回 finalIdle。listener 挂在 entry 上，被新动画中断时自动失效。 */
+function playChain(spine: Spine, names: string[], finalIdle: string) {
+  if (names.length === 0) return;
+  let i = 0;
+  const advance = (entry: any) => {
+    if (spine.state.tracks[0] !== entry) return; // 已被新动画打断
+    i += 1;
+    if (i < names.length) {
+      const e = spine.state.setAnimation(0, names[i], false);
+      if (e) e.listener = { complete: advance };
+    } else if (finalIdle) {
+      spine.state.setAnimation(0, finalIdle, true);
+    }
+  };
+  const first = spine.state.setAnimation(0, names[0], false);
+  if (first) first.listener = { complete: advance };
+}
+
+const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(function PixiCombatScene(
+  { units, gridEl, containerEl, resizeTick, cellSize = 64 }, ref,
+) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const appRef = useRef<Application | null>(null);
   const unitLayerRef = useRef<Container | null>(null);
@@ -241,9 +286,11 @@ export default function PixiCombatScene({ units, gridEl, containerEl, resizeTick
     const aliveIds = new Set(alive.map((u) => u.unit_id));
     const map = unitMapRef.current;
 
-    // Remove departed
+    // Remove departed — 尊重 dying（死亡动画播完再销毁，由 playDeath 的 timeout 负责）
     for (const [id, entry] of map) {
       if (!aliveIds.has(id)) {
+        if (entry.dying) continue;
+        if (entry.killTimeout) clearTimeout(entry.killTimeout);
         ul.removeChild(entry.displayObject);
         entry.displayObject.destroy({ children: true });
         map.delete(id);
@@ -259,9 +306,12 @@ export default function PixiCombatScene({ units, gridEl, containerEl, resizeTick
       const zIndex = u.pos[0]; // higher row = closer to camera = render on top
 
       if (exists) {
-        exists.cell = [u.pos[0], u.pos[1]];
-        exists.displayObject.x = sx;
-        exists.displayObject.y = sy + exists.yAnchorOffset;
+        // moveTo tween 进行中跳过位置重排，避免覆盖 tween
+        if (!exists.tweening) {
+          exists.cell = [u.pos[0], u.pos[1]];
+          exists.displayObject.x = sx;
+          exists.displayObject.y = sy + exists.yAnchorOffset;
+        }
         if (exists.displayObject.zIndex !== zIndex) {
           exists.displayObject.zIndex = zIndex;
         }
@@ -294,21 +344,38 @@ export default function PixiCombatScene({ units, gridEl, containerEl, resizeTick
             const latestPos = getCanvasPosRef.current(u.pos[0], u.pos[1]);
             const finalSx = latestPos?.[0] ?? sx;
             const finalSy = latestPos?.[1] ?? sy;
-            const rawHeight = spine.spineData.height || cellSize;
-            const scale = (cellSize * 1.6) / rawHeight;
-            const renderHeight = rawHeight * scale;
-            const yOff = calcYOffset(renderHeight, cellSize);
+            // 用实际渲染 bounds 高度归一化，避免不同角色的 spineData.height 不可靠
+            // 导致显示大小不一致（如银灰骨骼高度偏小 → scale 过大）。
+            const TARGET_H = cellSize * 1.6;
+            let renderHeight = TARGET_H;
+            try {
+              spine.update(0);
+              const bounds = spine.getBounds();
+              if (bounds && bounds.height > 0) renderHeight = bounds.height;
+            } catch { /* 保持默认 */ }
+            const scale = TARGET_H / renderHeight;
+            // 实际渲染高度已被 scale 归一化为 TARGET_H，锚点基于它计算
+            const yOff = calcYOffset(TARGET_H, cellSize);
             spine.zIndex = zIndex;
             spine.x = finalSx;
             spine.y = finalSy + yOff;
-            const animNames = spine.spineData.animations.map((a: any) => a.name);
-            const idleAnim = animNames.find((n: string) => /idle|relax|normal/i.test(n)) || animNames[0];
-            spine.state.setAnimation(0, idleAnim, true);
-            if (u.team === "enemy") { spine.scale.set(-scale, scale); }
+            // 解析动画规格（战斗变体动画名带角色后缀，用前缀匹配）
+            const spec = resolveAnimSpec(spine.spineData.animations.map((a: any) => a.name));
+            const flipped = u.team === "enemy";
+            const startAnim = spec.start ?? spec.idle;
+            spine.state.setAnimation(0, startAnim, !spec.start);
+            if (spec.start) {
+              const e = spine.state.tracks[0];
+              if (e) e.listener = { complete: () => spine.state.setAnimation(0, spec.idle, true) };
+            }
+            if (flipped) { spine.scale.set(-scale, scale); }
             else { spine.scale.set(scale); }
 
             ul.addChild(spine);
-            map.set(u.unit_id, { displayObject: spine, cell: [u.pos[0], u.pos[1]], yAnchorOffset: yOff });
+            map.set(u.unit_id, {
+              displayObject: spine, cell: [u.pos[0], u.pos[1]], yAnchorOffset: yOff,
+              isSpine: true, spec, baseScale: scale, flipped,
+            });
             loadingUnitsRef.current.delete(u.unit_id);
             setPosTick((t) => t + 1);
           } catch (err) {
@@ -320,7 +387,7 @@ export default function PixiCombatScene({ units, gridEl, containerEl, resizeTick
             const fb = makeFallback(u, sx, sy);
             fb.zIndex = zIndex;
             ul.addChild(fb);
-            map.set(u.unit_id, { displayObject: fb, cell: [u.pos[0], u.pos[1]], yAnchorOffset: 0 });
+            map.set(u.unit_id, { displayObject: fb, cell: [u.pos[0], u.pos[1]], yAnchorOffset: 0, isSpine: false });
             loadingUnitsRef.current.delete(u.unit_id);
             setPosTick((t) => t + 1);
           }
@@ -329,7 +396,7 @@ export default function PixiCombatScene({ units, gridEl, containerEl, resizeTick
         const fb = makeFallback(u, sx, sy);
         fb.zIndex = zIndex;
         ul.addChild(fb);
-        map.set(u.unit_id, { displayObject: fb, cell: [u.pos[0], u.pos[1]], yAnchorOffset: 0 });
+        map.set(u.unit_id, { displayObject: fb, cell: [u.pos[0], u.pos[1]], yAnchorOffset: 0, isSpine: false });
       }
     }
 
@@ -357,6 +424,92 @@ export default function PixiCombatScene({ units, gridEl, containerEl, resizeTick
     }
   }, [ready, getCanvasPos, resizeTick]);
 
+  // ── 动画控制（CombatView 通过 ref 驱动） ─────────────────────────
+  useImperativeHandle(ref, () => ({
+    playAttack(unitId: string) {
+      const entry = unitMapRef.current.get(unitId);
+      if (!entry || !entry.isSpine || !entry.spec || entry.dying) return;
+      const spine = entry.displayObject as Spine;
+      if (entry.spec.attack.length === 0) {
+        // 无攻击动画（理论上 resolveAnimSpec 已兜底到 Skill）→ 仅 scale punch
+        this.playHit(unitId);
+        return;
+      }
+      playChain(spine, entry.spec.attack, entry.spec.idle);
+    },
+
+    playHit(unitId: string) {
+      const entry = unitMapRef.current.get(unitId);
+      if (!entry || !entry.isSpine || entry.dying) return;
+      const spine = entry.displayObject as Spine;
+      // tint 闪红（pixi-spine 4.0.6 可能不可用 → try 回退纯 scale punch）
+      try { (spine as any).tint = 0xff6666; } catch { /* ignore */ }
+      const base = entry.baseScale ?? 1;
+      const fx = entry.flipped ? -base : base;
+      spine.scale.set(fx * 1.15, base * 1.15);
+      setTimeout(() => {
+        try { (spine as any).tint = 0xffffff; } catch { /* ignore */ }
+        spine.scale.set(fx, base);
+      }, 100);
+    },
+
+    playDeath(unitId: string) {
+      const entry = unitMapRef.current.get(unitId);
+      if (!entry || !entry.isSpine || entry.dying) return;
+      entry.dying = true;
+      const spine = entry.displayObject as Spine;
+      const spec = entry.spec!;
+      const ul = unitLayerRef.current;
+      if (spec.die) {
+        playChain(spine, [spec.die], "");
+      }
+      // Die 播完（约 1.5s）或超时后销毁；同时「Remove departed」已尊重 dying 不再提前移除
+      if (entry.killTimeout) clearTimeout(entry.killTimeout);
+      entry.killTimeout = setTimeout(() => {
+        if (ul && ul.children.includes(spine)) ul.removeChild(spine);
+        spine.destroy({ children: true });
+        unitMapRef.current.delete(unitId);
+      }, 1600);
+    },
+
+    playStart(unitId: string) {
+      const entry = unitMapRef.current.get(unitId);
+      if (!entry || !entry.isSpine || !entry.spec) return;
+      const spine = entry.displayObject as Spine;
+      const spec = entry.spec;
+      if (spec.start) {
+        const e = spine.state.setAnimation(0, spec.start, false);
+        if (e) e.listener = { complete: () => spine.state.setAnimation(0, spec.idle, true) };
+      } else {
+        spine.state.setAnimation(0, spec.idle, true);
+      }
+    },
+
+    moveTo(unitId: string, to: [number, number], durationMs = 300) {
+      const entry = unitMapRef.current.get(unitId);
+      if (!entry || entry.dying) return;
+      const from = getCanvasPosRef.current(entry.cell[0], entry.cell[1]);
+      const target = getCanvasPosRef.current(to[0], to[1]);
+      if (!from || !target) { entry.cell = to; return; }
+      entry.tweening = true;
+      const ticker = appRef.current?.ticker;
+      if (!ticker) { entry.cell = to; entry.tweening = false; return; }
+      const startT = ticker.lastTime;
+      const dur = Math.max(50, durationMs);
+      const tick = () => {
+        const t = Math.min(1, (ticker.lastTime - startT) / dur);
+        entry.displayObject.x = from[0] + (target[0] - from[0]) * t;
+        entry.displayObject.y = from[1] + (target[1] - from[1]) * t + entry.yAnchorOffset;
+        if (t >= 1) {
+          entry.cell = to;
+          entry.tweening = false;
+          ticker.remove(tick);
+        }
+      };
+      ticker.add(tick);
+    },
+  }), []);
+
   // ── Render ─────────────────────────────────────────────────────────
   return (
     <div
@@ -372,7 +525,9 @@ export default function PixiCombatScene({ units, gridEl, containerEl, resizeTick
       }}
     />
   );
-}
+});
+
+export default PixiCombatScene;
 
 // ---------------------------------------------------------------------------
 // Fallback unit (no Spine data)

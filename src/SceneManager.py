@@ -1,5 +1,6 @@
 import json
 import re
+import time
 import queue
 import threading
 import logging
@@ -569,7 +570,9 @@ speaker 必须从场景角色列表选择，无法判断时用 null
         )
 
         try:
+            _t0 = time.monotonic()
             result = self._llm.chat(messages, stream=False, max_tokens=512)
+            logger.info("[TIMING] extract_markers LLM调用: %.0fms", (time.monotonic() - _t0) * 1000)
             text = result.get("content", "") if isinstance(result, dict) else str(result)
             usage = result.get("usage") if isinstance(result, dict) else None
             parsed = _parse_extraction_json(text)
@@ -780,7 +783,9 @@ speaker 必须从场景角色列表选择，无法判断时用 null
             word_limit=word_limit, structured=structured,
         )
 
+        _t0 = time.monotonic()
         result = self._llm.chat(messages, stream=False, max_tokens=max_tokens)
+        logger.info("[TIMING] narrate LLM调用: %.0fms (输出 %d 字符)", (time.monotonic() - _t0) * 1000, len(result.get("content", "")))
         narrative = result.get("content", "")
         usage = result.get("usage")
 
@@ -840,10 +845,15 @@ speaker 必须从场景角色列表选择，无法判断时用 null
         thread.start()
 
         try:
+            _t0 = time.monotonic()
+            _ttft_logged = False
             accumulated = ""
             while True:
                 event_type, data = q.get()
                 if event_type == "token":
+                    if not _ttft_logged:
+                        _ttft_logged = True
+                        logger.info("[TIMING] narrate_stream 首token延迟(TTFT): %.0fms", (time.monotonic() - _t0) * 1000)
                     accumulated += data
                     yield ("token", data)
                 elif event_type == "reasoning":
@@ -851,6 +861,7 @@ speaker 必须从场景角色列表选择，无法判断时用 null
                 elif event_type == "result":
                     narrative = data.get("content", accumulated) if isinstance(data, dict) else accumulated
                     usage = data.get("usage") if isinstance(data, dict) else None
+                    logger.info("[TIMING] narrate_stream 总耗时: %.0fms (输出 %d 字符)", (time.monotonic() - _t0) * 1000, len(narrative))
                     self._log_event(f"📖 剧情推进: {narrative[:80].replace(chr(10), ' ')}...")
                     yield ("done", (narrative, {}, usage))
                     return

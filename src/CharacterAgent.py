@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import logging
 import re
 
@@ -135,6 +136,7 @@ class CharacterAgent:
         Returns:
             tuple[str, dict, dict|None]: (角色的回复, 环境更新字典, token使用量)。
         """
+        _t0 = time.monotonic()
         memory_context = self.memory.build_context(user_input)
 
         player_section = ""
@@ -246,6 +248,8 @@ class CharacterAgent:
 
             env_updates = self._parse_env_markers(response_text)
             clean_response = self._strip_env_markers(response_text)
+            logger.info("[TIMING] CharacterAgent.chat %s: 总耗时 %.0fms (LLM调用%d次, 含embedding)",
+                        self.character_name, (time.monotonic() - _t0) * 1000, _round + 1)
             self.memory.add(user_input, clean_response)
             return clean_response, env_updates, total_usage
 

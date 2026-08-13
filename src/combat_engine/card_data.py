@@ -257,11 +257,16 @@ def get_starting_deck(char_class: str, count: int = 7) -> list[Card]:
 
     Returns all basic cards from the class pool, supplemented with
     random elite cards if needed to reach `count`.
+
+    Cards are deep-copied so each character gets independent instances —
+    `add_player_unit` sets `card.owner`, which must not mutate the shared
+    class pool or leak across characters.
     """
     import random
+    import copy
     pool = get_cards_for_class(char_class)
-    basics = [c for c in pool if c.tier == "basic"]
-    elites = [c for c in pool if c.tier == "elite"]
+    basics = [copy.deepcopy(c) for c in pool if c.tier == "basic"]
+    elites = [copy.deepcopy(c) for c in pool if c.tier == "elite"]
 
     result = list(basics)
     if len(result) < count and elites:

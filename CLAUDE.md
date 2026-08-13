@@ -2,9 +2,6 @@
 
 本文件为 Claude Code（claude.ai/code）在本仓库中工作时提供指导。
 
-## 任务指令执行
-在进行任务前，使用中文重述并优化用户的指令
-
 ## Git 工作流
 MUST 实现和修改功能前，遵循以下分支工作流：
 1. 使用git从 `main` 创建 **feature 分支**，使用描述性名称（如 `feat/combat-ai`、`fix/memory-leak`）

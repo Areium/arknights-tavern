@@ -2,7 +2,8 @@ import { useEffect, useLayoutEffect, useState, useCallback, useRef, useMemo } fr
 import { useAppStore } from "../../stores/appStore";
 import { useApi, createCombatSSE, createCombatTestSSE } from "../../hooks/useApi";
 import type { CombatEventDTO, CombatStateDTO, CardDTO } from "../../types";
-import PixiCombatScene from "./PixiCombatScene";
+import PixiCombatScene, { type PixiCombatSceneHandle } from "./PixiCombatScene";
+import { audioManager } from "../../audio/audioManager";
 import CombatGrid from "./CombatGrid";
 import { getCellCenter, resolveTargetPattern } from "./gridUtils";
 import CombatHand from "./CombatHand";
@@ -55,6 +56,13 @@ export default function CombatView() {
   }, [error]);
   const [result, setResult] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // 战斗奖励结算结果（胜利后展示）
+  const [rewards, setRewards] = useState<{
+    xp: number;
+    items: string[];
+    level_ups: { name: string; level: number; attribute: string }[];
+  } | null>(null);
+  const [showRewards, setShowRewards] = useState(false);
   const [cursor, setCursor] = useState<[number, number] | null>(null);
   const [hoverCell, setHoverCell] = useState<[number, number] | null>(null);
   const [dragCardIndex, setDragCardIndex] = useState<number | null>(null);
@@ -75,6 +83,15 @@ export default function CombatView() {
   const layoutMode: LayoutMode = isFullscreen ? "fullscreen" : "windowed";
   const cfg = getCombatConfig(layoutMode);
   const writingBackRef = useRef(false);
+  const pixiRef = useRef<PixiCombatSceneHandle>(null);
+  const [muted, setMuted] = useState(audioManager.getSettings().muted);
+
+  // 首次用户点击解锁 AudioContext（浏览器自动播放策略）
+  useEffect(() => {
+    const unlock = () => audioManager.ensureCtx();
+    document.addEventListener("click", unlock, { once: true });
+    return () => document.removeEventListener("click", unlock);
+  }, []);
   const sseRef = useRef<{ close: () => void } | null>(null);
   const stateRef = useRef(combatState);
   stateRef.current = combatState;
@@ -161,21 +178,50 @@ export default function CombatView() {
           const pos = ev.data.target_pos || [4, 4];
           addDamageNumber(ev.data.damage, ev.data.damage_type || "physical", pos);
           spawnParticles("spark", pos, 8 + Math.floor(ev.data.damage / 5));
+          // Spine 动作：攻击者播攻击、目标播受击
+          pixiRef.current?.playAttack(ev.data.unit_id);
+          pixiRef.current?.playHit(ev.data.target_id);
+          // 音效：miss/dodge → miss，crit → crit，否则按伤害类型选命中音
+          const hr = ev.data.hit_result || "";
+          if (/miss|dodge/i.test(hr)) audioManager.playSfx("miss");
+          else if (/crit/i.test(hr)) audioManager.playSfx("crit");
+          else {
+            const dtype = ev.data.damage_type || "physical";
+            audioManager.playSfx(
+              dtype === "arts" ? "hit_arts" : dtype === "mixed" ? "hit_mixed" : "hit_physical"
+            );
+          }
         }
         if (ev.type === "heal" && ev.data?.amount > 0) {
           const pos = ev.data.target_pos || [4, 4];
           addDamageNumber(ev.data.amount, "heal", pos);
           spawnParticles("heal", pos, 6);
+          audioManager.playSfx("heal");
         }
         if (ev.type === "death") {
           const pos = ev.data.pos || [4, 4];
           spawnParticles("death", pos, 15);
+          pixiRef.current?.playDeath(ev.data.unit_id);
+          audioManager.playSfx(ev.data.team === "enemy" ? "enemy_death" : "death");
+        }
+        if (ev.type === "move") {
+          pixiRef.current?.moveTo(ev.data.unit_id, ev.data.to_pos, 300);
+        }
+        if (ev.type === "card_played") {
+          audioManager.playSfx("card");
+        }
+        if (ev.type === "battle_start") {
+          audioManager.startBgm();
         }
         if (ev.type === "battle_end") {
           setResult(ev.data.winner === "player" ? "胜利" : "失败");
           if (ev.data.winner === "player") {
             spawnParticles("victory", [4, 4], 40);
+            audioManager.playSfx("victory");
+          } else {
+            audioManager.playSfx("defeat");
           }
+          audioManager.stopBgm();
           fetchState();
         }
       },
@@ -487,11 +533,12 @@ export default function CombatView() {
         setLoading(true);
         const playStart = Date.now();
         try {
-          await doAction({
+          const state = await doAction({
             action: "play_card",
             card_index: cardIdx,
             target: [row, col],
           });
+          if (state) setCombatContext({ state });
           const elapsed = Date.now() - playStart;
           if (elapsed < 400) {
             await new Promise(r => setTimeout(r, 400 - elapsed));
@@ -502,7 +549,6 @@ export default function CombatView() {
           setLoading(false);
           setPlayingCardIndex(null);
           cardPlayInProgressRef.current = false;
-          await fetchState();
         }
         return;
       }
@@ -534,9 +580,10 @@ export default function CombatView() {
           }
           setLoading(true);
           try {
-            await doAction({ action: "move", unit_id: selectedUnitId, target: [row, col] });
+            const state = await doAction({ action: "move", unit_id: selectedUnitId, target: [row, col] });
+            // 移动后取消选中，避免残留的 selectedUnitId 导致下次移动仍指向旧角色
+            if (state) setCombatContext({ state, selectedUnitId: null, uiMode: "VIEWING", selectedCardIndex: null });
             setCursor([row, col]);
-            await fetchState();
           } catch (e: any) {
             setError(e?.message || "移动失败");
           } finally {
@@ -591,19 +638,17 @@ export default function CombatView() {
     if (!effectiveId) return;
     setLoading(true);
     try {
-      if (combatTestId) {
-        await api.combatTestEndTurn(combatTestId);
-      } else {
-        await api.combatEndTurn(sessionId!);
-      }
-      setCombatContext({ uiMode: "VIEWING", selectedCardIndex: null, selectedUnitId: null });
-      await fetchState();
+      const state = combatTestId
+        ? await api.combatTestEndTurn(combatTestId)
+        : await api.combatEndTurn(sessionId!);
+      // 用响应里的最新 state 直接更新（弃牌/抽牌后手牌立即刷新）
+      setCombatContext({ state: state ?? undefined, uiMode: "VIEWING", selectedCardIndex: null, selectedUnitId: null });
     } catch (e: any) {
       setError(e?.message || "结束回合失败");
     } finally {
       setLoading(false);
     }
-  }, [effectiveId, combatTestId, sessionId, api, fetchState, setCombatContext]);
+  }, [effectiveId, combatTestId, sessionId, api, setCombatContext]);
 
   const handleCancel = useCallback(() => {
     setCombatContext({ uiMode: "VIEWING", selectedCardIndex: null, selectedUnitId: null });
@@ -670,6 +715,14 @@ export default function CombatView() {
             },
           });
         }
+        // 有奖励则展示奖励面板，等用户确认后再切回 chat
+        const r = resp.rewards;
+        if (r && (r.xp > 0 || (r.items && r.items.length > 0) || (r.level_ups && r.level_ups.length > 0))) {
+          setRewards(r);
+          setShowRewards(true);
+          writingBackRef.current = false;
+          return;
+        }
       } catch {
         alert("战斗结果保存失败，请重试");
         writingBackRef.current = false;
@@ -681,6 +734,32 @@ export default function CombatView() {
     setCombatContext(null);
     setCurrentView("chat");
   }, [combatTestId, sessionId, combatState, encounterId, api, setCombatContext, setCurrentView, setPendingAutoNarrate, setSessions, sessions]);
+
+  const handleRewardsContinue = useCallback(() => {
+    setShowRewards(false);
+    setRewards(null);
+    setCombatContext(null);
+    setCurrentView("chat");
+  }, [setCombatContext, setCurrentView]);
+
+  const handleUseItem = useCallback(async (itemName: string) => {
+    if (!selectedUnit || selectedUnit.team !== "player") {
+      setError("请先选中要使用道具的干员");
+      return;
+    }
+    if (!effectiveId) return;
+    setLoading(true);
+    try {
+      const state = combatTestId
+        ? await api.combatTestAction(combatTestId, { action: "use_item", item_name: itemName, unit_id: selectedUnit.unit_id })
+        : await api.combatAction(sessionId!, { action: "use_item", item_name: itemName, unit_id: selectedUnit.unit_id });
+      if (state) setCombatContext({ state });
+    } catch (e: any) {
+      setError(e?.message || "使用道具失败");
+    } finally {
+      setLoading(false);
+    }
+  }, [effectiveId, combatTestId, sessionId, selectedUnit, api, setCombatContext]);
 
   // Click on main area → map to grid cell or deselect.
   // Cell mapping handles 3D-transformed cells (rows 4-8) that don't
@@ -801,11 +880,12 @@ export default function CombatView() {
           combatTestId
             ? api.combatTestAction(combatTestId, action)
             : api.combatAction(sessionId!, action);
-        await doAction({
+        const state = await doAction({
           action: "play_card",
           card_index: cardIdx,
           target: [row, col],
         });
+        if (state) setCombatContext({ state });
         const elapsed = Date.now() - playStart;
         if (elapsed < 400) {
           await new Promise(r => setTimeout(r, 400 - elapsed));
@@ -818,7 +898,6 @@ export default function CombatView() {
         cardPlayInProgressRef.current = false;
         setDragCardIndex(null);
         setDragCell(null);
-        await fetchState();
       }
     },
     [effectiveId, combatTestId, sessionId, combatState, dragCardIndex, rangeHighlights, displayedHand, api, fetchState, setCombatContext]
@@ -1150,6 +1229,7 @@ export default function CombatView() {
               onGridMount={(el) => { gridRef.current = el; setGridEl(el); }}
             />
             <PixiCombatScene
+              ref={pixiRef}
               units={combatState.units}
               gridEl={gridEl}
               containerEl={containerEl}
@@ -1264,7 +1344,33 @@ export default function CombatView() {
           <span className="text-xs text-gray-500 font-display">
             AP: <span className="text-white font-bold">{sharedAp}</span>/{sharedApMax}
           </span>
+          {combatState.inventory && combatState.inventory.length > 0 && (
+            <div className="flex items-center gap-1">
+              {combatState.inventory.map((item) => (
+                <button
+                  key={item.name}
+                  className="px-2 py-1 text-xs bg-emerald-900/60 hover:bg-emerald-800/60 text-emerald-200 rounded-lg border border-emerald-800/50 font-display tracking-wider disabled:opacity-30"
+                  onClick={() => handleUseItem(item.name)}
+                  disabled={combatState.phase !== "PLAYER_TURN" || combatState.battle_over || loading}
+                  title={`使用 ${item.name}（恢复生命）`}
+                >
+                  {item.name} × {item.count}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="flex-1" />
+          <button
+            className="px-3 py-1.5 text-xs bg-surface-hover hover:bg-gray-700 text-gray-300 rounded-lg transition-all border border-combat-border font-display tracking-wider"
+            onClick={() => {
+              const m = !muted;
+              setMuted(m);
+              audioManager.setMuted(m);
+            }}
+            title={muted ? "取消静音" : "静音"}
+          >
+            {muted ? "🔇" : "🔊"}
+          </button>
           <button
             className="px-3 py-1.5 text-xs bg-surface-hover hover:bg-gray-700 text-gray-300 rounded-lg transition-all border border-combat-border font-display tracking-wider"
             onClick={() => { setDeckFilterMode("all"); setShowDeckViewer(true); }}
@@ -1332,20 +1438,51 @@ export default function CombatView() {
       {combatState.battle_over && result && (
         <div className="combat-overlay-enter absolute inset-0 flex items-center justify-center bg-black/70 z-40">
           <div className="bg-surface-card border border-combat-border rounded-2xl p-10 text-center shadow-2xl">
-            <div className={`text-5xl font-black mb-4 font-display tracking-widest ${
-              result === "胜利" ? "text-combat-gold" : "text-combat-enemy"
-            }`}>
-              {result === "胜利" ? "VICTORY" : "DEFEAT"}
-            </div>
-            <div className="text-gray-500 text-sm mb-6 font-display">
-              战斗结束 — 共 {combatState.round_num} 回合
-            </div>
-            <button
-              className="px-8 py-2.5 bg-cyan-900/70 hover:bg-cyan-800/70 text-cyan-200 rounded-lg transition-all border border-cyan-800/50 font-display tracking-wider"
-              onClick={handleReturnToChat}
-            >
-              返回对话
-            </button>
+            {showRewards && rewards ? (
+              <>
+                <div className="text-3xl font-black mb-4 font-display tracking-widest text-combat-gold">
+                  战利品结算
+                </div>
+                <div className="text-gray-200 text-sm mb-3 font-display">
+                  获得 {rewards.xp} 点经验
+                </div>
+                {rewards.items && rewards.items.length > 0 && (
+                  <div className="text-gray-300 text-sm mb-3 font-display">
+                    掉落物品：{rewards.items.join("、")}
+                  </div>
+                )}
+                {rewards.level_ups && rewards.level_ups.length > 0 && (
+                  <div className="text-amber-300 text-sm mb-4 font-display">
+                    {rewards.level_ups.map((lu, i) => (
+                      <div key={i}>{lu.name} 升至 Lv.{lu.level}，{lu.attribute} +1</div>
+                    ))}
+                  </div>
+                )}
+                <button
+                  className="px-8 py-2.5 bg-cyan-900/70 hover:bg-cyan-800/70 text-cyan-200 rounded-lg transition-all border border-cyan-800/50 font-display tracking-wider"
+                  onClick={handleRewardsContinue}
+                >
+                  继续
+                </button>
+              </>
+            ) : (
+              <>
+                <div className={`text-5xl font-black mb-4 font-display tracking-widest ${
+                  result === "胜利" ? "text-combat-gold" : "text-combat-enemy"
+                }`}>
+                  {result === "胜利" ? "VICTORY" : "DEFEAT"}
+                </div>
+                <div className="text-gray-500 text-sm mb-6 font-display">
+                  战斗结束 — 共 {combatState.round_num} 回合
+                </div>
+                <button
+                  className="px-8 py-2.5 bg-cyan-900/70 hover:bg-cyan-800/70 text-cyan-200 rounded-lg transition-all border border-cyan-800/50 font-display tracking-wider"
+                  onClick={handleReturnToChat}
+                >
+                  返回对话
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}

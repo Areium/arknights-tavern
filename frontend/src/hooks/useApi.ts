@@ -5,15 +5,7 @@
  */
 
 import { useMemo } from "react";
-
-const FALLBACK_URL = "";
-
-async function getBaseUrl(): Promise<string> {
-  if (window.electronAPI) {
-    return await window.electronAPI.getBackendUrl();
-  }
-  return FALLBACK_URL;
-}
+import { getBaseUrl } from "../utils/baseUrl";
 
 async function uploadMultipart(path: string, fields: Record<string, string>, file: File): Promise<any> {
   const base = await getBaseUrl();
@@ -515,7 +507,7 @@ export function useApi() {
     combatState: (sessionId: string) =>
       request<any>(`/api/sessions/${sessionId}/combat/state`),
 
-    combatAction: (sessionId: string, action: { action: string; card_index?: number; target: [number, number] }) =>
+    combatAction: (sessionId: string, action: { action: string; card_index?: number; target?: [number, number]; item_name?: string; unit_id?: string }) =>
       request<any>(`/api/sessions/${sessionId}/combat/action`, {
         method: "POST",
         body: JSON.stringify(action),
@@ -554,7 +546,7 @@ export function useApi() {
     combatTestState: (testId: string) =>
       request<any>(`/api/combat/test/${testId}/state`),
 
-    combatTestAction: (testId: string, action: { action: string; card_index?: number; target: [number, number] }) =>
+    combatTestAction: (testId: string, action: { action: string; card_index?: number; target?: [number, number]; item_name?: string; unit_id?: string }) =>
       request<any>(`/api/combat/test/${testId}/action`, {
         method: "POST",
         body: JSON.stringify(action),

@@ -23,7 +23,6 @@ for _p in (_src_dir, _project_root):
 from combat_engine.entity import CombatUnit
 from combat_engine.card import Card, CardPool
 from combat_engine.card_data import get_starting_deck
-from combat_engine.card_loader import load_character_cards
 from combat_engine.engine import CombatEngine, CombatEvent
 from combat_engine.grid import resolve_targets, range_between, TOTAL_ROWS, TOTAL_COLS, ENEMY_COL_START
 from combat_data_loader import CombatDataLoader
@@ -43,6 +42,7 @@ class CombatSession:
         self._encounter_id: str = ""
         self._background_url: str | None = None
         self._session_dir: str = ""
+        self._inventory: list[dict] = []
         self.last_activity_at: float = time.time()
 
     # ── Setup ──
@@ -53,7 +53,8 @@ class CombatSession:
               enemies_override: list[dict] = None,
               combat_params: dict = None,
               location: str = "",
-              session_dir: str = "") -> dict:
+              session_dir: str = "",
+              inventory: list[dict] = None) -> dict:
         """Initialize a battle from an encounter definition and character list.
 
         Args:
@@ -79,6 +80,7 @@ class CombatSession:
 
         self._encounter_id = encounter_id
         self._session_dir = session_dir
+        self._inventory = inventory or []
         self._background_url = self.loader.resolve_background(
             encounter, location, session_dir=session_dir, session_id=self.session_id)
         self.engine = CombatEngine()
@@ -107,14 +109,14 @@ class CombatSession:
             if combat_params:
                 self._apply_status_effects(unit, combat_params)
 
-            # Load cards: prefer character-specific JSON, fall back to class pool
+            # Load cards: use the class engine pool. Character-specific cards in
+            # combat.json are narrative cards (0 damage / narrative SP cost), not
+            # combat-engine cards — they belong to the story layer, not the engine.
             char_name = meta.get("name", "")
-            cards = load_character_cards(char_name)
+            cards = get_starting_deck(char_class, count=7)
             if not cards:
-                cards = get_starting_deck(char_class, count=7)
-                if not cards:
-                    cards = get_starting_deck("辅助", count=7)
-                    logger.warning("No card pool for class '%s', using 辅助 fallback", char_class)
+                cards = get_starting_deck("辅助", count=7)
+                logger.warning("No card pool for class '%s', using 辅助 fallback", char_class)
 
             pos = default_positions[i] if i < len(default_positions) else (4 + i % 3, 0)
             self.engine.add_player_unit(unit, cards, pos)
@@ -326,6 +328,55 @@ class CombatSession:
 
         return {"ok": True, "state": self.get_state()}
 
+    def use_item(self, item_name: str, target_id: str) -> dict:
+        """Use a consumable item on a target unit (heal/buff)."""
+        if not self.engine:
+            return {"ok": False, "error": "No active battle"}
+        if self.engine.is_battle_over():
+            return {"ok": False, "error": "Battle is over"}
+        if self.engine.state.phase != "PLAYER_TURN":
+            return {"ok": False, "error": "Not player turn"}
+
+        meta = self.loader.load_item_meta(item_name)
+        if not meta:
+            return {"ok": False, "error": f"物品 '{item_name}' 不存在"}
+        effect = meta.get("combat_effect") or {}
+        if not effect:
+            return {"ok": False, "error": f"物品 '{item_name}' 无法在战斗中使用"}
+
+        target = self.engine.units.get(target_id)
+        if not target or not target.is_alive:
+            return {"ok": False, "error": "目标无效"}
+
+        # 使用物品消耗 1 点共享 AP
+        if self.engine.shared_ap < 1:
+            return {"ok": False, "error": "共享 AP 不足，无法使用物品"}
+
+        effect_type = effect.get("type")
+        if effect_type == "heal":
+            amount = int(effect.get("amount", 0))
+            healed = target.heal(amount)
+            self.engine.shared_ap -= 1
+            self._enqueue_event(CombatEvent(
+                "heal", data={"unit_id": target_id, "caster": "物品", "target_id": target_id,
+                              "target": target.name, "amount": healed, "card": item_name}))
+        elif effect_type == "buff":
+            # 增益效果暂未实装（buff/debuff 运行时后置）
+            return {"ok": False, "error": "增益类物品暂未实装"}
+        else:
+            return {"ok": False, "error": f"未知效果类型 '{effect_type}'"}
+
+        # 消耗战斗内 inventory 快照
+        for entry in self._inventory:
+            if entry.get("name") == item_name:
+                entry["count"] = int(entry.get("count", 1)) - 1
+                if entry["count"] <= 0:
+                    self._inventory.remove(entry)
+                break
+
+        self.last_activity_at = time.time()
+        return {"ok": True, "state": self.get_state()}
+
     # ── State queries ──
 
     @staticmethod
@@ -425,6 +476,7 @@ class CombatSession:
             "active_unit_id": next((u.unit_id for u in e.units.values() if u.team == "player" and u.is_alive), None),
             "grid": grid_cells,
             "battle_over": e.is_battle_over(),
+            "inventory": self._inventory,
         }
 
     def _compute_valid_targets(self) -> list[list[int]]:

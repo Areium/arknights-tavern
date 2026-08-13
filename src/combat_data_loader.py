@@ -60,6 +60,39 @@ class CombatDataLoader:
             max_ap=stats.get("max_ap", 3),
         )
 
+    def load_enemy_meta(self, name: str) -> dict | None:
+        """Load an enemy's reward metadata (drop_items, drop_rate, xp_reward)."""
+        path = self._root / "enemies" / f"{name}.md"
+        if not path.exists():
+            logger.warning("Enemy file not found: %s", path)
+            return None
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                meta = frontmatter.load(f).metadata
+        except (OSError, ValueError) as e:
+            logger.error("Failed to load enemy meta %s: %s", path, e)
+            return None
+        return {
+            "drop_items": meta.get("drop_items", []),
+            "drop_rate": float(meta.get("drop_rate", 0.0)),
+            "xp_reward": int(meta.get("xp_reward", 0)),
+        }
+
+    # ── Item loading ──
+
+    def load_item_meta(self, name: str) -> dict | None:
+        """Load an item's frontmatter (name, category, combat_effect) from data/items/."""
+        base = self._root.parent / "items"
+        for path in (base / name / "index.md", base / f"{name}.md"):
+            if path.exists():
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        return dict(frontmatter.load(f).metadata)
+                except (OSError, ValueError) as e:
+                    logger.error("Failed to load item %s: %s", path, e)
+                    return None
+        return None
+
     # ── Encounter loading ──
 
     def load_encounter(self, encounter_id: str) -> dict | None:

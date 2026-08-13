@@ -310,142 +310,60 @@ def register(app, managers):
                 if hook_injection_text:
                     context_with_memory = context_with_memory + "\n\n" + hook_injection_text
 
-                # — 叙述生成 —
+                # — 统一流式叙述生成（所有模式：纯文本 / 气泡 / 选项）—
+                # 叙述文本先流式显示：首字延迟 ≈ LLM 首个 token（TTFT），不再等完整响应。
+                # 气泡模式由前端实时解析「」对话流动态渲染为气泡（等生成完再整体呈现）。
+                # 选项/战斗/节拍标记在文本流完后提取（Call 2），与对话内容分开、不阻塞阅读。
                 dialogue_segments = None
                 inline_choices = None
                 plot_summary = None
-                if not bubble_mode and choices_count == 0:
-                    # True streaming: yield tokens as they arrive from LLM
-                    for event_type, data in session.scene_manager.narrate_stream(
-                        player_info, context_with_memory,
-                        user_action=user_action, structured=False,
-                        max_tokens=max_tokens,
-                        word_limit=word_limit,
-                        conversation_history=conversation_history,
-                        is_first_turn=is_first_turn,
-                    ):
-                        if event_type == "token":
-                            yield f"data: {json.dumps({'type': 'text', 'data': {'token': data, 'stream_id': stream_id}})}\n\n"
-                        elif event_type == "reasoning":
-                            yield f"data: {json.dumps({'type': 'reasoning', 'data': {'token': data, 'stream_id': stream_id}})}\n\n"
-                        elif event_type == "done":
-                            narrative, env_updates, usage = data
-                            session.accumulate_usage(usage)
-                            break
+                for event_type, data in session.scene_manager.narrate_stream(
+                    player_info, context_with_memory,
+                    user_action=user_action, structured=False,
+                    max_tokens=max_tokens,
+                    word_limit=word_limit,
+                    conversation_history=conversation_history,
+                    is_first_turn=is_first_turn,
+                ):
+                    if event_type == "token":
+                        yield f"data: {json.dumps({'type': 'text', 'data': {'token': data, 'stream_id': stream_id}})}\n\n"
+                    elif event_type == "reasoning":
+                        yield f"data: {json.dumps({'type': 'reasoning', 'data': {'token': data, 'stream_id': stream_id}})}\n\n"
+                    elif event_type == "done":
+                        narrative, env_updates, usage = data
+                        break
 
-                    # 检测结构化 JSON（LLM 即使非 structured 模式也可能输出 JSON）
-                    dialogue_segments, stream_text = _try_extract_structured(
-                        narrative, session.scene_manager
+                session.accumulate_usage(usage)
+
+                # 检测结构化 JSON（LLM 即使非 structured 模式也可能输出 JSON）
+                dialogue_segments, stream_text = _try_extract_structured(
+                    narrative, session.scene_manager
+                )
+                if stream_text:
+                    narrative = stream_text
+
+                # ── Hook: intra-round（Phase 1 → Phase 2）──
+                intra_events, intra_narrative = _run_intra_round_hooks(hook_ctx, narrative)
+                for evt in intra_events:
+                    yield f"data: {json.dumps(evt)}\n\n"
+                if intra_narrative:
+                    narrative = intra_narrative
+
+                # 两阶段提取：从叙事文本中提取标记（Call 2）
+                # 文本已流式显示完毕，此阶段不阻塞用户阅读
+                if _should_extract_markers(session, choices_count):
+                    markers = session.scene_manager.extract_markers(
+                        narrative, choices_count=choices_count,
+                        beat_state_active=bool(session.overlay and session.overlay.get_beat_state()),
                     )
-                    if stream_text:
-                        narrative = stream_text
-
-                    # ── Hook: intra-round（Phase 1 → Phase 2）──
-                    intra_events, intra_narrative = _run_intra_round_hooks(hook_ctx, narrative)
-                    for evt in intra_events:
-                        yield f"data: {json.dumps(evt)}\n\n"
-                    if intra_narrative:
-                        narrative = intra_narrative
-
-                    # 两阶段提取：从叙事文本中提取标记（Call 2）
-                    if _should_extract_markers(session, 0):
-                        markers = session.scene_manager.extract_markers(
-                            narrative, choices_count=0,
-                            beat_state_active=bool(session.overlay and session.overlay.get_beat_state()),
-                        )
-                        if markers.get("usage"):
-                            session.accumulate_usage(markers["usage"])
-                        _apply_beat_complete(session, markers.get("beat_complete", False))
-                        combat_event = _apply_combat_trigger(session, markers.get("combat"), stream_id)
-                        if combat_event:
-                            yield combat_event
-
-                elif not bubble_mode and choices_count > 0:
-                    # 缓冲模式：非流式获取完整响应，提取标记后逐字符回放
-                    narrative, env_updates, usage = session.scene_manager.narrate(
-                        player_info, context_with_memory,
-                        user_action=user_action, structured=False,
-                        max_tokens=max_tokens, word_limit=word_limit,
-                        conversation_history=conversation_history,
-                        is_first_turn=is_first_turn,
-                    )
-                    session.accumulate_usage(usage)
-
-                    # 检测结构化 JSON
-                    dialogue_segments, stream_text = _try_extract_structured(
-                        narrative, session.scene_manager
-                    )
-                    if stream_text:
-                        narrative = stream_text
-
-                    # ── Hook: intra-round（Phase 1 → Phase 2）──
-                    intra_events, intra_narrative = _run_intra_round_hooks(hook_ctx, narrative)
-                    for evt in intra_events:
-                        yield f"data: {json.dumps(evt)}\n\n"
-                    if intra_narrative:
-                        narrative = intra_narrative
-
-                    # 两阶段提取：从叙事文本中提取标记（Call 2）
-                    if _should_extract_markers(session, choices_count):
-                        markers = session.scene_manager.extract_markers(
-                            narrative, choices_count=choices_count,
-                            beat_state_active=bool(session.overlay and session.overlay.get_beat_state()),
-                        )
-                        if markers.get("usage"):
-                            session.accumulate_usage(markers["usage"])
-                        _apply_beat_complete(session, markers.get("beat_complete", False))
-                        combat_event = _apply_combat_trigger(session, markers.get("combat"), stream_id)
-                        if combat_event:
-                            yield combat_event
-                        inline_choices = markers.get("choices")
-                        plot_summary = markers.get("summary")
-
-                    # 逐字符发送解析后的纯文本
-                    for ch in narrative:
-                        yield f"data: {json.dumps({'type': 'text', 'data': {'token': ch, 'stream_id': stream_id}})}\n\n"
-
-                else:
-                    # Bubble mode: non-streaming (LLM outputs JSON, cannot stream raw JSON to UI)
-                    narrative, env_updates, usage = session.scene_manager.narrate(
-                        player_info, context_with_memory,
-                        user_action=user_action, structured=True,
-                        max_tokens=max_tokens, word_limit=word_limit,
-                        conversation_history=conversation_history,
-                        is_first_turn=is_first_turn,
-                    )
-                    session.accumulate_usage(usage)
-
-                    dialogue_segments, stream_text = _try_extract_structured(
-                        narrative, session.scene_manager
-                    )
-                    if stream_text:
-                        narrative = stream_text
-
-                    # ── Hook: intra-round（Phase 1 → Phase 2）──
-                    intra_events, intra_narrative = _run_intra_round_hooks(hook_ctx, narrative)
-                    for evt in intra_events:
-                        yield f"data: {json.dumps(evt)}\n\n"
-                    if intra_narrative:
-                        narrative = intra_narrative
-
-                    # 两阶段提取：从叙事文本中提取标记（Call 2）
-                    if _should_extract_markers(session, choices_count):
-                        markers = session.scene_manager.extract_markers(
-                            narrative, choices_count=choices_count,
-                            beat_state_active=bool(session.overlay and session.overlay.get_beat_state()),
-                        )
-                        if markers.get("usage"):
-                            session.accumulate_usage(markers["usage"])
-                        _apply_beat_complete(session, markers.get("beat_complete", False))
-                        combat_event = _apply_combat_trigger(session, markers.get("combat"), stream_id)
-                        if combat_event:
-                            yield combat_event
-                        inline_choices = markers.get("choices")
-                        plot_summary = markers.get("summary")
-
-                    # 逐字符发送解析后的纯文本
-                    for ch in narrative:
-                        yield f"data: {json.dumps({'type': 'text', 'data': {'token': ch, 'stream_id': stream_id}})}\n\n"
+                    if markers.get("usage"):
+                        session.accumulate_usage(markers["usage"])
+                    _apply_beat_complete(session, markers.get("beat_complete", False))
+                    combat_event = _apply_combat_trigger(session, markers.get("combat"), stream_id)
+                    if combat_event:
+                        yield combat_event
+                    inline_choices = markers.get("choices")
+                    plot_summary = markers.get("summary")
 
                 session.environment.apply_update(env_updates)
 

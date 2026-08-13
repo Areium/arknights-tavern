@@ -102,6 +102,149 @@ def _check_combat_timeout(session, timeout: int = 600):
     return json_error("战斗已超时，请重新开始", 410)
 
 
+# ── 战斗奖励结算 ──
+
+# 参与战斗数值派生的 7 维属性（「魅力」为叙事属性，仅当其余全满时才提升）
+_BATTLE_ATTRS = ["物理强度", "战场机动", "生理耐受", "战术规划",
+                 "战斗技巧", "源石技艺适应性", "情绪稳定性"]
+
+
+def _settle_combat_rewards(session, combat_data: dict) -> dict:
+    """结算战斗奖励：XP + 物品掉落 + 成长写回。返回 rewards 供前端展示。"""
+    from combat_data_loader import CombatDataLoader
+    loader = CombatDataLoader()
+
+    encounter = loader.load_encounter(combat_data.get("encounter_id", "")) or {}
+    rewards_cfg = encounter.get("rewards", {}) or {}
+
+    xp = int(rewards_cfg.get("xp", 0))
+    items = list(rewards_cfg.get("items", []))
+
+    # 敌人掉落 roll + 击杀经验
+    units = combat_data.get("units", {}) or {}
+    for udict in units.values():
+        if udict.get("team") != "enemy":
+            continue
+        meta = loader.load_enemy_meta(udict.get("name", ""))
+        if not meta:
+            continue
+        xp += int(meta.get("xp_reward", 0))
+        if random.random() < float(meta.get("drop_rate", 0)):
+            items.extend(meta.get("drop_items", []))
+
+    level_ups = _apply_progression(session, combat_data.get("character_metas", []) or [], xp)
+
+    if items:
+        _add_to_inventory(session, items)
+
+    return {"xp": xp, "items": items, "level_ups": level_ups}
+
+
+def _apply_progression(session, character_metas: list, xp: int) -> list:
+    """结算成长：XP → 等级 → 属性提升，写回 overrides.json 存档层。"""
+    level_ups = []
+    if xp <= 0 or not character_metas:
+        return level_ups
+
+    for meta in character_metas:
+        name = meta.get("name", "")
+        if not name:
+            continue
+        overrides = session.overlay.get_character_overrides(name) or {}
+        progress = overrides.get("progress", {}) or {}
+        level = int(progress.get("level", 1) or 1)
+        xp_cur = int(progress.get("xp", 0) or 0) + xp
+
+        # 当前属性 = 模板 attributes + 已存档覆盖
+        current = dict(meta.get("attributes", {}) or {})
+        ov_attrs = ((overrides.get("metadata", {}) or {}).get("attributes", {})) or {}
+        for k, v in ov_attrs.items():
+            current[k] = v
+
+        raised = {}
+        while xp_cur >= level * 100:
+            xp_cur -= level * 100
+            level += 1
+            attr_name = _pick_lowest_battle_attr(current)
+            if not attr_name:
+                break
+            current[attr_name] = int(current.get(attr_name, 5)) + 1
+            raised[attr_name] = current[attr_name]
+            level_ups.append({"name": name, "level": level, "attribute": attr_name})
+
+        payload = {"progress": {"level": level, "xp": xp_cur}}
+        if raised:
+            payload["metadata"] = {"attributes": raised}
+        session.overlay.set_character_overrides(name, payload)
+
+    return level_ups
+
+
+def _pick_lowest_battle_attr(attrs: dict) -> str | None:
+    """从 8 维里（除「魅力」外）选值最低的一维；其余全满时尝试「魅力」。"""
+    candidates = [(k, int(attrs.get(k, 5))) for k in _BATTLE_ATTRS
+                  if int(attrs.get(k, 5)) < 10]
+    if not candidates:
+        if int(attrs.get("魅力", 5)) < 10:
+            return "魅力"
+        return None
+    candidates.sort(key=lambda x: x[1])
+    return candidates[0][0]
+
+
+def _add_to_inventory(session, items: list) -> None:
+    """把掉落物品累加进会话背包（overlay 的 inventory 字段）。"""
+    overlay_data = session.overlay._data
+    inventory = overlay_data.get("inventory", [])
+    for item_name in items:
+        for entry in inventory:
+            if entry.get("name") == item_name:
+                entry["count"] = int(entry.get("count", 1)) + 1
+                break
+        else:
+            inventory.append({"name": item_name, "count": 1, "obtained_at": time.time()})
+    overlay_data["inventory"] = inventory
+    session.overlay._save()
+
+
+def _get_combat_inventory(session) -> list[dict]:
+    """从会话背包读取战斗中可用的消耗品（category=consumable 且 count>0）。"""
+    from combat_data_loader import CombatDataLoader
+    loader = CombatDataLoader()
+    result = []
+    for entry in session.overlay._data.get("inventory", []):
+        name = entry.get("name", "")
+        if int(entry.get("count", 0)) <= 0:
+            continue
+        meta = loader.load_item_meta(name)
+        if meta and meta.get("category") == "consumable":
+            result.append({"name": name, "count": int(entry.get("count", 1))})
+    return result
+
+
+def _use_item(session, data: dict) -> dict:
+    """使用消耗品：校验背包 → 应用效果 → 消耗背包 → 返回最新 state。"""
+    item_name = data.get("item_name", "")
+    target_id = data.get("unit_id", "")
+
+    inventory = session.overlay._data.get("inventory", [])
+    entry = next((e for e in inventory if e.get("name") == item_name), None)
+    if not entry or int(entry.get("count", 0)) <= 0:
+        return {"ok": False, "error": f"背包中没有 '{item_name}'"}
+
+    result = session.combat.use_item(item_name, target_id)
+    if not result.get("ok"):
+        return result
+
+    # 消耗持久化背包
+    entry["count"] = int(entry.get("count", 1)) - 1
+    if entry["count"] <= 0:
+        inventory.remove(entry)
+    session.overlay._save()
+
+    return result
+
+
 def register(app, managers):
     session_mgr = managers["session"]
     combat_test_mgr = managers["combat_test"]
@@ -157,6 +300,7 @@ def register(app, managers):
                 enemies_override=enemies_override,
                 location=session.environment.location or "",
                 session_dir=str(session.data_dir),
+                inventory=_get_combat_inventory(session),
             )
             session.combat = combat
             return jsonify(state)
@@ -200,7 +344,10 @@ def register(app, managers):
             return err
 
         data = request.json or {}
-        result = session.combat.handle_action(data)
+        if data.get("action") == "use_item":
+            result = _use_item(session, data)
+        else:
+            result = session.combat.handle_action(data)
 
         if not result.get("ok"):
             return json_error(result.get("error", "操作失败"), 400)
@@ -278,14 +425,23 @@ def register(app, managers):
 
         session.combat = None
 
+        # 结算奖励（胜利才有 XP 和掉落）
+        rewards = {"xp": 0, "items": [], "level_ups": []}
+        if winner == "player":
+            try:
+                rewards = _settle_combat_rewards(session, combat_data)
+            except Exception as e:
+                logger.exception("会话 %s: 战斗奖励结算失败", session_id)
+
         # Generate auto-narrate action for frontend
         auto_narrate_action = f"战斗结束，{result_desc}获胜，描述战斗后的场景"
 
-        logger.info("会话 %s: 战斗结果已记录 (winner=%s, rounds=%d)",
-                     session_id, winner, round_num)
+        logger.info("会话 %s: 战斗结果已记录 (winner=%s, rounds=%d, xp=%d)",
+                     session_id, winner, round_num, rewards.get("xp", 0))
         return jsonify({
             "message": "战斗已结束",
             "history": combat_history,
+            "rewards": rewards,
             "auto_narrate_action": auto_narrate_action,
         })
 

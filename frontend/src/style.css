@@ -388,6 +388,14 @@ html.light .text-amber-100\/70 { color: rgba(120,53,15,0.85); }
   box-shadow: 0 0 20px rgba(200, 168, 64, 0.45), 0 8px 24px rgba(0, 0, 0, 0.55);
 }
 
+/* 选中角色拥有的卡牌 — 青色高亮 + 伸出 */
+.combat-card.highlighted {
+  border-color: #5ac8fa;
+  transform: translateY(-10px);
+  box-shadow: 0 0 14px rgba(90, 200, 250, 0.5), 0 4px 12px rgba(0, 0, 0, 0.5);
+  animation: card-owner-glow 1.5s ease-in-out infinite;
+}
+
 .combat-card.selected {
   border-color: #f0c060 !important;
   transform: translateY(-14px);
@@ -408,6 +416,11 @@ html.light .text-amber-100\/70 { color: rgba(120,53,15,0.85); }
 @keyframes card-selected-glow {
   0%, 100% { box-shadow: 0 0 18px rgba(240, 192, 96, 0.5), 0 4px 16px rgba(0, 0, 0, 0.5); }
   50% { box-shadow: 0 0 28px rgba(240, 192, 96, 0.7), 0 4px 20px rgba(0, 0, 0, 0.6); }
+}
+
+@keyframes card-owner-glow {
+  0%, 100% { box-shadow: 0 0 14px rgba(90, 200, 250, 0.5), 0 4px 12px rgba(0, 0, 0, 0.5); }
+  50% { box-shadow: 0 0 24px rgba(90, 200, 250, 0.7), 0 4px 16px rgba(0, 0, 0, 0.6); }
 }
 
 /* 卡牌打出动画 */

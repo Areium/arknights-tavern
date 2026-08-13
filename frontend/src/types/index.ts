@@ -327,6 +327,7 @@ export interface CombatStateDTO {
   active_unit_id: string | null;
   grid: Record<string, string>;
   battle_over: boolean;
+  inventory: { name: string; count: number }[];
 }
 
 /** 战斗 SSE 事件 */

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { audioManager } from "../audio/audioManager";
 import { useAppStore } from "../stores/appStore";
 import { useApi } from "../hooks/useApi";
 
@@ -6,6 +7,7 @@ export default function SettingsPanel() {
   const { llmStatus, theme, toggleTheme, setEditBeforeSend, setDialogueBubbleMode } = useAppStore();
   const api = useApi();
   const [switching, setSwitching] = useState<string | null>(null);
+  const [bgmMuteOnBlur, setBgmMuteOnBlurState] = useState(audioManager.getSettings().bgmMuteOnBlur);
 
   // LLM 配置表单
   const [config, setConfig] = useState({
@@ -165,6 +167,12 @@ export default function SettingsPanel() {
     }
   };
 
+  const handleToggleBgmMuteOnBlur = () => {
+    const v = !bgmMuteOnBlur;
+    setBgmMuteOnBlurState(v);
+    audioManager.setBgmMuteOnBlur(v);
+  };
+
   return (
     <div className="max-w-2xl mx-auto p-6 space-y-6">
       <h2 className="text-lg font-bold">设置</h2>
@@ -190,6 +198,29 @@ export default function SettingsPanel() {
             <span
               className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 ${
                 theme === "dark" ? "left-6" : "left-0.5"
+              }`}
+            />
+          </button>
+        </div>
+      </section>
+
+      {/* 音频 */}
+      <section className="card">
+        <h3 className="panel-title">音频</h3>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium">窗口失焦时静音 BGM</p>
+            <p className="text-xs text-gray-500 mt-0.5">切到其他窗口/程序时暂停背景音乐，回来自动恢复</p>
+          </div>
+          <button
+            onClick={handleToggleBgmMuteOnBlur}
+            className={`relative w-12 h-6 rounded-full transition-colors duration-200 ${
+              bgmMuteOnBlur ? "bg-blue-600" : "bg-gray-300"
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 ${
+                bgmMuteOnBlur ? "left-6" : "left-0.5"
               }`}
             />
           </button>

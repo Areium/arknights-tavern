@@ -99,6 +99,12 @@ app = create_app()
 
 def main():
     """启动 API 服务。"""
+    # 基础日志配置（logging_setup 模块移除后恢复）：让各模块 logger 输出到 stderr
+    if not logging.getLogger().handlers:
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        )
     host = os.getenv("API_HOST", "127.0.0.1")
     port = int(os.getenv("API_PORT", "5000"))
     debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"

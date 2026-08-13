@@ -17,6 +17,11 @@ let processManager: PythonProcessManager | null = null;
 const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
 const BACKEND_PORT = 5000;
 const BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
+// 窗口/任务栏图标：开发时读 public/，打包后读 dist/
+const LOGO_PATH = path.join(
+  __dirname,
+  isDev ? "../public/logo.png" : "../dist/logo.png"
+);
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -25,6 +30,7 @@ function createWindow() {
     minWidth: 1000,
     minHeight: 600,
     title: "Arknights Tavern - 明日方舟文字角色扮演",
+    icon: LOGO_PATH,
     backgroundColor: "#0f1117",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),

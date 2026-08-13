@@ -85,15 +85,10 @@ class Grid:
         self.place_unit(unit, new_pos)
         return True
 
-    def is_valid_position(self, pos: tuple[int, int], team: str) -> bool:
-        """Check if pos is within the unit's zone."""
+    def is_valid_position(self, pos: tuple[int, int], team: str = "") -> bool:
+        """Check if pos is within the grid bounds (units may move anywhere)."""
         row, col = pos
-        if row < 0 or row >= TOTAL_ROWS:
-            return False
-        if team == "player":
-            return 0 <= col <= PLAYER_COL_END
-        else:
-            return ENEMY_COL_START <= col <= ENEMY_COL_END
+        return 0 <= row < TOTAL_ROWS and 0 <= col < TOTAL_COLS
 
     def get_valid_moves(self, unit: CombatUnit, shared_ap: int = -1) -> list[tuple[int, int]]:
         """Get all positions the unit can move to (1 cell Chebyshev distance).

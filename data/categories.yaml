@@ -16,6 +16,7 @@ categories:
   combat_enemies: data/combat/enemies/
   combat_encounters: data/combat/encounters/
   combat_backgrounds: data/combat/backgrounds/
+  audio: data/audio/
   rules: data/rules/
 
 # 层级定义（用于文档管理界面分组）

@@ -292,6 +292,7 @@ class Session:
         )
 
         try:
+            _t0 = time.monotonic()
             response = self._llm.chat([
                 {"role": "system", "content": (
                     "<role>你是专业TRPG剧情编辑，负责记录详尽的剧情摘要。</role>\n"
@@ -302,6 +303,7 @@ class Session:
                 )},
                 {"role": "user", "content": prompt},
             ], stream=False)
+            logger.info("[TIMING] generate_memory LLM调用: %.0fms", (time.monotonic() - _t0) * 1000)
             response_text = response.get("content", "") if isinstance(response, dict) else str(response)
         except Exception as e:
             logger.warning("生成回忆失败 (LLM 调用): %s", e)

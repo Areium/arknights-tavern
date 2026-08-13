@@ -23,7 +23,7 @@ conditions:
   escape_enabled: true
 rewards:
   xp: 300
-  items: ["基础源石碎片"]
+  items: ["源石碎片"]
   unlock: []
 trigger_plot: ""
 ---
