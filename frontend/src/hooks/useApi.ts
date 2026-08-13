@@ -321,6 +321,65 @@ export function useApi() {
     verifySessionIndex: (sessionId: string) =>
       request<import("../types").IndexVerifyResult>(`/api/sessions/${sessionId}/index/verify`),
 
+    // ── 世界书（酒馆 Lorebook 兼容） ──
+    listWorldbooks: () =>
+      request<{ books: import("../types").WorldBookSummary[] }>("/api/worldbook"),
+    createWorldbook: (name: string, budgetTokens = 0) =>
+      request<{ book: import("../types").WorldBookSummary }>("/api/worldbook", {
+        method: "POST",
+        body: JSON.stringify({ name, budget_tokens: budgetTokens }),
+      }),
+    getWorldbook: (id: string) =>
+      request<import("../types").WorldBookDetail>(`/api/worldbook/${encodeURIComponent(id)}`),
+    updateWorldbook: (id: string, data: { name?: string; budget_tokens?: number }) =>
+      request<{ book: import("../types").WorldBookSummary }>(`/api/worldbook/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+    deleteWorldbook: (id: string) =>
+      request<any>(`/api/worldbook/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    importWorldbookJson: (name: string, data: any) =>
+      request<import("../types").WorldBookImportResult>("/api/worldbook/import", {
+        method: "POST",
+        body: JSON.stringify({ name, data }),
+      }),
+    importWorldbookFile: (name: string, file: File) =>
+      uploadMultipart("/api/worldbook/import", { name }, file),
+    exportWorldbook: (id: string) =>
+      request<{ name: string; format: string; data: any }>(
+        `/api/worldbook/${encodeURIComponent(id)}/export`),
+    createWorldbookEntry: (bookId: string, entry: Partial<import("../types").WorldBookEntryDTO>) =>
+      request<{ entry: import("../types").WorldBookEntryDTO }>(
+        `/api/worldbook/${encodeURIComponent(bookId)}/entries`, {
+          method: "POST",
+          body: JSON.stringify(entry),
+        }),
+    updateWorldbookEntry: (bookId: string, entryId: string, entry: Partial<import("../types").WorldBookEntryDTO>) =>
+      request<{ entry: import("../types").WorldBookEntryDTO }>(
+        `/api/worldbook/${encodeURIComponent(bookId)}/entries/${encodeURIComponent(entryId)}`, {
+          method: "PUT",
+          body: JSON.stringify(entry),
+        }),
+    deleteWorldbookEntry: (bookId: string, entryId: string) =>
+      request<any>(
+        `/api/worldbook/${encodeURIComponent(bookId)}/entries/${encodeURIComponent(entryId)}`, {
+          method: "DELETE",
+        }),
+    setDefaultWorldbook: (id: string, isDefault: boolean) =>
+      request<{ default_book_id: string | null }>(`/api/worldbook/${encodeURIComponent(id)}/default`, {
+        method: "POST",
+        body: JSON.stringify({ default: isDefault }),
+      }),
+    bindWorldbook: (id: string, sessionId: string, bound: boolean) =>
+      request<{ session_id: string; worldbook_id: string | null }>(
+        `/api/worldbook/${encodeURIComponent(id)}/bind`, {
+          method: "POST",
+          body: JSON.stringify({ session_id: sessionId, bound }),
+        }),
+    resolveWorldbook: (sessionId?: string) =>
+      request<import("../types").WorldBookResolveResult>(
+        `/api/worldbook/resolve${sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : ""}`),
+
     // ── LLM ──
     getLLMStatus: () => request<any>("/api/llm/status"),
     refreshLLM: () =>

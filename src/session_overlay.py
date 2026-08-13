@@ -200,6 +200,22 @@ class SessionOverlay:
         self._data.pop("index_config", None)
         self._save()
 
+    # ── 世界书绑定 ──
+
+    def get_worldbook_id(self) -> str | None:
+        """获取会话绑定的世界书 ID（未绑定返回 None，回落到全局默认书）。"""
+        return self._data.get("worldbook_id")
+
+    def set_worldbook_id(self, worldbook_id: str | None):
+        """绑定/解绑会话的世界书。"""
+        if worldbook_id:
+            self._data["worldbook_id"] = worldbook_id
+            logger.info("会话 %s: 世界书绑定为 %s", self.session_id, worldbook_id)
+        else:
+            self._data.pop("worldbook_id", None)
+            logger.info("会话 %s: 已解绑世界书", self.session_id)
+        self._save()
+
     # ── 环境覆盖 ──
 
     def get_environment_overrides(self) -> dict:
@@ -910,6 +926,7 @@ class SessionOverlay:
         result = {
             "session_id": self.session_id,
             "plot_id": self._data.get("plot_id"),
+            "worldbook_id": self._data.get("worldbook_id"),
             "characters": self._data.get("characters", {}),
             "items": self._data.get("items", {}),
             "environment": self._data.get("environment", {}),

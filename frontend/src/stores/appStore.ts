@@ -17,8 +17,8 @@ export interface CombatContext {
 
 interface AppState {
   // 视图
-  currentView: "chat" | "documents" | "settings" | "combat" | "index";
-  setCurrentView: (view: "chat" | "documents" | "settings" | "combat" | "index") => void;
+  currentView: "chat" | "documents" | "settings" | "combat" | "index" | "worldbook";
+  setCurrentView: (view: "chat" | "documents" | "settings" | "combat" | "index" | "worldbook") => void;
 
   // 主题
   theme: Theme;

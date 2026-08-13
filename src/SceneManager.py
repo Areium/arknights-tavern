@@ -114,13 +114,14 @@ class SceneManager:
     _MAX_SCENE_LOG = 20
 
     def __init__(self, llm, registry, overlay=None, wiki_manager=None, session_context=None,
-                 combat_mode: str = "narrative"):
+                 combat_mode: str = "narrative", worldbook_manager=None):
         self._llm = llm
         self._registry = registry
         self._overlay = overlay  # SessionOverlay instance
         self._wiki_manager = wiki_manager
         self._session_context = session_context
         self._combat_mode = combat_mode
+        self._worldbook_manager = worldbook_manager  # WorldBookManager | None
 
         # {name: CharacterAgent}
         self._agents: dict[str, CharacterAgent] = {}
@@ -190,6 +191,39 @@ class SceneManager:
         if self.active and self.active in self._agents:
             return self._agents[self.active]
         return None
+
+    # ── 世界书 ──
+
+    def _resolve_worldbook(self):
+        """解析当前会话生效的世界书（会话绑定 > 全局默认），无则返回 None。"""
+        if not self._worldbook_manager:
+            return None
+        try:
+            return self._worldbook_manager.resolve(self._overlay)
+        except Exception:
+            logger.exception("解析世界书失败")
+            return None
+
+    def _recent_scene_text(self, limit: int = 8) -> str:
+        """构建世界书关键词扫描用的最近对话文本（场景事件日志尾部）。"""
+        return "\n".join(self._scene_log[-limit:]) if self._scene_log else ""
+
+    def _build_worldbook_parts(self, worldbook, recent_text: str,
+                               current_input: str, identity: str,
+                               active_char: str | None = None) -> tuple[str, str]:
+        """触发匹配 + 格式化，返回 (before, after) 注入文本。"""
+        if worldbook is None:
+            return "", ""
+        try:
+            matched = worldbook.collect_matches(recent_text, current_input)
+            if matched:
+                logger.debug("世界书命中 %d 条: %s",
+                             len(matched), [e.uid for e in matched])
+            return worldbook.format_injection(matched, identity=identity,
+                                              active_char=active_char)
+        except Exception:
+            logger.exception("世界书注入失败，跳过本次注入")
+            return "", ""
 
     def load_character(self, name: str) -> bool:
         """加载角色加入当前场景。首次加载会创建 CharacterAgent 并缓存。
@@ -312,6 +346,10 @@ class SceneManager:
         scene_context = self._build_scene_context()
         custom_prompt = self._overlay.get_custom_prompt() if self._overlay else None
 
+        # 世界书：解析 + 扫描最近场景动态
+        worldbook = self._resolve_worldbook()
+        recent_text = self._recent_scene_text()
+
         # 路由到角色代理
         response, env_updates, usage = agent.chat(
             clean_input,
@@ -320,6 +358,8 @@ class SceneManager:
             scene_context=scene_context,
             stream_callback=stream_callback,
             custom_prompt=custom_prompt,
+            worldbook=worldbook,
+            recent_text=recent_text,
         )
 
         # 更新场景日志
@@ -347,6 +387,11 @@ class SceneManager:
         identity = (player_info or {}).get("identity", "博士")
         scene_context = self._build_scene_context()
         custom_prompt = self._overlay.get_custom_prompt() if self._overlay else None
+
+        # 世界书：解析 + 扫描最近场景动态
+        worldbook = self._resolve_worldbook()
+        recent_text = self._recent_scene_text()
+
         results = []
         total_usage = None
 
@@ -359,6 +404,8 @@ class SceneManager:
                     scene_context=scene_context,
                     stream_callback=stream_callback,
                     custom_prompt=custom_prompt,
+                    worldbook=worldbook,
+                    recent_text=recent_text,
                 )
                 results.append({
                     "character": name,
@@ -691,6 +738,16 @@ speaker 必须从场景角色列表选择，无法判断时用 null
             )
             if catalog:
                 ref_parts.append(catalog)
+        # 世界书（position=0 → 稳定参考层）
+        worldbook = self._resolve_worldbook()
+        wb_before, wb_after = self._build_worldbook_parts(
+            worldbook,
+            recent_text=(conversation_history or "") + "\n" + self._recent_scene_text(),
+            current_input=user_action,
+            identity=identity,
+        )
+        if wb_before:
+            ref_parts.append(wb_before)
         if ref_parts:
             context_parts.append("<reference>\n" + "\n\n".join(ref_parts) + "\n</reference>")
 
@@ -733,6 +790,10 @@ speaker 必须从场景角色列表选择，无法判断时用 null
         recent = self._scene_log[-8:]
         if recent:
             context_parts.append("<scene_events>\n" + "\n".join(recent) + "\n</scene_events>")
+
+        # 世界书（position=1 → 动态层，紧贴收尾指令利用 recency）
+        if wb_after:
+            context_parts.append(f"<world_book>\n{wb_after}\n</world_book>")
 
         # 收尾指令（recency 效应）
         custom_prompt = self._overlay.get_custom_prompt() if self._overlay else None

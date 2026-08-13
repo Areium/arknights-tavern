@@ -24,6 +24,7 @@ from session_manager import SessionManager
 from document_manager import DocumentManager
 from wiki_manager import WikiManager
 from combat_session import CombatTestSessionManager
+from world_book import WorldBookManager
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +40,11 @@ def create_app():
         "wiki": WikiManager(),
         "document": DocumentManager(),
         "combat_test": CombatTestSessionManager(),
+        "worldbook": WorldBookManager(),
     }
     managers["session"] = SessionManager(
-        managers["llm_backend"], wiki_manager=managers["wiki"]
+        managers["llm_backend"], wiki_manager=managers["wiki"],
+        worldbook_manager=managers["worldbook"],
     )
 
     # ── Hook 管道 ──
@@ -69,6 +72,7 @@ def create_app():
     from blueprints.assets import register as reg_assets
     from blueprints.memories import register as reg_memories
     from blueprints.cards import register as reg_cards
+    from blueprints.worldbook import register as reg_worldbook
 
     for reg in [
         reg_status,
@@ -84,6 +88,7 @@ def create_app():
         reg_assets,
         reg_memories,
         reg_cards,
+        reg_worldbook,
     ]:
         reg(app, managers)
 
