@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-本文件为 Claude Code（claude.ai/code）在本仓库中工作时提供指导。
+本文件为 AI 编码代理（Claude Code、pi 及其他支持 AGENTS.md 规范的代理）在本仓库中工作时提供指导。
 
 ## Git 工作流
 MUST 实现和修改功能前，遵循以下分支工作流：
@@ -75,7 +75,7 @@ API 层（`src/blueprints/`）：Flask Blueprint — `chat.py`（对话/叙述/S
 - `combat-design.md` — 战斗引擎架构与机制设计
 - `combat-numerical-design.md` — 战斗数值公式与平衡参数
 - `combat-ui-design.md` — 战斗界面交互与布局设计
-- `combat-core-design.md` — 战斗核心设计（近期重构权威源）
+- `combat-core-design.md` — 章节战斗化**重构提案（未实现，目标态）**，现状以代码与 combat-design.md 为准
 - `combat-background-prompts.md` — 战斗背景图生成提示词规范
 - `prompt.md` — Prompt 工程策略与模板设计
 - `system-update-log.md` — 系统更新日志

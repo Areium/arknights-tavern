@@ -86,7 +86,7 @@
 | 命中 | HIT | 2 ~ 20 | d20 检定加值 |
 | 闪避 | EVA | 2 ~ 15 | 命中 DC 组成部分 |
 | 移动力 | MOB | 1 ~ 10 | 每回合可移动格数 |
-| 个人 AP | pAP | 1 ~ 3 | 个人行动点，当前仅敌方消耗（移动和出牌）；玩家方使用共享 AP |
+| 个人 AP | pAP | 1 ~ 4 | 钳制 [1,4]，玩家移动也消耗个人 AP；玩家方出牌使用共享 AP |
 | 卡牌基础伤害 | Dmg | 0 ~ 25 | 卡牌的伤害骰范围 |
 | 卡牌攻撃倍率 | Scale | 0.0 ~ 1.5 | 乘以对应 ATK 属性 |
 | 卡牌 AP 消耗 | Cost | 1 ~ 3 | 打出卡牌消耗的 AP |
@@ -100,11 +100,11 @@
 | 属性 | 英文键 | 战斗影响 | 权重 |
 |------|--------|---------|------|
 | 物理强度 | physical_strength | HP, PATK, DEF | 物理核心 |
-| 战场机动 | battlefield_mobility | SPD, HIT, EVA, AP, 移动力 | 速度核心 |
+| 战场机动 | mobility | SPD, HIT, EVA, AP, 移动力 | 速度核心 |
 | 生理耐受 | physiological_tolerance | HP(主), DEF | 生存核心 |
 | 战术规划 | tactical_planning | MATK, HEAL, SPD | 智力辅助 |
 | 战斗技巧 | combat_skill | PATK, HIT | 物理命中 |
-| 源石技艺 | originium_arts | MATK, HEAL, RES | 法术核心 |
+| 源石技艺 | originium_arts_assimilation | MATK, HEAL, RES | 法术核心 |
 | 情绪稳定 | emotional_stability | RES | 法术防御 |
 | 魅力 | charisma | — | 叙事属性，无直接战斗影响 |
 
@@ -120,7 +120,7 @@ RES  = round(EMO × 1.5 + ORG × 0.5)   （情绪稳定为主）
 SPD  = MOB × 2 + INT × 0.5     （战场机动为主）
 HIT  = CBT + MOB               （战斗技巧 + 战场机动）
 EVA  = round(MOB × 1.5)        （战场机动决定）
-pAP  = 1 + floor((MOB - 3) / 3), 钳制 [1, 3]  （个人 AP，当前仅敌方使用）
+pAP  = 1 + floor((MOB - 3) / 3), 钳制 [1, 4]  （个人 AP，玩家移动也消耗）
 共享 AP = 2 + max(0, (最高 INT - 5) // 3), 钳制 [2, 3]  （玩家方整队共享，受最高战术规划影响）
 ```
 
@@ -353,9 +353,11 @@ pAP  = 1 + floor((MOB - 3) / 3), 钳制 [1, 3]  （个人 AP，当前仅敌方�
 | 均衡型 (Balanced) | 最近目标 | 均衡攻防 | HP<30% | enemy_atk (AP=1), enemy_heavy (AP=2) |
 | 防御型 (Defensive) | 最高威胁 | 防守反击 | HP<40% | enemy_atk (AP=1), enemy_aoe (AP=2) |
 
+> 注：上表为设计稿，未实现——当前敌人 AI 为：找最近玩家 → 打出可负担的最高伤害卡 → 否则移动一步，无撤退/意图。
+
 ### 6.4 遭遇战难度评估（初遇整合运动）
 
-- **我方**：4 名 3★ 角色（HP 75-90, ATK 18-22），共享 2AP/回合
+- **我方**：4 名 3★ 角色（HP 75-90, ATK 18-22），共享 AP = 2 + max(0, (最高战术规划-5)//3)，上限 3（博士 INT=10 → 3）
 - **敌方**：4 名敌人（HP 70-140, 总 HP 375），每人 3AP/回合
 
 敌方总 AP/回合 = 12（4×3），我方 = 2。但敌人 AI 不使用复杂策略，实际效率约 40%。
@@ -399,7 +401,7 @@ pAP  = 1 + floor((MOB - 3) / 3), 钳制 [1, 3]  （个人 AP，当前仅敌方�
 ```
 base = random(card.min_damage, card.max_damage)  // 均匀分布
 atk_stat = PATK (物理) / MATK (法术) / HEAL (治疗) / (PATK+MATK)/2 (混合)
-resist = DEF (物理) / RES (法术) / min(DEF, RES) (混合/治疗)
+resist = DEF (物理) / RES (法术) / min(DEF, RES) (混合)；治疗完全无视抗性（不按 min(DEF,RES) 减免）
 atk_bonus = atk_stat × card.atk_scale
 
 raw_damage = base + atk_bonus - resist
@@ -636,7 +638,7 @@ PATK = (str + cbt) × 2           RES = round(emo × 1.5 + org × 0.5)
 MATK = (org + int) × 2           SPD = mob × 2 + int × 0.5
 HEAL = (org + int) × 2           HIT = cbt + mob
 pAP = 1 + floor((mob - 3) / 3)   EVA = round(mob × 1.5)
-共享 AP = 2/回合
+共享 AP = 2 + max(0, (最高战术规划 - 5) // 3)，上限 3
 ```
 
 ### B. 命中公式速查

@@ -30,9 +30,9 @@
 
 ### 当前状态（v2.0 已实施）
 
-- **地图**：CSS 3D 俯视棋盘，9×8 方格，rotateX(6deg) 透视，单元格 56×56px，带有 glow 高亮系统
+- **地图**：CSS 3D 俯视棋盘，7×7 方格，rotateX(33deg) 透视，单元格双模式（fullscreen 72px / windowed 56px，见 frontend/src/components/combat/combatConfig.ts），带有 glow 高亮系统
 - **单位**：CSS 像素小人（ChibiSprite），职业色 + 武器形状，悬浮 HP 条，部署方向箭头，受击震动动画
-- **卡牌**：140×190px 完整卡面，程序化卡图（CSS 渐变），职业色带（左侧 4px），稀有度金边，选中浮起 + 脉冲光效
+- **卡牌**：双模式卡面（fullscreen 192×259 / windowed 122×166），程序化卡图（CSS 渐变），职业色带（左侧 4px），稀有度金边，选中浮起 + 脉冲光效
 - **状态面板**：角色卡片式面板，头像占位 + HP 条（三级渐变色）+ AP 点阵 + 职业标签
 - **事件日志**：Timeline 风格，Unicode 图标 + 彩色事件类型
 - **特效**：Canvas 粒子系统（spark/heal/death/victory），浮空伤害数字（Orbitron 字体 + 类型色 + 描边）
@@ -44,7 +44,7 @@
 
 1. **轻微俯视透视**（foreshortened top-down）- 远处格子略小，形成深度感
 2. **地面格子有透视**——CSS rotateX 绕 X 轴旋转
-3. **角色小人**——CSS 像素风占位，预留 Spine 动画接口
+3. **角色小人**——CSS 像素风占位，已实现 PixiJS Spine 覆盖层
 4. **格子高亮**——发光边框而非纯色填充
 5. **技能特效**——Canvas 粒子叠加层
 6. **伤害数字**——弹出动画，粗体描边
@@ -57,23 +57,24 @@
 
 ```css
 .combat-grid-perspective {
-  perspective: 2000px;
+  perspective: 1000px;
   perspective-origin: 50% 45%;
 }
 .combat-grid-3d {
-  transform: rotateX(6deg);
+  transform: rotateX(33deg);
   transform-style: preserve-3d;
 }
 ```
 
 **效果**：轻微的深度感，保持整体高度紧凑，不占用过多纵向空间。
 
-### 1.2 格子视觉设计（56×56px）
+### 1.2 格子视觉设计（双模式：fullscreen 72px / windowed 56px）
 
 ```css
 .combat-cell {
-  width: 56px;
-  height: 56px;
+  /* 双模式尺寸：fullscreen 72px / windowed 56px（见 frontend/src/components/combat/combatConfig.ts） */
+  width: 72px;
+  height: 72px;
   background: rgba(15, 20, 35, 0.6);
   border: 1px solid rgba(100, 120, 160, 0.25);
   background-image:
@@ -174,7 +175,7 @@
 - **部署方向箭头**：三角形指示朝向
 - **动画**：hit-shake（0.3s 震动）、death（opacity+grayscale+scaleY）
 
-后续阶段将支持 Spine 动画替换。
+已实现 PixiJS Spine 覆盖层（ChibiSprite 作为回退层并存）。
 
 ### 2.3 方向系统
 
@@ -189,7 +190,7 @@
 
 ## 三、卡牌展示系统
 
-### 3.1 卡面设计（140×190px）
+### 3.1 卡面设计（双模式：fullscreen 192×259 / windowed 122×166）
 
 ```
 ┌────────────────────────────┐
@@ -224,8 +225,9 @@ function cardArtGradient(cardId: string, damageType: string): string {
 
 ```css
 .combat-card {
-  width: 140px;
-  height: 190px;
+  /* 双模式尺寸：fullscreen 192×259 / windowed 122×166（见 frontend/src/components/combat/combatConfig.ts） */
+  width: 192px;
+  height: 259px;
   border-radius: 8px;
   background: linear-gradient(160deg, #16192b 0%, #111827 50%, #0d1525 100%);
   border: 2px solid #2a3a5e;
@@ -465,7 +467,7 @@ VICTORY / DEFEAT 使用 Orbitron 字体，金色 / 红色显示，含回合统�
 ├────────┬───────────────────────────────┬────────────┤
 │  我方  │                               │  敌方      │
 │  状态  │      战斗地图（俯视 + 透视）     │  状态      │
-│  面板  │      9 rows × 8 cols          │  面板      │
+│  面板  │      7 rows × 7 cols          │  面板      │
 │  w-56  │      + ChibiSprite            │  w-56      │
 │        │      + 伤害数字 overlay        │            │
 │        │      + Canvas 粒子层           │            │
@@ -588,8 +590,8 @@ frontend/public/assets/combat/
 
 ### Phase 1：基础视觉升级 ✅ 已完成
 - [x] CSS 配色方案迁移（深蓝黑 + 金色 + 职业色 + 伤害类型色）
-- [x] 格子视觉升级（56×56px，发光边框，高亮系统，zone 区分）
-- [x] 地图透视（CSS rotateX 6deg + perspective 2000px）
+- [x] 格子视觉升级（双模式 72px/56px，发光边框，高亮系统，zone 区分）
+- [x] 地图透视（CSS rotateX 33deg + perspective 1000px）
 - [x] 卡牌基础美化（圆角、阴影、悬停效果、职业色带、elite 金边）
 - [x] HP/AP 条视觉升级（渐变、脉冲动画、AP 点阵 glow）
 
@@ -621,13 +623,13 @@ frontend/public/assets/combat/
 - [x] 单位悬浮提示框（CombatUnitTooltip：8 属性 + 战斗数值 + 物品）
 - [x] 战斗回写到会话（combat writeback）
 - [ ] 平板/手机触屏支持
-- [ ] 音效系统
+- [x] 音效系统（已实现：frontend/src/audio/audioManager.ts）
 
-### Phase 6：资源升级（待开始）
+### Phase 6：资源升级（部分完成）
 - [ ] 战斗小人静态 PNG 资源导入
 - [ ] 卡面插图资源导入
 - [ ] 多地图背景切换
-- [ ] Spine/序列帧动画支持
+- [x] Spine/序列帧动画支持（已实现：PixiCombatScene.tsx + spineAnimSpecs.ts，runtime-3.8）
 - [ ] Service Worker 资源缓存
 
 ---
@@ -717,13 +719,13 @@ handleCardDragEnd   → 清除拖拽状态
 战斗结束后，战斗结果和角色状态变化（HP 变化、受伤、死亡等）会回写到当前会话中：
 
 - **会话覆盖层**（session_overlay）：临时修改会话中的角色数据，不影响原始数据文件
-- **combat_end 回调**：战斗引擎结束时计算 units 和 entities 的最终状态
-- **前端 API**：`api.combatEnd(sessionId)` 触发回写流程
+- **combat_complete 回调**：战斗引擎结束时计算 units 和 entities 的最终状态
+- **前端 API**：`api.combatComplete(sessionId, data)` 触发回写流程
 
 ### 12.2 后端实现
 
 ```python
-# src/app.py — combat_end endpoint
+# src/blueprints/combat.py — combat_complete endpoint
 # 1. 获取当前战斗 state
 # 2. 提取 units 的 HP/状态变化
 # 3. 写入会话覆盖层（session_overlay）
@@ -739,8 +741,8 @@ handleCardDragEnd   → 清除拖拽状态
 | 动画框架 | CSS + Canvas 2D | 无额外依赖 |
 | 粒子特效 | 自研 Canvas 层 | 轻量，无 WebGL 依赖 |
 | 序列帧播放 | 预留 | 可自研 SpritePlayer |
-| 骨骼动画 | 预留 PixiJS + pixi-spine | 如需 Spine 支持 |
-| 音效 | 预留 Howler.js | 轻量，支持音频精灵 |
+| 骨骼动画 | 已实现（PixiCombatScene.tsx + spineAnimSpecs.ts，runtime-3.8） | PixiJS Spine 覆盖层 |
+| 音效 | 已实现（frontend/src/audio/audioManager.ts） | 战斗音效管理 |
 | SVG 图标 | Unicode 字符 | 当前无图标库依赖 |
 | 字体 | Google Fonts | Orbitron + Noto Sans SC + JetBrains Mono |
 
@@ -793,8 +795,8 @@ handleCardDragEnd   → 清除拖拽状态
   --font-mono: 'JetBrains Mono', monospace;
 
   /* 透视（实际实现值） */
-  --grid-perspective: 2000px;
-  --grid-rotate-x: 6deg;
+  --grid-perspective: 1000px;
+  --grid-rotate-x: 33deg;
   --cell-size: 56px;
 }
 ```
@@ -804,4 +806,4 @@ handleCardDragEnd   → 清除拖拽状态
 | 日期 | 版本 | 变更 |
 |------|------|------|
 | 2026-05-23 | v1.0 | 初始设计方案 |
-| 2026-05-23 | v2.0 | Phase 1-5 全部实施完成：CSS 3D 透视、56px 格子、像素小人、程序化卡面、Canvas 粒子、伤害数字、弧形手牌、拖拽交互、单位提示框、战斗回写、浅色主题 |
+| 2026-05-23 | v2.0 | Phase 1-5 全部实施完成：CSS 3D 透视、双模式格子（72px/56px）、像素小人、程序化卡面、Canvas 粒子、伤害数字、弧形手牌、拖拽交互、单位提示框、战斗回写、浅色主题 |
