@@ -3,6 +3,7 @@ __pycache__/
 logs/
 .history/
 data/memory/
+data/worldbooks/
 config/llm_config.json
 venv/
 .venv/

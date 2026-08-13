@@ -28,6 +28,7 @@ export interface Session {
   name: string;
   mode: "free" | "story";
   plot_id: string | null;
+  worldbook_id?: string | null;
   created_at: number;
   usable: boolean;
   characters: string[];
@@ -435,4 +436,65 @@ export interface SessionResourcesDTO {
   scene_characters: string[];
   resources_dir: string;
   backgrounds_dir: string;
+}
+
+// ── 世界书（酒馆 Lorebook 兼容） ──
+
+/** 世界书摘要（列表项） */
+export interface WorldBookSummary {
+  id: string;
+  name: string;
+  source_format: string;
+  budget_tokens: number;
+  entry_count: number;
+  created_at: number;
+  updated_at: number;
+  is_default: boolean;
+}
+
+/** 世界书条目（规范化格式） */
+export interface WorldBookEntryDTO {
+  uid: string;
+  name: string;
+  content: string;
+  trigger_keys: string[];
+  secondary_keys: string[];
+  always_active: boolean;
+  selective: boolean;
+  enabled: boolean;
+  position: number;
+  depth: number;
+  scan_depth: number;
+  probability: number;
+  group: string;
+  group_weight: number;
+  case_sensitive: boolean;
+  match_whole_words: boolean;
+  /** 酒馆原始字段（导出回灌用） */
+  raw?: Record<string, any>;
+}
+
+/** 世界书详情（含条目） */
+export interface WorldBookDetail extends WorldBookSummary {
+  entries: WorldBookEntryDTO[];
+}
+
+/** 导入报告 */
+export interface WorldBookImportReport {
+  source_format: string;
+  imported: number;
+  skipped: number;
+  warnings: string[];
+}
+
+/** 导入结果 */
+export interface WorldBookImportResult {
+  book: WorldBookSummary;
+  report: WorldBookImportReport;
+}
+
+/** 会话当前生效世界书查询结果 */
+export interface WorldBookResolveResult {
+  book: WorldBookSummary | null;
+  default_book_id: string | null;
 }

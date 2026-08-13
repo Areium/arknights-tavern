@@ -123,7 +123,8 @@ class CharacterAgent:
 
     def chat(self, user_input: str, player_info: dict = None,
              environment_context: str = "", scene_context: str = "",
-             stream_callback=None, custom_prompt: str | None = None) -> tuple[str, dict, dict | None]:
+             stream_callback=None, custom_prompt: str | None = None,
+             worldbook=None, recent_text: str = "") -> tuple[str, dict, dict | None]:
         """
         与角色进行对话。
 
@@ -132,6 +133,8 @@ class CharacterAgent:
             player_info: 玩家信息，注入到角色上下文中。
             environment_context: 当前环境上下文文本，由 GameAgent 传入。
             scene_context: 场景上下文（同场角色、场景动态），由 SceneManager 传入。
+            worldbook: WorldBook 实例（可空），触发命中的条目按 position 注入。
+            recent_text: 最近的对话文本，供世界书关键词扫描。
 
         Returns:
             tuple[str, dict, dict|None]: (角色的回复, 环境更新字典, token使用量)。
@@ -140,12 +143,27 @@ class CharacterAgent:
         memory_context = self.memory.build_context(user_input)
 
         player_section = ""
+        identity = "博士"
         if player_info:
             identity = player_info.get("identity", "博士")
             player_section = f"\n当前玩家身份: {identity}\n"
 
+        # ── 世界书触发匹配（position=0 卡前 / position=1 卡后）──
+        wb_before, wb_after = "", ""
+        if worldbook is not None:
+            try:
+                matched = worldbook.collect_matches(recent_text, user_input)
+                wb_before, wb_after = worldbook.format_injection(
+                    matched, identity=identity, active_char=self.character_name)
+            except Exception:
+                logger.exception("世界书注入失败，跳过本次注入")
+
         # 构建 system prompt，稳定内容在前（利用 API 前缀缓存），易变内容在后（recency 效应）
         system_parts = [self.character]
+
+        # ── 世界书（position=0，紧跟角色卡，稳定层）──
+        if wb_before:
+            system_parts.append(wb_before)
 
         # ── Identity：Registry 上下文（仅在无预加载时作为 fallback）──
         if not (self._session_context and self._session_context.preloaded):
@@ -183,6 +201,10 @@ class CharacterAgent:
             system_parts.append(environment_context)
         if scene_context:
             system_parts.append(scene_context)
+
+        # ── 世界书（position=1，卡后，紧贴记忆上下文利用 recency）──
+        if wb_after:
+            system_parts.append(wb_after)
 
         # ── Context：记忆与历史（易变，放最后利用 recency 效应）──
         system_parts.append(memory_context)

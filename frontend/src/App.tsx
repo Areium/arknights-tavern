@@ -8,6 +8,7 @@ import CombatView from "./components/combat/CombatView";
 import DocumentManager from "./components/DocumentManager";
 import SettingsPanel from "./components/SettingsPanel";
 import IndexManager from "./components/IndexManager";
+import WorldBookManager from "./components/WorldBookManager";
 
 export default function App() {
   const { currentView, setBackendStatus, setLLMStatus, setSessions, theme, setTheme, setEditBeforeSend, setDialogueBubbleMode } =
@@ -118,6 +119,8 @@ export default function App() {
         return <CombatView />;
       case "index":
         return <IndexManager />;
+      case "worldbook":
+        return <WorldBookManager />;
     }
   };
 

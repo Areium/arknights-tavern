@@ -44,7 +44,7 @@ class Session:
 
     def __init__(self, session_id: str, llm_backend_manager: LLMBackendManager,
                  name: str = "", mode: str = "free", combat_mode: str = "narrative",
-                 wiki_manager=None):
+                 wiki_manager=None, worldbook_manager=None):
         self.id = session_id
         mode_label = "剧情" if mode == "story" else "自由"
         self.name = name or f"{mode_label}对话"
@@ -69,6 +69,7 @@ class Session:
             self._llm, self.registry, overlay=self.overlay,
             wiki_manager=wiki_manager, session_context=self.wiki_context,
             combat_mode=self.combat_mode,
+            worldbook_manager=worldbook_manager,
         )
         self.environment = EnvironmentState()
         self.environment.load_default()
@@ -491,6 +492,7 @@ class Session:
             "mode": self.mode,
             "combat_mode": self.combat_mode,
             "plot_id": self.overlay.get_plot_id(),
+            "worldbook_id": self.overlay.get_worldbook_id(),
             "custom_prompt": self.overlay.get_custom_prompt(),
             "created_at": self.created_at,
             "usable": self.is_usable,
@@ -523,17 +525,23 @@ class Session:
 class SessionManager:
     """管理多个并行会话。"""
 
-    def __init__(self, llm_backend_manager: LLMBackendManager, wiki_manager=None):
+    def __init__(self, llm_backend_manager: LLMBackendManager, wiki_manager=None,
+                 worldbook_manager=None):
         self._llm_backend = llm_backend_manager
         self._wiki_manager = wiki_manager
+        self._worldbook_manager = worldbook_manager
         self._sessions: dict[str, Session] = {}
         self._lock = threading.Lock()
         self._next_id = 0
         self._restore_sessions()
 
     def create_session(self, name: str = "", mode: str = "free", plot_name: str = "",
-                        combat_mode: str = "narrative") -> Session:
-        """创建新会话。"""
+                        combat_mode: str = "narrative", worldbook_id: str = "") -> Session:
+        """创建新会话。
+
+        Args:
+            worldbook_id: 可选，创建时绑定世界书（未绑定则回落全局默认书）。
+        """
         session_id = self._generate_id()
         if not name:
             if plot_name:
@@ -551,7 +559,10 @@ class SessionManager:
                 counter += 1
                 name = f"{base}·{counter}"
         session = Session(session_id, self._llm_backend, name=name, mode=mode,
-                         combat_mode=combat_mode, wiki_manager=self._wiki_manager)
+                         combat_mode=combat_mode, wiki_manager=self._wiki_manager,
+                         worldbook_manager=self._worldbook_manager)
+        if worldbook_id:
+            session.overlay.set_worldbook_id(worldbook_id)
         with self._lock:
             self._sessions[session_id] = session
         self._save_session_meta(session)
