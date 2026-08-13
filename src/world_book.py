@@ -225,6 +225,14 @@ def _normalize_entry(raw_entry: dict, index: int, warnings: list) -> Optional[Wo
     if not use_probability:
         probability = 100
 
+    # enabled 兼容两种写法：显式 enabled 字段 / 旧版酒馆的 disable 字段
+    if "enabled" in raw_entry or "enabled" in extensions:
+        enabled = _to_bool(_first(raw_entry, "enabled", default=True), True)
+    elif "disable" in raw_entry:
+        enabled = not _to_bool(raw_entry.get("disable"), False)
+    else:
+        enabled = True
+
     return WorldBookEntry(
         uid=uid,
         name=str(_first(raw_entry, "comment", "name",
@@ -234,7 +242,7 @@ def _normalize_entry(raw_entry: dict, index: int, warnings: list) -> Optional[Wo
         secondary_keys=secondary_keys,
         always_active=always_active,
         selective=_to_bool(_first(raw_entry, "selective", default=True), True),
-        enabled=_to_bool(_first(raw_entry, "enabled", default=True), True),
+        enabled=enabled,
         position=_parse_position(raw_entry, extensions),
         depth=_to_int(_first(raw_entry, "depth",
                              default=_first(extensions, "depth", default=4)), 4),
@@ -617,7 +625,12 @@ class WorldBook:
             out["content"] = entry.content
             out["constant"] = entry.always_active
             out["selective"] = entry.selective
-            out["enabled"] = entry.enabled
+            if "disable" in out:
+                # 旧版酒馆用 disable 表示停用，保持同一写法
+                out["disable"] = not entry.enabled
+                out.pop("enabled", None)
+            else:
+                out["enabled"] = entry.enabled
             out["insertion_order"] = entry.position
             out["depth"] = entry.depth
             out["scanDepth"] = entry.scan_depth
