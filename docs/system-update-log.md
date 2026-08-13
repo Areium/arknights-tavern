@@ -16,6 +16,28 @@
 
 ## 更新记录
 
+### 2026-08-13 — LLM 调用工程优化（借鉴 DSH 调用纪律）
+
+- **结构化错误**：`load_llm.py` 不再把错误伪装成模型回复（修复错误文本被当成角色台词/写入记忆的隐患），改为抛 `LLMError` 系列（connect/timeout/http/unknown）；连接错误与 429/5xx 指数退避重试，读超时不重试
+- **请求指纹日志**：每次 LLM 调用记录 sha1 指纹 + token 估算，作为前缀缓存漂移的测量标尺
+- **路由信任**：`get_llm()` 去掉每次 ping，改为 120s 验证缓存 TTL + 真实失败 `on_failure` 回调标记端点进入 30s 降级冷却
+- **世界书注入纪律**：常驻 position-0 条目留稳定层，触发型条目一律进动态层（请求前缀缓存稳定）
+
+### 2026-08-13 — 世界书（酒馆 Lorebook 兼容）导入与管理
+
+- 新增 `src/world_book.py`：数据模型 + 4 源解析（酒馆 v1 导出 / v2 规格 / 角色卡内嵌 / 聊天备份 .jsonl）+ 触发匹配（主副键/selective/常驻/概率/大小写/全词）+ 注入格式化（token 预算、`{{user}}`/`{{char}}` 宏）+ 酒馆格式回灌导出
+- 新增 `src/blueprints/worldbook.py`：书 CRUD、导入（文件/JSON）、条目 CRUD、全局默认书、会话绑定、resolve 查询
+- 注入链路：叙述模式（`<reference>` 稳定层 + `<world_book>` 动态层）与对话模式（卡前/卡后）双通道；会话绑定存于 overlay `worldbook_id`，回落全局默认书
+- 前端新增「📖 世界书」面板（`WorldBookManager.tsx`）：导入/条目编辑/会话绑定/导出；Sidebar 与 App 视图接入
+- 实测兼容：导入 GitHub 社区世界书（艾尔登法环 6 本 + 明日方舟 2 本，最大 1221 条目）；修复旧版酒馆 `disable` 停用字段解析与回灌导出
+
+### 2026-08-12 — 战斗功能工作提交（音频/物品/Spine 工具）
+
+- 新增战斗音效资源（`data/audio/`）与前端 `audio/audioManager.ts`
+- 新增物品数据（源石碎片/急救包等 11 件）、`docs/combat-core-design.md` 设计文档
+- 新增 `tools/download_audio.py`、`tools/import_spine.py`、`frontend/src/components/combat/spineAnimSpecs.ts`、`frontend/src/utils/baseUrl.ts`
+- 战斗计时日志（叙述/提取/回忆的 LLM 调用耗时）与 combat action 类型扩展（物品使用）
+
 ### 2026-08-06 — 会话级战斗背景覆盖
 
 - 每个会话新增背景覆盖目录 `data/memory/sessions/<mode>/<session_id>/backgrounds/`：丢入 `<bg_id>.<ext>` 替换对应背景、`default.<ext>` 替换兜底背景，只影响当前会话

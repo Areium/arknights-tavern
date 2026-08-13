@@ -19,8 +19,8 @@ data/
 │
 ├── combat/                ← 战斗系统数据
 │   ├── enemies/           ← 战斗敌人定义（带 combat_stats）
-│   ├── cards/             ← 卡牌定义（按职业分目录）
-│   └── encounters/        ← 遭遇战配置
+│   ├── encounters/        ← 遭遇战配置
+│   └── backgrounds/       ← 战斗背景（提示词 index.md + 图片）
 │
 ├── rules/                 ← 游戏机制规则定义
 │   ├── combat-system/     ← 战斗系统规则（战术/叙事模式）
@@ -29,10 +29,15 @@ data/
 │   ├── buff-pool/         ← Buff/Debuff 抽取池
 │   └── deviation-states/  ← 剧情偏离状态
 │
+├── worldbooks/            ← 世界书运行时数据（gitignored）
+│
 └── memory/                ← 向量记忆 + 会话持久化
     ├── chroma.sqlite3     ← ChromaDB 向量数据库
     └── sessions/          ← 会话状态（session.json / overrides.json）
 ```
+
+> 战斗卡牌定义不在 `data/combat/` 下：专属卡牌在 `data/characters/<角色>/combat.json`，
+> 职业卡池在 `data/classes/<职业>/cards.json`（`src/combat_engine/card_loader.py` 加载）。
 
 ## 引用关系图
 
