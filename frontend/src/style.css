@@ -907,3 +907,232 @@ html.light .deploy-arrow {
   from { opacity: 0; }
   to { opacity: 1; }
 }
+
+/* ═══════════════════════════════════════
+   会话大厅（Session Manager — 游戏主菜单风）
+   ═══════════════════════════════════════ */
+
+/* 顶部英雄横幅。后续美术素材可直接覆盖 --session-hero-wallpaper
+   （如 background-image 或 data-url），当前为渐变占位设计。 */
+.session-hero {
+  --session-hero-wallpaper: none;
+  position: relative;
+  flex-shrink: 0;
+  background:
+    var(--session-hero-wallpaper),
+    radial-gradient(1100px 380px at 18% -40%, rgba(251, 191, 36, 0.16), transparent 60%),
+    radial-gradient(900px 340px at 82% -30%, rgba(139, 92, 246, 0.18), transparent 60%),
+    linear-gradient(160deg, #161a22 0%, #1b1e2a 55%, #12141b 100%);
+  background-size: cover, auto, auto, auto;
+  background-position: center;
+  border-bottom: 1px solid rgba(251, 191, 36, 0.16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 10px 30px -14px rgba(0, 0, 0, 0.7);
+}
+
+.session-hero-title {
+  font-family: "Noto Sans SC", sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  background: linear-gradient(120deg, #fcd34d 0%, #f59e0b 45%, #fcd34d 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 2px 18px rgba(251, 191, 36, 0.25);
+}
+
+.session-hero-sub {
+  letter-spacing: 0.3em;
+  color: rgba(156, 163, 175, 0.9);
+}
+
+/* 大厅主按钮（金色） */
+.btn-hero {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 60%, #b45309 100%);
+  color: #fff;
+  box-shadow: 0 4px 18px -6px rgba(245, 158, 11, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  transition: transform 0.15s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+.btn-hero:hover { filter: brightness(1.08); box-shadow: 0 6px 24px -6px rgba(245, 158, 11, 0.7), inset 0 1px 0 rgba(255,255,255,0.3); transform: translateY(-1px); }
+.btn-hero:active { transform: translateY(0); }
+.btn-hero:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+/* ── 会话卡片（列表） ── */
+.session-card {
+  position: relative;
+  background: linear-gradient(150deg, rgba(31, 34, 48, 0.95), rgba(24, 27, 38, 0.95));
+  border: 1px solid rgba(55, 65, 81, 0.9);
+  border-radius: 0.75rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease, background-color 0.2s ease;
+  cursor: pointer;
+}
+.session-card:hover {
+  border-color: rgba(251, 191, 36, 0.35);
+  box-shadow: 0 4px 20px -8px rgba(251, 191, 36, 0.18);
+  transform: translateY(-1px);
+}
+.session-card.selected {
+  border-color: rgba(251, 191, 36, 0.65);
+  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.35), 0 6px 26px -10px rgba(251, 191, 36, 0.3);
+  background: linear-gradient(150deg, rgba(40, 36, 22, 0.95), rgba(28, 26, 20, 0.95));
+}
+.session-card.active-session {
+  border-color: rgba(96, 165, 250, 0.55);
+}
+html.light .session-card {
+  background: linear-gradient(150deg, #ffffff, #f8f7f4);
+  border-color: rgb(229 231 235);
+}
+html.light .session-card:hover { border-color: rgba(180, 83, 9, 0.4); }
+html.light .session-card.selected {
+  border-color: rgba(180, 83, 9, 0.6);
+  background: linear-gradient(150deg, #fffdf5, #fdf6e3);
+}
+
+/* 徽章 */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 0.375rem;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.badge-story { background: rgba(251, 191, 36, 0.14); color: #fcd34d; border: 1px solid rgba(251, 191, 36, 0.25); }
+.badge-free { background: rgba(139, 92, 246, 0.14); color: #c4b5fd; border: 1px solid rgba(139, 92, 246, 0.3); }
+.badge-tactical { background: rgba(249, 115, 22, 0.14); color: #fdba74; border: 1px solid rgba(249, 115, 22, 0.3); }
+.badge-narrative { background: rgba(59, 130, 246, 0.14); color: #93c5fd; border: 1px solid rgba(59, 130, 246, 0.3); }
+.badge-wb { background: rgba(52, 211, 153, 0.12); color: #6ee7b7; border: 1px solid rgba(52, 211, 153, 0.25); }
+.badge-plot { background: rgba(251, 191, 36, 0.08); color: #d4a574; border: 1px solid rgba(251, 191, 36, 0.18); }
+html.light .badge-story { background: rgba(251, 191, 36, 0.2); color: #92400e; border-color: rgba(180, 83, 9, 0.3); }
+html.light .badge-free { background: rgba(139, 92, 246, 0.14); color: #6d28d9; border-color: rgba(139, 92, 246, 0.3); }
+html.light .badge-tactical { background: rgba(249, 115, 22, 0.14); color: #c2410c; border-color: rgba(249, 115, 22, 0.3); }
+html.light .badge-narrative { background: rgba(59, 130, 246, 0.12); color: #1d4ed8; border-color: rgba(59, 130, 246, 0.3); }
+html.light .badge-wb { background: rgba(16, 185, 129, 0.12); color: #047857; border-color: rgba(16, 185, 129, 0.3); }
+html.light .badge-plot { background: rgba(251, 191, 36, 0.12); color: #92400e; border-color: rgba(180, 83, 9, 0.2); }
+
+/* ── 角色头像圆片 ── */
+.char-avatar {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 9999px;
+  object-fit: cover;
+  border: 2px solid rgba(55, 65, 81, 0.9);
+  background: linear-gradient(135deg, #2a2d3a, #1f2230);
+  flex-shrink: 0;
+}
+.char-avatar.sm { width: 1.75rem; height: 1.75rem; }
+.char-avatar.lg { width: 3rem; height: 3rem; }
+html.light .char-avatar { border-color: rgb(209 213 219); background: linear-gradient(135deg, #eef0f4, #e2e4ea); }
+
+/* ── 详情面板区块 ── */
+.detail-section {
+  background: rgba(31, 34, 48, 0.6);
+  border: 1px solid rgba(55, 65, 81, 0.7);
+  border-radius: 0.75rem;
+}
+html.light .detail-section { background: rgba(255, 255, 255, 0.7); border-color: rgb(229 231 235); }
+
+.stat-cell {
+  background: rgba(24, 27, 38, 0.7);
+  border: 1px solid rgba(55, 65, 81, 0.7);
+  border-radius: 0.625rem;
+}
+html.light .stat-cell { background: rgba(249, 250, 251, 0.8); border-color: rgb(229 231 235); }
+
+/* ── 新建向导 ── */
+.wizard-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 6, 10, 0.72);
+  backdrop-filter: blur(6px);
+}
+
+.wizard-panel {
+  width: min(920px, 92vw);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(165deg, #1b1e2a 0%, #14171f 100%);
+  border: 1px solid rgba(251, 191, 36, 0.2);
+  border-radius: 1rem;
+  box-shadow: 0 24px 80px -20px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  overflow: hidden;
+}
+html.light .wizard-panel { background: linear-gradient(165deg, #ffffff, #f5f4f0); border-color: rgba(180, 83, 9, 0.25); }
+
+.step-dot {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid rgba(75, 85, 99, 0.9);
+  color: rgb(107 114 128);
+  background: rgba(31, 34, 48, 0.8);
+  transition: all 0.2s ease;
+}
+.step-dot.active { border-color: rgba(251, 191, 36, 0.7); color: #fcd34d; box-shadow: 0 0 12px -2px rgba(251, 191, 36, 0.4); }
+.step-dot.done { border-color: rgba(52, 211, 153, 0.5); color: #6ee7b7; background: rgba(16, 185, 129, 0.12); }
+.step-label { font-size: 11px; color: rgb(107 114 128); }
+.step-label.active { color: #fcd34d; }
+.step-label.done { color: #6ee7b7; }
+html.light .step-dot { background: #fff; color: rgb(107 114 128); border-color: rgb(209 213 219); }
+html.light .step-dot.active { color: #b45309; border-color: rgba(180, 83, 9, 0.6); }
+html.light .step-label.active { color: #92400e; }
+
+/* 模式/书/角色 选择卡片 */
+.pick-card {
+  border: 1px solid rgba(55, 65, 81, 0.8);
+  border-radius: 0.75rem;
+  background: rgba(31, 34, 48, 0.7);
+  transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
+  cursor: pointer;
+}
+.pick-card:hover { border-color: rgba(251, 191, 36, 0.35); transform: translateY(-1px); }
+.pick-card.selected {
+  border-color: rgba(251, 191, 36, 0.6);
+  background: rgba(64, 52, 24, 0.55);
+  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.3), 0 4px 18px -8px rgba(251, 191, 36, 0.25);
+}
+html.light .pick-card { background: rgba(255, 255, 255, 0.8); border-color: rgb(229 231 235); }
+html.light .pick-card.selected { background: rgba(254, 243, 199, 0.7); border-color: rgba(180, 83, 9, 0.5); }
+
+/* 角色磁贴（入队选择） */
+.char-tile {
+  border: 1px solid rgba(55, 65, 81, 0.8);
+  border-radius: 0.625rem;
+  background: rgba(31, 34, 48, 0.7);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
+  cursor: pointer;
+}
+.char-tile:hover { border-color: rgba(251, 191, 36, 0.4); transform: translateY(-1px); }
+.char-tile.selected {
+  border-color: rgba(251, 191, 36, 0.65);
+  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.3), 0 4px 16px -8px rgba(251, 191, 36, 0.3);
+  background: rgba(64, 52, 24, 0.5);
+}
+html.light .char-tile { background: #fff; border-color: rgb(229 231 235); }
+html.light .char-tile.selected { background: rgba(254, 243, 199, 0.6); }
+
+/* 大厅列表滚动条 */
+.lobby-scroll::-webkit-scrollbar { width: 6px; }
+.lobby-scroll::-webkit-scrollbar-thumb { background: rgba(75, 85, 99, 0.6); border-radius: 3px; }
+.lobby-scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* 空状态引导 */
+.lobby-empty {
+  border: 1px dashed rgba(75, 85, 99, 0.6);
+  border-radius: 0.75rem;
+  background: rgba(31, 34, 48, 0.35);
+}
+html.light .lobby-empty { background: rgba(249, 250, 251, 0.6); border-color: rgb(209 213 219); }

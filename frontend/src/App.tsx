@@ -4,12 +4,12 @@ import { useApi } from "./hooks/useApi";
 import Sidebar from "./components/Sidebar";
 import StatusBar from "./components/StatusBar";
 import ChatView from "./components/ChatView";
+import SessionManagerView from "./components/session/SessionManagerView";
 import CombatView from "./components/combat/CombatView";
 import DocumentManager from "./components/DocumentManager";
 import SettingsPanel from "./components/SettingsPanel";
 import IndexManager from "./components/IndexManager";
 import WorldBookManager from "./components/WorldBookManager";
-import DocsView from "./components/DocsView";
 
 export default function App() {
   const { currentView, setBackendStatus, setLLMStatus, setSessions, theme, setTheme, setEditBeforeSend, setDialogueBubbleMode } =
@@ -112,6 +112,8 @@ export default function App() {
     switch (currentView) {
       case "chat":
         return <ChatView />;
+      case "sessions":
+        return <SessionManagerView />;
       case "documents":
         return <DocumentManager />;
       case "settings":
@@ -122,8 +124,6 @@ export default function App() {
         return <IndexManager />;
       case "worldbook":
         return <WorldBookManager />;
-      case "docs":
-        return <DocsView />;
     }
   };
 

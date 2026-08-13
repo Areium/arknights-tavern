@@ -592,6 +592,13 @@ export default function ChatPanel() {
           </div>
           <div className="flex items-center gap-3">
             <button
+              onClick={() => setCurrentView("sessions")}
+              className="text-[10px] px-1.5 py-0.5 rounded bg-amber-700/30 text-amber-300 hover:bg-amber-700/50 transition-colors"
+              title="会话大厅（管理会话 / 世界书绑定 / 角色阵容）"
+            >
+              🏛
+            </button>
+            <button
               onClick={() => setResourcePanelOpen(!resourcePanelOpen)}
               className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${
                 resourcePanelOpen
