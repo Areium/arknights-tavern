@@ -1,7 +1,21 @@
 import Markdown from "react-markdown";
+import type { ReactNode } from "react";
 
 interface Props {
   content: string;
+}
+
+/** 提取 ReactNode 中的纯文本（用于生成标题锚点 id） */
+function extractText(node: ReactNode): string {
+  if (node == null || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(extractText).join("");
+  const props = (node as { props?: { children?: ReactNode } }).props;
+  return props?.children != null ? extractText(props.children) : "";
+}
+
+function headingId(children: ReactNode): string {
+  return encodeURIComponent(extractText(children).trim());
 }
 
 const baseClasses = {
@@ -39,12 +53,12 @@ export default function MarkdownRenderer({ content }: Props) {
     <div className="prose-sm max-w-none">
       <Markdown
         components={{
-          h1: (props) => <h1 className={baseClasses.h1} {...props} />,
-          h2: (props) => <h2 className={baseClasses.h2} {...props} />,
-          h3: (props) => <h3 className={baseClasses.h3} {...props} />,
-          h4: (props) => <h4 className={baseClasses.h4} {...props} />,
-          h5: (props) => <h5 className={baseClasses.h5} {...props} />,
-          h6: (props) => <h6 className={baseClasses.h6} {...props} />,
+          h1: (props) => <h1 className={baseClasses.h1} {...props} id={headingId(props.children)} />,
+          h2: (props) => <h2 className={baseClasses.h2} {...props} id={headingId(props.children)} />,
+          h3: (props) => <h3 className={baseClasses.h3} {...props} id={headingId(props.children)} />,
+          h4: (props) => <h4 className={baseClasses.h4} {...props} id={headingId(props.children)} />,
+          h5: (props) => <h5 className={baseClasses.h5} {...props} id={headingId(props.children)} />,
+          h6: (props) => <h6 className={baseClasses.h6} {...props} id={headingId(props.children)} />,
           p: (props) => <p className={baseClasses.p} {...props} />,
           ul: (props) => <ul className={baseClasses.ul} {...props} />,
           ol: (props) => <ol className={baseClasses.ol} {...props} />,
