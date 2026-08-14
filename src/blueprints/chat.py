@@ -8,7 +8,7 @@ import logging
 
 from flask import Blueprint, jsonify, request, Response, stream_with_context
 
-from shared.helpers import json_error, make_sse_response, inject_memory_context, build_character_metas
+from shared.helpers import json_error, make_sse_response, inject_memory_context
 from hooks.base import HookContext
 
 logger = logging.getLogger(__name__)
@@ -101,8 +101,12 @@ def _should_extract_markers(session, choices_count: int) -> bool:
     return False
 
 
-def _apply_combat_trigger(session, combat_data: dict | None, stream_id: str) -> str | None:
-    """从标记提取结果启动战斗，返回 SSE 事件字符串或 None。"""
+def _apply_combat_briefing(session, combat_data: dict | None, stream_id: str) -> dict | None:
+    """从标记提取结果生成战前简报（含打法列表），不再自动开战。
+
+    玩家在简报面板选择打法后，由前端 POST /combat/start 启动战斗（见
+    docs/combat-core-design.md C1）。返回 briefing dict 或 None。
+    """
     if not combat_data:
         return None
     if getattr(session, 'combat_mode', 'narrative') != "tactical":
@@ -111,13 +115,20 @@ def _apply_combat_trigger(session, combat_data: dict | None, stream_id: str) -> 
     if not encounter_id:
         return None
     try:
-        character_metas = build_character_metas(session, _doc_mgr) if _doc_mgr else None
-        session.start_combat(encounter_id, character_metas=character_metas,
-                              combat_params=combat_data.get("params"))
-        logger.info("会话 %s: 标记提取触发战斗 %s", session.id, encounter_id)
-        return f"data: {json.dumps({'type': 'combat_trigger', 'data': {'encounter_id': encounter_id, 'session_id': session.id, 'stream_id': stream_id}})}\n\n"
+        from combat_data_loader import CombatDataLoader
+        from combat_approaches import list_approaches
+        encounter = CombatDataLoader().load_encounter(encounter_id) or {}
+        briefing = {
+            "encounter_id": encounter_id,
+            "session_id": session.id,
+            "stream_id": stream_id,
+            "name": encounter.get("name", encounter_id),
+            "approaches": list_approaches(encounter),
+        }
+        logger.info("会话 %s: 标记提取触发战前简报 %s", session.id, encounter_id)
+        return briefing
     except Exception as e:
-        logger.error("自动触发战斗失败: %s", e)
+        logger.error("生成战前简报失败: %s", e)
         return None
 
 
@@ -359,9 +370,9 @@ def register(app, managers):
                     if markers.get("usage"):
                         session.accumulate_usage(markers["usage"])
                     _apply_beat_complete(session, markers.get("beat_complete", False))
-                    combat_event = _apply_combat_trigger(session, markers.get("combat"), stream_id)
-                    if combat_event:
-                        yield combat_event
+                    briefing = _apply_combat_briefing(session, markers.get("combat"), stream_id)
+                    if briefing:
+                        yield f"data: {json.dumps({'type': 'combat_briefing', 'data': briefing}, ensure_ascii=False)}\n\n"
                     inline_choices = markers.get("choices")
                     plot_summary = markers.get("summary")
 
@@ -502,7 +513,7 @@ def register(app, managers):
             # 两阶段提取：从叙事文本中提取标记（Call 2）
             inline_choices = None
             plot_summary = None
-            combat_triggered = False
+            combat_briefing = None
             if _should_extract_markers(session, choices_count):
                 markers = session.scene_manager.extract_markers(
                     narrative, choices_count=choices_count,
@@ -511,9 +522,7 @@ def register(app, managers):
                 if markers.get("usage"):
                     session.accumulate_usage(markers["usage"])
                 _apply_beat_complete(session, markers.get("beat_complete", False))
-                combat_event = _apply_combat_trigger(session, markers.get("combat"), "")
-                if combat_event:
-                    combat_triggered = session.combat is not None
+                combat_briefing = _apply_combat_briefing(session, markers.get("combat"), "")
                 inline_choices = markers.get("choices")
                 plot_summary = markers.get("summary")
 
@@ -539,9 +548,8 @@ def register(app, managers):
             if usage:
                 response_extra["usage"] = usage
 
-            if combat_triggered:
-                response_extra["combat_triggered"] = True
-                response_extra["encounter_id"] = session.combat._encounter_id if session.combat else ""
+            if combat_briefing:
+                response_extra["combat_briefing"] = combat_briefing
 
             if roll_events:
                 response_extra["roll_events"] = roll_events

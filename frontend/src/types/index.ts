@@ -108,7 +108,7 @@ export interface MoveResult {
 
 /** SSE 事件 */
 export interface SSEEvent {
-  type: "text" | "scene_event" | "choice" | "heartbeat" | "error" | "done" | "meta" | "combat_trigger";
+  type: "text" | "scene_event" | "choice" | "heartbeat" | "error" | "done" | "meta" | "combat_trigger" | "combat_briefing";
   data: Record<string, any>;
 }
 
@@ -319,6 +319,22 @@ export interface EnemyIntentDTO {
   card_name: string;
   damage_min: number | null;
   damage_max: number | null;
+}
+
+/** 战前打法（Approach）选项 */
+export interface ApproachDTO {
+  id: string;
+  label: string;
+  hint: string;
+  kind: "combat" | "check" | "avoid";
+}
+
+/** 战前简报（含打法列表，SSE combat_briefing 事件） */
+export interface CombatBriefingDTO {
+  encounter_id: string;
+  session_id: string;
+  name: string;
+  approaches: ApproachDTO[];
 }
 
 /** 战斗状态快照 */

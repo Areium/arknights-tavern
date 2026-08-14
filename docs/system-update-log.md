@@ -16,6 +16,12 @@
 
 ## 更新记录
 
+### 2026-08-13 — 战前简报流（剧情模式战斗触发改造）
+
+- **两段式战斗触发**：chat.py 的 _apply_combat_trigger → _apply_combat_briefing：标记提取到 [COMBAT:enc_id] 后不再自动开战，改为下发 combat_briefing 事件（含遭遇名 + 打法列表 approaches）；非流式路径在 JSON 响应中返回 combat_briefing
+- **前端简报面板**：ChatPanel 收到 combat_briefing 后弹「战前打法选择」弹窗（强攻/突袭/谈判/撤退卡片），选打法后 POST /combat/start {approach_id}；谈判检定成功展示 d20 结果并可「继续」、失败展示检定后「进入战斗」、撤退直接触发战后自动叙述
+- **状态**：appStore 新增 pendingBriefing；useApi 新增 onCombatBriefing 处理器 + combat_briefing 分发；types 新增 ApproachDTO / CombatBriefingDTO
+- 至此「剧情模式」完整闭环：叙述 → 战前简报 → 选打法 → 投点/开战 → 结算奖励 → 战后自动叙述（对齐 combat-core-design.md C1）
 ### 2026-08-13 — 战前打法（Approach）+ 剧情投点（d20 展示）
 
 - **战前打法**：新增 src/combat_approaches.py（resolve_approach 映射 enemy_scale/first_strike/player_effects/reward_mult + roll_check d20 剧情投点 + 兜底打法）；encounters 新增 approaches 字段（enc_snow_convoy/enc_final_showdown/enc_training/初遇整合运动）

@@ -2,7 +2,7 @@
  * 应用全局状态
  */
 import { create } from "zustand";
-import type { BackendStatus, Session, LLMStatus, CombatStateDTO, ChatMessage } from "../types";
+import type { BackendStatus, Session, LLMStatus, CombatStateDTO, ChatMessage, CombatBriefingDTO } from "../types";
 
 type Theme = "dark" | "light";
 
@@ -87,6 +87,10 @@ interface AppState {
   // 战斗后自动叙述
   pendingAutoNarrate: { action: string; settlement?: { winner: string; survivors: string[]; rounds: number; encounter_id: string } } | null;
   setPendingAutoNarrate: (data: { action: string; settlement?: { winner: string; survivors: string[]; rounds: number; encounter_id: string } } | null) => void;
+
+  // 战前简报（SSE combat_briefing 事件）
+  pendingBriefing: CombatBriefingDTO | null;
+  setPendingBriefing: (data: CombatBriefingDTO | null) => void;
 
   // 按会话存储的消息/流式状态（跨会话切换保留）
   sessionMessages: Record<string, ChatMessage[]>;
@@ -198,6 +202,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   // 战斗后自动叙述
   pendingAutoNarrate: null,
   setPendingAutoNarrate: (action) => set({ pendingAutoNarrate: action }),
+
+  // 战前简报
+  pendingBriefing: null,
+  setPendingBriefing: (data) => set({ pendingBriefing: data }),
 
   // ── 按会话存储的消息/流式状态 ──
   sessionMessages: {},

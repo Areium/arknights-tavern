@@ -14,7 +14,7 @@
 | 角色与数值成长 | ✅ 战斗奖励结算 + XP→等级→属性+1 + 掉落物品 + 战斗历史（combat.py:_settle_combat_rewards） | 成长不可见（无角色成长面板）；属性→战斗数值反馈不直观 |
 | 战斗数值/难度/卡组 | ✅ 9 职业 × 8 卡组；✅ 数值公式（entity.py）；✅ 敌人意图 + SPD 行动顺序（本轮已落地） | 卡牌效果多为文案（状态效果未实装）；difficulty/level 未消费（无难度曲线）；max_rounds/escape 未消费；卡组无跨场成长 |
 | UI/动作/音效/背景 | ✅ 3D 网格 + Spine 动画 + 音效 + 战斗背景 + 伤害数字/粒子 | 敌人意图头顶图标（暂为面板文字版） |
-| 战斗×剧情结合 | ✅ LLM 触发战斗 + 结果写回 + 战后自动叙述 + 奖励结算；✅ 战前打法 + 剧情投点（backend + 手动开战路径已落地） | LLM 战前简报流（两段式触发 combat_briefing）待做 |
+| 战斗×剧情结合 | ✅ LLM 触发战斗 + 结果写回 + 战后自动叙述 + 奖励结算；✅ 战前打法 + 剧情投点 + 战前简报流（剧情模式全闭环已落地） | 简报采用现有长叙述（brief_mode 短简报可后续精化） |
 | LLM 剧情自由开放 | ✅ 两阶段叙述 + 选项 + 回退 + 变体 + 世界书注入 + 向量记忆 | 玩家选择的机制化后果（投点/失败向前）不足 |
 
 ---
@@ -33,7 +33,7 @@
 - 前端手动开战路径：打法卡片 + d20 检定结果 + 撤退提示（CombatView）。
 
 ### P1 · 战斗×剧情闭环 + 自由开放
-1. ✅ 战前打法数据 + resolve_approach + roll_check（feat/combat-approaches）；⏳ 待做：LLM 战前简报流（两段式触发 combat_briefing 事件）+ 剧情流打法卡片（当前手动开战路径已可用）。
+1. ✅ 战前打法 + resolve_approach + roll_check + 战前简报流（feat/combat-approaches + feat/combat-briefing）：剧情模式标记提取后发 combat_briefing 事件（含打法列表），ChatPanel 弹简报面板选打法，不再自动开战。
 2. ✅ 剧情投点（d20）：成功避免战斗 / 失败以 fail_combat 参数开战。
 3. 敌人意图头顶图标：把面板文字版升级为 PixiJS 头顶图标（PixiCombatScene）。
 
