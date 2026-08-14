@@ -936,9 +936,12 @@ export default function CombatView() {
         setCombatContext({ selectedCardIndex: null, selectedUnitId: null, uiMode: "VIEWING" });
         return;
       }
-      // AP check
-      if (card && (combatState.shared_ap ?? 0) < card.cost) {
-        setError(`AP 不足 (${combatState.shared_ap ?? 0} / ${card.cost})`);
+      // AP check：个人 AP + 共享 AP（与点击路径及后端一致）
+      if (card && getCardAp(card) < card.cost) {
+        const owner = combatState.units.find(u => u.team === "player" && u.is_alive && u.name === card.owner);
+        const pa = owner?.personal_ap ?? 0;
+        const sa = combatState.shared_ap ?? 0;
+        setError(`AP 不足 (个人 ${pa} + 共享 ${sa} < ${card.cost})`);
         setDragCardIndex(null);
         setDragCell(null);
         return;
@@ -979,7 +982,7 @@ export default function CombatView() {
         setDragCell(null);
       }
     },
-    [effectiveId, combatTestId, sessionId, combatState, dragCardIndex, rangeHighlights, displayedHand, api, fetchState, setCombatContext]
+    [effectiveId, combatTestId, sessionId, combatState, dragCardIndex, rangeHighlights, displayedHand, api, fetchState, getCardAp, setCombatContext]
   );
 
   const handleUnitClick = useCallback((unitId: string) => {
