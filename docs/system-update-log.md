@@ -16,6 +16,14 @@
 
 ## 更新记录
 
+### 2026-08-13 — 战前打法（Approach）+ 剧情投点（d20 展示）
+
+- **战前打法**：新增 src/combat_approaches.py（resolve_approach 映射 enemy_scale/first_strike/player_effects/reward_mult + roll_check d20 剧情投点 + 兜底打法）；encounters 新增 approaches 字段（enc_snow_convoy/enc_final_showdown/enc_training/初遇整合运动）
+- **战斗参数**：CombatSession.start() 消费 enemy_scale（敌人缩放）、first_strike（首回合共享 AP+1）、reward_mult（奖励倍率，to_dict/from_dict 持久化）；/combat/start 支持 approach_id（combat/check/avoid 三态）；/combat/complete 应用 reward_mult
+- **剧情投点**：谈判/抉择类打法走 d20 检定（取小队最高属性，自然 20 必成 / 自然 1 必败），成功避免战斗、失败以 fail_combat 参数强制开战
+- **修复 bug**：同名敌人 count>1 共享 unit_id 导致 add_enemy_unit 互相覆盖（遭遇战只生成 1 个该敌人）→ 现在生成唯一 unit_id（name#n），敌人数恢复设计值
+- **前端**：手动开战路径（CombatView）新增打法卡片 + d20 检定结果 + 撤退提示；useApi.combatStart 支持 approach_id
+- **测试**：tests/test_combat_approaches.py（13 用例：resolve/roll_check/enemy_scale/first_strike/reward_mult/唯一 unit_id）
 ### 2026-08-13 — 敌人意图 + SPD 行动顺序（战斗可读性）
 
 - **敌人意图**：CombatEngine 在 ROUND_START 为每个存活敌人计算意图（attack/heavy/aoe/move/defend），含目标单位与伤害估算区间；ai_behavior=defensive 的敌人离队时坚守、aggressive 的追击（消费 enemy frontmatter 已有的 ai_behavior 字段）

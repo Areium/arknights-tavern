@@ -10,6 +10,31 @@ deploy_zones:
   player: [[0, 0], [2, 2]]
   enemy: [[3, 3], [6, 6]]
   enemy_random_shift: false
+approaches:
+  - id: assault
+    label: "正面强攻"
+    hint: "在圣山之巅与山雪鬼倾力一战，敌人全力迎战。"
+    combat:
+      enemy_scale: 1.0
+      first_strike: false
+      player_effects: {}
+      reward_mult: 1.3
+  - id: negotiate
+    label: "最后的交涉"
+    hint: "以言辞动摇山雪鬼队长，魅力检定决定能否避免决战。"
+    check:
+      attr: "魅力"
+      dc: 15
+    fail_combat:
+      enemy_scale: 1.2
+      player_effects: {}
+      reward_mult: 0.8
+    reward_mult: 0.5
+  - id: retreat
+    label: "撤退"
+    hint: "承认失败撤退，放弃最终决战的战利品。"
+    avoid: true
+    reward_mult: 0.0
 waves:
   - enemies:
       - enemy: "山雪鬼队长"

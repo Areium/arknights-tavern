@@ -13,6 +13,7 @@ from pathlib import Path
 from flask import Blueprint, jsonify, request
 
 from shared.helpers import json_error, make_sse_response, build_character_metas
+from combat_approaches import resolve_approach, list_approaches, roll_check
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +110,7 @@ _BATTLE_ATTRS = ["物理强度", "战场机动", "生理耐受", "战术规划",
                  "战斗技巧", "源石技艺适应性", "情绪稳定性"]
 
 
-def _settle_combat_rewards(session, combat_data: dict) -> dict:
+def _settle_combat_rewards(session, combat_data: dict, reward_mult: float = 1.0) -> dict:
     """结算战斗奖励：XP + 物品掉落 + 成长写回。返回 rewards 供前端展示。"""
     from combat_data_loader import CombatDataLoader
     loader = CombatDataLoader()
@@ -131,6 +132,9 @@ def _settle_combat_rewards(session, combat_data: dict) -> dict:
         xp += int(meta.get("xp_reward", 0))
         if random.random() < float(meta.get("drop_rate", 0)):
             items.extend(meta.get("drop_items", []))
+
+    # 打法奖励倍率（正面强攻 ×1.2 / 谈判失败 ×0.7 / 撤退 ×0 …）
+    xp = int(xp * reward_mult)
 
     level_ups = _apply_progression(session, combat_data.get("character_metas", []) or [], xp)
 
@@ -272,11 +276,47 @@ def register(app, managers):
         data = request.json or {}
         encounter_id = data.get("encounter_id", "初遇整合运动")
         enemy_overrides = data.get("enemy_overrides")
+        approach_id = data.get("approach_id")
+
+        from combat_data_loader import CombatDataLoader
+        encounter = CombatDataLoader().load_encounter(encounter_id) or {}
 
         # Build character metas with overlay merge
         character_metas = build_character_metas(session, doc_mgr)
         if not character_metas:
             return json_error("没有可用角色，请先加载角色到场景中", 400)
+
+        # 战前打法（Approach）：遭遇战显式声明 approaches 且未选定时，先返回打法列表
+        if approach_id is None and encounter.get("approaches"):
+            return jsonify({
+                "ok": True, "kind": "approaches", "encounter_id": encounter_id,
+                "approaches": list_approaches(encounter),
+            })
+
+        resolved = resolve_approach(encounter, approach_id)
+        kind = resolved["kind"]
+        reward_mult = resolved["reward_mult"]
+
+        # 撤退：直接跳过战斗
+        if kind == "avoid":
+            return jsonify({
+                "ok": True, "kind": "avoid", "encounter_id": encounter_id,
+                "label": resolved["label"], "hint": resolved["hint"],
+            })
+
+        # 谈判/抉择：d20 剧情投点
+        check = None
+        combat_params = resolved["combat_params"]
+        if kind == "check":
+            check = roll_check(character_metas, resolved["check"])
+            if check["success"]:
+                return jsonify({
+                    "ok": True, "kind": "check", "encounter_id": encounter_id,
+                    "label": resolved["label"], "hint": resolved["hint"],
+                    "check": check, "combat_started": False,
+                })
+            # 失败 → 以 fail_combat 参数强制开战
+            combat_params = resolved["fail_combat_params"]
 
         # Normalize enemy_overrides: list of names -> list of {name, count, positions}
         enemies_override = None
@@ -298,12 +338,19 @@ def register(app, managers):
                 encounter_id,
                 character_metas=character_metas,
                 enemies_override=enemies_override,
+                combat_params=combat_params,
                 location=session.environment.location or "",
                 session_dir=str(session.data_dir),
                 inventory=_get_combat_inventory(session),
+                reward_mult=reward_mult,
             )
             session.combat = combat
-            return jsonify(state)
+            resp = {"ok": True, "kind": kind, "encounter_id": encounter_id,
+                    "label": resolved["label"], "state": state}
+            if check is not None:
+                resp["check"] = check
+                resp["combat_started"] = True
+            return jsonify(resp)
         except ValueError as e:
             return json_error(str(e), 404)
         except Exception as e:
@@ -429,7 +476,8 @@ def register(app, managers):
         rewards = {"xp": 0, "items": [], "level_ups": []}
         if winner == "player":
             try:
-                rewards = _settle_combat_rewards(session, combat_data)
+                reward_mult = float(combat_data.get("reward_mult", 1.0) or 1.0)
+                rewards = _settle_combat_rewards(session, combat_data, reward_mult)
             except Exception as e:
                 logger.exception("会话 %s: 战斗奖励结算失败", session_id)
 
