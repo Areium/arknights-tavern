@@ -1,7 +1,24 @@
 import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import type { ReactNode } from "react";
 
 interface Props {
   content: string;
+  /** 图片可点击，在新标签页打开原图（用于教程类文档） */
+  clickableImages?: boolean;
+}
+
+/** 提取 ReactNode 中的纯文本（用于生成标题锚点 id） */
+function extractText(node: ReactNode): string {
+  if (node == null || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(extractText).join("");
+  const props = (node as { props?: { children?: ReactNode } }).props;
+  return props?.children != null ? extractText(props.children) : "";
+}
+
+function headingId(children: ReactNode): string {
+  return encodeURIComponent(extractText(children).trim());
 }
 
 const baseClasses = {
@@ -30,7 +47,7 @@ const baseClasses = {
   del: "line-through text-gray-500",
 };
 
-export default function MarkdownRenderer({ content }: Props) {
+export default function MarkdownRenderer({ content, clickableImages = false }: Props) {
   if (!content || !content.trim()) {
     return <p className="text-sm text-gray-600 italic">（空文档）</p>;
   }
@@ -38,13 +55,14 @@ export default function MarkdownRenderer({ content }: Props) {
   return (
     <div className="prose-sm max-w-none">
       <Markdown
+        remarkPlugins={[remarkGfm]}
         components={{
-          h1: (props) => <h1 className={baseClasses.h1} {...props} />,
-          h2: (props) => <h2 className={baseClasses.h2} {...props} />,
-          h3: (props) => <h3 className={baseClasses.h3} {...props} />,
-          h4: (props) => <h4 className={baseClasses.h4} {...props} />,
-          h5: (props) => <h5 className={baseClasses.h5} {...props} />,
-          h6: (props) => <h6 className={baseClasses.h6} {...props} />,
+          h1: (props) => <h1 className={baseClasses.h1} {...props} id={headingId(props.children)} />,
+          h2: (props) => <h2 className={baseClasses.h2} {...props} id={headingId(props.children)} />,
+          h3: (props) => <h3 className={baseClasses.h3} {...props} id={headingId(props.children)} />,
+          h4: (props) => <h4 className={baseClasses.h4} {...props} id={headingId(props.children)} />,
+          h5: (props) => <h5 className={baseClasses.h5} {...props} id={headingId(props.children)} />,
+          h6: (props) => <h6 className={baseClasses.h6} {...props} id={headingId(props.children)} />,
           p: (props) => <p className={baseClasses.p} {...props} />,
           ul: (props) => <ul className={baseClasses.ul} {...props} />,
           ol: (props) => <ol className={baseClasses.ol} {...props} />,
@@ -70,7 +88,14 @@ export default function MarkdownRenderer({ content }: Props) {
           thead: (props) => <thead className={baseClasses.thead} {...props} />,
           th: (props) => <th className={baseClasses.th} {...props} />,
           td: (props) => <td className={baseClasses.td} {...props} />,
-          img: (props) => <img className={baseClasses.img} {...props} />,
+          img: (props) =>
+            clickableImages ? (
+              <a href={props.src} target="_blank" rel="noopener noreferrer" title="点击查看原图">
+                <img className={baseClasses.img + " cursor-zoom-in"} {...props} />
+              </a>
+            ) : (
+              <img className={baseClasses.img} {...props} />
+            ),
           em: (props) => <em className={baseClasses.em} {...props} />,
           strong: (props) => <strong className={baseClasses.strong} {...props} />,
           del: (props) => <del className={baseClasses.del} {...props} />,

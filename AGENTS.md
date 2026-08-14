@@ -11,6 +11,9 @@ MUST 实现和修改功能前，遵循以下分支工作流：
 5. 合并成功后 **删除 feature 分支**
 禁止将大型功能变更直接提交到 `main`。
 
+## 并发防护
+本仓库可能被多个进程（其他 DSH 会话、IDE、脚本）同时操作。开始写操作前 MUST 加载 `.agents/skills/workspace-concurrency-guard` 技能并按其流程执行：入场并发检测（两次 git 状态快照对比）、检测到并发时切换到隔离开发（git worktree / clone）、写操作纪律（精确路径 add、禁止 `git clean`/`checkout -f`/`reset --hard`/`stash drop`、不盲目重写被回滚的文件）、合并前确认对方已停。该技能也提供文件被意外回滚/删除后的恢复流程（reflog / fsck / stash 找回）。
+
 
 ## 项目架构
 

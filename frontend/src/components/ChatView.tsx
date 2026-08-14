@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useAppStore } from "../stores/appStore";
-import SessionList from "./SessionList";
 import CharacterPanel from "./CharacterPanel";
 import ItemPanel from "./ItemPanel";
 import EnvironmentPanel from "./EnvironmentPanel";
@@ -19,9 +18,8 @@ export default function ChatView() {
 
   return (
     <div className="flex h-full">
-      {/* Left: sessions + panels */}
+      {/* Left: scene panels (会话列表已迁移至「会话大厅」) */}
       <div className="w-72 border-r border-gray-700 overflow-y-auto p-3 space-y-3 shrink-0">
-        <SessionList />
         <CharacterPanel
           refreshKey={refreshKey}
           onAddClick={() => setCharBrowserOpen(true)}
