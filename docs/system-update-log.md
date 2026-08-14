@@ -16,6 +16,13 @@
 
 ## 更新记录
 
+### 2026-08-13 — 状态效果收尾：闪避 + 致盲（卡组完成）
+
+- **闪避（evade）**：CombatUnit.status 新增 evade；check_hit 中防御者闪避姿态 → EVA +3（更难被命中）；spec_evade「闪避姿态」生效
+- **致盲（blind）**：check_hit 中攻击者被致盲 → HIT -3（更难命中）；spec_smoke「烟雾弹」生效
+- **前端**：UnitStatusPanel 新增闪避/致盲徽章
+- 至此 10 种状态效果 + 16 张描述性卡牌全部生效，卡组完成度闭环（仅剩破甲/净化/位移等可选精化）
+- **测试**：tests/test_evade_blind.py（3 用例：闪避提 DC/致盲降命中/卡牌声明）
 ### 2026-08-13 — 状态效果补充：嘲讽（taunt）+ 侦察标记/领域展开
 
 - **嘲讽（taunt）**：CombatUnit.status 新增 taunt；效果支持 self 标志（施加在施法者自己而非目标）；敌人 AI 目标选择（_enemy_target）优先攻击嘲讽中的玩家；defender_taunt「嘲讽打击」生效

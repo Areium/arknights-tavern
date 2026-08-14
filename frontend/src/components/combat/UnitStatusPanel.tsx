@@ -31,6 +31,8 @@ const STATUS_META: { key: string; label: string; cls: string }[] = [
   { key: "silence", label: "沉默", cls: "text-violet-300 bg-violet-950/60 border-violet-800/50" },
   { key: "burn", label: "燃烧", cls: "text-orange-300 bg-orange-950/60 border-orange-800/50" },
   { key: "taunt", label: "嘲讽", cls: "text-yellow-300 bg-yellow-950/60 border-yellow-800/50" },
+  { key: "evade", label: "闪避", cls: "text-sky-300 bg-sky-950/60 border-sky-800/50" },
+  { key: "blind", label: "致盲", cls: "text-slate-300 bg-slate-950/60 border-slate-700/50" },
 ];
 
 function StatusBadges({ status }: { status?: Record<string, number> }) {

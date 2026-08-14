@@ -94,6 +94,7 @@ class CombatUnit:
     status: dict = field(default_factory=lambda: {
         "shield": 0, "slow": 0, "bind": 0, "weaken": 0, "strengthen": 0,
         "silence": 0, "burn": 0, "burn_damage": 0, "taunt": 0,
+        "evade": 0, "blind": 0,
     })
 
     @property
@@ -147,7 +148,7 @@ class CombatUnit:
 
     def tick_status(self) -> None:
         """每回合开始递减持续型状态（shield/burn_damage 不衰减）。"""
-        for kind in ("slow", "bind", "weaken", "strengthen", "silence", "burn", "taunt"):
+        for kind in ("slow", "bind", "weaken", "strengthen", "silence", "burn", "taunt", "evade", "blind"):
             self.status[kind] = max(0, self.status.get(kind, 0) - 1)
 
     def status_amount(self, kind: str) -> int:

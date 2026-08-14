@@ -429,7 +429,7 @@ class CombatEngine:
                     elif etype == "burn":
                         effect_target.apply_burn(eff.get("value", 4), eff.get("duration", 2))
                         val = eff.get("value", 4)
-                    elif etype in ("slow", "bind", "weaken", "strengthen", "silence", "taunt"):
+                    elif etype in ("slow", "bind", "weaken", "strengthen", "silence", "taunt", "evade", "blind"):
                         effect_target.apply_status(etype, eff.get("duration", 1))
                         val = eff.get("duration", 1)
                     else:
