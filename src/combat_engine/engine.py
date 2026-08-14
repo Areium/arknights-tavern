@@ -180,9 +180,10 @@ class CombatEngine:
         self._recalc_shared_ap_max()
         self.shared_ap = self.SHARED_AP_MAX
 
-        # Reset personal AP for all units
+        # Reset personal AP + tick down status effects
         for unit in self.units.values():
             unit.reset_ap()
+            unit.tick_status()
 
         # Compute enemy intents so the player can read enemy plans before acting.
         self.state.enemy_intents = self._compute_enemy_intents()
@@ -366,11 +367,22 @@ class CombatEngine:
             else:
                 hr = check_hit(unit, target)
                 dr = compute_damage(unit, target, card, hr)
+                actual = 0
+                shielded = 0
                 if not hr.miss and dr.final > 0:
-                    target.take_damage(dr.final)
+                    # 状态效果修正：虚弱目标多受 25% / 增幅来源多造成 25%
+                    final_dmg = dr.final
+                    if target.status_amount("weaken") > 0:
+                        final_dmg = int(final_dmg * 1.25)
+                    if unit.status_amount("strengthen") > 0:
+                        final_dmg = int(final_dmg * 1.25)
+                    shield_before = target.status_amount("shield")
+                    actual = target.take_damage(max(1, final_dmg))
+                    shielded = shield_before - target.status_amount("shield")
                 self._emit("damage", unit_id=unit.unit_id, caster=unit.name,
                            target_id=target.unit_id, target=target.name,
-                           damage=dr.final, hit_result=str(hr), card=card.name)
+                           damage=actual, hit_result=str(hr), card=card.name,
+                           shielded=shielded)
 
                 if not target.is_alive:
                     self._emit("death", unit_id=target.unit_id,
@@ -378,6 +390,22 @@ class CombatEngine:
                     self.grid.remove_unit(target)
 
             results.append(dr)
+
+            # 施加卡牌声明的状态效果（护盾/减速/束缚/虚弱/增幅）
+            if not hr.miss and card.effects:
+                for eff in card.effects:
+                    etype = eff.get("type", "")
+                    if etype == "shield":
+                        target.apply_status("shield", eff.get("value", 0))
+                        val = eff.get("value", 0)
+                    elif etype in ("slow", "bind", "weaken", "strengthen"):
+                        target.apply_status(etype, eff.get("duration", 1))
+                        val = eff.get("duration", 1)
+                    else:
+                        continue
+                    self._emit("status", unit_id=unit.unit_id,
+                               target_id=target.unit_id, target=target.name,
+                               type=etype, value=val)
 
         if not results:
             # No valid targets in range — refund AP, don't consume card
@@ -403,9 +431,16 @@ class CombatEngine:
         unit = self.units[unit_id]
         from_pos = unit.pos
 
-        # Distance validation (Chebyshev, mobility // 2)
+        # 束缚：无法移动
+        if unit.status_amount("bind") > 0:
+            self._emit("error", unit_id=unit_id, msg="被束缚，无法移动")
+            return False
+
+        # Distance validation (Chebyshev, mobility // 2；减速时移动距离减半)
         dist = max(abs(unit.pos[0] - new_pos[0]), abs(unit.pos[1] - new_pos[1]))
         max_move = unit.mobility // 2
+        if unit.status_amount("slow") > 0:
+            max_move = max(1, max_move // 2)
         if dist > max_move:
             self._emit("error", unit_id=unit_id,
                        msg=f"移动距离超限 ({dist} > {max_move})")

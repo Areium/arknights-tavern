@@ -33,6 +33,7 @@ class Card:
     tier: str              # "basic" | "elite"
     class_required: str = "any"  # Class restriction or "any"
     owner: str | None = None  # Character name for exclusive cards
+    effects: list = field(default_factory=list)  # 状态效果：[{"type":"shield","value":8}] / [{"type":"slow","duration":2}]
 
     def to_dict(self) -> dict:
         return {
@@ -49,6 +50,7 @@ class Card:
             "tier": self.tier,
             "class_required": self.class_required,
             "owner": self.owner,
+            "effects": list(self.effects),
         }
 
     @classmethod

@@ -16,6 +16,13 @@
 
 ## 更新记录
 
+### 2026-08-13 — 状态效果运行时（卡组完成度）
+
+- **状态模型**：CombatUnit 新增 status（shield/slow/bind/weaken/strengthen），apply_status / tick_status（每回合递减）/ status_amount；take_damage 先扣护盾再扣 HP
+- **卡牌声明**：Card 新增 effects 字段（[{type,value/duration}]）；重装·防御阵线/不破壁垒、医疗·守护之盾（护盾）、辅助·减速术（减速）、束缚术（束缚）、削弱（虚弱）、增幅过载（增幅）等卡牌现在真正生效（此前为 0 伤害/纯文案）
+- **引擎**：play_card 命中后施加 effects + 虚弱/增幅 ±25% 伤害修正 + 护盾吸伤（damage 事件透出实际扣血与 shielded）；move_unit 束缚禁移 / 减速移动减半；_start_round 递减持续状态
+- **前端**：CombatUnitDTO.status + UnitStatusPanel 状态徽章（护盾/减速/束缚/虚弱/增幅）
+- **测试**：tests/test_status_effects.py（9 用例：护盾吸伤/状态递减/束缚禁移/减速减距/护盾卡群体生效/卡牌声明/状态透出）
 ### 2026-08-13 — 难度曲线：回合上限 + 撤退（fail-forward）
 
 - **回合上限**：CombatEngine 消费 encounter.conditions.max_rounds，超过上限强制判负（battle_end winner=enemy reason=回合超时），为战斗加入时间压力

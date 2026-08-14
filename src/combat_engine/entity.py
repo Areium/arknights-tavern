@@ -90,6 +90,9 @@ class CombatUnit:
     # Position on grid
     pos: tuple[int, int] = (-1, -1)  # (row, col)
 
+    # Runtime status effects: shield(护盾)/slow(减速)/bind(束缚)/weaken(虚弱)/strengthen(增幅)
+    status: dict = field(default_factory=lambda: {"shield": 0, "slow": 0, "bind": 0, "weaken": 0, "strengthen": 0})
+
     @property
     def is_alive(self) -> bool:
         return self.hp > 0
@@ -104,7 +107,14 @@ class CombatUnit:
         return self.attributes.get("mobility", _DEFAULT_ATTR)
 
     def take_damage(self, amount: int) -> int:
-        """Apply damage, return actual HP lost (capped at current HP)."""
+        """Apply damage, shield absorbs first. Return actual HP lost."""
+        if amount <= 0:
+            return 0
+        shield = int(self.status.get("shield", 0) or 0)
+        if shield > 0:
+            absorbed = min(shield, amount)
+            self.status["shield"] = shield - absorbed
+            amount -= absorbed
         actual = min(amount, self.hp)
         self.hp -= actual
         return actual
@@ -117,6 +127,23 @@ class CombatUnit:
 
     def reset_ap(self):
         self.AP = self.MAX_AP
+
+    # ── Status effects ──
+
+    def apply_status(self, kind: str, value: int = 0) -> None:
+        """施加状态：shield 累加，其余取 max（刷新持续时间）。"""
+        if kind == "shield":
+            self.status["shield"] = self.status.get("shield", 0) + max(0, int(value))
+        else:
+            self.status[kind] = max(self.status.get(kind, 0), max(0, int(value)))
+
+    def tick_status(self) -> None:
+        """每回合开始递减持续型状态（shield 不衰减）。"""
+        for kind in ("slow", "bind", "weaken", "strengthen"):
+            self.status[kind] = max(0, self.status.get(kind, 0) - 1)
+
+    def status_amount(self, kind: str) -> int:
+        return int(self.status.get(kind, 0) or 0)
 
     # ── Factory ──
 
@@ -221,6 +248,7 @@ class CombatUnit:
             "SPD": self.SPD, "HIT": self.HIT, "EVA": self.EVA,
             "AP": self.AP, "MAX_AP": self.MAX_AP,
             "pos": list(self.pos),
+            "status": dict(self.status),
             "skin_url": self.skin_url,
             "skin_crop": self.skin_crop,
         }

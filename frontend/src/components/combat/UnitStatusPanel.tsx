@@ -22,6 +22,29 @@ const INTENT_COLOR: Record<string, string> = {
   defend: "text-gray-400",
 };
 
+const STATUS_META: { key: string; label: string; cls: string }[] = [
+  { key: "shield", label: "护盾", cls: "text-cyan-300 bg-cyan-950/60 border-cyan-800/50" },
+  { key: "slow", label: "减速", cls: "text-blue-300 bg-blue-950/60 border-blue-800/50" },
+  { key: "bind", label: "束缚", cls: "text-purple-300 bg-purple-950/60 border-purple-800/50" },
+  { key: "weaken", label: "虚弱", cls: "text-red-300 bg-red-950/60 border-red-800/50" },
+  { key: "strengthen", label: "增幅", cls: "text-amber-300 bg-amber-950/60 border-amber-800/50" },
+];
+
+function StatusBadges({ status }: { status?: Record<string, number> }) {
+  if (!status) return null;
+  const active = STATUS_META.filter((s) => (status[s.key] ?? 0) > 0);
+  if (active.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-1 mt-1">
+      {active.map((s) => (
+        <span key={s.key} className={"px-1 py-0.5 rounded text-[9px] font-display border " + s.cls}>
+          {s.label} {status[s.key]}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function HPBar({ current, max }: { current: number; max: number }) {
   const pct = Math.max(0, Math.min(1, current / max));
   const level = pct > 0.5 ? "high" : pct > 0.25 ? "medium" : "low";
@@ -118,6 +141,7 @@ export default function UnitStatusPanel({
                 <div className="mt-1">
                   <HPBar current={u.hp} max={u.max_hp} />
                 </div>
+                {u.is_alive && <StatusBadges status={u.status} />}
                 {u.is_alive && (
                   <div className="mt-1 flex justify-between items-center">
                     <APDots current={u.personal_ap} max={u.max_personal_ap} />

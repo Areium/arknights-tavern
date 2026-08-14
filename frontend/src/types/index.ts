@@ -209,6 +209,8 @@ export interface CombatUnitDTO {
   pos: [number, number];
   is_alive: boolean;
   attributes?: Record<string, number>;
+  /** 运行时状态效果：shield/slow/bind/weaken/strengthen */
+  status?: Record<string, number>;
   skin_url: string;
   skin_crop: SkinCrop | null;
 }
