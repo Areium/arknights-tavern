@@ -36,8 +36,6 @@ export default function CropModal({ imageUrl, onSave, onClose }: Props) {
     sx: number; sy: number; start: SkinCrop;
   } | null>(null);
 
-  // Locked aspect ratio in percentage space: w/h = CARD_ASPECT * (imgH / imgW)
-  const pctAspect = imgNatural ? CARD_ASPECT * (imgNatural.h / imgNatural.w) : CARD_ASPECT;
 
   const clamp = useCallback((c: SkinCrop): SkinCrop => {
     const x = Math.max(0, Math.min(100 - Math.max(c.w, 5), c.x));

@@ -1,10 +1,8 @@
 import { memo } from "react";
-import type { CombatUnitDTO } from "../../types";
 
 interface Props {
   row: number;
   col: number;
-  unit: CombatUnitDTO | null;
   highlight: "" | "cursor" | "target" | "move" | "selected" | "range" | "aoe";
   onClick: (row: number, col: number) => void;
   onMouseEnter?: (e: React.MouseEvent) => void;
@@ -23,7 +21,7 @@ function getHighlightClass(highlight: string): string {
   }
 }
 
-const GridCell = memo(function GridCell({ row, col, unit, highlight, onClick, onMouseEnter, onMouseLeave }: Props) {
+const GridCell = memo(function GridCell({ row, col, highlight, onClick, onMouseEnter, onMouseLeave }: Props) {
   const cellClass = getHighlightClass(highlight);
 
   return (
@@ -40,8 +38,7 @@ const GridCell = memo(function GridCell({ row, col, unit, highlight, onClick, on
 }, (prev, next) => {
   return prev.row === next.row
     && prev.col === next.col
-    && prev.highlight === next.highlight
-    && prev.unit === next.unit;
+    && prev.highlight === next.highlight;
 });
 
 export default GridCell;

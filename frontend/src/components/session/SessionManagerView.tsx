@@ -79,7 +79,6 @@ export default function SessionManagerView() {
 
   const selected = sessions.find((s) => s.id === selectedId) || null;
   const plotName = (plotId: string | null) => plots.find((p) => p.id === plotId)?.name || plotId || "";
-  const bookName = (bookId: string | null | undefined) => books.find((b) => b.id === bookId)?.name || "";
 
   // ── 会话操作 ──
 

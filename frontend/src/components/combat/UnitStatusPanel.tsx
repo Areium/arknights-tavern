@@ -89,7 +89,6 @@ export default function UnitStatusPanel({
   const filtered = team ? units.filter((u) => u.team === team) : units;
   const isPlayer = team === "player";
   const label = isPlayer ? "Player" : "Enemy";
-  const labelColor = isPlayer ? "text-combat-player" : "text-combat-enemy";
 
   return (
     <div className="flex flex-col gap-2">

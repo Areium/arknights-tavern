@@ -506,20 +506,6 @@ export default function ChatPanel() {
     }
   }, [activeSessionId, regeneratingRound, regenerationPrompt, api]);
 
-  const handleSelectVariant = useCallback(async (idx: number, variantIdx: number) => {
-    if (!activeSessionId) return;
-    const sid = activeSessionId;
-    useAppStore.getState().setSessionMessages(sid, (prev) => {
-      const msg = prev[idx];
-      if (!msg.variants) return prev;
-      const updated = { ...msg, content: msg.variants[variantIdx], variantIndex: variantIdx };
-      if (msg.round != null) {
-        api.narrateUpdate(sid, msg.round, msg.variants[variantIdx]).catch(() => {});
-      }
-      return [...prev.slice(0, idx), updated, ...prev.slice(idx + 1)];
-    });
-  }, [activeSessionId, api]);
-
   // ── Single message deletion ──
 
   const handleDeleteMessage = useCallback((idx: number) => {

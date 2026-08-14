@@ -16,6 +16,15 @@
 
 ## 更新记录
 
+### 2026-08-15 — 代码清理与可维护性优化（冗余淘汰）
+
+- **删除死代码**：ChibiSprite.tsx、SessionList.tsx（已被 fallbackToken / 会话大厅取代）；清理其专属孤儿 CSS（.unit-hit-shake、.chibi-placeholder* 全套）
+- **tsconfig 开启 noUnusedLocals/noUnusedParameters** 并修复 16 处未使用代码：App 轮询变量、CropModal pctAspect、ChatPanel handleSelectVariant（整段死函数）、CombatCard cardArtGradient 死 hash 计算、GridCell 无用 unit prop（CombatGrid 传参同步简化）、UnitStatusPanel labelColor、HomeMenu storyCount、DocumentManager scanExisting 只写状态 / closeContextMenu / updated / clearBrokenRefForDoc、IndexManager allEntityPaths、SessionManagerView bookName
+- **.gitignore 补全**：.dsh-tmp/、.pi-subagents/、src/data/（运行时数据，消除长期未跟踪噪音）
+- **README 更新**：过时的「左侧边栏/左侧导航」描述改为主页主菜单 → 会话大厅 → 沉浸式会话/战斗的新流程
+- **Vite 构建优化**：pixi / react 手动分包（大依赖独立 chunk，利于缓存与并行加载），chunkSizeWarningLimit 600 消除构建告警
+- **脚本整理**：录音（record_loopback.py）/ 转换（convert_audio.py）工具移入 scripts/audio/ 供复用，删除一次性生成/清理脚本
+
 ### 2026-08-15 — 音频控制增强：静音改暂停/继续 + BGM 音量条
 
 - **静音改为暂停/继续**：audioManager.setMuted 由 stopBgm 改为 pauseBgm/resumeBgm（记住播放进度，再次点击从原位置继续），新增 resumeMenuBgmAfterUnmute（取消静音后若无 BGM 在播则启动菜单轮播）

@@ -414,16 +414,6 @@ export default function IndexManager() {
     return map;
   }, [overview]);
 
-  const allEntityPaths = useMemo(() => {
-    const paths = new Set<string>();
-    for (const [cat, ents] of Object.entries(entities)) {
-      for (const ent of ents) {
-        paths.add(`${cat}/${ent.id}`);
-      }
-    }
-    return paths;
-  }, [entities]);
-
   const pathToCatId = useMemo(() => {
     const map: Record<string, { cat: string; id: string }> = {};
     for (const [cat, ents] of Object.entries(entities)) {

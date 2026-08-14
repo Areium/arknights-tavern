@@ -141,7 +141,6 @@ export default function CombatGrid({
           key={key}
           row={r}
           col={c}
-          unit={unit}
           highlight={highlight}
           onClick={onCellClick}
           onMouseEnter={(e) => {

@@ -561,53 +561,6 @@ html.light .text-amber-100\/70 { color: rgba(120,53,15,0.85); }
   100% { transform: translateY(-36px) scale(0.85); opacity: 0; }
 }
 
-/* ── 单位受击震动 ── */
-.unit-hit-shake {
-  animation: hit-shake 0.3s ease-in-out;
-}
-
-@keyframes hit-shake {
-  0%, 100% { transform: translateX(0); }
-  20% { transform: translateX(-4px); }
-  40% { transform: translateX(4px); }
-  60% { transform: translateX(-3px); }
-  80% { transform: translateX(2px); }
-}
-
-/* ── 战斗小人占位 ── */
-.chibi-placeholder {
-  width: 48px;
-  height: 56px;
-  border-radius: 4px 4px 2px 2px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  transition: transform 0.3s ease;
-}
-
-.chibi-placeholder .chibi-head {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.15);
-  margin-top: 6px;
-  margin-bottom: 4px;
-}
-
-.chibi-placeholder .chibi-body {
-  width: 32px;
-  height: 20px;
-  border-radius: 3px 3px 0 0;
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.chibi-placeholder.player {
-  box-shadow: 0 0 6px rgba(0, 180, 216, 0.3);
-}
-
-.chibi-placeholder.enemy {
-  box-shadow: 0 0 6px rgba(231, 76, 60, 0.3);
-}
 
 /* ── 战斗事件日志 timeline ── */
 .combat-log-entry {
@@ -850,13 +803,6 @@ html.light .combat-hp-bar {
   border-color: rgba(160, 175, 195, 0.5);
 }
 
-/* ── 战斗小人（暗色头/身以在浅色背景可见） ── */
-html.light .chibi-placeholder .chibi-head {
-  background: rgba(60, 70, 90, 0.2);
-}
-html.light .chibi-placeholder .chibi-body {
-  background: rgba(60, 70, 90, 0.15);
-}
 
 /* ── 攻击箭头（略加深金色以保证浅色背景对比度） ── */
 html.light .attack-arrow-line {

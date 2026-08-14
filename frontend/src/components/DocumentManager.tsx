@@ -136,7 +136,6 @@ export default function DocumentManager() {
   const [savingImports, setSavingImports] = useState(false);
   const [depsCollapsed, setDepsCollapsed] = useState(false);
   const [scanResults, setScanResults] = useState<any[] | null>(null);
-  const [scanExisting, setScanExisting] = useState<any[]>([]);
   const [scanLoading, setScanLoading] = useState(false);
 
   // ── Batch scan state ──
@@ -358,8 +357,6 @@ export default function DocumentManager() {
     []
   );
 
-  const closeContextMenu = useCallback(() => setContextMenu(null), []);
-
   useEffect(() => {
     if (!contextMenu) return;
     const dismiss = () => setContextMenu(null);
@@ -387,7 +384,6 @@ export default function DocumentManager() {
     setSearchQuery("");
     setSearchResults([]);
     setScanResults(null);
-    setScanExisting([]);
     try {
       const [content, importsData] = await Promise.all([
         api.readDocument(category, id),
@@ -418,7 +414,7 @@ export default function DocumentManager() {
     setLoading(true);
     setError("");
     try {
-      const updated = await api.saveDocument(
+      await api.saveDocument(
         selectedCategory,
         docIdFromPath(selectedPath),
         editContent,
@@ -670,7 +666,6 @@ export default function DocumentManager() {
     try {
       const result = await apiRef.current.scanDocImports(selectedCategory, docId);
       setScanResults(result.suggestions);
-      setScanExisting(result.existing);
     } catch {
       setScanResults([]);
     } finally {
@@ -799,12 +794,6 @@ export default function DocumentManager() {
   const refreshBrokenRefForDoc = async (category: string, docId: string) => {
     const docKey = `${category}/${docId}`;
     await refreshBrokenRefsForDocs([docKey]);
-  };
-
-  // Clear a doc's broken refs after fix (called from handleSaveImports)
-  const clearBrokenRefForDoc = (category: string, docId: string) => {
-    const docKey = `${category}/${docId}`;
-    setBrokenRefDocs((prev) => prev.filter((d) => d.docPath !== docKey));
   };
 
   // ── Render: tree node ──

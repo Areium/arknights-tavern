@@ -69,7 +69,7 @@ export default function App() {
     let cancelled = false;
     const poll = async () => {
       try {
-        const status = await api.getStatus();
+        await api.getStatus();
         if (!cancelled) {
           setBackendStatus({ status: "connected", url: "" });
         }

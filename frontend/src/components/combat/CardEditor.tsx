@@ -262,7 +262,7 @@ export default function CardEditor({ onClose, embedded, entityName, entityType, 
     return cardsData?.class_cards || [];
   };
 
-  const isCombatCard = (card: CardData): card is CombatCardDTO => {
+  const isCombatCard = (_card: CardData): _card is CombatCardDTO => {
     return !isClassMode;
   };
 

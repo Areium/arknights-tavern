@@ -59,5 +59,15 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        // 大依赖独立分包：pixi 渲染栈与 react 框架层，利于缓存与首屏并行加载
+        manualChunks: {
+          pixi: ["pixi.js", "@pixi-spine/base", "@pixi-spine/runtime-3.8"],
+          react: ["react", "react-dom"],
+        },
+      },
+    },
   },
 });

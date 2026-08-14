@@ -17,3 +17,8 @@ data/characters/*/spine/
 temp_*.png
 tests/
 pytest.ini
+
+# 本地运行时数据/代理临时目录
+.dsh-tmp/
+.pi-subagents/
+src/data/

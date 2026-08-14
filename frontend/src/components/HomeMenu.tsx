@@ -39,7 +39,6 @@ export default function HomeMenu() {
   const [muted, setMuted] = useState(audioManager.getSettings().muted);
   const [bgmVol, setBgmVol] = useState(audioManager.getSettings().bgmVolume);
 
-  const storyCount = useMemo(() => sessions.filter((s) => s.mode === "story").length, [sessions]);
   const combatCount = useMemo(() => sessions.filter((s) => s.in_combat).length, [sessions]);
 
   const enter = () => {

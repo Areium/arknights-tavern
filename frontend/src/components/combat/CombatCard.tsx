@@ -25,10 +25,7 @@ const CLASS_CSS: Record<string, string> = {
 };
 
 
-function cardArtGradient(cardId: string, damageType: string): string {
-  const hash = cardId.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
-  const hue1 = (hash * 37) % 360;
-  const hue2 = (hue1 + 40) % 360;
+function cardArtGradient(damageType: string): string {
   const dmgHues: Record<string, number> = {
     physical: 15, arts: 270, healing: 140, mixed: 45,
   };
@@ -57,7 +54,7 @@ export default function CombatCard({ card, index, affordable, selected, highligh
   const selectedClass = selected ? "selected" : "";
   const highlightedClass = highlighted ? "highlighted" : "";
   const disabledClass = !affordable ? "disabled" : "";
-  const artBg = cardArtGradient(card.card_id, card.damage_type);
+  const artBg = cardArtGradient(card.damage_type);
   const [imgError, setImgError] = useState(false);
   const hasSkin = skinUrl && !imgError;
 
