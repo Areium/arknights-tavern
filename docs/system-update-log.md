@@ -16,6 +16,14 @@
 
 ## 更新记录
 
+### 2026-08-13 — 敌人意图 + SPD 行动顺序（战斗可读性）
+
+- **敌人意图**：CombatEngine 在 ROUND_START 为每个存活敌人计算意图（attack/heavy/aoe/move/defend），含目标单位与伤害估算区间；ai_behavior=defensive 的敌人离队时坚守、aggressive 的追击（消费 enemy frontmatter 已有的 ai_behavior 字段）
+- **SPD 行动顺序**：敌人阶段由 dict 顺序改为按 SPD 降序逐个行动，先手权真正生效
+- **意图透出**：CombatState 新增 enemy_intents，随 state.enemy_intents 与 round_start SSE 事件下发；前端敌方面板（UnitStatusPanel）显示「意图 → 目标（伤害区间）」行
+- **敌人出牌确定性**：敌人不再每回合随机抽 1 张，改为从完整卡池挑选当前最优卡（范围可达 + 可命中多人时偏好 AOE），使意图与实际行动一致（可被玩家读牌应对）
+- **数据管道**：CombatUnit 新增 ai_behavior 字段（create_enemy/to_dict/from_dict/combat_data_loader 全链路）；新增 tests/test_combat_engine.py（6 用例：意图分类/防守坚守/SPD 顺序/状态透出）
+
 ### 2026-08-13 — LLM 调用工程优化（借鉴 DSH 调用纪律）
 
 - **结构化错误**：`load_llm.py` 不再把错误伪装成模型回复（修复错误文本被当成角色台词/写入记忆的隐患），改为抛 `LLMError` 系列（connect/timeout/http/unknown）；连接错误与 429/5xx 指数退避重试，读超时不重试

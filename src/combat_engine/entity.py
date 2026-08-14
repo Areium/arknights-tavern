@@ -64,6 +64,7 @@ class CombatUnit:
     name: str
     team: str            # "player" | "enemy"
     char_class: str = ""  # Chinese class name
+    ai_behavior: str = "aggressive"  # "aggressive" | "defensive" (enemy stance)
 
     # Core combat stats (derived from attributes)
     max_hp: int = 100
@@ -191,13 +192,15 @@ class CombatUnit:
                      hp: int = 80, patk: float = 8, matk: float = 8,
                      defense: int = 4, resist: int = 4,
                      spd: float = 8, hit: int = 4, eva: int = 4,
-                     max_ap: int = 3) -> "CombatUnit":
+                     max_ap: int = 3,
+                     ai_behavior: str = "aggressive") -> "CombatUnit":
         """Quick enemy creation with explicit stats."""
         return cls(
             unit_id=name,
             name=name,
             team="enemy",
             char_class=char_class,
+            ai_behavior=ai_behavior,
             max_hp=hp, hp=hp,
             PATK=patk, MATK=matk,
             DEF=defense, RES=resist,
@@ -211,6 +214,7 @@ class CombatUnit:
             "name": self.name,
             "team": self.team,
             "char_class": self.char_class,
+            "ai_behavior": self.ai_behavior,
             "hp": self.hp, "max_hp": self.max_hp,
             "PATK": self.PATK, "MATK": self.MATK,
             "DEF": self.DEF, "RES": self.RES,

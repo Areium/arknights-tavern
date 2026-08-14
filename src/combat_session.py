@@ -475,6 +475,7 @@ class CombatSession:
             "valid_moves": valid_moves,
             "active_unit_id": next((u.unit_id for u in e.units.values() if u.team == "player" and u.is_alive), None),
             "grid": grid_cells,
+            "enemy_intents": dict(getattr(e.state, "enemy_intents", {}) or {}),
             "battle_over": e.is_battle_over(),
             "inventory": self._inventory,
         }
@@ -545,6 +546,7 @@ class CombatSession:
                 name=udict["name"],
                 team=udict["team"],
                 char_class=udict.get("char_class", ""),
+                ai_behavior=udict.get("ai_behavior", "aggressive"),
                 max_hp=udict["max_hp"],
                 hp=udict["hp"],
                 PATK=udict.get("PATK", 10),

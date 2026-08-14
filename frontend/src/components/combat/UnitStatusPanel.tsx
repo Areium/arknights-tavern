@@ -1,4 +1,4 @@
-import type { CombatUnitDTO } from "../../types";
+import type { CombatUnitDTO, EnemyIntentDTO } from "../../types";
 import AvatarPlaceholder from "../chat/AvatarPlaceholder";
 
 interface Props {
@@ -8,10 +8,19 @@ interface Props {
   team?: "player" | "enemy";
   sharedAp?: number;
   sharedApMax?: number;
+  intents?: Record<string, EnemyIntentDTO>;
   onUnitClick?: (unitId: string) => void;
   onUnitHover?: (unitId: string, rect: DOMRect) => void;
   onUnitLeave?: () => void;
 }
+
+const INTENT_COLOR: Record<string, string> = {
+  attack: "text-red-300",
+  heavy: "text-red-400",
+  aoe: "text-orange-300",
+  move: "text-amber-300",
+  defend: "text-gray-400",
+};
 
 function HPBar({ current, max }: { current: number; max: number }) {
   const pct = Math.max(0, Math.min(1, current / max));
@@ -46,8 +55,8 @@ function APDots({ current, max, color }: { current: number; max: number; color?:
 }
 
 export default function UnitStatusPanel({
-  units, activeUnitId, selectedUnitId, team, sharedAp, sharedApMax, onUnitClick,
-  onUnitHover, onUnitLeave,
+  units, activeUnitId, selectedUnitId, team, sharedAp, sharedApMax, intents,
+  onUnitClick, onUnitHover, onUnitLeave,
 }: Props) {
   const filtered = team ? units.filter((u) => u.team === team) : units;
   const isPlayer = team === "player";
@@ -115,6 +124,23 @@ export default function UnitStatusPanel({
                     <span className="text-[9px] text-gray-600">{u.mobility}速</span>
                   </div>
                 )}
+                {!isPlayer && u.is_alive && intents && (() => {
+                  const it = intents[u.unit_id];
+                  if (!it) return null;
+                  return (
+                    <div className="mt-1 text-[9px] leading-tight font-display">
+                      <span className={INTENT_COLOR[it.type] || "text-gray-400"}>
+                        意图：{it.label}
+                      </span>
+                      {it.target_name && (
+                        <span className="text-gray-500"> → {it.target_name}</span>
+                      )}
+                      {it.damage_min != null && it.damage_max != null && (
+                        <span className="text-gray-600"> ({it.damage_min}-{it.damage_max})</span>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           </div>

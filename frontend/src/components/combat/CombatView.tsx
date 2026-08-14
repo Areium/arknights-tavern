@@ -1324,6 +1324,7 @@ export default function CombatView() {
             activeUnitId={combatState.active_unit_id}
             selectedUnitId={selectedUnitId}
             team="enemy"
+            intents={combatState.enemy_intents}
             onUnitClick={handleUnitClick}
             onUnitHover={handleUnitHover}
             onUnitLeave={handleHoverLeave}
