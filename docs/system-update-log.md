@@ -16,6 +16,12 @@
 
 ## 更新记录
 
+### 2026-08-13 — 状态效果补充：嘲讽（taunt）+ 侦察标记/领域展开
+
+- **嘲讽（taunt）**：CombatUnit.status 新增 taunt；效果支持 self 标志（施加在施法者自己而非目标）；敌人 AI 目标选择（_enemy_target）优先攻击嘲讽中的玩家；defender_taunt「嘲讽打击」生效
+- **侦察标记/领域展开**：vang_recon「侦察标记」、supp_zone「领域展开」复用 weaken 效果（虚弱目标多受 25% 伤害）
+- **前端**：UnitStatusPanel 新增嘲讽徽章
+- **测试**：tests/test_taunt.py（4 用例：无嘲讽打最近/有嘲讽打嘲讽者/嘲讽为自效果/卡牌声明）
 ### 2026-08-13 — 状态效果补充：沉默 + 燃烧 DoT
 
 - **沉默（silence）**：CombatUnit.status 新增 silence；被沉默单位无法施放源石技艺（arts）卡牌（play_card 拦截 + 敌方 AI 跳过 arts 卡）；supp_nullify「源石沉默」/ supp_disrupt「干扰术」卡牌生效

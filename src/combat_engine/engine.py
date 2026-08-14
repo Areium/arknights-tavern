@@ -417,25 +417,27 @@ class CombatEngine:
 
             results.append(dr)
 
-            # 施加卡牌声明的状态效果（护盾/减速/束缚/虚弱/增幅）——命中才生效
+            # 施加卡牌声明的状态效果（护盾/减速/束缚/虚弱/增幅/沉默/嘲讽）——命中才生效
             if hr.hit and card.effects:
                 for eff in card.effects:
                     etype = eff.get("type", "")
+                    # self=true 的效果施加在施法者自己身上（如嘲讽）
+                    effect_target = unit if eff.get("self") else target
                     if etype == "shield":
-                        target.apply_status("shield", eff.get("value", 0))
+                        effect_target.apply_status("shield", eff.get("value", 0))
                         val = eff.get("value", 0)
                     elif etype == "burn":
-                        target.apply_burn(eff.get("value", 4), eff.get("duration", 2))
+                        effect_target.apply_burn(eff.get("value", 4), eff.get("duration", 2))
                         val = eff.get("value", 4)
-                    elif etype in ("slow", "bind", "weaken", "strengthen", "silence"):
-                        target.apply_status(etype, eff.get("duration", 1))
+                    elif etype in ("slow", "bind", "weaken", "strengthen", "silence", "taunt"):
+                        effect_target.apply_status(etype, eff.get("duration", 1))
                         val = eff.get("duration", 1)
                     else:
                         continue
                     self._emit("status", unit_id=unit.unit_id,
-                               target_id=target.unit_id, target=target.name,
+                               target_id=effect_target.unit_id, target=effect_target.name,
                                type=etype, value=val,
-                               target_pos=list(target.pos))
+                               target_pos=list(effect_target.pos))
 
         if not results:
             # No valid targets in range — refund AP, don't consume card
@@ -578,6 +580,12 @@ class CombatEngine:
                 best_score = score
         return best
 
+    def _enemy_target(self, unit: CombatUnit, players: list[CombatUnit]) -> CombatUnit:
+        """敌人目标选择：优先攻击嘲讽（taunt）中的玩家，否则攻击最近的。"""
+        taunted = [p for p in players if p.status_amount("taunt") > 0]
+        pool = taunted if taunted else players
+        return min(pool, key=lambda p: range_between(unit.pos, p.pos))
+
     def _compute_enemy_intents(self) -> dict:
         """Compute each alive enemy's planned action for the upcoming turn.
 
@@ -599,7 +607,7 @@ class CombatEngine:
                       "damage_min": None, "damage_max": None}
 
             if players:
-                nearest = min(players, key=lambda p: range_between(enemy.pos, p.pos))
+                nearest = self._enemy_target(enemy, players)
                 card = self._pick_enemy_card(enemy, nearest)
                 if card:
                     itype = self._classify_enemy_intent(card)
@@ -657,7 +665,7 @@ class CombatEngine:
             if candidate.team == "player" and candidate.is_alive:
                 target = candidate
         if target is None:
-            target = min(players, key=lambda p: range_between(unit.pos, p.pos))
+            target = self._enemy_target(unit, players)
 
         card = self._pick_enemy_card(unit, target)
         if card:
