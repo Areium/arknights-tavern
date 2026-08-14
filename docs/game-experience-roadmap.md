@@ -38,7 +38,7 @@
 3. 敌人意图头顶图标：✅ 已落地（feat/intent-icons：CombatView 玩家回合在敌人头顶渲染意图徽章 ⚔攻击/💢重击/🌐范围/👣移动/🛡坚守，复用 getCellCenter 定位，与侧面板意图行互补）。
 
 ### P2 · 战斗深度 + 难度曲线 + 卡组
-4. 状态效果运行时：✅ 护盾/减速/束缚/虚弱/增幅/沉默/燃烧/嘲讽 8 种已实装（feat/status-effects + silence-burn + taunt：嘲讽使敌人优先攻击嘲讽者，defender_taunt/vang_recon/supp_zone 卡牌生效）；⏳ 闪避姿态（spec_evade）待做（需改命中结算）。
+4. 状态效果运行时：✅ 10 种已实装（护盾/减速/束缚/虚弱/增幅/沉默/燃烧/嘲讽/闪避/致盲，feat/status-effects + silence-burn + taunt + evade-blind），16 张描述性卡牌全部生效；⏳ 可选精化：破甲（guard_pierce 无视防御）/ 净化（medic_cleanse 驱散减益）/ 位移（spec_shift）。
 5. 卡组构建：✅ 战后 1 选 1（feat/deck-building：胜利后从小队卡池抽 3 张候选，选中卡持久化进 overlay.combat_deck，下场战斗以 bonus_cards 注入并按职业解析 owner）；⏳ 删卡/强化卡 待做。
 6. 难度曲线：✅ conditions.max_rounds（回合超时判负，时间压力）+ escape_enabled（撤退 fail-forward，feat/combat-difficulty 已落地）；enemy.level 已由 combat_stats 内化（无需二次缩放），difficulty 作为关卡标签（难度曲线 = 遭遇战敌人构成 + 回合上限共同体现）。
 

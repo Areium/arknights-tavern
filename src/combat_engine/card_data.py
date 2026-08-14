@@ -209,12 +209,14 @@ SPECIALIST_CARDS = [
     Card("spec_shadow", "暗影步", "潜入暗影中接近目标",
          "physical", 3, 5, 0.3, "SINGLE", 2, 1, "basic", "特种"),
     Card("spec_evade", "闪避姿态", "提升闪避并反击",
-         "physical", 2, 5, 0.3, "SINGLE", 1, 1, "basic", "特种"),
+         "physical", 2, 5, 0.3, "SINGLE", 1, 1, "basic", "特种",
+         effects=[{"type": "evade", "duration": 2, "self": True}]),
     # Elite
     Card("spec_execute", "处决", "对低生命值目标造成致命伤害",
          "physical", 10, 18, 1.0, "SINGLE", 1, 2, "elite", "特种"),
     Card("spec_smoke", "烟雾弹", "在区域释放烟雾掩护",
-         "mixed", 5, 9, 0.5, "AREA_2X2", 2, 2, "elite", "特种"),
+         "mixed", 5, 9, 0.5, "AREA_2X2", 2, 2, "elite", "特种",
+         effects=[{"type": "blind", "duration": 2}]),
     Card("spec_ambush", "伏击", "从暗处发动致命伏击",
          "physical", 8, 14, 0.9, "SINGLE", 2, 3, "elite", "特种"),
 ]

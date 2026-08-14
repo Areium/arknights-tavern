@@ -65,8 +65,16 @@ def check_hit(attacker: "CombatUnit", defender: "CombatUnit") -> HitResult:
     natural_1 = (roll == 1)
     natural_20 = (roll == 20)
 
-    total = roll + attacker.HIT
-    dc = 6 + defender.EVA
+    # 状态修正：攻击者被致盲 → 命中 -3；防御者闪避姿态 → 闪避 +3
+    hit_bonus = attacker.HIT
+    eva = defender.EVA
+    if attacker.status_amount("blind") > 0:
+        hit_bonus -= 3
+    if defender.status_amount("evade") > 0:
+        eva += 3
+
+    total = roll + hit_bonus
+    dc = 6 + eva
 
     if natural_1:
         return HitResult(roll, False, False, True)
