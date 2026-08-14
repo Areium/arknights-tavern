@@ -595,6 +595,12 @@ export function useApi() {
         { method: "POST" },
       ),
 
+    combatCardPick: (sessionId: string, cardId: string) =>
+      request<{ ok: boolean; card_id: string; deck_size: number }>(
+        `/api/sessions/${sessionId}/combat/card-pick`,
+        { method: "POST", body: JSON.stringify({ card_id: cardId }) },
+      ),
+
     // ── Combat Test (no session required) ──
     combatTestStart: (encounterId?: string) =>
       request<{ test_id: string; state: any }>("/api/combat/test/start", {

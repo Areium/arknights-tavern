@@ -39,7 +39,7 @@
 
 ### P2 · 战斗深度 + 难度曲线 + 卡组
 4. 状态效果运行时：✅ 护盾/减速/束缚/虚弱/增幅 已实装（feat/status-effects：CombatUnit.status + Card.effects + play_card 施加 + 护盾吸伤 + 减速/束缚影响移动 + 虚弱/增幅 ±25% 伤害，前端 UnitStatusPanel 状态徽章）；⏳ 沉默/嘲讽/DoT/闪避 待做。
-5. 卡组构建（战后 1 选 1）：胜利后「抽新卡/删卡/强化卡」，卡组跨场持久。
+5. 卡组构建：✅ 战后 1 选 1（feat/deck-building：胜利后从小队卡池抽 3 张候选，选中卡持久化进 overlay.combat_deck，下场战斗以 bonus_cards 注入并按职业解析 owner）；⏳ 删卡/强化卡 待做。
 6. 难度曲线：✅ conditions.max_rounds（回合超时判负，时间压力）+ escape_enabled（撤退 fail-forward，feat/combat-difficulty 已落地）；enemy.level 已由 combat_stats 内化（无需二次缩放），difficulty 作为关卡标签（难度曲线 = 遭遇战敌人构成 + 回合上限共同体现）。
 
 ### P3 · 成长可见性 + 高阶系统

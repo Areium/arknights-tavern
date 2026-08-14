@@ -16,6 +16,12 @@
 
 ## 更新记录
 
+### 2026-08-13 — 卡组构建（战后 1 选 1）
+
+- **持久化卡组**：会话 overlay 新增 combat_deck（战后选中的奖励卡），CombatSession.start 新增 bonus_cards 参数——开场按 class_required 匹配小队角色解析 owner 后注入共享牌堆（换阵容也能用）
+- **战后 1 选 1**：胜利结算生成 3 张候选卡（_squad_card_pool 聚合小队各职业卡池去重，_generate_card_choices 排除已拥有）；新端点 POST /combat/card-pick 落库
+- **前端**：CombatView 战利品面板新增卡牌三选一（选中后高亮并提示「已加入卡组」，下场战斗可用）；useApi.combatCardPick
+- **测试**：tests/test_deck_building.py（5 用例：卡池聚合/候选去重/全拥有无候选/奖励卡注入 owner 解析/无匹配回退第一角色）
 ### 2026-08-13 — 命中/闪避检定修复 + 数值重平衡
 
 - **修复 dodge bug**：compute_damage 原来只判 miss（自然 1），未达 DC 的 dodge 仍造成全额伤害，导致 HIT/EVA 属性几乎无效；现在 `not hit`（miss 或 dodge）均 0 伤害，play_card 的伤害与状态施加统一改为 `hr.hit`
