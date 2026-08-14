@@ -632,6 +632,7 @@ export function createSSE(
     onDialogueSegments?: (segments: { type: string; text: string; speaker?: string }[]) => void;
     onTokenUsage?: (usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }) => void;
     onCombatTrigger?: (data: { encounter_id: string; session_id: string }) => void;
+    onCombatBriefing?: (data: { encounter_id: string; session_id: string; name: string; approaches: { id: string; label: string; hint: string; kind: "combat" | "check" | "avoid" }[] }) => void;
     onAttributeRoll?: (data: {
       attribute: string; character: string; roll: number;
       modifier: number; total: number; dc: number;
@@ -659,6 +660,7 @@ export function createPostSSE(
     onDialogueSegments?: (segments: { type: string; text: string; speaker?: string }[]) => void;
     onTokenUsage?: (usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }) => void;
     onCombatTrigger?: (data: { encounter_id: string; session_id: string }) => void;
+    onCombatBriefing?: (data: { encounter_id: string; session_id: string; name: string; approaches: { id: string; label: string; hint: string; kind: "combat" | "check" | "avoid" }[] }) => void;
     onAttributeRoll?: (data: {
       attribute: string; character: string; roll: number;
       modifier: number; total: number; dc: number;
@@ -790,6 +792,7 @@ function connectSSE(
     onDialogueSegments?: (segments: { type: string; text: string; speaker?: string }[]) => void;
     onTokenUsage?: (usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }) => void;
     onCombatTrigger?: (data: { encounter_id: string; session_id: string }) => void;
+    onCombatBriefing?: (data: { encounter_id: string; session_id: string; name: string; approaches: { id: string; label: string; hint: string; kind: "combat" | "check" | "avoid" }[] }) => void;
     onAttributeRoll?: (data: {
       attribute: string; character: string; roll: number;
       modifier: number; total: number; dc: number;
@@ -875,6 +878,9 @@ function connectSSE(
                 break;
               case "combat_trigger":
                 handlers.onCombatTrigger?.(event.data);
+                break;
+              case "combat_briefing":
+                handlers.onCombatBriefing?.(event.data);
                 break;
               case "attribute_roll":
                 handlers.onAttributeRoll?.(event.data);
