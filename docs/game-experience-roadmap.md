@@ -45,7 +45,7 @@
 ### P3 · 成长可见性 + 高阶系统
 7. 角色成长面板：显示 level/xp/属性，属性→战斗数值（HP/ATK/DEF…）即时换算预览。
 8. 遗物 / 干员士气 / 指挥官模式（Phase 3 备选）。
-9. ⚠ 数值 bug（待修）：命中检定 dodge（未中且非自然 1）仍造成全额伤害——compute_damage 只判 miss 不判 hit，导致 HIT/EVA 属性几乎无效；需将伤害/状态施加条件统一改为 `hr.hit`（并重平衡命中率）。
+9. ✅ 命中检定 bug 已修（feat/hit-fix）：dodge 现为 0 伤害（compute_damage 判 not hit），伤害/状态施加统一改为 hr.hit；DC 由 10+EVA 重平衡为 6+EVA（玩家 ~95% 命中 / 敌人 ~56%），HIT/EVA 属性真正生效。
 
 ---
 

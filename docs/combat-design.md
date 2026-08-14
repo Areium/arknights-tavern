@@ -58,7 +58,7 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
 
 公式详见 `combat-numerical-design.md` §7；代码在 `dice.py`：
 
-- 命中：`d20 + HIT vs 10 + EVA`；**nat1 必失，nat20 暴击（伤害 ×2）**；伤害保底 1。
+- 命中：`d20 + HIT vs 6 + EVA`；**nat1 必失、未达 DC（dodge）也失手、nat20 暴击（伤害 ×2）**；伤害保底 1。
 - **治疗完全无视抗性**（不按 min(DEF,RES) 减免）。
 
 ## 6. 属性 → 战斗数值

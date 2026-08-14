@@ -16,6 +16,13 @@
 
 ## 更新记录
 
+### 2026-08-13 — 命中/闪避检定修复 + 数值重平衡
+
+- **修复 dodge bug**：compute_damage 原来只判 miss（自然 1），未达 DC 的 dodge 仍造成全额伤害，导致 HIT/EVA 属性几乎无效；现在 `not hit`（miss 或 dodge）均 0 伤害，play_card 的伤害与状态施加统一改为 `hr.hit`
+- **DC 重平衡**：`10 + EVA` → `6 + EVA`。数据实测：角色 HIT≈13 vs 敌人 EVA≈5、敌人 HIT≈6 vs 角色 EVA≈10，若只修 bug 敌人命中率仅 ~37%（过于无力）；改用 DC=6 后玩家 ~95%（自然 1 仍失手）、敌人 ~56%，命中/闪避真正生效且战斗保持张力
+- **命中结果透出**：damage 事件已含 hit_result（HIT/DODGE/MISS/CRIT），前端 miss/dodge 音效与结果展示复用
+- **文档**：combat-design.md / combat-numerical-design.md 公式同步为 DC=6+EVA
+- **测试**：tests/test_hit_fix.py（5 用例：dodge/miss 0 伤害、命中、暴击翻倍、DC=6 判定）+ 修复 test_combat_engine.py SPD 排序测试随机性（monkeypatch roll_d20）
 ### 2026-08-13 — 状态效果运行时（卡组完成度）
 
 - **状态模型**：CombatUnit 新增 status（shield/slow/bind/weaken/strengthen），apply_status / tick_status（每回合递减）/ status_amount；take_damage 先扣护盾再扣 HP

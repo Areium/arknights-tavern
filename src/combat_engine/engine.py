@@ -369,7 +369,7 @@ class CombatEngine:
                 dr = compute_damage(unit, target, card, hr)
                 actual = 0
                 shielded = 0
-                if not hr.miss and dr.final > 0:
+                if hr.hit and dr.final > 0:
                     # 状态效果修正：虚弱目标多受 25% / 增幅来源多造成 25%
                     final_dmg = dr.final
                     if target.status_amount("weaken") > 0:
@@ -391,8 +391,8 @@ class CombatEngine:
 
             results.append(dr)
 
-            # 施加卡牌声明的状态效果（护盾/减速/束缚/虚弱/增幅）
-            if not hr.miss and card.effects:
+            # 施加卡牌声明的状态效果（护盾/减速/束缚/虚弱/增幅）——命中才生效
+            if hr.hit and card.effects:
                 for eff in card.effects:
                     etype = eff.get("type", "")
                     if etype == "shield":
