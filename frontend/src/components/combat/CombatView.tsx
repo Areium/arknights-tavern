@@ -19,6 +19,14 @@ import { getCombatConfig, type LayoutMode } from "./combatConfig";
 const DEFAULT_CHARACTERS = ["阿米娅", "博士", "银灰", "霜星"];
 const DEFAULT_ENCOUNTER = "初遇整合运动";
 
+const INTENT_BADGE: Record<string, { icon: string; cls: string }> = {
+  attack: { icon: "⚔", cls: "bg-red-950/85 text-red-200 border-red-700" },
+  heavy: { icon: "💢", cls: "bg-red-900/85 text-red-100 border-red-600" },
+  aoe: { icon: "🌐", cls: "bg-orange-950/85 text-orange-200 border-orange-700" },
+  move: { icon: "👣", cls: "bg-amber-950/85 text-amber-200 border-amber-700" },
+  defend: { icon: "🛡", cls: "bg-gray-800/85 text-gray-300 border-gray-600" },
+};
+
 export default function CombatView() {
   const {
     activeSessionId,
@@ -1361,6 +1369,32 @@ export default function CombatView() {
                   }}
                 >
                   {d.type === "heal" ? `+${d.value}` : `-${d.value}`}
+                </span>
+              );
+            })}
+
+            {/* Enemy intent badges（敌人意图头顶图标）— 仅玩家回合展示 */}
+            {combatState.phase === "PLAYER_TURN" && combatState.enemy_intents && Object.entries(combatState.enemy_intents).map(([uid, it]: [string, any]) => {
+              const enemy = combatState.units.find((u) => u.unit_id === uid && u.team === "enemy" && u.is_alive);
+              if (!enemy) return null;
+              const badge = INTENT_BADGE[it.type] || INTENT_BADGE.attack;
+              const center = (() => {
+                const grid = gridRef.current;
+                const rel = relativeRef.current;
+                if (!grid || !rel) return null;
+                const sp = getCellCenter(grid, enemy.pos[0], enemy.pos[1]);
+                if (!sp) return null;
+                const relRect = rel.getBoundingClientRect();
+                return { x: sp.x - relRect.left, y: sp.y - relRect.top };
+              })();
+              if (!center) return null;
+              return (
+                <span
+                  key={uid}
+                  className={"absolute -translate-x-1/2 px-1.5 py-0.5 rounded-full text-[10px] font-display border whitespace-nowrap " + badge.cls}
+                  style={{ left: center.x, top: center.y - cfg.cellSize * 0.85, zIndex: 90, pointerEvents: "none" }}
+                >
+                  {badge.icon} {it.label}
                 </span>
               );
             })}

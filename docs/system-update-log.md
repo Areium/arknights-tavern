@@ -16,6 +16,10 @@
 
 ## 更新记录
 
+### 2026-08-13 — 敌人意图头顶图标（战斗 UI）
+
+- CombatView 玩家回合（PLAYER_TURN）在敌人头顶渲染意图徽章：⚔攻击 / 💢重击 / 🌐范围攻击 / 👣移动 / 🛡坚守，复用 getCellCenter + relativeRef 与伤害数字同一套 DOM 定位，zIndex 90 叠加于 Spine 画布之上
+- 与侧面板「意图 → 目标」行互补：读牌无需移眼到侧栏，战术可读性提升
 ### 2026-08-13 — 角色成长面板（成长可视化）
 
 - **后端**：scene.py get_character_merged 新增返回 progress（level/xp）+ combat_stats（派生战斗数值，与 CombatUnit.from_character_metadata 同源：HP/PATK/MATK/HEAL/DEF/RES/SPD/HIT/EVA/MAX_AP）
