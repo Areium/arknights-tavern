@@ -351,6 +351,10 @@ export interface CombatStateDTO {
   shared_pool: PlayerPoolDTO;
   shared_ap: number;
   shared_ap_max: number;
+  /** 回合上限（0 = 无限制） */
+  max_rounds: number;
+  /** 是否允许撤退（fail-forward） */
+  escape_enabled: boolean;
   valid_targets: [number, number][];
   valid_moves: [number, number][];
   active_unit_id: string | null;

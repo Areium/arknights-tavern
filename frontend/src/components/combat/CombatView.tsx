@@ -218,8 +218,9 @@ export default function CombatView() {
           audioManager.startBgm();
         }
         if (ev.type === "battle_end") {
-          setResult(ev.data.winner === "player" ? "胜利" : "失败");
-          if (ev.data.winner === "player") {
+          const w = ev.data.winner;
+          setResult(w === "player" ? "胜利" : w === "escaped" ? "撤退" : "失败");
+          if (w === "player") {
             spawnParticles("victory", [4, 4], 40);
             audioManager.playSfx("victory");
           } else {
@@ -701,6 +702,24 @@ export default function CombatView() {
     setCurrentView("chat");
   }, [sessionId, combatTestId, api, setCombatContext, setCurrentView, setPendingAutoNarrate]);
 
+  const handleEscape = useCallback(async () => {
+    if (!sessionId || combatTestId) return;
+    setLoading(true);
+    try {
+      const state = await api.combatAction(sessionId, { action: "escape" });
+      if (state) {
+        setCombatContext({ state });
+        if (state.battle_over && state.winner) {
+          setResult(state.winner === "player" ? "胜利" : state.winner === "escaped" ? "撤退" : "失败");
+        }
+      }
+    } catch (e: any) {
+      setError(e?.message || "撤退失败");
+    } finally {
+      setLoading(false);
+    }
+  }, [sessionId, combatTestId, api, setCombatContext]);
+
   const handleReturnToChat = useCallback(async () => {
     if (writingBackRef.current) return;
     sseRef.current?.close();
@@ -1153,7 +1172,7 @@ export default function CombatView() {
           {/* Turn info + error toast (error uses absolute positioning to avoid pushing grid) */}
           <div className="relative mb-2 text-center" style={{ marginTop: isFullscreen ? '-28px' : undefined }}>
             <span className="text-sm text-gray-300 font-display tracking-wider">
-              ROUND {combatState.round_num}
+              第 {combatState.round_num}{combatState.max_rounds > 0 ? " / " + combatState.max_rounds : ""} 回合
             </span>
             <span className={`ml-3 text-xs font-bold ${
               combatState.phase === "PLAYER_TURN" ? "text-combat-player" : "text-combat-enemy"
@@ -1453,6 +1472,16 @@ export default function CombatView() {
           >
             结束回合 (F)
           </button>
+          {combatState.escape_enabled && !combatState.battle_over && !combatTestId && (
+            <button
+              className="px-4 py-1.5 text-xs bg-orange-900/50 hover:bg-orange-800/50 text-orange-200 rounded-lg transition-all disabled:opacity-30 border border-orange-800/50 font-display tracking-wider"
+              onClick={handleEscape}
+              disabled={combatState.phase !== "PLAYER_TURN" || loading}
+              title="撤退（放弃本场战斗与奖励，剧情继续推进）"
+            >
+              撤退
+            </button>
+          )}
           {(combatUIMode === "TARGETING" || selectedUnit) && (
             <button
               className="px-4 py-1.5 text-xs bg-surface-hover hover:bg-gray-700 text-gray-300 rounded-lg transition-all border border-combat-border"
@@ -1539,7 +1568,7 @@ export default function CombatView() {
                 <div className={`text-5xl font-black mb-4 font-display tracking-widest ${
                   result === "胜利" ? "text-combat-gold" : "text-combat-enemy"
                 }`}>
-                  {result === "胜利" ? "VICTORY" : "DEFEAT"}
+                  {result === "胜利" ? "VICTORY" : result === "撤退" ? "RETREAT" : "DEFEAT"}
                 </div>
                 <div className="text-gray-500 text-sm mb-6 font-display">
                   战斗结束 — 共 {combatState.round_num} 回合

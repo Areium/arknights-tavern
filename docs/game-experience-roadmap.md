@@ -40,7 +40,7 @@
 ### P2 · 战斗深度 + 难度曲线 + 卡组
 4. 状态效果运行时实装：卡牌 apply: {effect} → status_effects 表（减速/束缚/沉默/嘲讽/护盾/DoT），对接 data/rules/buff-pool/。
 5. 卡组构建（战后 1 选 1）：胜利后「抽新卡/删卡/强化卡」，卡组跨场持久。
-6. 难度曲线：消费 encounter.difficulty 与 enemy.level 做敌人缩放；消费 conditions.max_rounds/escape_enabled。
+6. 难度曲线：✅ conditions.max_rounds（回合超时判负，时间压力）+ escape_enabled（撤退 fail-forward，feat/combat-difficulty 已落地）；enemy.level 已由 combat_stats 内化（无需二次缩放），difficulty 作为关卡标签（难度曲线 = 遭遇战敌人构成 + 回合上限共同体现）。
 
 ### P3 · 成长可见性 + 高阶系统
 7. 角色成长面板：显示 level/xp/属性，属性→战斗数值（HP/ATK/DEF…）即时换算预览。

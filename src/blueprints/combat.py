@@ -466,8 +466,17 @@ def register(app, managers):
         encounter_id = combat_data.get("encounter_id", "")
 
         # 将战斗结果注入场景日志，下一轮叙述会自动引用
-        result_desc = "玩家" if winner == "player" else ("敌方" if winner else "未知")
+        if winner == "player":
+            result_desc = "玩家"
+        elif winner == "escaped":
+            result_desc = "玩家（撤退）"
+        elif winner == "enemy":
+            result_desc = "敌方"
+        else:
+            result_desc = "未知"
         result_text = f"⚔ 战斗结束：遭遇战「{encounter_id}」— {result_desc}获胜，共 {round_num} 回合"
+        if winner == "escaped":
+            result_text = f"⚔ 战斗结束：遭遇战「{encounter_id}」— 玩家撤退，共 {round_num} 回合"
         session.scene_manager._log_event(result_text)
 
         session.combat = None
@@ -481,8 +490,13 @@ def register(app, managers):
             except Exception as e:
                 logger.exception("会话 %s: 战斗奖励结算失败", session_id)
 
-        # Generate auto-narrate action for frontend
-        auto_narrate_action = f"战斗结束，{result_desc}获胜，描述战斗后的场景"
+        # Generate auto-narrate action for frontend（fail-forward：撤退/战败都不判死，继续推进）
+        if winner == "escaped":
+            auto_narrate_action = "战斗以玩家撤退告终，描述撤退后的场景与代价"
+        elif winner == "player":
+            auto_narrate_action = "战斗结束，玩家获胜，描述战斗后的场景"
+        else:
+            auto_narrate_action = "战斗失利，描述战败后的场景与代价（fail-forward，剧情继续推进）"
 
         logger.info("会话 %s: 战斗结果已记录 (winner=%s, rounds=%d, xp=%d)",
                      session_id, winner, round_num, rewards.get("xp", 0))
