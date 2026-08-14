@@ -138,9 +138,10 @@ def compute_damage(attacker: "CombatUnit", defender: "CombatUnit",
 
     atk_bonus = atk_stat * card.atk_scale
 
-    # Defender resistance
+    # Defender resistance（物理攻击可破甲：按 ignore_def 比例无视防御）
     if card.damage_type == "physical":
-        resist = defender.DEF
+        ignore = getattr(card, "ignore_def", 0.0) or 0.0
+        resist = round(defender.DEF * (1 - ignore))
     elif card.damage_type == "arts":
         resist = defender.RES
     else:  # healing / mixed — use lower of DEF/RES

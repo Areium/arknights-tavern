@@ -146,6 +146,16 @@ class CombatUnit:
         self.status["burn_damage"] = max(self.status.get("burn_damage", 0), max(0, int(damage)))
         self.status["burn"] = max(self.status.get("burn", 0), max(0, int(duration)))
 
+    def clear_debuffs(self) -> int:
+        """清除负面状态（减速/束缚/虚弱/沉默/燃烧/致盲），返回清除数量。"""
+        cleared = 0
+        for kind in ("slow", "bind", "weaken", "silence", "burn", "blind"):
+            if self.status.get(kind, 0) > 0:
+                self.status[kind] = 0
+                cleared += 1
+        self.status["burn_damage"] = 0
+        return cleared
+
     def tick_status(self) -> None:
         """每回合开始递减持续型状态（shield/burn_damage 不衰减）。"""
         for kind in ("slow", "bind", "weaken", "strengthen", "silence", "burn", "taunt", "evade", "blind"):
