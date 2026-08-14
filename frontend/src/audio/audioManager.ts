@@ -304,7 +304,10 @@ class AudioManager {
   /** 当前 BGM 轨道（null = 未播放） */
   getBgmTrack(): "combat" | "menu" | null { return this.bgmTrack; }
 
-  /** 主菜单 / 大厅 BGM：直接循环 menu_loop.wav（文件缺失时静默）。已在播放时不重启。 */
+  /** 主菜单 / 大厅 BGM 曲目列表（顺序轮播，播完循环回第一首） */
+  private menuTracks: string[] = ["menu_1.mp3", "menu_2.mp3"];
+
+  /** 主菜单 / 大厅 BGM：两首曲目顺序轮播（文件缺失时静默）。已在播放时不重启。 */
   startMenuBgm() {
     if (this.settings.muted) return;
     if (this.bgmTrack === "menu" && this.bgmPhase !== "idle") return; // 菜单 BGM 已在播
@@ -313,19 +316,28 @@ class AudioManager {
     void getBaseUrl().then((base) => {
       // stopBgm 可能在此期间被再次调用（例如快速切换进战斗）→ 放弃
       if (this.bgmTrack !== "menu") return;
-      const loop = new Audio();
-      loop.volume = this.settings.bgmVolume;
-      loop.src = base + "/api/assets/audio/bgm/menu_loop.wav";
-      loop.loop = true;
-      this.bgmLoop = loop;
-      this.bgmIntro = null;
-      this.bgmPhase = "loop";
-      loop.play().catch(() => {
-        // 文件缺失/自动播放被拒 → 静音；复位轨道标记以便下次手势后重试
-        if (this.bgmLoop === loop) { this.bgmLoop = null; }
-        this.bgmPhase = "idle";
-        this.bgmTrack = null;
-      });
+      this.playMenuTrack(base, 0);
+    });
+  }
+
+  /** 播放菜单第 index 首；ended 后自动切下一首，播完循环。 */
+  private playMenuTrack(base: string, index: number) {
+    const name = this.menuTracks[index % this.menuTracks.length];
+    if (!name) { this.bgmPhase = "idle"; this.bgmTrack = null; return; }
+    const audio = new Audio();
+    // 背景音乐音量：略低于用户设定（人声/完整编曲的响度高于旧合成乐）
+    audio.volume = this.settings.bgmVolume * 0.6;
+    audio.src = base + "/api/assets/audio/bgm/" + name;
+    const next = () => this.playMenuTrack(base, index + 1);
+    audio.addEventListener("ended", next);
+    this.bgmLoop = audio;
+    this.bgmIntro = null;
+    this.bgmPhase = "loop";
+    audio.play().catch(() => {
+      // 文件缺失/自动播放被拒 → 静音；复位轨道标记以便下次手势后重试
+      if (this.bgmLoop === audio) { this.bgmLoop = null; }
+      this.bgmPhase = "idle";
+      this.bgmTrack = null;
     });
   }
 

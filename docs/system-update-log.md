@@ -16,6 +16,11 @@
 
 ## 更新记录
 
+### 2026-08-15 — 主页 BGM 更换为 Mureka 生成曲目（双曲轮播）
+
+- 用 Mureka 生成的两首自作曲替换合成 menu_loop.wav：`data/audio/bgm/menu_1.mp3` / `menu_2.mp3`（192kbps 44.1kHz）
+- audioManager `startMenuBgm` 改为曲目列表顺序轮播：`playMenuTrack(index)` 播完 ended 自动切下一首，两首播完回到第一首；背景音量取用户音量 ×0.6 适配完整编曲响度；原 `menu_loop.wav` 移除
+
 ### 2026-08-15 — 菜单 BGM 重做（温暖陪伴风）
 
 - 参考米哈游 BSide: Olivia Lin 电台气质重制 menu_loop.wav：C 大调 66bpm · 16 小节，毛毡钢琴琶音（Cmaj7-G6-Am7-Fmaj7）+ 卡林巴五声音阶旋律 + 柔和贝斯 + 垫底 pad + 黑胶爆豆/磁带嘶声；修复首尾交叉淡化的循环接缝（前移截断法，接缝仅剩单采样自然步进）
