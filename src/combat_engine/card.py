@@ -34,6 +34,8 @@ class Card:
     class_required: str = "any"  # Class restriction or "any"
     owner: str | None = None  # Character name for exclusive cards
     effects: list = field(default_factory=list)  # 状态效果：[{"type":"shield","value":8}] / [{"type":"slow","duration":2}]
+    ignore_def: float = 0.0  # 破甲：物理攻击无视防御的比例 (0.0—1.0)
+    cleanse: bool = False    # 净化：命中后驱散目标的负面状态
 
     def to_dict(self) -> dict:
         return {
@@ -51,6 +53,8 @@ class Card:
             "class_required": self.class_required,
             "owner": self.owner,
             "effects": list(self.effects),
+            "ignore_def": self.ignore_def,
+            "cleanse": self.cleanse,
         }
 
     @classmethod

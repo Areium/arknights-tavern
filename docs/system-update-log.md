@@ -16,6 +16,12 @@
 
 ## 更新记录
 
+### 2026-08-13 — 破甲 + 净化（卡组完成收尾）
+
+- **破甲（ignore_def）**：Card 新增 ignore_def（物理攻击无视防御比例）；compute_damage 按 (1-ignore_def) 折算 DEF；guard_pierce「破甲斩」/ sniper_ap_round「穿甲弹」生效（无视 50% 防御）
+- **净化（cleanse）**：Card 新增 cleanse；CombatUnit.clear_debuffs() 驱散减速/束缚/虚弱/沉默/燃烧/致盲（保留增益）；medic_cleanse「净化术」生效
+- **战场扫描**：cmd_scan 复用 weaken（虚弱多受 25% 伤害）
+- **测试**：tests/test_pierce_cleanse.py（3 用例：破甲减抗/净化保留增益/卡牌声明）
 ### 2026-08-13 — 状态效果收尾：闪避 + 致盲（卡组完成）
 
 - **闪避（evade）**：CombatUnit.status 新增 evade；check_hit 中防御者闪避姿态 → EVA +3（更难被命中）；spec_evade「闪避姿态」生效

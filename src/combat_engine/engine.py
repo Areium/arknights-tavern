@@ -417,7 +417,13 @@ class CombatEngine:
 
             results.append(dr)
 
-            # 施加卡牌声明的状态效果（护盾/减速/束缚/虚弱/增幅/沉默/嘲讽）——命中才生效
+            # 净化：驱散目标的负面状态
+            if card.cleanse and hr.hit:
+                target.clear_debuffs()
+                self._emit("cleanse", unit_id=unit.unit_id, target_id=target.unit_id,
+                           target=target.name, target_pos=list(target.pos))
+
+            # 施加卡牌声明的状态效果（护盾/减速/束缚/虚弱/增幅/沉默/嘲讽/闪避/致盲）——命中才生效
             if hr.hit and card.effects:
                 for eff in card.effects:
                     etype = eff.get("type", "")
