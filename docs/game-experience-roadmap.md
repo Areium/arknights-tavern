@@ -35,7 +35,7 @@
 ### P1 · 战斗×剧情闭环 + 自由开放
 1. ✅ 战前打法 + resolve_approach + roll_check + 战前简报流（feat/combat-approaches + feat/combat-briefing）：剧情模式标记提取后发 combat_briefing 事件（含打法列表），ChatPanel 弹简报面板选打法，不再自动开战。
 2. ✅ 剧情投点（d20）：成功避免战斗 / 失败以 fail_combat 参数开战。
-3. 敌人意图头顶图标：把面板文字版升级为 PixiJS 头顶图标（PixiCombatScene）。
+3. 敌人意图头顶图标：✅ 已落地（feat/intent-icons：CombatView 玩家回合在敌人头顶渲染意图徽章 ⚔攻击/💢重击/🌐范围/👣移动/🛡坚守，复用 getCellCenter 定位，与侧面板意图行互补）。
 
 ### P2 · 战斗深度 + 难度曲线 + 卡组
 4. 状态效果运行时：✅ 护盾/减速/束缚/虚弱/增幅 已实装（feat/status-effects：CombatUnit.status + Card.effects + play_card 施加 + 护盾吸伤 + 减速/束缚影响移动 + 虚弱/增幅 ±25% 伤害，前端 UnitStatusPanel 状态徽章）；⏳ 沉默/嘲讽/DoT/闪避 待做。
