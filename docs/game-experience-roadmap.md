@@ -43,7 +43,7 @@
 6. 难度曲线：✅ conditions.max_rounds（回合超时判负，时间压力）+ escape_enabled（撤退 fail-forward，feat/combat-difficulty 已落地）；enemy.level 已由 combat_stats 内化（无需二次缩放），difficulty 作为关卡标签（难度曲线 = 遭遇战敌人构成 + 回合上限共同体现）。
 
 ### P3 · 成长可见性 + 高阶系统
-7. 角色成长面板：显示 level/xp/属性，属性→战斗数值（HP/ATK/DEF…）即时换算预览。
+7. 角色成长面板：✅ 已落地（feat/character-growth-panel：scene.py get_character_merged 返回 progress[level/xp] + 派生 combat_stats；CharacterDetailCard 显示 Lv/XP 进度条 + 10 维战斗数值，成长→属性→数值反馈可视化）。
 8. 遗物 / 干员士气 / 指挥官模式（Phase 3 备选）。
 9. ✅ 命中检定 bug 已修（feat/hit-fix）：dodge 现为 0 伤害（compute_damage 判 not hit），伤害/状态施加统一改为 hr.hit；DC 由 10+EVA 重平衡为 6+EVA（玩家 ~95% 命中 / 敌人 ~56%），HIT/EVA 属性真正生效。
 

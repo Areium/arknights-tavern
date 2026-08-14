@@ -16,6 +16,11 @@
 
 ## 更新记录
 
+### 2026-08-13 — 角色成长面板（成长可视化）
+
+- **后端**：scene.py get_character_merged 新增返回 progress（level/xp）+ combat_stats（派生战斗数值，与 CombatUnit.from_character_metadata 同源：HP/PATK/MATK/HEAL/DEF/RES/SPD/HIT/EVA/MAX_AP）
+- **前端**：CharacterDetailCard 会话活跃时拉取合并数据，新增「成长」区块（Lv + XP 进度条，阈值 level×100）与「战斗数值」区块（10 维），成长→属性→战斗数值反馈可视化
+- 至此角色成长闭环可感知：战斗胜利→XP→升级属性+1→战斗数值提升→下次战斗更强
 ### 2026-08-13 — 卡组构建（战后 1 选 1）
 
 - **持久化卡组**：会话 overlay 新增 combat_deck（战后选中的奖励卡），CombatSession.start 新增 bonus_cards 参数——开场按 class_required 匹配小队角色解析 owner 后注入共享牌堆（换阵容也能用）

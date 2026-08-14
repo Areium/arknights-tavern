@@ -57,6 +57,9 @@ export default function CharacterDetailCard({
   const [editTags, setEditTags] = useState("");
   const [editAttrs, setEditAttrs] = useState<Record<string, number>>({});
   const [editRels, setEditRels] = useState("");
+  // 成长（等级/XP）+ 派生战斗数值（会话覆盖合并后）
+  const [growth, setGrowth] = useState<{ level: number; xp: number } | null>(null);
+  const [combatStats, setCombatStats] = useState<Record<string, number> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -78,6 +81,27 @@ export default function CharacterDetailCard({
       cancelled = true;
     };
   }, [characterId, api]);
+
+  // 会话活跃时拉取合并数据：等级/XP + 派生战斗数值
+  useEffect(() => {
+    if (!activeSessionId) {
+      setGrowth(null);
+      setCombatStats(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .getCharacterMerged(activeSessionId, characterId)
+      .then((merged: any) => {
+        if (cancelled) return;
+        setGrowth(merged.progress || null);
+        setCombatStats(merged.combat_stats || null);
+      })
+      .catch(() => {
+        if (!cancelled) { setGrowth(null); setCombatStats(null); }
+      });
+    return () => { cancelled = true; };
+  }, [activeSessionId, characterId, api]);
 
   const handleStartEdit = async () => {
     if (!activeSessionId) return;
@@ -314,6 +338,49 @@ export default function CharacterDetailCard({
                         {ATTR_LABELS[key] || key}
                       </span>
                       <span className="text-gray-200 font-mono">{val}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {growth && (
+              <div>
+                <h4 className="text-xs text-gray-500 mb-1.5 font-medium">成长</h4>
+                <div className="px-2.5 py-2 rounded bg-gray-700/40">
+                  <div className="flex justify-between items-center mb-1.5">
+                    <span className="text-amber-300 font-bold text-sm">Lv.{growth.level}</span>
+                    <span className="text-[10px] text-gray-500 font-mono">XP {growth.xp} / {growth.level * 100}</span>
+                  </div>
+                  <div className="h-1.5 bg-gray-600 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-amber-400 transition-all"
+                      style={{ width: Math.min(100, (growth.xp / (growth.level * 100)) * 100) + "%" }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {combatStats && (
+              <div>
+                <h4 className="text-xs text-gray-500 mb-1.5 font-medium">战斗数值</h4>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {[
+                    ["生命", combatStats.hp],
+                    ["物攻", combatStats.patk],
+                    ["法攻", combatStats.matk],
+                    ["治疗", combatStats.heal],
+                    ["物防", combatStats.def],
+                    ["法抗", combatStats.res],
+                    ["速度", combatStats.spd],
+                    ["命中", combatStats.hit],
+                    ["闪避", combatStats.eva],
+                    ["AP", combatStats.max_ap],
+                  ].map(([label, val]) => (
+                    <div key={label as string} className="flex flex-col items-center px-1 py-1 rounded bg-gray-700/40">
+                      <span className="text-gray-400 text-[9px]">{label}</span>
+                      <span className="text-gray-100 font-mono text-xs">{val}</span>
                     </div>
                   ))}
                 </div>
