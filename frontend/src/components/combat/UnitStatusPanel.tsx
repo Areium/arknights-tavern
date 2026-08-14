@@ -28,6 +28,8 @@ const STATUS_META: { key: string; label: string; cls: string }[] = [
   { key: "bind", label: "束缚", cls: "text-purple-300 bg-purple-950/60 border-purple-800/50" },
   { key: "weaken", label: "虚弱", cls: "text-red-300 bg-red-950/60 border-red-800/50" },
   { key: "strengthen", label: "增幅", cls: "text-amber-300 bg-amber-950/60 border-amber-800/50" },
+  { key: "silence", label: "沉默", cls: "text-violet-300 bg-violet-950/60 border-violet-800/50" },
+  { key: "burn", label: "燃烧", cls: "text-orange-300 bg-orange-950/60 border-orange-800/50" },
 ];
 
 function StatusBadges({ status }: { status?: Record<string, number> }) {

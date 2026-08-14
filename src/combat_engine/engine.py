@@ -180,9 +180,10 @@ class CombatEngine:
         self._recalc_shared_ap_max()
         self.shared_ap = self.SHARED_AP_MAX
 
-        # Reset personal AP + tick down status effects
-        for unit in self.units.values():
+        # Reset personal AP + 燃烧 DoT + tick down status effects
+        for unit in list(self.units.values()):
             unit.reset_ap()
+            self._apply_burn(unit)
             unit.tick_status()
 
         # Compute enemy intents so the player can read enemy plans before acting.
@@ -192,6 +193,23 @@ class CombatEngine:
 
         # All players share the same round — begin player phase
         self.state.phase = "PLAYER_TURN"
+
+    def _apply_burn(self, unit: CombatUnit) -> None:
+        """燃烧 DoT：每回合开始造成 burn_damage 点伤害（护盾先吸收）。"""
+        if unit.status_amount("burn") <= 0:
+            return
+        dmg = int(unit.status.get("burn_damage", 0) or 0)
+        if dmg <= 0:
+            return
+        actual = unit.take_damage(dmg)
+        self._emit("damage", unit_id="burn", caster="燃烧",
+                   target_id=unit.unit_id, target=unit.name,
+                   damage=actual, hit_result="HIT", card="燃烧",
+                   damage_type="arts", target_pos=list(unit.pos))
+        if not unit.is_alive:
+            self._emit("death", unit_id=unit.unit_id, name=unit.name,
+                       team=unit.team, pos=list(unit.pos))
+            self.grid.remove_unit(unit)
 
     def _draw_shared_hand(self):
         """Draw cards from shared deck until hand has SHARED_HAND_SIZE cards."""
@@ -297,6 +315,12 @@ class CombatEngine:
             self._emit("error", unit_id=unit_id, msg=f"卡牌 '{card.name}' 不在手牌中")
             return []
 
+        # 沉默：无法使用源石技艺（arts）卡牌
+        if card.damage_type == "arts" and unit.status_amount("silence") > 0:
+            self._emit("error", unit_id=unit_id,
+                       msg=f"{unit.name} 被沉默，无法施放 '{card.name}'")
+            return []
+
         # AP check: player units use personal AP first, shared AP as fallback
         from_personal = 0
         from_shared = 0
@@ -400,7 +424,10 @@ class CombatEngine:
                     if etype == "shield":
                         target.apply_status("shield", eff.get("value", 0))
                         val = eff.get("value", 0)
-                    elif etype in ("slow", "bind", "weaken", "strengthen"):
+                    elif etype == "burn":
+                        target.apply_burn(eff.get("value", 4), eff.get("duration", 2))
+                        val = eff.get("value", 4)
+                    elif etype in ("slow", "bind", "weaken", "strengthen", "silence"):
                         target.apply_status(etype, eff.get("duration", 1))
                         val = eff.get("duration", 1)
                     else:
@@ -528,6 +555,9 @@ class CombatEngine:
             if card.cost > unit.AP:
                 continue
             if card.target in ("SELF", "ALL_ALLIES"):
+                continue
+            # 被沉默的敌人无法施放源石技艺（arts）卡牌
+            if card.damage_type == "arts" and unit.status_amount("silence") > 0:
                 continue
 
             # How many players this card can reach (global hits everyone).
