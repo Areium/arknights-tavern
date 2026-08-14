@@ -57,7 +57,8 @@ class CombatSession:
               location: str = "",
               session_dir: str = "",
               inventory: list[dict] = None,
-              reward_mult: float = 1.0) -> dict:
+              reward_mult: float = 1.0,
+              bonus_cards: list[dict] = None) -> dict:
         """Initialize a battle from an encounter definition and character list.
 
         Args:
@@ -130,6 +131,24 @@ class CombatSession:
 
             pos = default_positions[i] if i < len(default_positions) else (4 + i % 3, 0)
             self.engine.add_player_unit(unit, cards, pos)
+
+        # ── 持久化卡组奖励卡（战后 1 选 1 获得）──
+        if bonus_cards and self.engine.shared_pool:
+            player_units = [u for u in self.engine.units.values()
+                            if u.team == "player"]
+            for bcard in bonus_cards:
+                try:
+                    card = Card.from_dict(bcard)
+                except Exception:
+                    logger.warning("奖励卡解析失败，跳过: %s", bcard)
+                    continue
+                # 按 class_required 匹配小队角色作为 owner；无匹配则用第一个角色
+                owner = next((u.name for u in player_units
+                              if u.char_class == card.class_required), None)
+                if owner is None and player_units:
+                    owner = player_units[0].name
+                card.owner = owner
+                self.engine.shared_pool.deck.append(card)
 
         # ── Load enemies ──
         if enemies_override:

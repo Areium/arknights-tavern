@@ -211,6 +211,30 @@ def _add_to_inventory(session, items: list) -> None:
     session.overlay._save()
 
 
+def _squad_card_pool(character_metas: list[dict]) -> list[dict]:
+    """聚合小队各职业的卡池（去重），用于战后卡牌奖励。"""
+    from combat_engine.card_data import get_cards_for_class
+    seen = set()
+    cards = []
+    for meta in character_metas:
+        cls = meta.get("class", "")
+        for card in get_cards_for_class(cls):
+            if card.card_id not in seen:
+                seen.add(card.card_id)
+                cards.append(card.to_dict())
+    return cards
+
+
+def _generate_card_choices(session, character_metas: list[dict], count: int = 3) -> list[dict]:
+    """战后 1 选 1：从小队卡池随机抽 count 张（排除已拥有的卡）。"""
+    owned = {c.get("card_id") for c in session.overlay._data.get("combat_deck", [])}
+    pool = [c for c in _squad_card_pool(character_metas) if c.get("card_id") not in owned]
+    if not pool:
+        return []
+    random.shuffle(pool)
+    return pool[:count]
+
+
 def _get_combat_inventory(session) -> list[dict]:
     """从会话背包读取战斗中可用的消耗品（category=consumable 且 count>0）。"""
     from combat_data_loader import CombatDataLoader
@@ -343,6 +367,7 @@ def register(app, managers):
                 session_dir=str(session.data_dir),
                 inventory=_get_combat_inventory(session),
                 reward_mult=reward_mult,
+                bonus_cards=session.overlay._data.get("combat_deck", []),
             )
             session.combat = combat
             resp = {"ok": True, "kind": kind, "encounter_id": encounter_id,
@@ -482,11 +507,16 @@ def register(app, managers):
         session.combat = None
 
         # 结算奖励（胜利才有 XP 和掉落）
-        rewards = {"xp": 0, "items": [], "level_ups": []}
+        rewards = {"xp": 0, "items": [], "level_ups": [], "card_choices": []}
         if winner == "player":
             try:
                 reward_mult = float(combat_data.get("reward_mult", 1.0) or 1.0)
                 rewards = _settle_combat_rewards(session, combat_data, reward_mult)
+                # 卡组构建：胜利后 1 选 1（3 张候选卡）
+                rewards["card_choices"] = _generate_card_choices(
+                    session, combat_data.get("character_metas", []) or [])
+                session.overlay._data["pending_card_choices"] = rewards["card_choices"]
+                session.overlay._save()
             except Exception as e:
                 logger.exception("会话 %s: 战斗奖励结算失败", session_id)
 
@@ -508,6 +538,34 @@ def register(app, managers):
         })
 
     # ── Combat abandon ──
+
+    @bp.route("/api/sessions/<session_id>/combat/card-pick", methods=["POST"])
+    def combat_card_pick(session_id: str):
+        """战后 1 选 1：把选中的卡牌加入会话持久卡组（combat_deck）。"""
+        session = _get_session(session_mgr, session_id)
+        if not session:
+            return json_error("会话不存在", 404)
+
+        data = request.json or {}
+        card_id = data.get("card_id", "")
+        if not card_id:
+            return json_error("缺少 card_id", 400)
+
+        pending = session.overlay._data.get("pending_card_choices", [])
+        picked = next((c for c in pending if c.get("card_id") == card_id), None)
+        if not picked:
+            return json_error("该卡牌不在候选列表中", 400)
+
+        deck = session.overlay._data.get("combat_deck", [])
+        if any(c.get("card_id") == card_id for c in deck):
+            return json_error("已拥有该卡牌", 400)
+
+        deck.append(picked)
+        session.overlay._data["combat_deck"] = deck
+        session.overlay._data["pending_card_choices"] = []
+        session.overlay._save()
+        logger.info("会话 %s: 战后选卡 %s，卡组大小 %d", session_id, card_id, len(deck))
+        return jsonify({"ok": True, "card_id": card_id, "deck_size": len(deck)})
 
     @bp.route("/api/sessions/<session_id>/combat/abandon", methods=["POST"])
     def combat_abandon(session_id: str):

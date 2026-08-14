@@ -61,8 +61,10 @@ export default function CombatView() {
     xp: number;
     items: string[];
     level_ups: { name: string; level: number; attribute: string }[];
+    card_choices?: CardDTO[];
   } | null>(null);
   const [showRewards, setShowRewards] = useState(false);
+  const [pickedCardId, setPickedCardId] = useState<string | null>(null);
   // 战前打法（Approach）选择
   const [approaches, setApproaches] = useState<{ id: string; label: string; hint: string; kind: string }[] | null>(null);
   const [checkResult, setCheckResult] = useState<{ d20: number; modifier: number; total: number; dc: number; success: boolean; attr: string; character: string } | null>(null);
@@ -783,9 +785,20 @@ export default function CombatView() {
     setCurrentView("chat");
   }, [combatTestId, sessionId, combatState, encounterId, api, setCombatContext, setCurrentView, setPendingAutoNarrate, setSessions, sessions]);
 
+  const handleCardPick = useCallback(async (cardId: string) => {
+    if (!sessionId) return;
+    try {
+      await api.combatCardPick(sessionId, cardId);
+      setPickedCardId(cardId);
+    } catch (e: any) {
+      setError(e?.message || "选卡失败");
+    }
+  }, [sessionId, api]);
+
   const handleRewardsContinue = useCallback(() => {
     setShowRewards(false);
     setRewards(null);
+    setPickedCardId(null);
     setCombatContext(null);
     setCurrentView("chat");
   }, [setCombatContext, setCurrentView]);
@@ -1554,6 +1567,36 @@ export default function CombatView() {
                     {rewards.level_ups.map((lu, i) => (
                       <div key={i}>{lu.name} 升至 Lv.{lu.level}，{lu.attribute} +1</div>
                     ))}
+                  </div>
+                )}
+                {rewards.card_choices && rewards.card_choices.length > 0 && (
+                  <div className="mb-4">
+                    <div className="text-gray-400 text-xs mb-2 font-display tracking-wider">
+                      选择一张卡加入卡组（下场战斗可用）
+                    </div>
+                    <div className="flex gap-2">
+                      {rewards.card_choices.map((c) => (
+                        <button
+                          key={c.card_id}
+                          className={"flex-1 text-left px-3 py-2 rounded-lg border transition-all " + (
+                            pickedCardId === c.card_id
+                              ? "border-cyan-400 bg-cyan-900/40 text-cyan-100"
+                              : pickedCardId
+                              ? "border-gray-700 bg-gray-900/40 text-gray-500 opacity-60"
+                              : "border-gray-700 bg-gray-900/60 hover:bg-gray-800 text-gray-200"
+                          )}
+                          onClick={() => handleCardPick(c.card_id)}
+                          disabled={!!pickedCardId}
+                        >
+                          <div className="text-xs font-bold">{c.name}</div>
+                          <div className="text-[10px] text-gray-500 mt-0.5">{c.description}</div>
+                          <div className="text-[9px] text-gray-600 mt-1">费用 {c.cost} · {c.class_required}</div>
+                        </button>
+                      ))}
+                    </div>
+                    {pickedCardId && (
+                      <div className="text-emerald-300 text-xs mt-2">✅ 已加入卡组（下场战斗可用）</div>
+                    )}
                   </div>
                 )}
                 <button
