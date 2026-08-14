@@ -91,7 +91,10 @@ class CombatUnit:
     pos: tuple[int, int] = (-1, -1)  # (row, col)
 
     # Runtime status effects: shield(护盾)/slow(减速)/bind(束缚)/weaken(虚弱)/strengthen(增幅)
-    status: dict = field(default_factory=lambda: {"shield": 0, "slow": 0, "bind": 0, "weaken": 0, "strengthen": 0})
+    status: dict = field(default_factory=lambda: {
+        "shield": 0, "slow": 0, "bind": 0, "weaken": 0, "strengthen": 0,
+        "silence": 0, "burn": 0, "burn_damage": 0,
+    })
 
     @property
     def is_alive(self) -> bool:
@@ -137,9 +140,14 @@ class CombatUnit:
         else:
             self.status[kind] = max(self.status.get(kind, 0), max(0, int(value)))
 
+    def apply_burn(self, damage: int, duration: int) -> None:
+        """施加燃烧 DoT：每回合造成 damage 点伤害，持续 duration 回合。"""
+        self.status["burn_damage"] = max(self.status.get("burn_damage", 0), max(0, int(damage)))
+        self.status["burn"] = max(self.status.get("burn", 0), max(0, int(duration)))
+
     def tick_status(self) -> None:
-        """每回合开始递减持续型状态（shield 不衰减）。"""
-        for kind in ("slow", "bind", "weaken", "strengthen"):
+        """每回合开始递减持续型状态（shield/burn_damage 不衰减）。"""
+        for kind in ("slow", "bind", "weaken", "strengthen", "silence", "burn"):
             self.status[kind] = max(0, self.status.get(kind, 0) - 1)
 
     def status_amount(self, kind: str) -> int:

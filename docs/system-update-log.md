@@ -16,6 +16,12 @@
 
 ## 更新记录
 
+### 2026-08-13 — 状态效果补充：沉默 + 燃烧 DoT
+
+- **沉默（silence）**：CombatUnit.status 新增 silence；被沉默单位无法施放源石技艺（arts）卡牌（play_card 拦截 + 敌方 AI 跳过 arts 卡）；supp_nullify「源石沉默」/ supp_disrupt「干扰术」卡牌生效
+- **燃烧（burn/DoT）**：新增 apply_burn(damage, duration)；每回合开始 _apply_burn 造成 burn_damage 点伤害（护盾先吸收，可致死）；caster_burn「法力灼烧」卡牌生效
+- **前端**：UnitStatusPanel 新增沉默/燃烧状态徽章
+- **测试**：tests/test_silence_burn.py（5 用例：沉默挡法术不挡物理/燃烧施加与递减/燃烧掉血/卡牌声明）
 ### 2026-08-13 — 战斗反馈打磨：闪避文字 + 伤害定位 + 状态音效
 
 - **闪避/未命中浮动文字**：命中判定修复（feat/hit-fix）后 dodge/miss 造成 0 伤害，此前因前端 `damage > 0` 守卫被完全静默；现在 miss/dodge 显示「闪避」浮动文字 + miss 音效 + 攻击者 Spine 动作
