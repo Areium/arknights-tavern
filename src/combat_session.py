@@ -43,6 +43,8 @@ class CombatSession:
         self._background_url: str | None = None
         self._session_dir: str = ""
         self._inventory: list[dict] = []
+        self._reward_mult: float = 1.0
+        self._enemy_scale: float = 1.0
         self.last_activity_at: float = time.time()
 
     # ── Setup ──
@@ -54,7 +56,8 @@ class CombatSession:
               combat_params: dict = None,
               location: str = "",
               session_dir: str = "",
-              inventory: list[dict] = None) -> dict:
+              inventory: list[dict] = None,
+              reward_mult: float = 1.0) -> dict:
         """Initialize a battle from an encounter definition and character list.
 
         Args:
@@ -81,6 +84,8 @@ class CombatSession:
         self._encounter_id = encounter_id
         self._session_dir = session_dir
         self._inventory = inventory or []
+        self._reward_mult = reward_mult
+        self._enemy_scale = float((combat_params or {}).get("enemy_scale", 1.0) or 1.0)
         self._background_url = self.loader.resolve_background(
             encounter, location, session_dir=session_dir, session_id=self.session_id)
         self.engine = CombatEngine()
@@ -132,6 +137,8 @@ class CombatSession:
         for enemy_def in enemy_defs:
             enemy_name = enemy_def.get("enemy", enemy_def.get("name", ""))
             count = enemy_def.get("count", 1)
+            if not enemies_override:
+                count = max(1, round(count * self._enemy_scale))
             positions = enemy_def.get("positions", [])
 
             for j in range(count):
@@ -139,6 +146,11 @@ class CombatSession:
                 if not enemy_unit:
                     logger.warning("Enemy '%s' not found, skipping", enemy_name)
                     continue
+
+                # 同名敌人需唯一 unit_id，否则 add_enemy_unit 会互相覆盖
+                # （导致 count>1 的敌人只生成 1 个，难度曲线失真）
+                if count > 1:
+                    enemy_unit.unit_id = f"{enemy_name}#{j + 1}"
 
                 # Use specified position or auto-place
                 if j < len(positions):
@@ -152,6 +164,10 @@ class CombatSession:
 
         # Start the state machine
         self.engine.start_battle()
+
+        # 首回合先手：打法 first_strike → 共享 AP +1（仅第 1 回合）
+        if combat_params and combat_params.get("first_strike"):
+            self.engine.shared_ap += 1
 
         # Flush initial events into the queue
         self._flush_engine_events()
@@ -506,6 +522,7 @@ class CombatSession:
             "encounter_id": self._encounter_id,
             "session_id": self.session_id,
             "session_dir": self._session_dir,
+            "reward_mult": self._reward_mult,
             "engine_state": {
                 "round_num": self.engine.state.round_num,
                 "phase": self.engine.state.phase,
@@ -525,6 +542,7 @@ class CombatSession:
         cs = cls(session_id=data.get("session_id", ""))
         cs._encounter_id = data.get("encounter_id", "")
         cs._session_dir = data.get("session_dir", "")
+        cs._reward_mult = data.get("reward_mult", 1.0)
         cs._character_metas = data.get("character_metas", [])
 
         # Reconstruct engine

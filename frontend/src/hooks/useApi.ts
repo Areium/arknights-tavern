@@ -557,10 +557,10 @@ export function useApi() {
       ),
 
     // ── Combat ──
-    combatStart: (sessionId: string, encounterId: string, characters: string[]) =>
+    combatStart: (sessionId: string, encounterId: string, characters: string[], approachId?: string) =>
       request<any>(`/api/sessions/${sessionId}/combat/start`, {
         method: "POST",
-        body: JSON.stringify({ encounter_id: encounterId, characters }),
+        body: JSON.stringify({ encounter_id: encounterId, characters, approach_id: approachId }),
       }),
 
     combatState: (sessionId: string) =>

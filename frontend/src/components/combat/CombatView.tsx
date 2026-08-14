@@ -63,6 +63,10 @@ export default function CombatView() {
     level_ups: { name: string; level: number; attribute: string }[];
   } | null>(null);
   const [showRewards, setShowRewards] = useState(false);
+  // 战前打法（Approach）选择
+  const [approaches, setApproaches] = useState<{ id: string; label: string; hint: string; kind: string }[] | null>(null);
+  const [checkResult, setCheckResult] = useState<{ d20: number; modifier: number; total: number; dc: number; success: boolean; attr: string; character: string } | null>(null);
+  const [avoidMsg, setAvoidMsg] = useState<string | null>(null);
   const [cursor, setCursor] = useState<[number, number] | null>(null);
   const [hoverCell, setHoverCell] = useState<[number, number] | null>(null);
   const [dragCardIndex, setDragCardIndex] = useState<number | null>(null);
@@ -297,23 +301,48 @@ export default function CombatView() {
     recomputeOverlayCenters();
   }, [combatState?.units, cfg.cellSize, resizeTick, recomputeOverlayCenters]);
 
-  const handleStartBattle = useCallback(async () => {
+  const startCombat = useCallback(async (approachId?: string) => {
     if (!sessionId || startChars.length === 0) return;
     setLoading(true);
     setError(null);
     try {
-      const state = await api.combatStart(sessionId, encounterId, startChars);
-      setCombatContext({ state: state as CombatStateDTO });
-      setEvents([]);
-      setResult(null);
-      setDamageNumbers([]);
-      connectSSE();
+      const resp = await api.combatStart(sessionId, encounterId, startChars, approachId);
+      if (resp?.state) {
+        setCombatContext({ state: resp.state as CombatStateDTO });
+        setEvents([]);
+        setResult(null);
+        setDamageNumbers([]);
+        setApproaches(null);
+        setAvoidMsg(null);
+        setCheckResult(resp.check ?? null);
+        connectSSE();
+      } else if (resp?.kind === "approaches") {
+        setApproaches(resp.approaches || []);
+        setCheckResult(null);
+        setAvoidMsg(null);
+      } else if (resp?.kind === "check") {
+        setCheckResult(resp.check ?? null);
+        setApproaches(null);
+        setAvoidMsg(null);
+      } else if (resp?.kind === "avoid") {
+        setAvoidMsg(resp.label || "已撤退");
+        setApproaches(null);
+        setCheckResult(null);
+      }
     } catch (e: any) {
       setError(e.message || "启动战斗失败");
     } finally {
       setLoading(false);
     }
   }, [sessionId, encounterId, startChars, api, setCombatContext, connectSSE]);
+
+  const handleStartBattle = useCallback(() => {
+    startCombat(undefined);
+  }, [startCombat]);
+
+  const handleSelectApproach = useCallback((approachId: string) => {
+    startCombat(approachId);
+  }, [startCombat]);
 
   const handleStartTestBattle = useCallback(async () => {
     setLoading(true);
@@ -1022,6 +1051,45 @@ export default function CombatView() {
           >
             {loading ? "启动中..." : "开始战斗"}
           </button>
+
+          {approaches && approaches.length > 0 && (
+            <div className="mb-3">
+              <p className="text-xs text-gray-400 mb-1.5 font-display tracking-wider">选择打法</p>
+              <div className="flex flex-col gap-1.5">
+                {approaches.map((ap) => (
+                  <button
+                    key={ap.id}
+                    className="text-left px-3 py-2 bg-surface-hover hover:bg-gray-700 rounded-lg border border-combat-border transition-colors"
+                    onClick={() => handleSelectApproach(ap.id)}
+                    disabled={loading}
+                  >
+                    <span className="text-sm text-gray-200 font-medium">{ap.label}</span>
+                    <span className="block text-[10px] text-gray-500 mt-0.5">{ap.hint}</span>
+                  </button>
+                ))}
+              </div>
+              <button className="text-[10px] text-gray-500 hover:text-gray-300 mt-1.5" onClick={() => setApproaches(null)}>返回</button>
+            </div>
+          )}
+
+          {checkResult && (
+            <div className="mb-3 px-3 py-2 rounded-lg border border-amber-800/50 bg-amber-950/30">
+              <p className="text-xs text-amber-200 font-display">
+                🎲 {checkResult.attr}检定 — {checkResult.character} 掷出 d20 = {checkResult.d20} {checkResult.modifier >= 0 ? "+" : ""}{checkResult.modifier} = {checkResult.total} vs DC {checkResult.dc}
+              </p>
+              <p className={"text-xs font-bold mt-0.5 " + (checkResult.success ? "text-emerald-300" : "text-red-300")}>
+                {checkResult.success ? "✅ 成功 — 避免战斗" : "❌ 失败 — 敌人警觉，被迫开战"}
+              </p>
+              <button className="text-[10px] text-gray-500 hover:text-gray-300 mt-1" onClick={() => setCheckResult(null)}>关闭</button>
+            </div>
+          )}
+
+          {avoidMsg && (
+            <div className="mb-3 px-3 py-2 rounded-lg border border-gray-700 bg-surface-hover">
+              <p className="text-xs text-gray-300">已{avoidMsg} — 未进入战斗</p>
+              <button className="text-[10px] text-gray-500 hover:text-gray-300 mt-1" onClick={() => setAvoidMsg(null)}>关闭</button>
+            </div>
+          )}
 
           <div className="border-t border-combat-divider pt-3 mt-1">
             <p className="text-xs text-gray-600 mb-2">

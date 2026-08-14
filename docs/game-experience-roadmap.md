@@ -14,7 +14,7 @@
 | 角色与数值成长 | ✅ 战斗奖励结算 + XP→等级→属性+1 + 掉落物品 + 战斗历史（combat.py:_settle_combat_rewards） | 成长不可见（无角色成长面板）；属性→战斗数值反馈不直观 |
 | 战斗数值/难度/卡组 | ✅ 9 职业 × 8 卡组；✅ 数值公式（entity.py）；✅ 敌人意图 + SPD 行动顺序（本轮已落地） | 卡牌效果多为文案（状态效果未实装）；difficulty/level 未消费（无难度曲线）；max_rounds/escape 未消费；卡组无跨场成长 |
 | UI/动作/音效/背景 | ✅ 3D 网格 + Spine 动画 + 音效 + 战斗背景 + 伤害数字/粒子 | 敌人意图头顶图标（暂为面板文字版） |
-| 战斗×剧情结合 | ✅ LLM 触发战斗 + 结果写回 + 战后自动叙述 + 奖励结算 | 战前打法(Approach)/简报(Briefing)/剧情投点(d20 展示) 未落地（combat-core-design.md Phase 1） |
+| 战斗×剧情结合 | ✅ LLM 触发战斗 + 结果写回 + 战后自动叙述 + 奖励结算；✅ 战前打法 + 剧情投点（backend + 手动开战路径已落地） | LLM 战前简报流（两段式触发 combat_briefing）待做 |
 | LLM 剧情自由开放 | ✅ 两阶段叙述 + 选项 + 回退 + 变体 + 世界书注入 + 向量记忆 | 玩家选择的机制化后果（投点/失败向前）不足 |
 
 ---
@@ -26,9 +26,15 @@
 - 敌人按 SPD 降序行动；ai_behavior=defensive 的敌人离队坚守、aggressive 的追击。
 - 意图通过 state.enemy_intents + round_start SSE 事件暴露；前端敌方面板显示「意图」行。
 
-### P1 · 战斗×剧情闭环 + 自由开放（下一轮起，最高价值）
-1. 战前打法（Approach）+ 简报：遭遇战新增 approaches（强攻/突袭/谈判/撤退）→ 战斗前 LLM 2-4 句简报 + 打法卡片；resolve_approach() 映射 enemy_scale/first_strike/reward_mult。
-2. 剧情投点（d20 展示）：谈判/抉择类 approach 触发 DiceSystem 检定（复用 services/dice.py），SSE dice_check 事件 + 前端骰面展示；失败向前（fail-forward）。
+### P0.5 · 已落地（本轮 feat/combat-approaches）
+- 战前打法（Approach）：encounters 新增 approaches（强攻/突袭/谈判/撤退）；src/combat_approaches.py 提供 resolve_approach（映射 enemy_scale/first_strike/player_effects/reward_mult）+ roll_check（d20 剧情投点，取小队最高属性，自然 20 必成 / 自然 1 必败）+ 兜底打法。
+- CombatSession.start() 消费 enemy_scale / first_strike / reward_mult；/combat/start 支持 approach_id（combat/check/avoid 三态）；/combat/complete 应用 reward_mult。
+- 修复 bug：同名敌人 count>1 共享 unit_id 互相覆盖（现在生成唯一 unit_id，遭遇战敌人数恢复为设计值，难度曲线修正）。
+- 前端手动开战路径：打法卡片 + d20 检定结果 + 撤退提示（CombatView）。
+
+### P1 · 战斗×剧情闭环 + 自由开放
+1. ✅ 战前打法数据 + resolve_approach + roll_check（feat/combat-approaches）；⏳ 待做：LLM 战前简报流（两段式触发 combat_briefing 事件）+ 剧情流打法卡片（当前手动开战路径已可用）。
+2. ✅ 剧情投点（d20）：成功避免战斗 / 失败以 fail_combat 参数开战。
 3. 敌人意图头顶图标：把面板文字版升级为 PixiJS 头顶图标（PixiCombatScene）。
 
 ### P2 · 战斗深度 + 难度曲线 + 卡组
