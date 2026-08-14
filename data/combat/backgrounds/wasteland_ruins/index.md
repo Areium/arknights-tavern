@@ -2,10 +2,10 @@
 name: "荒野废墟"
 summary: "移动城市外的废弃矿区废墟，整合运动出没地带。"
 type: combat_background
-image: ""
+image: "bg.jpg"
 prompt: "Arknights style anime background art, abandoned mining ruins on the wasteland outside a nomadic city, collapsed concrete structures and rusted originium extraction machinery in the distance, dust haze, slightly elevated camera angle looking down at an open empty cracked-asphalt ground plane in the center, desaturated ochre and slate grey palette with dim orange warning lights, oppressive post-industrial atmosphere, heavy vignette, no characters, no text, no UI, painterly matte painting quality, 16:9"
 negative_prompt: "people, characters, text, watermark, logo, UI elements, bright sunny colors, close-up, first-person view"
-source: "ai"
+source: placeholder
 size: "1920x1080"
 ---
 

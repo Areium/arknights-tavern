@@ -26,7 +26,7 @@ type: combat_background
 image: "bg.jpg"
 prompt: "Arknights style anime background art, desolate wilderness battlefield under overcast sky, cracked dry earth, scattered rocks and industrial debris in the distance, slightly elevated camera angle looking down at an open empty ground plane in the center, muted cold grey-blue palette with a faint amber horizon glow, dark atmospheric lighting, heavy vignette, no characters, no text, no UI, painterly matte painting quality, 16:9"
 negative_prompt: "people, characters, text, watermark, logo, UI elements, bright sunny colors, close-up, first-person view"
-source: "ai"
+source: placeholder
 size: "1920x1080"
 ---
 
