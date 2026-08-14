@@ -449,6 +449,7 @@ class CombatSession:
                 "pos": list(u.pos),
                 "is_alive": u.is_alive,
                 "attributes": dict(u.attributes) if u.attributes else {},
+                "status": dict(u.status),
                 "skin_url": u.skin_url,
                 "skin_crop": self._refresh_skin_crop(u),
             })
@@ -594,6 +595,7 @@ class CombatSession:
                 AP=udict.get("AP", 3),
                 MAX_AP=udict.get("MAX_AP", 3),
                 attributes=udict.get("attributes", {}),
+                status=udict.get("status", {}),
                 pos=tuple(udict.get("pos", (-1, -1))),
             )
             engine.units[uid] = unit

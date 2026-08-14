@@ -38,13 +38,14 @@
 3. 敌人意图头顶图标：把面板文字版升级为 PixiJS 头顶图标（PixiCombatScene）。
 
 ### P2 · 战斗深度 + 难度曲线 + 卡组
-4. 状态效果运行时实装：卡牌 apply: {effect} → status_effects 表（减速/束缚/沉默/嘲讽/护盾/DoT），对接 data/rules/buff-pool/。
+4. 状态效果运行时：✅ 护盾/减速/束缚/虚弱/增幅 已实装（feat/status-effects：CombatUnit.status + Card.effects + play_card 施加 + 护盾吸伤 + 减速/束缚影响移动 + 虚弱/增幅 ±25% 伤害，前端 UnitStatusPanel 状态徽章）；⏳ 沉默/嘲讽/DoT/闪避 待做。
 5. 卡组构建（战后 1 选 1）：胜利后「抽新卡/删卡/强化卡」，卡组跨场持久。
 6. 难度曲线：✅ conditions.max_rounds（回合超时判负，时间压力）+ escape_enabled（撤退 fail-forward，feat/combat-difficulty 已落地）；enemy.level 已由 combat_stats 内化（无需二次缩放），difficulty 作为关卡标签（难度曲线 = 遭遇战敌人构成 + 回合上限共同体现）。
 
 ### P3 · 成长可见性 + 高阶系统
 7. 角色成长面板：显示 level/xp/属性，属性→战斗数值（HP/ATK/DEF…）即时换算预览。
 8. 遗物 / 干员士气 / 指挥官模式（Phase 3 备选）。
+9. ⚠ 数值 bug（待修）：命中检定 dodge（未中且非自然 1）仍造成全额伤害——compute_damage 只判 miss 不判 hit，导致 HIT/EVA 属性几乎无效；需将伤害/状态施加条件统一改为 `hr.hit`（并重平衡命中率）。
 
 ---
 
