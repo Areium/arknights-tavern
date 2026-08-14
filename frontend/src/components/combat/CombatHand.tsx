@@ -43,6 +43,7 @@ export default function CombatHand({ cards, getCardAp, selectedIndex, disabled, 
           <div
             key={`${card.card_id}-${card.owner || 'none'}`}
             className="hand-card-wrapper"
+            data-hand-index={i}
             style={{
               transform: `rotate(${rotation}deg) translateY(${translateY}px)`,
               zIndex: i,

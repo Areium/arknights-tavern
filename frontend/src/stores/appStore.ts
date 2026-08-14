@@ -17,8 +17,8 @@ export interface CombatContext {
 
 interface AppState {
   // 视图
-  currentView: "chat" | "sessions" | "documents" | "settings" | "combat" | "index" | "worldbook" | "docs";
-  setCurrentView: (view: "chat" | "sessions" | "documents" | "settings" | "combat" | "index" | "worldbook" | "docs") => void;
+  currentView: "home" | "chat" | "sessions" | "documents" | "settings" | "combat" | "index" | "worldbook" | "docs";
+  setCurrentView: (view: "home" | "chat" | "sessions" | "documents" | "settings" | "combat" | "index" | "worldbook" | "docs") => void;
 
   // 主题
   theme: Theme;
@@ -108,8 +108,8 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
-  // 视图
-  currentView: "chat",
+  // 视图（默认进入游戏主页主菜单）
+  currentView: "home",
   setCurrentView: (view) => set({ currentView: view }),
 
   // 主题

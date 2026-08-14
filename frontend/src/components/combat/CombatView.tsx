@@ -14,6 +14,8 @@ import CombatParticles from "./CombatParticles";
 import DeckViewer from "./DeckViewer";
 import AttackArrow from "./AttackArrow";
 import CharacterIllustration from "./CharacterIllustration";
+import CombatQuestBar from "./CombatQuestBar";
+import CardFlyOverlay, { type CardFlight } from "./CardFlyOverlay";
 import { getCombatConfig, type LayoutMode } from "./combatConfig";
 
 const DEFAULT_CHARACTERS = ["阿米娅", "博士", "银灰", "霜星"];
@@ -82,6 +84,8 @@ export default function CombatView() {
   const [dragCardIndex, setDragCardIndex] = useState<number | null>(null);
   const [dragCell, setDragCell] = useState<[number, number] | null>(null);
   const [playingCardIndex, setPlayingCardIndex] = useState<number | null>(null);
+  const [cardFlight, setCardFlight] = useState<CardFlight | null>(null);
+  const clearCardFlight = useCallback(() => setCardFlight(null), []);
   const cardPlayInProgressRef = useRef(false);
   const [startChars, setStartChars] = useState<string[]>(DEFAULT_CHARACTERS);
   const [encounterId, setEncounterId] = useState(DEFAULT_ENCOUNTER);
@@ -407,6 +411,7 @@ export default function CombatView() {
   // Cards to display: always the active unit's hand
   const displayedHand = combatState?.shared_hand ?? [];
 
+
   // Arrow start position: the card owner's cell, or fall back to rangeOrigin
   const arrowFrom = useMemo(() => {
     if (dragCardIndex === null || !combatState) return null;
@@ -441,6 +446,26 @@ export default function CombatView() {
     }
     return map;
   }, [combatState]);
+
+  // 出牌飞行动画：从手牌卡面飞向目标格子（视口坐标，与 getBoundingClientRect 一致）
+  const launchCardFlight = useCallback((cardIdx: number, row: number, col: number) => {
+    const card = displayedHand[cardIdx];
+    const grid = gridRef.current;
+    if (!card || !grid || cardFlight) return;
+    const to = getCellCenter(grid, row, col);
+    if (!to) return;
+    const el = document.querySelector(
+      '.hand-card-wrapper[data-hand-index="' + cardIdx + '"] .combat-card'
+    );
+    const from = el?.getBoundingClientRect();
+    if (!from) return;
+    setCardFlight({
+      card,
+      from,
+      to,
+      skinUrl: card.owner ? ownerSkins?.[card.owner]?.url : undefined,
+    });
+  }, [displayedHand, ownerSkins, cardFlight]);
 
   // Hovered unit for tooltip
   const hoveredUnit = hoveredUnitId
@@ -578,6 +603,7 @@ export default function CombatView() {
         cardPlayInProgressRef.current = true;
         const cardIdx = selectedCardIndex;
         setPlayingCardIndex(cardIdx);
+        launchCardFlight(cardIdx, row, col);
         setCombatContext({ selectedCardIndex: null, selectedUnitId: null, uiMode: "VIEWING" });
 
         setLoading(true);
@@ -657,7 +683,7 @@ export default function CombatView() {
       setCombatContext({ selectedUnitId: null, uiMode: "VIEWING", selectedCardIndex: null });
       setCursor([row, col]);
     },
-    [effectiveId, combatTestId, sessionId, combatState, combatUIMode, selectedCardIndex, selectedUnitId, moveHighlights, rangeHighlights, displayedHand, api, fetchState, setCombatContext]
+    [effectiveId, combatTestId, sessionId, combatState, combatUIMode, selectedCardIndex, selectedUnitId, moveHighlights, rangeHighlights, displayedHand, api, fetchState, setCombatContext, launchCardFlight]
   );
 
   const handleCardClick = useCallback(
@@ -951,6 +977,7 @@ export default function CombatView() {
       cardPlayInProgressRef.current = true;
       const cardIdx = dragCardIndex;
       setPlayingCardIndex(cardIdx);
+      launchCardFlight(cardIdx, row, col);
       setDragCardIndex(null);
       setDragCell(null);
       setCombatContext({ selectedCardIndex: null, selectedUnitId: null, uiMode: "VIEWING" });
@@ -982,7 +1009,7 @@ export default function CombatView() {
         setDragCell(null);
       }
     },
-    [effectiveId, combatTestId, sessionId, combatState, dragCardIndex, rangeHighlights, displayedHand, api, fetchState, getCardAp, setCombatContext]
+    [effectiveId, combatTestId, sessionId, combatState, dragCardIndex, rangeHighlights, displayedHand, api, fetchState, getCardAp, setCombatContext, launchCardFlight]
   );
 
   const handleUnitClick = useCallback((unitId: string) => {
@@ -1591,6 +1618,12 @@ export default function CombatView() {
           <CombatEventLog events={events} />
         </div>
       </div>
+
+      {/* 任务状态栏（会话战斗 · 剧情任务） */}
+      <CombatQuestBar sessionId={combatTestId ? null : sessionId} />
+
+      {/* 出牌飞行动画 */}
+      <CardFlyOverlay flight={cardFlight} onDone={clearCardFlight} />
 
       {/* Battle end overlay */}
       {combatState.battle_over && result && (

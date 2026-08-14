@@ -14,6 +14,7 @@ import { TextureAtlas } from "@pixi-spine/base";
 import type { CombatUnitDTO } from "../../types";
 import { getCellCenter } from "./gridUtils";
 import { resolveAnimSpec, type AnimSpec } from "./spineAnimSpecs";
+import { makeFallbackToken } from "./fallbackToken";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -78,6 +79,10 @@ interface UnitEntry {
   baseScale?: number;
   flipped?: boolean;
   killTimeout?: ReturnType<typeof setTimeout>;
+  /** fallback 令牌 HP 条（isSpine=false 时存在；scale.x = hp/max_hp 控制宽度） */
+  hpBar?: Graphics;
+  /** fallback 令牌 HP 条满宽（px），用于按比例更新宽度 */
+  hpWidth?: number;
 }
 
 /** Compute the y-offset so a display object's origin maps to the cell center
@@ -197,6 +202,10 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
   const getCanvasPosRef = useRef(getCanvasPos);
   getCanvasPosRef.current = getCanvasPos;
 
+  // Keep a ref to latest cellSize：动画 handle（deps 为 []）需读取最新值，避免闭包过期
+  const cellSizeRef = useRef(cellSize);
+  cellSizeRef.current = cellSize;
+
   // ── Init / destroy PixiJS app ──────────────────────────────────────
   useEffect(() => {
     const container = containerRef.current;
@@ -306,6 +315,11 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
       const zIndex = u.pos[0]; // higher row = closer to camera = render on top
 
       if (exists) {
+        // fallback 令牌：按最新 hp/max_hp 更新 HP 条宽度（前景几何左锚定，scale.x 即宽度比例）
+        if (exists.hpBar && exists.hpWidth) {
+          const ratio = u.max_hp > 0 ? Math.max(0, Math.min(1, u.hp / u.max_hp)) : 0;
+          exists.hpBar.scale.x = ratio;
+        }
         // moveTo tween 进行中跳过位置重排，避免覆盖 tween
         if (!exists.tweening) {
           exists.cell = [u.pos[0], u.pos[1]];
@@ -384,19 +398,25 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
               console.error(`[PixiCombatScene]   message: ${err.message}`);
               console.error(`[PixiCombatScene]   stack:`, err.stack);
             }
-            const fb = makeFallback(u, sx, sy);
-            fb.zIndex = zIndex;
-            ul.addChild(fb);
-            map.set(u.unit_id, { displayObject: fb, cell: [u.pos[0], u.pos[1]], yAnchorOffset: 0, isSpine: false });
+            const fb = makeFallbackToken(u, sx, sy, cellSize);
+            fb.container.zIndex = zIndex;
+            ul.addChild(fb.container);
+            map.set(u.unit_id, {
+              displayObject: fb.container, cell: [u.pos[0], u.pos[1]], yAnchorOffset: 0,
+              isSpine: false, flipped: u.team === "enemy", hpBar: fb.hpBar, hpWidth: fb.hpWidth,
+            });
             loadingUnitsRef.current.delete(u.unit_id);
             setPosTick((t) => t + 1);
           }
         })();
       } else {
-        const fb = makeFallback(u, sx, sy);
-        fb.zIndex = zIndex;
-        ul.addChild(fb);
-        map.set(u.unit_id, { displayObject: fb, cell: [u.pos[0], u.pos[1]], yAnchorOffset: 0, isSpine: false });
+        const fb = makeFallbackToken(u, sx, sy, cellSize);
+        fb.container.zIndex = zIndex;
+        ul.addChild(fb.container);
+        map.set(u.unit_id, {
+          displayObject: fb.container, cell: [u.pos[0], u.pos[1]], yAnchorOffset: 0,
+          isSpine: false, flipped: u.team === "enemy", hpBar: fb.hpBar, hpWidth: fb.hpWidth,
+        });
       }
     }
 
@@ -424,11 +444,94 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
     }
   }, [ready, getCanvasPos, resizeTick]);
 
+  // ── Fallback（非 Spine 令牌）动画辅助 ──────────────────────────────
+  // 时间驱动 tween：与 moveTo 同以 app.ticker.lastTime 为基准；ticker 不可用时直接落终态
+  const runFallbackTween = (durationMs: number, onUpdate: (t: number) => void, onDone?: () => void) => {
+    const ticker = appRef.current?.ticker;
+    if (!ticker) { onUpdate(1); onDone?.(); return; }
+    const startT = ticker.lastTime;
+    const tick = () => {
+      const t = Math.min(1, (ticker.lastTime - startT) / durationMs);
+      onUpdate(t);
+      if (t >= 1) { ticker.remove(tick); onDone?.(); }
+    };
+    ticker.add(tick);
+  };
+
+  // 攻击：向朝向方向快速冲刺（±10~14px 来回，约 200ms）+ scale 1.15 punch
+  const fallbackAttack = (entry: UnitEntry) => {
+    const obj = entry.displayObject;
+    const lunge = Math.min(14, Math.max(10, cellSizeRef.current * 0.2));
+    const dir = entry.flipped ? -1 : 1; // 敌方默认镜像朝左
+    const baseX = obj.x;
+    // moveTo tween 进行中则只做 scale punch，避免两段位移互相覆盖
+    const canLunge = !entry.tweening;
+    if (canLunge) entry.tweening = true;
+    runFallbackTween(200, (t) => {
+      if (obj.destroyed) return;
+      const k = Math.sin(Math.PI * t); // 0→1→0：冲出再收回
+      if (canLunge) obj.x = baseX + dir * lunge * k;
+      obj.scale.set(1 + 0.15 * k); // 峰值 1.15
+    }, () => {
+      if (!obj.destroyed) { obj.x = baseX; obj.scale.set(1); }
+      if (canLunge) entry.tweening = false;
+    });
+  };
+
+  // 受击：tint 闪红（递归给 Graphics/Text 子对象染色，beginFill 颜色可 tint）
+  //       + 整体 alpha 闪烁兜底（覆盖头像 Sprite 等不可 tint 部分）+ 小幅衰减抖动
+  const fallbackHit = (entry: UnitEntry) => {
+    const obj = entry.displayObject;
+    const tintTree = (node: Container, tint: number) => {
+      for (const child of node.children) {
+        if (child instanceof Graphics || child instanceof Text) child.tint = tint;
+        else if (child instanceof Container) tintTree(child, tint);
+      }
+    };
+    tintTree(obj, 0xff5a4c);
+    obj.alpha = 0.6;
+    const baseX = obj.x;
+    const amp = Math.max(2, cellSizeRef.current * 0.05);
+    runFallbackTween(160, (t) => {
+      if (obj.destroyed) return;
+      obj.x = baseX + amp * Math.sin(t * Math.PI * 6) * (1 - t); // 快速往返且衰减
+    }, () => {
+      if (!obj.destroyed) obj.x = baseX;
+    });
+    setTimeout(() => {
+      if (obj.destroyed) return;
+      tintTree(obj, 0xffffff);
+      obj.alpha = 1;
+    }, 120);
+  };
+
+  // 死亡：alpha 渐隐 + 下沉（y +10px，约 600ms），随后销毁移除（沿用 killTimeout 模式）
+  const fallbackDeath = (unitId: string, entry: UnitEntry) => {
+    entry.dying = true;
+    const obj = entry.displayObject;
+    const baseY = obj.y;
+    runFallbackTween(600, (t) => {
+      if (obj.destroyed) return;
+      obj.alpha = 1 - t;
+      obj.y = baseY + 10 * t;
+    });
+    const ul = unitLayerRef.current;
+    if (entry.killTimeout) clearTimeout(entry.killTimeout);
+    entry.killTimeout = setTimeout(() => {
+      if (ul && ul.children.includes(obj)) ul.removeChild(obj);
+      obj.destroy({ children: true });
+      unitMapRef.current.delete(unitId);
+    }, 650);
+  };
+
   // ── 动画控制（CombatView 通过 ref 驱动） ─────────────────────────
   useImperativeHandle(ref, () => ({
     playAttack(unitId: string) {
       const entry = unitMapRef.current.get(unitId);
-      if (!entry || !entry.isSpine || !entry.spec || entry.dying) return;
+      if (!entry || entry.dying) return;
+      // 非 Spine 令牌：fallback 冲刺 + scale punch
+      if (!entry.isSpine) { fallbackAttack(entry); return; }
+      if (!entry.spec) return;
       const spine = entry.displayObject as Spine;
       if (entry.spec.attack.length === 0) {
         // 无攻击动画（理论上 resolveAnimSpec 已兜底到 Skill）→ 仅 scale punch
@@ -440,7 +543,9 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
 
     playHit(unitId: string) {
       const entry = unitMapRef.current.get(unitId);
-      if (!entry || !entry.isSpine || entry.dying) return;
+      if (!entry || entry.dying) return;
+      // 非 Spine 令牌：tint 闪红 + 抖动
+      if (!entry.isSpine) { fallbackHit(entry); return; }
       const spine = entry.displayObject as Spine;
       // tint 闪红（pixi-spine 4.0.6 可能不可用 → try 回退纯 scale punch）
       try { (spine as any).tint = 0xff6666; } catch { /* ignore */ }
@@ -455,7 +560,9 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
 
     playDeath(unitId: string) {
       const entry = unitMapRef.current.get(unitId);
-      if (!entry || !entry.isSpine || entry.dying) return;
+      if (!entry || entry.dying) return;
+      // 非 Spine 令牌：渐隐下沉后销毁
+      if (!entry.isSpine) { fallbackDeath(unitId, entry); return; }
       entry.dying = true;
       const spine = entry.displayObject as Spine;
       const spec = entry.spec!;
@@ -528,28 +635,3 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
 });
 
 export default PixiCombatScene;
-
-// ---------------------------------------------------------------------------
-// Fallback unit (no Spine data)
-// ---------------------------------------------------------------------------
-
-function makeFallback(unit: CombatUnitDTO, sx: number, sy: number): Container {
-  const c = new Container();
-  c.x = sx;
-  c.y = sy;
-
-  const g = new Graphics();
-  const color = unit.team === "player" ? 0x4488cc : 0xcc4444;
-  g.beginFill(color);
-  g.drawCircle(0, 0, 10);
-  g.endFill();
-  c.addChild(g);
-
-  const t = new Text(unit.name.slice(0, 3), {
-    fontSize: 10, fill: 0xffffff, fontFamily: "sans-serif",
-  });
-  t.anchor.set(0.5, -1.2);
-  c.addChild(t);
-
-  return c;
-}

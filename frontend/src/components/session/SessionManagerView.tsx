@@ -24,7 +24,7 @@ function formatDate(ts: number): string {
 }
 
 export default function SessionManagerView() {
-  const { sessions, activeSessionId, chatMode, setSessions, setActiveSession, setCurrentView, setIndexSessionId } =
+  const { sessions, activeSessionId, chatMode, setSessions, setActiveSession, setCurrentView, setIndexSessionId, setChatMode, setCombatContext } =
     useAppStore();
   const api = useApi();
 
@@ -84,9 +84,26 @@ export default function SessionManagerView() {
   // ── 会话操作 ──
 
   const enterSession = useCallback((id: string) => {
+    const s = sessions.find((x) => x.id === id);
     setActiveSession(id);
+    if (s) setChatMode(s.mode);
     setCurrentView("chat");
-  }, [setActiveSession, setCurrentView]);
+  }, [sessions, setActiveSession, setChatMode, setCurrentView]);
+
+  /** 进入进行中战斗（全屏沉浸战场） */
+  const enterCombat = useCallback((id: string) => {
+    const s = sessions.find((x) => x.id === id);
+    setActiveSession(id);
+    if (s) setChatMode(s.mode);
+    setCombatContext({ sessionId: id, testId: null, state: null, uiMode: "VIEWING", selectedCardIndex: null, selectedUnitId: null });
+    setCurrentView("combat");
+  }, [sessions, setActiveSession, setChatMode, setCombatContext, setCurrentView]);
+
+  /** 战斗演练：无会话的测试战场（沿用 CombatView 设置屏） */
+  const enterPractice = useCallback(() => {
+    setCombatContext({ sessionId: null, testId: null, state: null, uiMode: "VIEWING", selectedCardIndex: null, selectedUnitId: null });
+    setCurrentView("combat");
+  }, [setCombatContext, setCurrentView]);
 
   const handleCreated = useCallback((session: Session) => {
     setSessions([...sessions, session]);
@@ -252,6 +269,13 @@ export default function SessionManagerView() {
               }}
             />
           </label>
+          <button
+            onClick={enterPractice}
+            className="btn btn-ghost text-xs"
+            title="战斗演练：不入会话的测试战场"
+          >
+            ⚔ 战斗演练
+          </button>
           <button onClick={() => setWizardOpen(true)} className="btn btn-hero px-5 py-2 text-sm">
             ＋ 新建会话
           </button>
@@ -371,13 +395,24 @@ export default function SessionManagerView() {
                     <div className="text-[10px] text-gray-600 mt-0.5">{formatDate(s.created_at)}</div>
                   </div>
                   {!batchMode && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); enterSession(s.id); }}
-                      className="btn-hero btn text-[11px] px-3 py-1 shrink-0"
-                      title="进入对话"
-                    >
-                      进入
-                    </button>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {s.in_combat && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); enterCombat(s.id); }}
+                          className="btn text-[11px] px-3 py-1 bg-red-700/80 hover:bg-red-600 text-white animate-pulse"
+                          title="进入战斗（全屏战场）"
+                        >
+                          ⚔ 战斗
+                        </button>
+                      )}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); enterSession(s.id); }}
+                        className="btn-hero btn text-[11px] px-3 py-1 shrink-0"
+                        title="进入对话"
+                      >
+                        进入
+                      </button>
+                    </div>
                   )}
                 </div>
 
@@ -473,6 +508,14 @@ export default function SessionManagerView() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
+                  {selected.in_combat && (
+                    <button
+                      onClick={() => enterCombat(selected.id)}
+                      className="btn px-5 py-2 text-sm bg-red-700/80 hover:bg-red-600 text-white animate-pulse"
+                    >
+                      ⚔ 进入战斗
+                    </button>
+                  )}
                   <button onClick={() => enterSession(selected.id)} className="btn-hero btn px-6 py-2 text-sm">
                     ▶ 进入对话
                   </button>

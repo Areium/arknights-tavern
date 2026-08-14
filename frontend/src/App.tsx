@@ -1,7 +1,9 @@
 import { useEffect } from "react";
 import { useAppStore } from "./stores/appStore";
 import { useApi } from "./hooks/useApi";
-import Sidebar from "./components/Sidebar";
+import { audioManager } from "./audio/audioManager";
+import HomeMenu from "./components/HomeMenu";
+import GameTopBar from "./components/GameTopBar";
 import StatusBar from "./components/StatusBar";
 import ChatView from "./components/ChatView";
 import SessionManagerView from "./components/session/SessionManagerView";
@@ -11,6 +13,11 @@ import SettingsPanel from "./components/SettingsPanel";
 import IndexManager from "./components/IndexManager";
 import WorldBookManager from "./components/WorldBookManager";
 import DocsView from "./components/DocsView";
+
+/** 沉浸式视图：全屏无顶栏（对话 = 故事沉浸，战斗 = 战场沉浸） */
+const IMMERSIVE_VIEWS = new Set(["chat", "combat"]);
+/** 菜单氛围视图：播放主菜单 BGM（战斗 BGM 由 CombatView 自管，对话页静默沉浸） */
+const MENU_BGM_VIEWS = new Set(["home", "sessions", "documents", "worldbook", "index", "docs", "settings"]);
 
 export default function App() {
   const { currentView, setBackendStatus, setLLMStatus, setSessions, theme, setTheme, setEditBeforeSend, setDialogueBubbleMode } =
@@ -47,6 +54,15 @@ export default function App() {
       root.classList.remove("light");
     }
   }, [theme]);
+
+  // BGM 编排：菜单类页面播主菜单 BGM；进入对话（沉浸故事）时静默；战斗 BGM 由 CombatView 接管
+  useEffect(() => {
+    if (MENU_BGM_VIEWS.has(currentView)) {
+      audioManager.startMenuBgm();
+    } else if (currentView === "chat") {
+      audioManager.stopBgm();
+    }
+  }, [currentView]);
 
   // Poll backend status
   useEffect(() => {
@@ -109,40 +125,48 @@ export default function App() {
     };
   }, [api, setSessions]);
 
-  const renderView = () => {
+  const renderManageView = () => {
     switch (currentView) {
-      case "chat":
-        return <ChatView />;
       case "sessions":
         return <SessionManagerView />;
       case "documents":
         return <DocumentManager />;
       case "settings":
         return <SettingsPanel />;
-      case "combat":
-        return <CombatView />;
       case "index":
         return <IndexManager />;
       case "worldbook":
         return <WorldBookManager />;
       case "docs":
         return <DocsView />;
+      default:
+        return null;
     }
   };
 
+  const immersive = IMMERSIVE_VIEWS.has(currentView);
+
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden">
-      <div className="flex flex-1 overflow-hidden">
-        <Sidebar />
-        <main className="flex-1 overflow-auto">
-          {/* ChatView is always mounted to preserve SSE streams during navigation */}
-          <div style={{ display: currentView === "chat" ? undefined : "none", height: "100%" }}>
-            <ChatView />
-          </div>
-          {currentView !== "chat" && renderView()}
-        </main>
-      </div>
-      <StatusBar />
+      {/* 主页：游戏主菜单（全屏居中栏目 + 背景 + BGM） */}
+      {currentView === "home" && <HomeMenu />}
+
+      {/* 管理页顶栏（取代旧 sidebar 导航） */}
+      {currentView !== "home" && !immersive && <GameTopBar />}
+
+      <main className="flex-1 overflow-hidden min-h-0">
+        {/* ChatView 始终挂载以保留 SSE 流（导航时不中断叙述） */}
+        <div style={{ display: currentView === "chat" ? undefined : "none", height: "100%" }}>
+          <ChatView />
+        </div>
+        {currentView === "combat" && <CombatView />}
+        {currentView !== "home" && !immersive && (
+          <div className="h-full overflow-auto">{renderManageView()}</div>
+        )}
+      </main>
+
+      {/* 状态栏：仅管理页显示（主页有自带状态，沉浸式页面隐藏） */}
+      {currentView !== "home" && !immersive && <StatusBar />}
     </div>
   );
 }
