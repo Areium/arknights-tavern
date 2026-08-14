@@ -177,11 +177,27 @@ def register(app, managers):
         merged_meta, merged_content = session.overlay.apply_character_overrides(
             name, doc["metadata"], doc["content"]
         )
+        overrides = session.overlay.get_character_overrides(name) or {}
+        progress = overrides.get("progress", {}) or {}
+
+        # 派生战斗数值（与 CombatUnit.from_character_metadata 同源）
+        from combat_engine.entity import CombatUnit
+        unit = CombatUnit.from_character_metadata(merged_meta, team="player")
+
         return jsonify({
             "metadata": merged_meta,
             "content": merged_content,
             "has_overrides": session.overlay.has_character_overrides(name),
-            "overrides": session.overlay.get_character_overrides(name),
+            "overrides": overrides,
+            "progress": {
+                "level": int(progress.get("level", 1) or 1),
+                "xp": int(progress.get("xp", 0) or 0),
+            },
+            "combat_stats": {
+                "hp": unit.max_hp, "patk": unit.PATK, "matk": unit.MATK, "heal": unit.HEAL,
+                "def": unit.DEF, "res": unit.RES, "spd": unit.SPD, "hit": unit.HIT,
+                "eva": unit.EVA, "max_ap": unit.MAX_AP,
+            },
         })
 
     @bp.route("/api/sessions/<session_id>/overrides/characters/<name>", methods=["PUT"])
