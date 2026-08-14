@@ -37,6 +37,7 @@ export default function HomeMenu() {
     try { return sessionStorage.getItem("ark_menu_entered") === "1"; } catch { return false; }
   });
   const [muted, setMuted] = useState(audioManager.getSettings().muted);
+  const [bgmVol, setBgmVol] = useState(audioManager.getSettings().bgmVolume);
 
   const storyCount = useMemo(() => sessions.filter((s) => s.mode === "story").length, [sessions]);
   const combatCount = useMemo(() => sessions.filter((s) => s.in_combat).length, [sessions]);
@@ -53,7 +54,12 @@ export default function HomeMenu() {
     const m = !muted;
     setMuted(m);
     audioManager.setMuted(m);
-    if (!m) audioManager.startMenuBgm();
+    if (!m) audioManager.resumeMenuBgmAfterUnmute();
+  };
+
+  const changeBgmVol = (v: number) => {
+    setBgmVol(v);
+    audioManager.setBgmVolume(v);
   };
 
   return (
@@ -122,9 +128,21 @@ export default function HomeMenu() {
           {llmStatus?.primary?.name ?? "LLM 未配置"}
         </span>
         <span className="home-menu-version">v0.1.0</span>
-        <button className="home-audio-btn" onClick={toggleMute} title={muted ? "取消静音" : "静音"}>
-          {muted ? "🔇" : "🔊"}
-        </button>
+        <div className="home-audio-group">
+          <button className="home-audio-btn" onClick={toggleMute} title={muted ? "取消静音（继续播放）" : "静音（暂停，再次点击继续）"}>
+            {muted ? "🔇" : "🔊"}
+          </button>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={bgmVol}
+            onChange={(e) => changeBgmVol(parseFloat(e.target.value))}
+            className="home-vol-slider"
+            title={"BGM 音量 " + Math.round(bgmVol * 100) + "%"}
+          />
+        </div>
       </footer>
     </div>
   );

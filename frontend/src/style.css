@@ -1474,3 +1474,11 @@ html.light .lobby-empty { background: rgba(249, 250, 251, 0.6); border-color: rg
   color: #00d4ff;
   font-weight: 600;
 }
+
+/* 主页音量条 */
+.home-audio-group { display: inline-flex; align-items: center; gap: 8px; }
+.home-vol-slider {
+  width: 90px;
+  accent-color: #f59e0b;
+  cursor: pointer;
+}

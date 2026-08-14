@@ -20,12 +20,18 @@ const NAV_ITEMS: { id: ManageView; label: string; icon: string }[] = [
 export default function GameTopBar() {
   const { currentView, setCurrentView } = useAppStore();
   const [muted, setMuted] = useState(audioManager.getSettings().muted);
+  const [bgmVol, setBgmVol] = useState(audioManager.getSettings().bgmVolume);
 
   const toggleMute = () => {
     const m = !muted;
     setMuted(m);
     audioManager.setMuted(m);
-    if (!m) audioManager.startMenuBgm();
+    if (!m) audioManager.resumeMenuBgmAfterUnmute();
+  };
+
+  const changeBgmVol = (v: number) => {
+    setBgmVol(v);
+    audioManager.setBgmVolume(v);
   };
 
   return (
@@ -63,14 +69,26 @@ export default function GameTopBar() {
 
       <div className="flex-1" />
 
-      {/* 音频开关 */}
-      <button
-        onClick={toggleMute}
-        className="px-2 py-1.5 rounded-lg text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-700/50 transition-colors"
-        title={muted ? "取消静音" : "静音"}
-      >
-        {muted ? "🔇" : "🔊"}
-      </button>
+      {/* 音频：静音（暂停/继续）+ BGM 音量 */}
+      <div className="flex items-center gap-1.5">
+        <button
+          onClick={toggleMute}
+          className="px-2 py-1.5 rounded-lg text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-700/50 transition-colors"
+          title={muted ? "取消静音（继续播放）" : "静音（暂停，再次点击继续）"}
+        >
+          {muted ? "🔇" : "🔊"}
+        </button>
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.05}
+          value={bgmVol}
+          onChange={(e) => changeBgmVol(parseFloat(e.target.value))}
+          className="w-20 h-1.5 accent-amber-500 cursor-pointer"
+          title={"BGM 音量 " + Math.round(bgmVol * 100) + "%"}
+        />
+      </div>
     </header>
   );
 }

@@ -8,6 +8,9 @@ export default function SettingsPanel() {
   const api = useApi();
   const [switching, setSwitching] = useState<string | null>(null);
   const [bgmMuteOnBlur, setBgmMuteOnBlurState] = useState(audioManager.getSettings().bgmMuteOnBlur);
+  const [bgmVol, setBgmVolState] = useState(audioManager.getSettings().bgmVolume);
+  const [sfxVol, setSfxVolState] = useState(audioManager.getSettings().sfxVolume);
+  const [muted, setMutedState] = useState(audioManager.getSettings().muted);
 
   // LLM 配置表单
   const [config, setConfig] = useState({
@@ -173,6 +176,15 @@ export default function SettingsPanel() {
     audioManager.setBgmMuteOnBlur(v);
   };
 
+  const handleBgmVol = (v: number) => { setBgmVolState(v); audioManager.setBgmVolume(v); };
+  const handleSfxVol = (v: number) => { setSfxVolState(v); audioManager.setSfxVolume(v); };
+  const handleToggleMuted = () => {
+    const m = !muted;
+    setMutedState(m);
+    audioManager.setMuted(m);
+    if (!m) audioManager.resumeMenuBgmAfterUnmute();
+  };
+
   return (
     <div className="max-w-2xl mx-auto p-6 space-y-6">
       <h2 className="text-lg font-bold">设置</h2>
@@ -207,23 +219,77 @@ export default function SettingsPanel() {
       {/* 音频 */}
       <section className="card">
         <h3 className="panel-title">音频</h3>
-        <div className="flex items-center justify-between">
+        <div className="space-y-5">
+          {/* BGM 音量 */}
           <div>
-            <p className="text-sm font-medium">窗口失焦时静音 BGM</p>
-            <p className="text-xs text-gray-500 mt-0.5">切到其他窗口/程序时暂停背景音乐，回来自动恢复</p>
-          </div>
-          <button
-            onClick={handleToggleBgmMuteOnBlur}
-            className={`relative w-12 h-6 rounded-full transition-colors duration-200 ${
-              bgmMuteOnBlur ? "bg-blue-600" : "bg-gray-300"
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 ${
-                bgmMuteOnBlur ? "left-6" : "left-0.5"
-              }`}
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="text-sm font-medium">背景音乐音量</p>
+              <span className="text-xs text-gray-500">{Math.round(bgmVol * 100)}%</span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={bgmVol}
+              onChange={(e) => handleBgmVol(parseFloat(e.target.value))}
+              className="w-full accent-amber-500 cursor-pointer"
             />
-          </button>
+          </div>
+          {/* SFX 音量 */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="text-sm font-medium">音效音量（战斗/UI）</p>
+              <span className="text-xs text-gray-500">{Math.round(sfxVol * 100)}%</span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={sfxVol}
+              onChange={(e) => handleSfxVol(parseFloat(e.target.value))}
+              className="w-full accent-blue-500 cursor-pointer"
+            />
+          </div>
+          {/* 静音开关 */}
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">静音</p>
+              <p className="text-xs text-gray-500 mt-0.5">暂停全部声音（BGM 记住进度，再次点击继续播放）</p>
+            </div>
+            <button
+              onClick={handleToggleMuted}
+              className={`relative w-12 h-6 rounded-full transition-colors duration-200 ${
+                muted ? "bg-blue-600" : "bg-gray-300"
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 ${
+                  muted ? "left-6" : "left-0.5"
+                }`}
+              />
+            </button>
+          </div>
+          {/* 失焦暂停 */}
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">窗口失焦时暂停 BGM</p>
+              <p className="text-xs text-gray-500 mt-0.5">切到其他窗口/程序时暂停背景音乐，回来自动恢复</p>
+            </div>
+            <button
+              onClick={handleToggleBgmMuteOnBlur}
+              className={`relative w-12 h-6 rounded-full transition-colors duration-200 ${
+                bgmMuteOnBlur ? "bg-blue-600" : "bg-gray-300"
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 ${
+                  bgmMuteOnBlur ? "left-6" : "left-0.5"
+                }`}
+              />
+            </button>
+          </div>
         </div>
       </section>
 

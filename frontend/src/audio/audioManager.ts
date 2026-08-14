@@ -37,6 +37,8 @@ class AudioManager {
   private bgmPhase: "idle" | "intro" | "loop" = "idle";
   /** 当前 BGM 轨道：combat=战斗 / menu=主菜单（避免同轨道重复启动） */
   private bgmTrack: "combat" | "menu" | null = null;
+  /** 各 BGM 元素的音量增益（菜单曲目 0.6，其余 1），setBgmVolume 时按元素恢复 */
+  private elementGains = new WeakMap<HTMLAudioElement, number>();
   private settings: AudioSettings;
 
   constructor() {
@@ -76,17 +78,28 @@ class AudioManager {
   setBgmVolume(v: number) {
     this.settings.bgmVolume = Math.max(0, Math.min(1, v));
     this.saveSettings();
-    if (this.bgmIntro) this.bgmIntro.volume = v;
-    if (this.bgmLoop) this.bgmLoop.volume = v;
+    if (this.bgmIntro) this.bgmIntro.volume = v * (this.elementGains.get(this.bgmIntro) ?? 1);
+    if (this.bgmLoop) this.bgmLoop.volume = v * (this.elementGains.get(this.bgmLoop) ?? 1);
   }
   setMuted(m: boolean) {
     this.settings.muted = m;
     this.saveSettings();
     if (m) {
-      this.stopBgm();
+      // 暂停而非停止：取消静音后从原位置继续播放
+      this.pauseBgm();
       if (this.ctx && this.ctx.state === "running") this.ctx.suspend();
     } else {
       this.ensureCtx();
+      this.resumeBgm();
+    }
+  }
+
+  /** 取消静音后（菜单页）调用：若当前无任何 BGM 在播，则启动菜单轮播 */
+  resumeMenuBgmAfterUnmute() {
+    if (this.settings.muted) return;
+    this.ensureCtx();
+    if (this.bgmPhase === "idle" || this.bgmTrack === null) {
+      this.startMenuBgm();
     }
   }
   setBgmMuteOnBlur(v: boolean) {
@@ -283,6 +296,8 @@ class AudioManager {
       const loop = new Audio();
       intro.volume = this.settings.bgmVolume;
       loop.volume = this.settings.bgmVolume;
+      this.elementGains.set(intro, 1);
+      this.elementGains.set(loop, 1);
       intro.src = `${base}/api/assets/audio/bgm/combat_intro.wav`;
       loop.src = `${base}/api/assets/audio/bgm/combat_loop.wav`;
       loop.loop = true;
@@ -326,7 +341,9 @@ class AudioManager {
     if (!name) { this.bgmPhase = "idle"; this.bgmTrack = null; return; }
     const audio = new Audio();
     // 背景音乐音量：略低于用户设定（人声/完整编曲的响度高于旧合成乐）
-    audio.volume = this.settings.bgmVolume * 0.6;
+    const gain = 0.6;
+    audio.volume = this.settings.bgmVolume * gain;
+    this.elementGains.set(audio, gain);
     audio.src = base + "/api/assets/audio/bgm/" + name;
     const next = () => this.playMenuTrack(base, index + 1);
     audio.addEventListener("ended", next);

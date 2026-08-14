@@ -16,6 +16,11 @@
 
 ## 更新记录
 
+### 2026-08-15 — 音频控制增强：静音改暂停/继续 + BGM 音量条
+
+- **静音改为暂停/继续**：audioManager.setMuted 由 stopBgm 改为 pauseBgm/resumeBgm（记住播放进度，再次点击从原位置继续），新增 resumeMenuBgmAfterUnmute（取消静音后若无 BGM 在播则启动菜单轮播）
+- **BGM 音量可调**：setBgmVolume 按元素增益恢复音量（菜单曲目 ×0.6、战斗 ×1，WeakMap 记录）；UI 三处新增音量条——主页页脚（home-vol-slider）、管理页顶栏、设置页「音频」区块（BGM 音量 + 音效音量 + 静音开关 + 失焦暂停）
+
 ### 2026-08-15 — 主页 BGM 更换为 Mureka 生成曲目（双曲轮播）
 
 - 用 Mureka 生成的两首自作曲替换合成 menu_loop.wav：`data/audio/bgm/menu_1.mp3` / `menu_2.mp3`（192kbps 44.1kHz）
