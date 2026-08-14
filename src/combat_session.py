@@ -90,6 +90,11 @@ class CombatSession:
             encounter, location, session_dir=session_dir, session_id=self.session_id)
         self.engine = CombatEngine()
 
+        # 遭遇战 conditions：回合上限 + 是否允许撤退（难度曲线 / fail-forward）
+        conditions = encounter.get("conditions", {}) or {}
+        self.engine.max_rounds = int(conditions.get("max_rounds", 0) or 0)
+        self.engine.escape_enabled = bool(conditions.get("escape_enabled", False))
+
         # Events flow through _flush_engine_events() only — no on_event callback
         # to avoid double-queuing when both the callback and flush fire.
 
@@ -320,6 +325,11 @@ class CombatSession:
                 else:
                     return {"ok": False, "error": "Invalid move target"}
 
+            elif action_type == "escape":
+                if not self.engine.escape():
+                    return {"ok": False, "error": "本场战斗无法撤退"}
+                self._flush_engine_events()
+
             else:
                 return {"ok": False, "error": f"Unknown action: {action_type}"}
 
@@ -481,6 +491,8 @@ class CombatSession:
             "background_url": self._background_url,
             "shared_ap": e.shared_ap,
             "shared_ap_max": e.SHARED_AP_MAX,
+            "max_rounds": e.max_rounds,
+            "escape_enabled": e.escape_enabled,
             "units": units,
             "shared_hand": shared_hand,
             "player_hands": player_hands,
@@ -523,6 +535,8 @@ class CombatSession:
             "session_id": self.session_id,
             "session_dir": self._session_dir,
             "reward_mult": self._reward_mult,
+            "max_rounds": self.engine.max_rounds if self.engine else 0,
+            "escape_enabled": self.engine.escape_enabled if self.engine else False,
             "engine_state": {
                 "round_num": self.engine.state.round_num,
                 "phase": self.engine.state.phase,
@@ -543,6 +557,8 @@ class CombatSession:
         cs._encounter_id = data.get("encounter_id", "")
         cs._session_dir = data.get("session_dir", "")
         cs._reward_mult = data.get("reward_mult", 1.0)
+        cs._max_rounds = data.get("max_rounds", 0)
+        cs._escape_enabled = data.get("escape_enabled", False)
         cs._character_metas = data.get("character_metas", [])
 
         # Reconstruct engine
@@ -604,6 +620,8 @@ class CombatSession:
             engine.enemy_pools[uid] = pool
 
         cs.engine = engine
+        engine.max_rounds = cs._max_rounds
+        engine.escape_enabled = cs._escape_enabled
 
         # Re-resolve background (location context is not persisted; the
         # encounter-level field or the default background still applies).

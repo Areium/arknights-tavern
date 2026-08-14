@@ -16,6 +16,13 @@
 
 ## 更新记录
 
+### 2026-08-13 — 难度曲线：回合上限 + 撤退（fail-forward）
+
+- **回合上限**：CombatEngine 消费 encounter.conditions.max_rounds，超过上限强制判负（battle_end winner=enemy reason=回合超时），为战斗加入时间压力
+- **撤退（escape）**：CombatEngine 新增 escape()（仅 escape_enabled 时可用），玩家主动撤退结束战斗 winner=escaped，不判死亡、无奖励、剧情继续（fail-forward）
+- **状态透出**：get_state 新增 max_rounds / escape_enabled；to_dict/from_dict 持久化；前端回合数显示「第 X/N 回合」+ 战斗操作栏新增「撤退」按钮
+- **战后叙述**：/combat/complete 对 escaped/timeout 生成差异化结果描述与战后自动叙述（撤退/战败均为 fail-forward，不 GAME OVER）
+- **测试**：tests/test_combat_difficulty.py（6 用例：回合超时/无上限/撤退/撤退禁用/条件读取/会话撤退动作）
 ### 2026-08-13 — 战前简报流（剧情模式战斗触发改造）
 
 - **两段式战斗触发**：chat.py 的 _apply_combat_trigger → _apply_combat_briefing：标记提取到 [COMBAT:enc_id] 后不再自动开战，改为下发 combat_briefing 事件（含遭遇名 + 打法列表 approaches）；非流式路径在 JSON 响应中返回 combat_briefing

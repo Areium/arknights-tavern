@@ -73,6 +73,8 @@ class CombatEngine:
         self.state = CombatState()
         self.shared_ap = 0
         self.SHARED_AP_MAX = 2
+        self.max_rounds = 0          # 回合上限（0 = 无限制）
+        self.escape_enabled = False  # 是否允许撤退
 
         # Callbacks for external input
         self.on_event: Optional[Callable[[CombatEvent], None]] = None
@@ -269,6 +271,9 @@ class CombatEngine:
         if not self.is_battle_over():
             self._emit("turn_end", round=self.state.round_num)
             self.state.round_num += 1
+            if self.max_rounds > 0 and self.state.round_num > self.max_rounds:
+                self._force_end("enemy", f"回合超时（{self.max_rounds} 回合）")
+                return
             self._start_round()
 
     # ── Actions ──
@@ -605,6 +610,19 @@ class CombatEngine:
         return []
 
     # ── Query ──
+
+    def _force_end(self, winner: str, reason: str) -> None:
+        """强制结束战斗并指定胜负方与原因（回合超时 / 玩家撤退）。"""
+        self.state.phase = "END"
+        self.state.winner = winner
+        self._emit("battle_end", winner=winner, reason=reason)
+
+    def escape(self) -> bool:
+        """玩家撤退（fail-forward，不判负死亡）。返回是否成功结束战斗。"""
+        if not self.escape_enabled or self.is_battle_over():
+            return False
+        self._force_end("escaped", "玩家撤退")
+        return True
 
     def _check_battle_end(self) -> bool:
         """Check if the battle has ended (all players or all enemies dead).
