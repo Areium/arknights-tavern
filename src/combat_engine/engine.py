@@ -16,6 +16,16 @@ from combat_engine.card import Card, CardPool
 from combat_engine.dice import check_hit, compute_damage, HitResult, DamageResult
 
 
+# ── Enemy intent labels ──
+INTENT_LABELS = {
+    "attack": "攻击",
+    "heavy": "重击",
+    "aoe": "范围攻击",
+    "move": "移动",
+    "defend": "坚守",
+}
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Events
 # ══════════════════════════════════════════════════════════════════════════════
@@ -43,6 +53,7 @@ class CombatState:
     phase: str = "INIT"  # INIT | ROUND_START | PLAYER_TURN | ENEMY_TURN | ROUND_END | END
     events: list[CombatEvent] = field(default_factory=list)
     winner: str = ""  # "player" | "enemy" | ""
+    enemy_intents: dict = field(default_factory=dict)  # unit_id → intent dict
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -154,9 +165,8 @@ class CombatEngine:
         self._start_round()
 
     def _start_round(self):
-        """Begin a new round: discard hand, draw 6, reset AP."""
+        """Begin a new round: discard hand, draw 6, reset AP, compute enemy intents."""
         self.state.phase = "ROUND_START"
-        self._emit("round_start", round=self.state.round_num)
 
         # Move all remaining hand cards to discard (shared pool)
         if self.shared_pool:
@@ -171,6 +181,11 @@ class CombatEngine:
         # Reset personal AP for all units
         for unit in self.units.values():
             unit.reset_ap()
+
+        # Compute enemy intents so the player can read enemy plans before acting.
+        self.state.enemy_intents = self._compute_enemy_intents()
+        self._emit("round_start", round=self.state.round_num,
+                   intents=self.state.enemy_intents)
 
         # All players share the same round — begin player phase
         self.state.phase = "PLAYER_TURN"
@@ -243,6 +258,8 @@ class CombatEngine:
 
         enemy_units = [u for u in self.units.values()
                        if u.team == "enemy" and u.is_alive]
+        # 敌人按 SPD 降序行动（先手权决定行动顺序）
+        enemy_units.sort(key=lambda u: u.SPD, reverse=True)
         for enemy in enemy_units:
             if self.is_battle_over():
                 break
@@ -412,50 +429,175 @@ class CombatEngine:
                 return True
             return False
 
+    # ── Enemy intent ──
+
+    def _enemy_card_pool(self, unit: CombatUnit) -> list[Card]:
+        """Return all cards available to an enemy (deck + hand + discard + exhaust)."""
+        pool = self.enemy_pools.get(unit.unit_id)
+        if not pool:
+            return []
+        return pool.deck + pool.hand + pool.discard + pool.exhaust
+
+    @staticmethod
+    def _classify_enemy_intent(card: Card) -> str:
+        """Map an enemy card to a coarse intent type for display + planning."""
+        if card.target in ("ADJACENT", "AREA_2X2", "CROSS", "LINE_3", "ROW"):
+            return "aoe"
+        if card.damage_type == "healing":
+            return "attack"
+        if card.cost >= 2 or card.max_damage >= 12:
+            return "heavy"
+        return "attack"
+
+    def _estimate_card_damage(self, enemy: CombatUnit, card: Card,
+                              target: CombatUnit) -> tuple[int, int]:
+        """Estimate a card's post-resistance damage range vs `target` (no hit roll)."""
+        if card.damage_type == "physical":
+            atk = enemy.PATK
+            resist = target.DEF
+        elif card.damage_type == "arts":
+            atk = enemy.MATK
+            resist = target.RES
+        elif card.damage_type == "healing":
+            return (card.min_damage, card.max_damage)
+        else:  # mixed
+            atk = (enemy.PATK + enemy.MATK) / 2
+            resist = min(target.DEF, target.RES)
+
+        lo = max(1, round(card.min_damage + atk * card.atk_scale - resist))
+        hi = max(lo, round(card.max_damage + atk * card.atk_scale - resist))
+        return (lo, hi)
+
+    def _pick_enemy_card(self, unit: CombatUnit, target: CombatUnit) -> Card | None:
+        """Choose the strongest affordable card that reaches `target`.
+
+        Cards that can hit multiple players score higher (favours AOE when
+        players clump together), keeping intents faithful to execution.
+        """
+        players = [u for u in self.units.values()
+                   if u.team == "player" and u.is_alive]
+        if not players:
+            return None
+
+        best: Card | None = None
+        best_score = -1.0
+        for card in self._enemy_card_pool(unit):
+            if card.cost > unit.AP:
+                continue
+            if card.target in ("SELF", "ALL_ALLIES"):
+                continue
+
+            # How many players this card can reach (global hits everyone).
+            if card.range < 0:
+                affected = len(players)
+            else:
+                affected = sum(
+                    1 for p in players
+                    if range_between(unit.pos, p.pos) <= card.range)
+
+            if affected == 0:
+                continue
+
+            avg_damage = (card.min_damage + card.max_damage) / 2 + card.atk_scale * 10
+            score = avg_damage * affected
+            if score > best_score:
+                best = card
+                best_score = score
+        return best
+
+    def _compute_enemy_intents(self) -> dict:
+        """Compute each alive enemy's planned action for the upcoming turn.
+
+        Exposed to the frontend (state.enemy_intents + round_start event) so
+        players can read enemy plans and react. `ai_behavior == "defensive"`
+        enemies hold position when out of range; aggressive ones close in.
+        """
+        players = [u for u in self.units.values()
+                   if u.team == "player" and u.is_alive]
+        intents: dict[str, dict] = {}
+
+        for enemy in self.units.values():
+            if enemy.team != "enemy" or not enemy.is_alive:
+                continue
+
+            intent = {"type": "defend", "label": INTENT_LABELS["defend"],
+                      "target_id": "", "target_name": "",
+                      "card_id": "", "card_name": "",
+                      "damage_min": None, "damage_max": None}
+
+            if players:
+                nearest = min(players, key=lambda p: range_between(enemy.pos, p.pos))
+                card = self._pick_enemy_card(enemy, nearest)
+                if card:
+                    itype = self._classify_enemy_intent(card)
+                    lo, hi = self._estimate_card_damage(enemy, card, nearest)
+                    intent = {"type": itype, "label": INTENT_LABELS[itype],
+                              "target_id": nearest.unit_id,
+                              "target_name": nearest.name,
+                              "card_id": card.card_id,
+                              "card_name": card.name,
+                              "damage_min": lo, "damage_max": hi}
+                elif enemy.ai_behavior != "defensive" and enemy.AP >= 1:
+                    intent = {"type": "move", "label": INTENT_LABELS["move"],
+                              "target_id": nearest.unit_id,
+                              "target_name": nearest.name,
+                              "card_id": "", "card_name": "",
+                              "damage_min": None, "damage_max": None}
+
+            intents[enemy.unit_id] = intent
+
+        return intents
+
+    def _ensure_card_in_hand(self, unit: CombatUnit, card: Card) -> None:
+        """Move `card` into the enemy's hand so `play_card` validates it."""
+        pool = self.enemy_pools.get(unit.unit_id)
+        if not pool or card in pool.hand:
+            return
+        for pile in (pool.deck, pool.discard, pool.exhaust):
+            if card in pile:
+                pile.remove(card)
+                break
+        pool.hand.append(card)
+
     # ── Enemy AI ──
 
     def _execute_enemy_turn(self, unit_id: str) -> list[DamageResult]:
-        """Simple AI: find nearest player, play best card if in range, else move closer."""
+        """Execute an enemy's planned action, following its precomputed intent."""
         unit = self.units[unit_id]
-        pool = self.enemy_pools.get(unit_id)
+        intent = self.state.enemy_intents.get(unit_id, {})
+        intent_type = intent.get("type", "attack")
 
-        # Draw a card for this enemy
-        if pool:
-            if not pool.deck and pool.discard:
-                pool._reshuffle_discard()
-            if pool.deck:
-                pool.hand.append(pool.deck.pop())
-
-        # Find nearest player unit
         players = [u for u in self.units.values()
                    if u.team == "player" and u.is_alive]
         if not players:
             return []
 
-        nearest = min(players, key=lambda p: range_between(unit.pos, p.pos))
-        dist = range_between(unit.pos, nearest.pos)
+        # 坚守：固守位置，本回合不行动。
+        if intent_type == "defend":
+            return []
 
-        # Try to play a card
-        playable = [c for c in pool.hand if c.cost <= unit.AP]
-        if playable:
-            # Sort by damage potential
-            playable.sort(key=lambda c: c.max_damage + c.atk_scale * 10, reverse=True)
-            for card in playable:
-                if card.target in ("SELF", "ALL_ALLIES"):
-                    continue
-                in_range = card.range < 0 or dist <= card.range
-                if in_range:
-                    return self.play_card(unit_id, card, nearest.pos)
+        # Resolve intended target; fall back to nearest alive player.
+        target = None
+        target_id = intent.get("target_id", "")
+        if target_id and target_id in self.units:
+            candidate = self.units[target_id]
+            if candidate.team == "player" and candidate.is_alive:
+                target = candidate
+        if target is None:
+            target = min(players, key=lambda p: range_between(unit.pos, p.pos))
 
-        # Can't attack — move toward nearest player
+        card = self._pick_enemy_card(unit, target)
+        if card:
+            self._ensure_card_in_hand(unit, card)
+            return self.play_card(unit_id, card, target.pos)
+
+        # Can't attack — move toward the target if AP remains.
         if unit.AP >= 1:
             r, c = unit.pos
-            tr, tc = nearest.pos
-            # Move one step closer (Chebyshev)
+            tr, tc = target.pos
             dr = 0 if r == tr else (1 if tr > r else -1)
             dc = 0 if c == tc else (1 if tc > c else -1)
             new_pos = (r + dr, c + dc)
-            # Check if valid
             if self.grid.is_valid_position(new_pos, unit.team):
                 if self.grid.move_unit(unit, new_pos):
                     unit.AP -= 1

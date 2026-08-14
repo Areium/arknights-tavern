@@ -309,6 +309,18 @@ export interface PlayerPoolDTO {
   exhaust: CardDTO[];
 }
 
+/** 敌人意图（ROUND_START 计算，供玩家读取敌方计划） */
+export interface EnemyIntentDTO {
+  type: "attack" | "heavy" | "aoe" | "move" | "defend";
+  label: string;
+  target_id: string;
+  target_name: string;
+  card_id: string;
+  card_name: string;
+  damage_min: number | null;
+  damage_max: number | null;
+}
+
 /** 战斗状态快照 */
 export interface CombatStateDTO {
   round_num: number;
@@ -327,6 +339,8 @@ export interface CombatStateDTO {
   valid_moves: [number, number][];
   active_unit_id: string | null;
   grid: Record<string, string>;
+  /** 敌人意图：unit_id → intent（玩家回合内读取敌方计划） */
+  enemy_intents: Record<string, EnemyIntentDTO>;
   battle_over: boolean;
   inventory: { name: string; count: number }[];
 }

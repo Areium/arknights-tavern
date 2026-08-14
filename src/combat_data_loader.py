@@ -58,6 +58,7 @@ class CombatDataLoader:
             hit=stats.get("hit", 4),
             eva=stats.get("eva", 4),
             max_ap=stats.get("max_ap", 3),
+            ai_behavior=meta.get("ai_behavior", "aggressive"),
         )
 
     def load_enemy_meta(self, name: str) -> dict | None:
