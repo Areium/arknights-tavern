@@ -188,22 +188,27 @@ export default function CombatView() {
       onEvent: (ev: any) => {
         setEvents((prev) => [...prev.slice(-200), ev as CombatEventDTO]);
         // Spawn damage numbers + particles
-        if (ev.type === "damage" && ev.data?.damage > 0) {
+        if (ev.type === "damage") {
           const pos = ev.data.target_pos || [4, 4];
-          addDamageNumber(ev.data.damage, ev.data.damage_type || "physical", pos);
-          spawnParticles("spark", pos, 8 + Math.floor(ev.data.damage / 5));
-          // Spine 动作：攻击者播攻击、目标播受击
-          pixiRef.current?.playAttack(ev.data.unit_id);
-          pixiRef.current?.playHit(ev.data.target_id);
-          // 音效：miss/dodge → miss，crit → crit，否则按伤害类型选命中音
           const hr = ev.data.hit_result || "";
-          if (/miss|dodge/i.test(hr)) audioManager.playSfx("miss");
-          else if (/crit/i.test(hr)) audioManager.playSfx("crit");
-          else {
-            const dtype = ev.data.damage_type || "physical";
-            audioManager.playSfx(
-              dtype === "arts" ? "hit_arts" : dtype === "mixed" ? "hit_mixed" : "hit_physical"
-            );
+          if (ev.data?.damage > 0) {
+            addDamageNumber(ev.data.damage, ev.data.damage_type || "physical", pos);
+            spawnParticles("spark", pos, 8 + Math.floor(ev.data.damage / 5));
+            // Spine 动作：攻击者播攻击、目标播受击
+            pixiRef.current?.playAttack(ev.data.unit_id);
+            pixiRef.current?.playHit(ev.data.target_id);
+            if (/crit/i.test(hr)) audioManager.playSfx("crit");
+            else {
+              const dtype = ev.data.damage_type || "physical";
+              audioManager.playSfx(
+                dtype === "arts" ? "hit_arts" : dtype === "mixed" ? "hit_mixed" : "hit_physical"
+              );
+            }
+          } else if (/miss|dodge/i.test(hr)) {
+            // 闪避/未命中：浮动文字 + miss 音效
+            addDamageNumber(0, "miss", pos);
+            pixiRef.current?.playAttack(ev.data.unit_id);
+            audioManager.playSfx("miss");
           }
         }
         if (ev.type === "heal" && ev.data?.amount > 0) {
@@ -211,6 +216,11 @@ export default function CombatView() {
           addDamageNumber(ev.data.amount, "heal", pos);
           spawnParticles("heal", pos, 6);
           audioManager.playSfx("heal");
+        }
+        if (ev.type === "status") {
+          // 状态效果音效：护盾 → shield，其余 → ui
+          if (ev.data.type === "shield") audioManager.playSfx("shield");
+          else audioManager.playSfx("ui");
         }
         if (ev.type === "death") {
           const pos = ev.data.pos || [4, 4];
@@ -1359,7 +1369,7 @@ export default function CombatView() {
               return (
                 <span
                   key={d.id}
-                  className={`damage-number ${d.type === "heal" ? "heal" : d.type === "arts" ? "arts" : "physical"}`}
+                  className={`damage-number ${d.type === "heal" ? "heal" : d.type === "arts" ? "arts" : d.type === "miss" ? "miss" : "physical"}`}
                   style={{
                     position: "absolute",
                     left: center ? `${center.x - 14}px` : `${cfg.cellSize + d.pos[1] * (cfg.cellSize + 2)}px`,
@@ -1368,7 +1378,7 @@ export default function CombatView() {
                     pointerEvents: "none",
                   }}
                 >
-                  {d.type === "heal" ? `+${d.value}` : `-${d.value}`}
+                  {d.type === "miss" ? "闪避" : d.type === "heal" ? `+${d.value}` : `-${d.value}`}
                 </span>
               );
             })}

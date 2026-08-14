@@ -16,6 +16,12 @@
 
 ## 更新记录
 
+### 2026-08-13 — 战斗反馈打磨：闪避文字 + 伤害定位 + 状态音效
+
+- **闪避/未命中浮动文字**：命中判定修复（feat/hit-fix）后 dodge/miss 造成 0 伤害，此前因前端 `damage > 0` 守卫被完全静默；现在 miss/dodge 显示「闪避」浮动文字 + miss 音效 + 攻击者 Spine 动作
+- **伤害定位修复**：后端 damage/heal/death/status/物品治疗事件补齐 target_pos（此前前端 `target_pos || [4,4]` 永远回退到网格中心，伤害数字/粒子/受击特效错位）
+- **状态效果音效**：前端处理 status 事件——护盾播 shield 音效、减速/束缚/虚弱/增幅播 ui 音效
+- **CSS**：新增 .damage-number.miss（灰白描边小字「闪避」）
 ### 2026-08-13 — 敌人意图头顶图标（战斗 UI）
 
 - CombatView 玩家回合（PLAYER_TURN）在敌人头顶渲染意图徽章：⚔攻击 / 💢重击 / 🌐范围攻击 / 👣移动 / 🛡坚守，复用 getCellCenter + relativeRef 与伤害数字同一套 DOM 定位，zIndex 90 叠加于 Spine 画布之上

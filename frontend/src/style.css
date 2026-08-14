@@ -553,6 +553,7 @@ html.light .text-amber-100\/70 { color: rgba(120,53,15,0.85); }
 .damage-number.arts     { color: #b44af0; text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 0 8px rgba(180, 74, 240, 0.8); }
 .damage-number.heal     { color: #4aff8b; text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 0 8px rgba(74, 255, 139, 0.8); }
 .damage-number.crit     { font-size: 38px; color: #ffd700; }
+.damage-number.miss     { font-size: 20px; color: #cfd8e3; letter-spacing: 0.1em; text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 0 8px rgba(207, 216, 227, 0.6); }
 
 @keyframes damage-float {
   0%   { transform: translateY(0) scale(0.8); opacity: 1; }

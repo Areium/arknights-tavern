@@ -363,7 +363,8 @@ class CombatEngine:
                 target.heal(dr.final)
                 self._emit("heal", unit_id=unit.unit_id, caster=unit.name,
                            target_id=target.unit_id, target=target.name,
-                           amount=dr.final, card=card.name)
+                           amount=dr.final, card=card.name,
+                           target_pos=list(target.pos))
             else:
                 hr = check_hit(unit, target)
                 dr = compute_damage(unit, target, card, hr)
@@ -382,11 +383,12 @@ class CombatEngine:
                 self._emit("damage", unit_id=unit.unit_id, caster=unit.name,
                            target_id=target.unit_id, target=target.name,
                            damage=actual, hit_result=str(hr), card=card.name,
-                           shielded=shielded)
+                           shielded=shielded, target_pos=list(target.pos))
 
                 if not target.is_alive:
                     self._emit("death", unit_id=target.unit_id,
-                               name=target.name, team=target.team)
+                               name=target.name, team=target.team,
+                               pos=list(target.pos))
                     self.grid.remove_unit(target)
 
             results.append(dr)
@@ -405,7 +407,8 @@ class CombatEngine:
                         continue
                     self._emit("status", unit_id=unit.unit_id,
                                target_id=target.unit_id, target=target.name,
-                               type=etype, value=val)
+                               type=etype, value=val,
+                               target_pos=list(target.pos))
 
         if not results:
             # No valid targets in range — refund AP, don't consume card

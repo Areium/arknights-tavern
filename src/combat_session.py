@@ -404,7 +404,8 @@ class CombatSession:
             self.engine.shared_ap -= 1
             self._enqueue_event(CombatEvent(
                 "heal", data={"unit_id": target_id, "caster": "物品", "target_id": target_id,
-                              "target": target.name, "amount": healed, "card": item_name}))
+                              "target": target.name, "amount": healed, "card": item_name,
+                              "target_pos": list(target.pos)}))
         elif effect_type == "buff":
             # 增益效果暂未实装（buff/debuff 运行时后置）
             return {"ok": False, "error": "增益类物品暂未实装"}
