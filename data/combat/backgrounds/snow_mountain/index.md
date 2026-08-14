@@ -23,10 +23,10 @@
 name: "雪山战场"
 summary: "谢拉格雪山战场：暴风雪中的冰原与圣山，适配雪境遭遇战。"
 type: combat_background
-image: ""
+image: "bg.jpg"
 prompt: "Arknights style anime background art, snow-covered Kjerag mountain battlefield, blizzard under a heavy grey sky, towering icy cliffs and snow-dusted pine trees in the distance, a wide frozen snowfield ground plane in the center with wind-blown snow drifts, faint glacial peaks rising behind, cold blue-white palette with pale cyan highlights, dim overcast lighting, soft falling snowflakes, heavy atmospheric haze, no characters, no text, no UI, painterly matte painting quality, 16:9"
 negative_prompt: "people, characters, text, watermark, logo, UI elements, warm bright colors, sunshine, clear blue sky, close-up, first-person view"
-source: "ai"
+source: placeholder
 size: "1920x1080"
 ---
 
