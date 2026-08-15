@@ -27,6 +27,7 @@
 - **生成脚本**：scripts/generate_builtin_worldbook.py 从角色/剧情 index.md 生成整合包（19 角色 + 3 剧情 = 22 条）
 - **测试**：test_world_book.py / test_worldbook_integration.py 全绿（31 用例）；自定义 data_dir 不注入预装包保持测试隔离
 - **文档**：新增 docs/content-hub-design.md 设计文档；README 导航/世界书章节同步
+- **角色卡导入**：POST /api/characters/import（SillyTavern 角色卡 PNG/JSON）→ data/characters/<slug>/index.md（source: imported）+ 头像 + 内嵌世界书自动导入；内容中心「角色·剧情」Tab 顶部「⬆角色卡」一键导入；新模块 src/character_card.py（PNG tEXt 解析/ST v1/v2 规范化）
 
 ### 2026-08-15 — 代码清理与可维护性优化（冗余淘汰）
 

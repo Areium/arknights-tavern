@@ -2,11 +2,14 @@
 Scene blueprint — 场景角色/物品/覆盖管理。
 """
 
+import logging
 import os
 from pathlib import Path
+import yaml
 from flask import Blueprint, jsonify, request, send_from_directory, abort
 
 from shared.helpers import json_error
+from shared.cache import invalidate_all_caches
 from document_manager import DocumentNotFoundError, ConflictError
 from avatar_color import find_avatar_path, get_theme_color, ensure_theme_color
 
@@ -28,9 +31,13 @@ def _require_usable(session):
     return None
 
 
+logger = logging.getLogger(__name__)
+
+
 def register(app, managers):
     session_mgr = managers["session"]
     doc_mgr = managers["document"]
+    wb_mgr = managers["worldbook"]
 
     bp = Blueprint("scene", __name__)
 
@@ -411,5 +418,118 @@ def register(app, managers):
         from avatar_color import get_card_face_crop
         crop = get_card_face_crop(name)
         return jsonify(crop or {})
+
+    # ── 角色卡导入（第三方角色 → data/characters/<name>/ + 内嵌世界书） ──
+
+    @bp.route("/api/characters/import", methods=["POST"])
+    def import_character_card():
+        """导入 SillyTavern 角色卡（PNG 内嵌 JSON 或纯 JSON）。
+
+        产出：
+        1. data/characters/<slug>/index.md（frontmatter 含 source: imported 来源标识）
+        2. 头像：卡片原图（剥离内嵌 JSON 块）
+        3. 内嵌世界书：若有 character_book，自动导入为世界书（与整合包统一管理）
+        """
+        from character_card import CharacterCardError, parse_character_card, slugify
+
+        f = request.files.get("file")
+        if not f:
+            return json_error("需要上传角色卡文件（PNG 或 JSON）")
+        raw = f.read()
+        if not raw:
+            return json_error("文件内容为空")
+        try:
+            parsed = parse_character_card(raw)
+        except CharacterCardError as exc:
+            return json_error(f"角色卡解析失败：{exc}", 400)
+        except Exception as exc:
+            logger.exception("角色卡解析异常")
+            return json_error(f"角色卡解析异常：{exc!s}", 400)
+
+        meta = parsed["meta"]
+        name = meta["name"]
+        base_dir = _REPO_ROOT / "data" / "characters"
+        slug = slugify(name)
+        target = base_dir / slug
+        if target.exists():
+            i = 2
+            while (base_dir / f"{slug}_{i}").exists():
+                i += 1
+            target = base_dir / f"{slug}_{i}"
+            slug = target.name
+        target.mkdir(parents=True, exist_ok=True)
+
+        # ── index.md（frontmatter + 正文） ──
+        summary = " ".join(meta["description"].split())[:160]
+        fm = {"name": name, "summary": summary, "source": "imported"}
+        if meta.get("tags"):
+            fm["tags"] = meta["tags"]
+        if meta.get("creator"):
+            fm["creator"] = meta["creator"]
+        if meta.get("character_version"):
+            fm["character_version"] = meta["character_version"]
+
+        parts = []
+        if meta["description"]:
+            parts.append("# 角色背景\n\n" + meta["description"].strip())
+        if meta["personality"]:
+            parts.append("## 性格\n\n" + meta["personality"].strip())
+        if meta["scenario"]:
+            parts.append("## 场景\n\n" + meta["scenario"].strip())
+        if meta["first_mes"]:
+            parts.append("## 开场白\n\n" + meta["first_mes"].strip())
+        if meta["mes_example"]:
+            parts.append("## 对话示例\n\n" + meta["mes_example"].strip())
+        if meta["creator_notes"]:
+            parts.append("## 作者备注\n\n" + meta["creator_notes"].strip())
+
+        index_md = (
+            "---\n"
+            + yaml.safe_dump(fm, allow_unicode=True, sort_keys=False).strip()
+            + "\n---\n\n"
+            + "\n\n".join(parts)
+            + "\n"
+        )
+        (target / "index.md").write_text(index_md, encoding="utf-8")
+
+        # ── 头像（剥离内嵌 JSON 的卡片原图） ──
+        avatar_path = None
+        if parsed["image_bytes"]:
+            avatar_dir = target / "avatar"
+            avatar_dir.mkdir(exist_ok=True)
+            avatar_path = avatar_dir / f"{slug}.png"
+            avatar_path.write_bytes(parsed["image_bytes"])
+
+        # ── 内嵌世界书（若有） ──
+        book_summary = None
+        if parsed["book_data"]:
+            try:
+                book, _report = wb_mgr.import_book(f"{name}（角色卡）", parsed["book_data"])
+                book_summary = {
+                    "id": book.id,
+                    "name": book.name,
+                    "source": book.source,
+                    "entry_count": len(book.entries),
+                }
+            except Exception as exc:
+                logger.warning("角色卡内嵌世界书导入失败: %s", exc)
+
+        # 失效文档缓存（角色列表/实体索引）
+        try:
+            import index_manager as idxmgr
+            invalidate_all_caches(idxmgr, managers.get("wiki"))
+        except Exception:
+            pass
+
+        return jsonify({
+            "character": {
+                "name": name,
+                "slug": slug,
+                "path": f"characters/{slug}",
+                "source": "imported",
+                "has_avatar": avatar_path is not None,
+            },
+            "worldbook": book_summary,
+        }), 201
 
     app.register_blueprint(bp)

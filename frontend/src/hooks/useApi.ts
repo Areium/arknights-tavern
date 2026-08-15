@@ -416,6 +416,8 @@ export function useApi() {
     // ── 角色库 ──
     getCharacters: () => request<any[]>("/api/characters"),
     getCharacter: (id: string) => request<any>(`/api/characters/${encodeURIComponent(id)}`),
+    importCharacterCard: (file: File) =>
+      uploadMultipart("/api/characters/import", {}, file),
 
     // ── 物品库 ──
     getItems: () => request<any[]>("/api/items"),

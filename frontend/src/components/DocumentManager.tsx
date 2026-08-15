@@ -129,6 +129,8 @@ export default function DocumentManager({ initialTab = "docs" }: { initialTab?: 
 
   // ── Toast ──
   const [toast, setToast] = useState<ToastState | null>(null);
+  const [charImporting, setCharImporting] = useState(false);
+  const charFileRef = useRef<HTMLInputElement>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout>>();
 
   const showToast = useCallback((message: string, type: "success" | "error" = "success") => {
@@ -400,6 +402,30 @@ export default function DocumentManager({ initialTab = "docs" }: { initialTab?: 
       return "名称不能为空";
     }
     return null;
+  };
+
+  // ── 角色卡导入（第三方 SillyTavern 角色卡 → data/characters + 内嵌世界书） ──
+
+  const handleImportCharacterCard = async (file: File) => {
+    setCharImporting(true);
+    try {
+      const res = await apiRef.current.importCharacterCard(file);
+      const c = res.character;
+      const wb = res.worldbook;
+      showToast(
+        `角色「${c.name}」已导入` + (wb ? `，内嵌世界书 ${wb.name}（${wb.entry_count} 条）` : ""),
+        "success"
+      );
+      await loadTree();
+      if (c.path) {
+        const [cat, ...rest] = c.path.split("/");
+        if (cat && rest.length) handleSelect(cat, rest.join("/"));
+      }
+    } catch (err: any) {
+      showToast(err.message || "角色卡导入失败", "error");
+    } finally {
+      setCharImporting(false);
+    }
   };
 
   // ── Operations ──
@@ -975,6 +1001,27 @@ export default function DocumentManager({ initialTab = "docs" }: { initialTab?: 
             卡牌
           </button>
           <div className="flex-1" />
+          {activeTab === "docs" && (
+            <button
+              onClick={() => charFileRef.current?.click()}
+              disabled={charImporting}
+              className="text-xs px-2 py-0.5 rounded bg-amber-600/20 text-amber-300 hover:bg-amber-600/40 disabled:opacity-50 shrink-0"
+              title="导入 SillyTavern 角色卡（PNG 或 JSON）：角色设定 + 内嵌世界书"
+            >
+              {charImporting ? "导入中…" : "⬆角色卡"}
+            </button>
+          )}
+          <input
+            ref={charFileRef}
+            type="file"
+            accept=".png,.json,.webp,.jpg,.jpeg"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) handleImportCharacterCard(f);
+              e.target.value = "";
+            }}
+          />
           <button
             onClick={async () => {
               try {
