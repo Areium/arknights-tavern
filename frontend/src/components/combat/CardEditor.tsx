@@ -305,8 +305,8 @@ export default function CardEditor({ onClose, embedded, entityName, entityType, 
           <span className="text-gray-500 text-xs">
             {isClassMode ? "class" : "character"}: {activeName}
             {isClassMode
-              ? (classCardsData && ` — ${classCardsData.cards.length} cards`)
-              : (cardsData && ` — ${cardsData.exclusive_cards.length} + ${cardsData.class_cards.length} cards`)}
+              ? (classCardsData && ` — ${(classCardsData.cards || []).length} cards`)
+              : (cardsData && ` — ${(cardsData.exclusive_cards || []).length} + ${(cardsData.class_cards || []).length} cards`)}
           </span>
         )}
       </div>

@@ -33,6 +33,10 @@ class AudioManager {
   private lastPlayed = new Map<string, number>();
   private bgmIntro: HTMLAudioElement | null = null;
   private bgmLoop: HTMLAudioElement | null = null;
+  /** 所有存活中的 BGM 元素（防 stopBgm 后残留元素继续播放/换曲） */
+  private liveBgm = new Set<HTMLAudioElement>();
+  /** BGM 启动中（getBaseUrl 异步间隙），防止快速重复调用造成双轨 */
+  private bgmStarting = false;
   /** BGM 播放阶段：idle=未播 / intro=序曲 / loop=循环 */
   private bgmPhase: "idle" | "intro" | "loop" = "idle";
   /** 当前 BGM 轨道：combat=战斗 / menu=主菜单（避免同轨道重复启动） */
@@ -44,6 +48,32 @@ class AudioManager {
   constructor() {
     this.settings = this.loadSettings();
     this.initBlurHandling();
+    this.initPageHideCleanup();
+  }
+
+  /** 页面卸载/刷新前彻底停止音频：防止旧页面 BGM 在刷新后残留（双轨音乐） */
+  private initPageHideCleanup() {
+    if (typeof window === "undefined") return;
+    window.addEventListener("pagehide", () => this.dispose());
+  }
+
+  /** 停止全部音频并释放资源（页面卸载时调用；也可用于切换运行环境） */
+  dispose() {
+    this.stopBgm();
+    this.bgmStarting = false;
+    for (const el of this.liveBgm) {
+      try {
+        el.pause();
+        el.removeAttribute("src");
+        el.load();
+      } catch { /* ignore */ }
+    }
+    this.liveBgm.clear();
+    if (this.ctx) {
+      try { void this.ctx.close(); } catch { /* ignore */ }
+      this.ctx = null;
+    }
+    this.bufferCache.clear();
   }
 
   /** 窗口失焦时暂停 BGM、聚焦恢复（受 bgmMuteOnBlur 开关控制） */
@@ -288,10 +318,13 @@ class AudioManager {
 
   startBgm() {
     if (this.settings.muted) return;
-    if (this.bgmTrack === "combat" && this.bgmPhase !== "idle") return; // 战斗 BGM 已在播
+    if (this.bgmTrack === "combat" && (this.bgmPhase !== "idle" || this.bgmStarting)) return; // 战斗 BGM 已在播
     this.stopBgm();
     this.bgmTrack = "combat";
+    this.bgmStarting = true;
     void getBaseUrl().then((base) => {
+      this.bgmStarting = false;
+      if (this.bgmTrack !== "combat") return; // 启动期间被 stopBgm 打断 → 放弃
       const intro = new Audio();
       const loop = new Audio();
       intro.volume = this.settings.bgmVolume;
@@ -312,6 +345,7 @@ class AudioManager {
   stopBgm() {
     this.bgmPhase = "idle";
     this.bgmTrack = null;
+    this.bgmStarting = false;
     if (this.bgmIntro) { this.bgmIntro.pause(); this.bgmIntro.src = ""; this.bgmIntro = null; }
     if (this.bgmLoop) { this.bgmLoop.pause(); this.bgmLoop.src = ""; this.bgmLoop = null; }
   }
@@ -322,13 +356,15 @@ class AudioManager {
   /** 主菜单 / 大厅 BGM 曲目列表（顺序轮播，播完循环回第一首） */
   private menuTracks: string[] = ["menu_1.mp3", "menu_2.mp3"];
 
-  /** 主菜单 / 大厅 BGM：两首曲目顺序轮播（文件缺失时静默）。已在播放时不重启。 */
+  /** 主菜单 / 大厅 BGM：两首曲目顺序轮播（文件缺失时静默）。已在播放/启动中时不重启。 */
   startMenuBgm() {
     if (this.settings.muted) return;
-    if (this.bgmTrack === "menu" && this.bgmPhase !== "idle") return; // 菜单 BGM 已在播
+    if (this.bgmTrack === "menu" && (this.bgmPhase !== "idle" || this.bgmStarting)) return;
     this.stopBgm();
     this.bgmTrack = "menu";
+    this.bgmStarting = true;
     void getBaseUrl().then((base) => {
+      this.bgmStarting = false;
       // stopBgm 可能在此期间被再次调用（例如快速切换进战斗）→ 放弃
       if (this.bgmTrack !== "menu") return;
       this.playMenuTrack(base, 0);
@@ -340,17 +376,24 @@ class AudioManager {
     const name = this.menuTracks[index % this.menuTracks.length];
     if (!name) { this.bgmPhase = "idle"; this.bgmTrack = null; return; }
     const audio = new Audio();
+    this.liveBgm.add(audio);
     // 背景音乐音量：略低于用户设定（人声/完整编曲的响度高于旧合成乐）
     const gain = 0.6;
     audio.volume = this.settings.bgmVolume * gain;
     this.elementGains.set(audio, gain);
     audio.src = base + "/api/assets/audio/bgm/" + name;
-    const next = () => this.playMenuTrack(base, index + 1);
-    audio.addEventListener("ended", next);
+    audio.addEventListener("ended", () => {
+      this.liveBgm.delete(audio);
+      // 仅在自身仍是当前曲目时继续轮播（防停止/静音后残留链条换曲）
+      if (this.bgmTrack === "menu" && this.bgmLoop === audio) {
+        this.playMenuTrack(base, index + 1);
+      }
+    });
     this.bgmLoop = audio;
     this.bgmIntro = null;
     this.bgmPhase = "loop";
     audio.play().catch(() => {
+      this.liveBgm.delete(audio);
       // 文件缺失/自动播放被拒 → 静音；复位轨道标记以便下次手势后重试
       if (this.bgmLoop === audio) { this.bgmLoop = null; }
       this.bgmPhase = "idle";

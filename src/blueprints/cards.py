@@ -41,6 +41,20 @@ def json_error(message: str, status: int = 400):
     return jsonify({"error": message}), status
 
 
+def _normalize_cards_payload(data: dict) -> dict:
+    """补齐缺失的数组字段，避免前端对 undefined.length 崩溃（旧数据兼容）。"""
+    data = dict(data or {})
+    for key in ("exclusive_cards", "class_cards", "cards"):
+        if key in data and not isinstance(data[key], list):
+            data[key] = []
+        data.setdefault(key, [])
+    for card in data.get("exclusive_cards", []) + data.get("class_cards", []):
+        if isinstance(card, dict):
+            card.setdefault("tags", [])
+            card.setdefault("card_type", [])
+    return data
+
+
 # ── Routes ──────────────────────────────────────────────────────────────────
 
 def register(app, managers):
@@ -54,7 +68,7 @@ def register(app, managers):
             return json_error(f"Class cards not found: {class_name}", 404)
         try:
             with open(path, "r", encoding="utf-8") as f:
-                return jsonify(json.load(f))
+                return jsonify(_normalize_cards_payload(json.load(f)))
         except Exception as e:
             logger.error("Failed to read class cards %s: %s", class_name, e)
             return json_error(f"Failed to read class cards: {e}", 500)
@@ -97,7 +111,7 @@ def register(app, managers):
             return json_error(f"Character cards not found: {character_name}", 404)
         try:
             with open(path, "r", encoding="utf-8") as f:
-                return jsonify(json.load(f))
+                return jsonify(_normalize_cards_payload(json.load(f)))
         except Exception as e:
             logger.error("Failed to read character cards %s: %s", character_name, e)
             return json_error(f"Failed to read character cards: {e}", 500)
