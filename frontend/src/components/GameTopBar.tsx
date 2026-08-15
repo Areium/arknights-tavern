@@ -6,13 +6,11 @@ import { useState } from "react";
 import { useAppStore } from "../stores/appStore";
 import { audioManager } from "../audio/audioManager";
 
-type ManageView = "sessions" | "documents" | "worldbook" | "index" | "docs" | "settings";
+type ManageView = "sessions" | "content" | "docs" | "settings";
 
 const NAV_ITEMS: { id: ManageView; label: string; icon: string }[] = [
   { id: "sessions", label: "会话大厅", icon: "🏛️" },
-  { id: "documents", label: "资产", icon: "📄" },
-  { id: "worldbook", label: "世界书", icon: "📖" },
-  { id: "index", label: "索引", icon: "🔗" },
+  { id: "content", label: "内容中心", icon: "🗂️" },
   { id: "docs", label: "文档", icon: "📘" },
   { id: "settings", label: "设置", icon: "⚙️" },
 ];

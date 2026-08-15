@@ -38,12 +38,18 @@ logger = logging.getLogger(__name__)
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _WORLDBOOKS_DIR = _PROJECT_ROOT / "data" / "worldbooks"
 
+# 整合包分发源（随程序分发，git 跟踪）：首次启动自动安装到 _WORLDBOOKS_DIR
+_PACKS_DIR = _PROJECT_ROOT / "data" / "packs"
+# 未显式配置全局默认书时，按此顺序回退到已安装且启用的预装包（无则跳过）
+_PACK_FALLBACK_IDS = ["arknights"]
+
 # 支持探测的来源格式标签
 SOURCE_V1 = "sillytavern_v1"
 SOURCE_V2 = "sillytavern_v2"
 SOURCE_CARD = "character_card"
 SOURCE_JSONL = "chat_backup_jsonl"
 SOURCE_MANUAL = "manual"
+SOURCE_PREINSTALLED = "preinstalled"
 
 
 @dataclass
@@ -499,14 +505,26 @@ def _substitute_macros(content: str, identity: str, active_char: Optional[str]) 
 
 
 class WorldBook:
-    """一本世界书：id + 元信息 + 条目集合 + 触发/格式化逻辑。"""
+    """一本世界书：id + 元信息 + 条目集合 + 触发/格式化逻辑。
+
+    source: "preinstalled"（随程序分发的整合包安装副本）| "imported"（用户导入/新建）
+    enabled: 书级启用开关，停用的书不参与解析。
+    所有书统一管理、统一可写；预装包删除后可从分发源一键重装。
+    """
 
     def __init__(self, book_id: str, name: str = "", entries: list = None,
-                 source_format: str = SOURCE_MANUAL, budget_tokens: int = 0):
+                 source_format: str = SOURCE_MANUAL, budget_tokens: int = 0,
+                 source: str = "imported", enabled: bool = True):
         self.id = book_id
         self.name = name or book_id
         self.source_format = source_format
         self.budget_tokens = budget_tokens  # 0 = 不限制
+        # source: "preinstalled"（随程序分发的整合包，安装副本）| "imported"（用户导入）
+        self.source = source if source in (SOURCE_PREINSTALLED, "imported", "builtin") else "imported"
+        if self.source == "builtin":
+            # 旧版字段兼容
+            self.source = SOURCE_PREINSTALLED
+        self.enabled = bool(enabled)
         self.created_at = time.time()
         self.updated_at = time.time()
         self.entries: list[WorldBookEntry] = list(entries or [])
@@ -519,6 +537,8 @@ class WorldBook:
             "name": self.name,
             "source_format": self.source_format,
             "budget_tokens": self.budget_tokens,
+            "source": self.source,
+            "enabled": self.enabled,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "entries": [e.to_dict() for e in self.entries],
@@ -531,6 +551,8 @@ class WorldBook:
             name=str(data.get("name", "")),
             source_format=str(data.get("source_format", SOURCE_MANUAL)),
             budget_tokens=int(data.get("budget_tokens", 0)),
+            source=str(data.get("source", "imported")),
+            enabled=bool(data.get("enabled", True)),
         )
         book.created_at = float(data.get("created_at", time.time()))
         book.updated_at = float(data.get("updated_at", time.time()))
@@ -655,20 +677,65 @@ class WorldBook:
 # ─────────────────────────────────────────────────────────────
 
 class WorldBookManager:
-    """世界书存储管理器：data/worldbooks/ 目录 + 会话绑定 + 全局默认书。
+    """世界书存储管理器：统一管理 data/worldbooks/（全部可写）。
 
-    绑定解析规则：会话 overlay 显式绑定的书 > 全局默认书 > None。
+    整合包（Content Pack）机制：
+    - data/packs/<id>.json 为随程序分发的整合包（git 跟踪，分发源）。
+    - 首次启动自动安装：把分发源复制到 data/worldbooks/<id>.json（source=preinstalled），
+      与用户导入的书在同一列表、同一套规则下管理（启用/停用、编辑、删除、重装）。
+    - 预装包被删除后，可通过 reinstall_book() 从分发源一键重装还原。
+
+    绑定解析规则：会话 overlay 显式绑定的书 > 全局默认书 > 已安装且启用的预装包 > None。
     """
 
     def __init__(self, data_dir: Path | str = None):
         self._dir = Path(data_dir) if data_dir else _WORLDBOOKS_DIR
         self._dir.mkdir(parents=True, exist_ok=True)
+        self._packs_dir = _PACKS_DIR
         self._cache: dict[str, WorldBook] = {}
+        # 仅默认数据目录自动安装整合包（自定义目录用于测试/隔离，不注入预装内容）
+        if data_dir is None:
+            self._ensure_packs_installed()
+
+    # ── 整合包安装 ──
+
+    def _ensure_packs_installed(self):
+        """首次启动：把 data/packs/ 下的整合包安装到 data/worldbooks/（已存在则跳过）。"""
+        if not self._packs_dir.is_dir():
+            return
+        for path in sorted(self._packs_dir.glob("*.json")):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                book_id = str(data.get("id", "")).strip()
+                if not book_id:
+                    continue
+                target = self._path(book_id)
+                if target.is_file():
+                    continue
+                data["source"] = SOURCE_PREINSTALLED
+                data.setdefault("enabled", True)
+                target.write_text(
+                    json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                logger.info("已安装预装整合包: %s (%s)", data.get("name", book_id), book_id)
+            except Exception as e:
+                logger.warning("安装整合包 %s 失败: %s", path.name, e)
+
+    def is_preinstalled(self, book_id: str) -> bool:
+        """该书是否存在分发源（可一键重装）。"""
+        return (self._packs_dir / f"{book_id}.json").is_file()
 
     # ── 路径 ──
 
     def _path(self, book_id: str) -> Path:
+        """统一存储路径（预装包安装副本与导入书同目录）。"""
         return self._dir / f"{book_id}.json"
+
+    def _pack_path(self, book_id: str) -> Path:
+        """整合包分发源路径。"""
+        return self._packs_dir / f"{book_id}.json"
 
     def _settings_path(self) -> Path:
         return self._dir / "settings.json"
@@ -704,9 +771,12 @@ class WorldBookManager:
     # ── CRUD ──
 
     def list_books(self) -> list[dict]:
-        """列出所有书（按创建时间倒序）。"""
-        books = []
+        """列出所有书（统一列表）：预装包在前，导入书按创建时间倒序。"""
         default_id = self.get_default_book_id()
+        books = []
+
+        preinstalled = []
+        imported = []
         for path in sorted(self._dir.glob("*.json"),
                            key=lambda p: p.stat().st_mtime, reverse=True):
             if path.name == "settings.json":
@@ -716,17 +786,29 @@ class WorldBookManager:
             except Exception as e:
                 logger.warning("加载世界书 %s 失败: %s", path.name, e)
                 continue
-            books.append({
-                "id": book.id,
-                "name": book.name,
-                "source_format": book.source_format,
-                "budget_tokens": book.budget_tokens,
-                "entry_count": len(book.entries),
-                "created_at": book.created_at,
-                "updated_at": book.updated_at,
-                "is_default": book.id == default_id,
-            })
+            summary = self._summary(book, default_id)
+            (preinstalled if book.source == SOURCE_PREINSTALLED else imported).append(summary)
+
+        # 预装包固定顺序在前（与分发源顺序一致），导入书按时间倒序
+        preinstalled.sort(key=lambda s: s["name"])
+        books.extend(preinstalled)
+        books.extend(imported)
         return books
+
+    def _summary(self, book: "WorldBook", default_id: Optional[str]) -> dict:
+        return {
+            "id": book.id,
+            "name": book.name,
+            "source_format": book.source_format,
+            "source": book.source,
+            "is_preinstalled": self.is_preinstalled(book.id),
+            "enabled": book.enabled,
+            "budget_tokens": book.budget_tokens,
+            "entry_count": len(book.entries),
+            "created_at": book.created_at,
+            "updated_at": book.updated_at,
+            "is_default": book.id == default_id,
+        }
 
     def load(self, book_id: str) -> Optional[WorldBook]:
         if book_id in self._cache:
@@ -737,10 +819,14 @@ class WorldBookManager:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         book = WorldBook.from_dict(data)
+        if self.is_preinstalled(book_id):
+            # 有分发源的书一律视为预装包安装副本（防旧数据缺字段）
+            book.source = SOURCE_PREINSTALLED
         self._cache[book_id] = book
         return book
 
     def save(self, book: WorldBook):
+        """统一保存（预装包安装副本与导入书同样可写）。"""
         book.updated_at = time.time()
         self._cache[book.id] = book
         with open(self._path(book.id), "w", encoding="utf-8") as f:
@@ -752,7 +838,8 @@ class WorldBookManager:
                     budget_tokens: int = 0) -> WorldBook:
         book_id = uuid.uuid4().hex[:12]
         book = WorldBook(book_id, name=name, entries=entries,
-                         source_format=source_format, budget_tokens=budget_tokens)
+                         source_format=source_format, budget_tokens=budget_tokens,
+                         source="imported")
         self.save(book)
         return book
 
@@ -763,7 +850,48 @@ class WorldBookManager:
                                 source_format=report.source_format)
         return book, report
 
+    def duplicate_book(self, book_id: str, new_name: str = None) -> WorldBook:
+        """复制任意书为新的导入书（做变体/备份）。"""
+        book = self.load(book_id)
+        if not book:
+            raise ValueError("世界书不存在")
+        new_id = uuid.uuid4().hex[:12]
+        new_book = WorldBook(
+            new_id,
+            name=(new_name or f"{book.name}（副本）").strip(),
+            entries=book.entries,
+            source_format=book.source_format,
+            budget_tokens=book.budget_tokens,
+            source="imported",
+            enabled=book.enabled,
+        )
+        new_book.created_at = time.time()
+        new_book.updated_at = time.time()
+        self.save(new_book)
+        return new_book
+
+    def reinstall_book(self, book_id: str) -> WorldBook:
+        """从分发源一键重装预装整合包（恢复出厂内容，覆盖现有安装副本）。"""
+        pack_path = self._pack_path(book_id)
+        if not pack_path.is_file():
+            raise ValueError(f"{book_id} 不是预装整合包，无法重装")
+        with open(pack_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        data["source"] = SOURCE_PREINSTALLED
+        data.setdefault("enabled", True)
+        self._cache.pop(book_id, None)
+        with open(self._path(book_id), "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+        book = self.load(book_id)
+        logger.info("已重装预装整合包: %s (%s)", book.name, book_id)
+        return book
+
     def delete_book(self, book_id: str) -> bool:
+        """统一删除（预装包删除后可通过「重装」从分发源还原）。"""
+        book = self.load(book_id)
+        if book is None:
+            return False
         if self.get_default_book_id() == book_id:
             self.set_default_book_id(None)
         self._cache.pop(book_id, None)
@@ -774,10 +902,47 @@ class WorldBookManager:
             return True
         return False
 
+    # ── 检索 ──
+
+    def search_books(self, q: str, limit: int = 30) -> list[dict]:
+        """跨书/条目检索：书名、条目名、条目内容、触发词（仅检索已安装的书）。"""
+        q = (q or "").strip().lower()
+        if not q:
+            return []
+        default_id = self.get_default_book_id()
+        results = []
+        paths = sorted(self._dir.glob("*.json"),
+                       key=lambda p: p.stat().st_mtime, reverse=True)
+        for path in paths:
+            if path.name == "settings.json":
+                continue
+            try:
+                book = self.load(path.stem)
+            except Exception:
+                continue
+            matched_entries = [
+                e for e in book.entries
+                if q in e.name.lower()
+                or q in e.content.lower()
+                or any(q in k.lower() for k in e.trigger_keys)
+            ]
+            if q in book.name.lower() or q in book.id.lower():
+                matched_entries = book.entries
+            if not matched_entries:
+                continue
+            results.append({
+                "book": self._summary(book, default_id),
+                "matches": [e.to_dict() for e in matched_entries[:limit]],
+                "match_count": len(matched_entries),
+            })
+            if len(results) >= limit:
+                break
+        return results
+
     # ── 会话绑定解析 ──
 
     def resolve(self, overlay=None) -> Optional[WorldBook]:
-        """解析会话当前生效的世界书：会话绑定 > 全局默认书。
+        """解析会话当前生效的世界书：会话绑定 > 全局默认书 > 已安装且启用的预装包。
 
         Args:
             overlay: SessionOverlay 实例（可空）。
@@ -791,9 +956,21 @@ class WorldBookManager:
         if not book_id:
             book_id = self.get_default_book_id()
         if not book_id:
-            return None
+            return self._fallback_preinstalled()
         try:
-            return self.load(book_id)
+            book = self.load(book_id)
         except Exception as e:
             logger.warning("加载会话世界书 %s 失败: %s", book_id, e)
             return None
+        # 书级停用：显式绑定/默认书被停用时不生效，回退预装包
+        if book is None or not book.enabled:
+            logger.info("世界书 %s 不存在或已停用，回退预装包", book_id)
+            return self._fallback_preinstalled()
+        return book
+
+    def _fallback_preinstalled(self) -> Optional[WorldBook]:
+        for bid in _PACK_FALLBACK_IDS:
+            book = self.load(bid)
+            if book is not None and book.source == SOURCE_PREINSTALLED and book.enabled:
+                return book
+        return None

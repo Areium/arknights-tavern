@@ -331,13 +331,25 @@ export function useApi() {
       }),
     getWorldbook: (id: string) =>
       request<import("../types").WorldBookDetail>(`/api/worldbook/${encodeURIComponent(id)}`),
-    updateWorldbook: (id: string, data: { name?: string; budget_tokens?: number }) =>
+    updateWorldbook: (id: string, data: { name?: string; budget_tokens?: number; enabled?: boolean }) =>
       request<{ book: import("../types").WorldBookSummary }>(`/api/worldbook/${encodeURIComponent(id)}`, {
         method: "PUT",
         body: JSON.stringify(data),
       }),
     deleteWorldbook: (id: string) =>
       request<any>(`/api/worldbook/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    duplicateWorldbook: (id: string, name?: string) =>
+      request<{ book: import("../types").WorldBookSummary }>(
+        `/api/worldbook/${encodeURIComponent(id)}/duplicate`, {
+          method: "POST",
+          body: JSON.stringify({ name: name || "" }),
+        }),
+    reinstallWorldbook: (id: string) =>
+      request<{ book: import("../types").WorldBookSummary }>(
+        `/api/worldbook/${encodeURIComponent(id)}/reinstall`, { method: "POST" }),
+    searchWorldbooks: (q: string, limit = 30) =>
+      request<{ results: import("../types").WorldBookSearchHit[] }>(
+        `/api/worldbook/search?q=${encodeURIComponent(q)}&limit=${limit}`),
     importWorldbookJson: (name: string, data: any) =>
       request<import("../types").WorldBookImportResult>("/api/worldbook/import", {
         method: "POST",

@@ -481,11 +481,24 @@ export interface WorldBookSummary {
   id: string;
   name: string;
   source_format: string;
+  /** 来源：preinstalled（预装整合包）/ imported（用户导入）——统一管理，均可编辑 */
+  source: "preinstalled" | "imported";
+  /** 是否存在分发源（预装包可一键重装还原） */
+  is_preinstalled: boolean;
+  /** 书级启用开关，停用不参与解析 */
+  enabled: boolean;
   budget_tokens: number;
   entry_count: number;
   created_at: number;
   updated_at: number;
   is_default: boolean;
+}
+
+/** 世界书检索命中（GET /api/worldbook/search） */
+export interface WorldBookSearchHit {
+  book: WorldBookSummary;
+  matches: WorldBookEntryDTO[];
+  match_count: number;
 }
 
 /** 世界书条目（规范化格式） */

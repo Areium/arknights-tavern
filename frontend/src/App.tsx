@@ -12,12 +12,13 @@ import DocumentManager from "./components/DocumentManager";
 import SettingsPanel from "./components/SettingsPanel";
 import IndexManager from "./components/IndexManager";
 import WorldBookManager from "./components/WorldBookManager";
+import ContentHub from "./components/ContentHub";
 import DocsView from "./components/DocsView";
 
 /** 沉浸式视图：全屏无顶栏（对话 = 故事沉浸，战斗 = 战场沉浸） */
 const IMMERSIVE_VIEWS = new Set(["chat", "combat"]);
 /** 菜单氛围视图：播放主菜单 BGM（战斗 BGM 由 CombatView 自管，对话页静默沉浸） */
-const MENU_BGM_VIEWS = new Set(["home", "sessions", "documents", "worldbook", "index", "docs", "settings"]);
+const MENU_BGM_VIEWS = new Set(["home", "sessions", "content", "docs", "settings"]);
 
 export default function App() {
   const { currentView, setBackendStatus, setLLMStatus, setSessions, theme, setTheme, setEditBeforeSend, setDialogueBubbleMode } =
@@ -137,6 +138,8 @@ export default function App() {
         return <IndexManager />;
       case "worldbook":
         return <WorldBookManager />;
+      case "content":
+        return <ContentHub />;
       case "docs":
         return <DocsView />;
       default:

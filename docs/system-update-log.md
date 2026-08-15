@@ -16,6 +16,18 @@
 
 ## 更新记录
 
+### 2026-08-16 — 内容中心整合：三模块合一 + 方舟整合包（统一管理）
+
+- **单一入口**：顶栏/主页导航「资产 / 世界书 / 索引」三项合并为「🗂️ 内容中心」（内部 Tab：角色·剧情 / 世界书 / 索引 / 资产 / 卡牌）；会话大厅「索引配置」跳转改走内容中心索引 Tab
+- **统一管理模式（整合包机制）**：不做内置/导入分层——data/packs/arknights.json（git 跟踪）作为随程序分发的方舟整合包，WorldBookManager 首次启动自动安装到 data/worldbooks/（source=preinstalled），与用户导入的书在同一列表、同一套规则下管理（启用/停用、编辑、删除、一键重装、复制、导出）
+- **世界书 API**：列表/详情新增 source/is_preinstalled/enabled；所有书可写（无只读层）；新增 POST /reinstall（重装整合包）、GET /search?q=（跨书/条目检索）；resolve 回退链扩展为 会话绑定 > 全局默认书 > 已启用的预装包
+- **消除功能重叠**：DocumentManager 移除重复的依赖引用管理（编辑/扫描/批量扫描/断裂跟踪），收敛到索引 Tab，仅保留「🔗 在索引中管理」入口；删除 findDocNameInTree 等孤儿代码
+- **统一检索**：内容中心顶栏全局搜索框跨世界书条目/文档检索，命中一键跳转对应 Tab 并选中该书
+- **来源徽章**：新组件 SourceBadge —— 预装（青）/ 导入（紫），全列表统一标识
+- **生成脚本**：scripts/generate_builtin_worldbook.py 从角色/剧情 index.md 生成整合包（19 角色 + 3 剧情 = 22 条）
+- **测试**：test_world_book.py / test_worldbook_integration.py 全绿（31 用例）；自定义 data_dir 不注入预装包保持测试隔离
+- **文档**：新增 docs/content-hub-design.md 设计文档；README 导航/世界书章节同步
+
 ### 2026-08-15 — 代码清理与可维护性优化（冗余淘汰）
 
 - **删除死代码**：ChibiSprite.tsx、SessionList.tsx（已被 fallbackToken / 会话大厅取代）；清理其专属孤儿 CSS（.unit-hit-shake、.chibi-placeholder* 全套）

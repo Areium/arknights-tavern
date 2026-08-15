@@ -24,7 +24,7 @@ function formatDate(ts: number): string {
 }
 
 export default function SessionManagerView() {
-  const { sessions, activeSessionId, chatMode, setSessions, setActiveSession, setCurrentView, setIndexSessionId, setChatMode, setCombatContext } =
+  const { sessions, activeSessionId, chatMode, setSessions, setActiveSession, setCurrentView, setIndexSessionId, setChatMode, setCombatContext, setContentHubTab } =
     useAppStore();
   const api = useApi();
 
@@ -654,7 +654,7 @@ export default function SessionManagerView() {
                   </button>
                   {selected.mode === "story" && (
                     <button
-                      onClick={() => { setIndexSessionId(selected.id); setCurrentView("index"); }}
+                      onClick={() => { setIndexSessionId(selected.id); setContentHubTab("index"); setCurrentView("content"); }}
                       className="text-xs px-3 py-1.5 rounded-lg bg-gray-700/60 text-gray-300 hover:bg-gray-700 transition-colors"
                     >
                       🔗 索引配置

@@ -15,10 +15,23 @@ export interface CombatContext {
   selectedUnitId: string | null;
 }
 
+type ViewName = "home" | "chat" | "sessions" | "documents" | "settings" | "combat" | "index" | "worldbook" | "content" | "docs";
+
+/** 内容中心内部 Tab（统一管理：文档/世界书/索引/资产/卡牌） */
+export type ContentHubTab = "docs" | "worldbook" | "index" | "images" | "cards";
+
 interface AppState {
   // 视图
-  currentView: "home" | "chat" | "sessions" | "documents" | "settings" | "combat" | "index" | "worldbook" | "docs";
-  setCurrentView: (view: "home" | "chat" | "sessions" | "documents" | "settings" | "combat" | "index" | "worldbook" | "docs") => void;
+  currentView: ViewName;
+  setCurrentView: (view: ViewName) => void;
+
+  // 内容中心 Tab（跨组件跳转：文档 Tab 内「管理依赖」→ 索引 Tab）
+  contentHubTab: ContentHubTab;
+  setContentHubTab: (tab: ContentHubTab) => void;
+
+  // 内容中心：跳转并选中指定世界书（统一检索结果点击）
+  worldbookJumpId: string | null;
+  setWorldbookJumpId: (id: string | null) => void;
 
   // 主题
   theme: Theme;
@@ -111,6 +124,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   // 视图（默认进入游戏主页主菜单）
   currentView: "home",
   setCurrentView: (view) => set({ currentView: view }),
+
+  // 内容中心 Tab
+  contentHubTab: "docs",
+  setContentHubTab: (tab) => set({ contentHubTab: tab }),
+
+  // 内容中心：世界书跳转
+  worldbookJumpId: null,
+  setWorldbookJumpId: (id) => set({ worldbookJumpId: id }),
 
   // 主题
   theme: "dark",

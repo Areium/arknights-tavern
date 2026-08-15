@@ -81,6 +81,9 @@ def register(app, managers):
             "id": book.id,
             "name": book.name,
             "source_format": book.source_format,
+            "source": book.source,
+            "is_preinstalled": wb_mgr.is_preinstalled(book.id),
+            "enabled": book.enabled,
             "budget_tokens": book.budget_tokens,
             "created_at": book.created_at,
             "updated_at": book.updated_at,
@@ -173,16 +176,41 @@ def register(app, managers):
                 book.budget_tokens = max(0, int(data["budget_tokens"] or 0))
             except (TypeError, ValueError):
                 return json_error("budget_tokens 必须是整数")
+        if "enabled" in data:
+            book.enabled = bool(data["enabled"])
         wb_mgr.save(book)
         return jsonify({"book": _book_detail(book, include_entries=False)})
 
     @bp.route("/api/worldbook/<book_id>", methods=["DELETE"])
     def delete_book(book_id):
+        """统一删除。预装包删除后可通过 /reinstall 从分发源一键重装还原。"""
         book, err = _get_book_or_404(book_id)
         if err:
             return err
         wb_mgr.delete_book(book_id)
         return jsonify({"message": "已删除"})
+
+    @bp.route("/api/worldbook/<book_id>/duplicate", methods=["POST"])
+    def duplicate_book(book_id):
+        """复制任意书为新的导入书（做变体/备份）。body: {name?}"""
+        data = request.json or {}
+        try:
+            new_book = wb_mgr.duplicate_book(
+                book_id,
+                new_name=str(data.get("name", "") or "").strip() or None,
+            )
+        except ValueError as e:
+            return json_error(str(e), 404)
+        return jsonify({"book": _book_detail(new_book, include_entries=False)}), 201
+
+    @bp.route("/api/worldbook/<book_id>/reinstall", methods=["POST"])
+    def reinstall_book(book_id):
+        """从分发源一键重装预装整合包（恢复出厂内容）。"""
+        try:
+            book = wb_mgr.reinstall_book(book_id)
+        except ValueError as e:
+            return json_error(str(e), 404)
+        return jsonify({"book": _book_detail(book, include_entries=False)})
 
     @bp.route("/api/worldbook/<book_id>/export", methods=["GET"])
     def export_book(book_id):
@@ -273,6 +301,17 @@ def register(app, managers):
             "session_id": session_id,
             "worldbook_id": session.overlay.get_worldbook_id(),
         })
+
+    @bp.route("/api/worldbook/search", methods=["GET"])
+    def search_books():
+        """跨书/条目检索：书名、条目名、条目内容、触发词。"""
+        q = request.args.get("q", "").strip()
+        limit = request.args.get("limit", "30")
+        try:
+            limit = max(1, min(100, int(limit)))
+        except (TypeError, ValueError):
+            limit = 30
+        return jsonify({"results": wb_mgr.search_books(q, limit)})
 
     @bp.route("/api/worldbook/resolve", methods=["GET"])
     def resolve_book():

@@ -7,6 +7,7 @@ import type {
   WorldBookImportReport,
   WorldBookSummary,
 } from "../types";
+import SourceBadge from "./SourceBadge";
 
 /** 条目编辑草稿（触发词/副键用逗号分隔文本编辑） */
 interface EntryDraft {
@@ -84,6 +85,8 @@ function sourceLabel(fmt: string): string {
 export default function WorldBookManager() {
   const api = useApi();
   const sessions = useAppStore((s) => s.sessions);
+  const worldbookJumpId = useAppStore((s) => s.worldbookJumpId);
+  const setWorldbookJumpId = useAppStore((s) => s.setWorldbookJumpId);
 
   const [books, setBooks] = useState<WorldBookSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -130,6 +133,14 @@ export default function WorldBookManager() {
   }, [api]);
 
   useEffect(() => { loadBooks(); }, [loadBooks]);
+
+  // ── 统一检索/其他模块跳转：选中指定书 ──
+  useEffect(() => {
+    if (worldbookJumpId) {
+      setSelectedId(worldbookJumpId);
+      setWorldbookJumpId(null);
+    }
+  }, [worldbookJumpId, setWorldbookJumpId]);
 
   // ── 加载书详情 ──
   const loadDetail = useCallback(async (id: string | null) => {
@@ -274,6 +285,41 @@ export default function WorldBookManager() {
       showToast("已删除");
     } catch (err: any) {
       showToast(err.message || "删除失败", "error");
+    }
+  };
+
+  const toggleEnabled = async (book: WorldBookSummary) => {
+    try {
+      await api.updateWorldbook(book.id, { enabled: !book.enabled });
+      await refreshListAfterMutate(book.id);
+      showToast(book.enabled ? "已停用（不再参与解析）" : "已启用");
+    } catch (err: any) {
+      showToast(err.message || "操作失败", "error");
+    }
+  };
+
+  const reinstallBook = async (id: string) => {
+    if (!window.confirm("将恢复该预装整合包的出厂内容（覆盖当前副本的修改），确定重装？")) return;
+    try {
+      const res = await api.reinstallWorldbook(id);
+      await loadBooks();
+      setSelectedId(res.book.id);
+      showToast("已重装预装整合包");
+    } catch (err: any) {
+      showToast(err.message || "重装失败", "error");
+    }
+  };
+
+  const duplicateBook = async (id: string) => {
+    const name = window.prompt("副本名称：", "");
+    if (name === null) return;
+    try {
+      const res = await api.duplicateWorldbook(id, name || undefined);
+      await loadBooks();
+      setSelectedId(res.book.id);
+      showToast("已创建副本（导入书）");
+    } catch (err: any) {
+      showToast(err.message || "复制失败", "error");
     }
   };
 
@@ -452,19 +498,34 @@ export default function WorldBookManager() {
                 selectedId === b.id
                   ? "border-blue-600/60 bg-blue-600/10"
                   : "border-gray-700 bg-gray-800/60 hover:border-gray-600"
-              }`}
+              } ${!b.enabled ? "opacity-60" : ""}`}
             >
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-1">
                 <span className="text-sm text-gray-200 truncate">{b.name}</span>
-                {b.is_default && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-600/30 text-amber-300 shrink-0">
-                    默认
-                  </span>
-                )}
+                <span className="flex items-center gap-1 shrink-0">
+                  <SourceBadge source={b.source} size="xs" />
+                  {b.is_default && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-600/30 text-amber-300">
+                      默认
+                    </span>
+                  )}
+                  {!b.enabled && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-700 text-gray-400">
+                      停用
+                    </span>
+                  )}
+                </span>
               </div>
               <div className="flex items-center justify-between mt-1 text-[11px] text-gray-500">
                 <span>{b.entry_count} 条 · {sourceLabel(b.source_format)}</span>
                 <span className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    className="hover:text-gray-300"
+                    title={b.enabled ? "停用（不再参与解析）" : "启用"}
+                    onClick={() => toggleEnabled(b)}
+                  >
+                    {b.enabled ? "⏸" : "▶"}
+                  </button>
                   <button
                     className="hover:text-gray-300"
                     title="设为全局默认书"
@@ -480,8 +541,24 @@ export default function WorldBookManager() {
                     ⬇
                   </button>
                   <button
+                    className="hover:text-gray-300"
+                    title="复制为新导入书"
+                    onClick={() => duplicateBook(b.id)}
+                  >
+                    📄
+                  </button>
+                  {b.is_preinstalled && (
+                    <button
+                      className="hover:text-cyan-300"
+                      title="重装预装整合包（恢复出厂内容）"
+                      onClick={() => reinstallBook(b.id)}
+                    >
+                      ↻
+                    </button>
+                  )}
+                  <button
                     className="hover:text-red-400"
-                    title="删除"
+                    title="删除（预装包可重装还原）"
                     onClick={() => deleteBook(b.id)}
                   >
                     🗑
@@ -540,10 +617,28 @@ export default function WorldBookManager() {
                 >
                   导出酒馆格式
                 </button>
+                <button
+                  className="text-xs px-2 py-1 rounded bg-gray-700 text-gray-300 hover:bg-gray-600"
+                  onClick={() => duplicateBook(detail.id)}
+                >
+                  📄 复制
+                </button>
+                {detail.is_preinstalled && (
+                  <button
+                    className="text-xs px-2 py-1 rounded bg-cyan-700/40 text-cyan-200 hover:bg-cyan-700/60"
+                    onClick={() => reinstallBook(detail.id)}
+                  >
+                    ↻ 重装整合包
+                  </button>
+                )}
               </div>
-              <p className="text-[11px] text-gray-500 mt-2">
-                {detail.entry_count} 条 · 来源 {sourceLabel(detail.source_format)} ·
-                生效规则：会话绑定 &gt; 全局默认书
+              <p className="text-[11px] text-gray-500 mt-2 flex items-center gap-1.5 flex-wrap">
+                <SourceBadge source={detail.source} size="xs" />
+                <span>
+                  {detail.entry_count} 条 · 来源 {sourceLabel(detail.source_format)} ·
+                  生效规则：会话绑定 &gt; 全局默认书{detail.is_preinstalled ? " &gt; 预装整合包" : ""}
+                </span>
+                {!detail.enabled && <span className="text-red-400">（已停用，不参与解析）</span>}
               </p>
             </div>
 
