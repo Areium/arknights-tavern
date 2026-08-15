@@ -9,7 +9,7 @@ export default function SourceBadge({
   source: string;
   size?: "xs" | "sm";
 }) {
-  const isPreinstalled = source === "preinstalled";
+  const isPreinstalled = source === "preinstalled" || source === "builtin";
   const cls =
     size === "xs"
       ? "text-[10px] px-1 py-px rounded"

@@ -76,6 +76,7 @@ const SOURCE_LABELS: Record<string, string> = {
   character_card: "角色卡内嵌",
   chat_backup_jsonl: "聊天备份",
   manual: "手动",
+  builtin: "整合包",
 };
 
 function sourceLabel(fmt: string): string {

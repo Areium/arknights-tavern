@@ -81,6 +81,8 @@ export default function DocumentManager({ initialTab = "docs" }: { initialTab?: 
   const apiRef = useRef(api);
   apiRef.current = api;
   const setContentHubTab = useAppStore((s) => s.setContentHubTab);
+  const docJumpTarget = useAppStore((s) => s.docJumpTarget);
+  const setDocJumpTarget = useAppStore((s) => s.setDocJumpTarget);
 
   // ── Tab（内容中心按 Tab 挂载，默认进入指定 Tab）──
   const [activeTab, setActiveTab] = useState<"docs" | "images" | "cards">(initialTab);
@@ -954,6 +956,15 @@ export default function DocumentManager({ initialTab = "docs" }: { initialTab?: 
     if (!cat?.children) return [];
     return getAllFolders(cat.children);
   };
+
+  // ── 统一检索跳转：打开指定文档（内容中心搜索命中） ──
+  useEffect(() => {
+    if (docJumpTarget) {
+      handleSelect(docJumpTarget.category, docJumpTarget.id);
+      setDocJumpTarget(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docJumpTarget]);
 
   // ── Cleanup on unmount ──
   useEffect(() => {

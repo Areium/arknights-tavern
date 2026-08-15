@@ -26,7 +26,7 @@ const TABS: { id: ContentHubTab; label: string; icon: string; hint: string }[] =
 
 export default function ContentHub() {
   const api = useApi();
-  const { contentHubTab, setContentHubTab, setCurrentView, worldbookJumpId, setWorldbookJumpId } = useAppStore();
+  const { contentHubTab, setContentHubTab, setCurrentView, worldbookJumpId, setWorldbookJumpId, setDocJumpTarget } = useAppStore();
   const [query, setQuery] = useState("");
   const [wbHits, setWbHits] = useState<WorldBookSearchHit[]>([]);
   const [docHits, setDocHits] = useState<any[]>([]);
@@ -155,7 +155,11 @@ export default function ContentHub() {
                       <button
                         key={d.path || d.id}
                         className="w-full flex items-center gap-2 rounded px-2 py-1.5 hover:bg-gray-800 text-left"
-                        onMouseDown={() => jumpTab("docs")}
+                        onMouseDown={() => {
+                          setDocJumpTarget({ category: d.category, id: d.id });
+                          setContentHubTab("docs");
+                          setQuery("");
+                        }}
                       >
                         <SourceBadge source="builtin" size="xs" />
                         <span className="text-xs text-gray-200 truncate flex-1">{d.title || d.id}</span>

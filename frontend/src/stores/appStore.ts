@@ -33,6 +33,10 @@ interface AppState {
   worldbookJumpId: string | null;
   setWorldbookJumpId: (id: string | null) => void;
 
+  // 内容中心：跳转并打开指定文档（统一检索结果点击）
+  docJumpTarget: { category: string; id: string } | null;
+  setDocJumpTarget: (target: { category: string; id: string } | null) => void;
+
   // 主题
   theme: Theme;
   setTheme: (theme: Theme) => void;
@@ -132,6 +136,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   // 内容中心：世界书跳转
   worldbookJumpId: null,
   setWorldbookJumpId: (id) => set({ worldbookJumpId: id }),
+
+  // 内容中心：文档跳转
+  docJumpTarget: null,
+  setDocJumpTarget: (target) => set({ docJumpTarget: target }),
 
   // 主题
   theme: "dark",
