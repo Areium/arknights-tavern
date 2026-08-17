@@ -44,7 +44,7 @@ def _load_plot_opening(session, plot_id: str):
         time_val = meta.get("initial_time", "")
         atmosphere = meta.get("initial_atmosphere", "")
         if location:
-            session.environment.location = location
+            session.environment.set_location(location)
         if time_val:
             session.environment.time_of_day = time_val
         if atmosphere:
@@ -52,6 +52,7 @@ def _load_plot_opening(session, plot_id: str):
                 session.environment.atmosphere = [atmosphere]
             elif isinstance(atmosphere, list):
                 session.environment.atmosphere = atmosphere
+        session.persist_environment()
 
         # 2. 加载初始角色（跳过不存在的角色 & 玩家身份角色）
         player_identity = session.player_identity

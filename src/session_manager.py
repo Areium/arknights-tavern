@@ -77,13 +77,19 @@ class Session:
         self.environment = EnvironmentState()
         self.environment.load_default()
 
-        # 应用环境覆盖
+        # 应用环境覆盖（优先恢复本会话上次持久化的场景）
         env_overrides = self.overlay.get_environment_overrides()
-        if env_overrides:
-            if env_overrides.get("time_of_day"):
-                self.environment.time_of_day = env_overrides["time_of_day"]
-            if env_overrides.get("atmosphere"):
-                self.environment.atmosphere = env_overrides["atmosphere"]
+        if env_overrides.get("location"):
+            self.environment.set_location(env_overrides["location"])
+        if env_overrides.get("weather"):
+            self.environment.set_weather(env_overrides["weather"])
+        if env_overrides.get("time_of_day"):
+            self.environment.time_of_day = env_overrides["time_of_day"]
+        if env_overrides.get("atmosphere"):
+            self.environment.atmosphere = env_overrides["atmosphere"]
+        if not env_overrides.get("location") and self.mode == "story":
+            # 旧会话可能没有持久化环境；有剧情绑定时回退到剧情开场场景
+            self._restore_plot_initial_environment()
 
         # 战斗系统
         self.combat = None  # CombatSession | None
@@ -122,6 +128,52 @@ class Session:
                 self.scene_manager._overlay = self.overlay
             return True
         return False
+
+    def persist_environment(self):
+        """把当前环境状态持久化到会话 overrides，重启/重新进入后不丢失。"""
+        self.overlay.set_environment_overrides({
+            "location": self.environment.location,
+            "weather": self.environment.weather,
+            "time_of_day": self.environment.time_of_day,
+            "atmosphere": list(self.environment.atmosphere),
+        })
+
+    def apply_environment_updates(self, updates: dict):
+        """应用 LLM 返回的环境更新，并同步持久化。"""
+        if not updates:
+            return
+        self.environment.apply_update(updates)
+        self.persist_environment()
+
+    def _restore_plot_initial_environment(self):
+        """旧剧情会话无持久化环境时，用剧情开场配置补环境。"""
+        try:
+            from session_overlay import _read_plot_file
+            plot_id = self.overlay.get_plot_id()
+            if not plot_id:
+                return
+            result = _read_plot_file(plot_id)
+            if not result:
+                return
+            meta = result[0]
+            location = meta.get("initial_location", "")
+            if not location:
+                return
+            self.environment.set_location(location)
+            time_val = meta.get("initial_time", "")
+            if time_val:
+                self.environment.time_of_day = time_val
+            atmosphere = meta.get("initial_atmosphere", "")
+            if atmosphere:
+                if isinstance(atmosphere, str):
+                    self.environment.atmosphere = [atmosphere]
+                elif isinstance(atmosphere, list):
+                    self.environment.atmosphere = atmosphere
+            self.persist_environment()
+            logger.info("会话 %s: 从剧情开场恢复环境 loc=%s time=%s",
+                        self.id, location, time_val)
+        except Exception as e:
+            logger.warning("从剧情开场恢复环境失败 %s: %s", self.id, e)
 
     def _restore_scene(self):
         """从持久化场景状态恢复角色/物品/当前对话目标（后端重启后不丢失）。

@@ -1,10 +1,14 @@
 import os
 import re
 import logging
+from pathlib import Path
 
 import frontmatter
 
 logger = logging.getLogger(__name__)
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_DEFAULT_ENV_DIR = str(_REPO_ROOT / "data" / "environment")
 
 
 class SceneObject:
@@ -49,8 +53,8 @@ class EnvironmentState:
         "记录", "信息", "情况", "程度", "水平",
     }
 
-    def __init__(self, data_dir: str = "data/environment"):
-        self.data_dir = data_dir
+    def __init__(self, data_dir: str = ""):
+        self.data_dir = data_dir or _DEFAULT_ENV_DIR
         self.location = ""
         self.location_desc = ""
         self.weather = ""

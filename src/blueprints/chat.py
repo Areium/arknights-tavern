@@ -193,7 +193,7 @@ def register(app, managers):
                 user_input, player_info, env_context
             )
             session.accumulate_usage(usage)
-            session.environment.apply_update(env_updates)
+            session.apply_environment_updates(env_updates)
             result = {
                 "response": response,
                 "character": session.scene_manager.active,
@@ -232,7 +232,7 @@ def register(app, managers):
             )
             session.accumulate_usage(total_usage)
             for r in results:
-                session.environment.apply_update(r.get("env_updates", {}))
+                session.apply_environment_updates(r.get("env_updates", {}))
             resp = {"responses": results}
             if total_usage:
                 resp["total_usage"] = total_usage
@@ -376,7 +376,7 @@ def register(app, managers):
                     inline_choices = markers.get("choices")
                     plot_summary = markers.get("summary")
 
-                session.environment.apply_update(env_updates)
+                session.apply_environment_updates(env_updates)
 
                 # 环境变化时发出 scene_event
                 if env_updates:
@@ -488,7 +488,7 @@ def register(app, managers):
                 is_first_turn=is_first_turn,
             )
             session.accumulate_usage(usage)
-            session.environment.apply_update(env_updates)
+            session.apply_environment_updates(env_updates)
 
             # 检测并解析结构化 JSON 输出
             dialogue_segments = None
