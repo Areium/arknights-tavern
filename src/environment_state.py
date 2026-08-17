@@ -277,7 +277,7 @@ class EnvironmentState:
         self.location_desc = ""
         self.weather = ""
         self.weather_desc = ""
-        self.time_of_day = "上午"
+        self.time_of_day = ""
         self.atmosphere = []
         self.scene_objects.clear()
 

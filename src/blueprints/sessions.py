@@ -127,6 +127,7 @@ def register(app, managers):
             plot_name=plot_name if not data.get("name") else "",
             combat_mode=combat_mode,
             player_identity=player_identity,
+            plot_id=plot_id,
         )
 
         if plot_id and mode == "story":

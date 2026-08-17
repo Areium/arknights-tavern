@@ -45,7 +45,8 @@ class Session:
     def __init__(self, session_id: str, llm_backend_manager: LLMBackendManager,
                  name: str = "", mode: str = "free", combat_mode: str = "narrative",
                  player_identity: str = "博士",
-                 wiki_manager=None, worldbook_manager=None):
+                 wiki_manager=None, worldbook_manager=None,
+                 empty_environment: bool | None = None):
         self.id = session_id
         mode_label = "剧情" if mode == "story" else "自由"
         self.name = name or f"{mode_label}对话"
@@ -79,6 +80,21 @@ class Session:
 
         # 应用环境覆盖（优先恢复本会话上次持久化的场景）
         env_overrides = self.overlay.get_environment_overrides()
+        has_env = bool(
+            env_overrides.get("location")
+            or env_overrides.get("weather")
+            or env_overrides.get("time_of_day")
+            or env_overrides.get("atmosphere")
+        )
+
+        # 无预设场景的剧情会话：不套用默认地点/天气，留空交由角色卡开场与 LLM 生成。
+        # empty_environment=True 表示新建时已明确不绑定剧情；
+        # empty_environment=None 表示恢复旧会话，按 overlay 中是否已有剧情/环境自动判断。
+        if empty_environment is True:
+            self.environment.reset()
+        elif empty_environment is None and self.mode == "story" and not self.overlay.get_plot_id() and not has_env:
+            self.environment.reset()
+
         if env_overrides.get("location"):
             self.environment.set_location(env_overrides["location"])
         if env_overrides.get("weather"):
@@ -593,12 +609,13 @@ class SessionManager:
 
     def create_session(self, name: str = "", mode: str = "free", plot_name: str = "",
                         combat_mode: str = "narrative", worldbook_id: str = "",
-                        player_identity: str = "博士") -> Session:
+                        player_identity: str = "博士", plot_id: str = "") -> Session:
         """创建新会话。
 
         Args:
             worldbook_id: 可选，创建时绑定世界书（未绑定则回落全局默认书）。
             player_identity: 玩家身份角色名（用户自身，默认"博士"）。
+            plot_id: 可选，创建时绑定的剧情 ID；用于决定无剧情会话是否留空初始场景。
         """
         session_id = self._generate_id()
         if not name:
@@ -620,7 +637,8 @@ class SessionManager:
                          combat_mode=combat_mode,
                          player_identity=player_identity,
                          wiki_manager=self._wiki_manager,
-                         worldbook_manager=self._worldbook_manager)
+                         worldbook_manager=self._worldbook_manager,
+                         empty_environment=(mode == "story" and not plot_id))
         if worldbook_id:
             session.overlay.set_worldbook_id(worldbook_id)
         with self._lock:
