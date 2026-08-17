@@ -735,6 +735,17 @@ class SessionManager:
                 return True
             return False
 
+    def set_player_identity(self, session_id: str, identity: str) -> bool:
+        """设置会话的玩家身份角色，并持久化到 session.json。"""
+        identity = (identity or "").strip() or "博士"
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if not session:
+                return False
+            session.player_identity = identity
+            self._save_session_meta(session)
+            return True
+
     def list_sessions(self) -> list[dict]:
         """列出所有会话摘要。"""
         with self._lock:

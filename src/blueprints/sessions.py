@@ -14,6 +14,7 @@ import frontmatter
 from flask import Blueprint, jsonify, request
 
 from shared.helpers import json_error
+from session_resources import is_safe_entity_name
 
 logger = logging.getLogger(__name__)
 
@@ -477,5 +478,125 @@ def register(app, managers):
                 continue
         plots.sort(key=lambda p: p["priority"], reverse=True)
         return jsonify(plots)
+
+    # ── 玩家身份角色（player_identity=true 的角色卡） ──
+
+    @bp.route("/api/player-identities", methods=["GET"])
+    def list_player_identities():
+        """返回所有标记为 player_identity=true 的角色卡摘要。"""
+        chars_dir = _REPO_ROOT / "data" / "characters"
+        identities = []
+        if chars_dir.is_dir():
+            for entry in sorted(chars_dir.iterdir()):
+                if not entry.is_dir():
+                    continue
+                md = entry / "index.md"
+                if not md.is_file():
+                    continue
+                try:
+                    with open(md, "r", encoding="utf-8") as f:
+                        data = frontmatter.load(f)
+                    if data.metadata.get("player_identity"):
+                        identities.append({
+                            "id": entry.name,
+                            "name": data.metadata.get("name", entry.name),
+                            "summary": data.metadata.get("summary", ""),
+                            "tags": data.metadata.get("tags", []),
+                        })
+                except Exception:
+                    continue
+        return jsonify(identities)
+
+    @bp.route("/api/player-identities/<name>", methods=["PUT"])
+    def save_player_identity(name: str):
+        """保存/创建玩家身份角色（强制设置 frontmatter player_identity=true）。"""
+        if not is_safe_entity_name(name):
+            return json_error("非法的玩家身份名称", 400)
+        data = request.json or {}
+        metadata = data.get("metadata") or {}
+        content = data.get("content", "")
+        metadata["player_identity"] = True
+        metadata.setdefault("name", name)
+
+        char_dir = _REPO_ROOT / "data" / "characters" / name
+        char_dir.mkdir(parents=True, exist_ok=True)
+        md_path = char_dir / "index.md"
+
+        # 合并现有 frontmatter（保留用户未传字段）
+        if md_path.is_file():
+            try:
+                with open(md_path, "r", encoding="utf-8") as f:
+                    existing = frontmatter.load(f)
+                merged = dict(existing.metadata)
+                merged.update(metadata)
+                metadata = merged
+                if not content and existing.content:
+                    content = existing.content
+            except Exception as e:
+                logger.warning("读取现有玩家身份档案失败 %s: %s", name, e)
+
+        try:
+            with open(md_path, "w", encoding="utf-8") as f:
+                f.write(frontmatter.dumps(frontmatter.Post(content, **metadata)))
+                f.write("\n")
+        except Exception as e:
+            return json_error(f"保存失败: {e}", 500)
+
+        # 更新 player_profile 缓存
+        from player_profile import invalidate_profile_cache
+        invalidate_profile_cache(name)
+
+        return jsonify({
+            "message": "已保存玩家身份",
+            "id": name,
+            "metadata": metadata,
+        })
+
+    @bp.route("/api/player-identities/<name>", methods=["DELETE"])
+    def delete_player_identity(name: str):
+        """删除玩家身份角色目录（仅当 player_identity=true 时允许）。"""
+        if not is_safe_entity_name(name):
+            return json_error("非法的玩家身份名称", 400)
+        if name == "博士":
+            return json_error("不能删除默认身份「博士」", 400)
+
+        char_dir = _REPO_ROOT / "data" / "characters" / name
+        md_path = char_dir / "index.md"
+        if not md_path.is_file():
+            return json_error("玩家身份不存在", 404)
+
+        try:
+            with open(md_path, "r", encoding="utf-8") as f:
+                data = frontmatter.load(f)
+            if not data.metadata.get("player_identity"):
+                return json_error("该角色未标记为玩家身份", 400)
+        except Exception as e:
+            return json_error(f"读取角色档案失败: {e}", 500)
+
+        try:
+            shutil.rmtree(char_dir)
+        except Exception as e:
+            return json_error(f"删除失败: {e}", 500)
+
+        from player_profile import invalidate_profile_cache
+        invalidate_profile_cache(name)
+
+        return jsonify({"message": "已删除玩家身份", "id": name})
+
+    @bp.route("/api/sessions/<session_id>/identity", methods=["PUT"])
+    def set_session_identity(session_id: str):
+        """设置会话当前使用的玩家身份。"""
+        session = session_mgr.get_session(session_id)
+        if not session:
+            return json_error("会话不存在", 404)
+        data = request.json or {}
+        identity = str(data.get("identity", "") or "").strip() or "博士"
+        ok = session_mgr.set_player_identity(session_id, identity)
+        if not ok:
+            return json_error("设置失败", 500)
+        return jsonify({
+            "message": "已更新玩家身份",
+            "player_identity": session.player_identity,
+        })
 
     app.register_blueprint(bp)
