@@ -89,8 +89,10 @@ def _try_extract_structured(narrative: str, scene_manager):
 def _should_extract_markers(session, choices_count: int) -> bool:
     """判断是否需要标记提取 Call 2。
 
-    当无选项、无战术模式、无节拍状态时跳过，避免无意义的 LLM 往返。
+    剧情模式始终提取（包含环境自动更新）；自由模式仅在需要选项/战斗/节拍时提取。
     """
+    if session.mode == "story":
+        return True
     if choices_count > 0:
         return True
     if getattr(session.scene_manager, '_combat_mode', 'narrative') == "tactical":
@@ -328,6 +330,7 @@ def register(app, managers):
                 dialogue_segments = None
                 inline_choices = None
                 plot_summary = None
+                marker_env = None
                 for event_type, data in session.scene_manager.narrate_stream(
                     player_info, context_with_memory,
                     user_action=user_action, structured=False,
@@ -375,6 +378,10 @@ def register(app, managers):
                         yield f"data: {json.dumps({'type': 'combat_briefing', 'data': briefing}, ensure_ascii=False)}\n\n"
                     inline_choices = markers.get("choices")
                     plot_summary = markers.get("summary")
+                    marker_env = markers.get("environment")
+
+                if marker_env:
+                    env_updates = {**(env_updates or {}), **marker_env}
 
                 session.apply_environment_updates(env_updates)
 
@@ -488,7 +495,6 @@ def register(app, managers):
                 is_first_turn=is_first_turn,
             )
             session.accumulate_usage(usage)
-            session.apply_environment_updates(env_updates)
 
             # 检测并解析结构化 JSON 输出
             dialogue_segments = None
@@ -514,6 +520,7 @@ def register(app, managers):
             inline_choices = None
             plot_summary = None
             combat_briefing = None
+            marker_env = None
             if _should_extract_markers(session, choices_count):
                 markers = session.scene_manager.extract_markers(
                     narrative, choices_count=choices_count,
@@ -525,6 +532,11 @@ def register(app, managers):
                 combat_briefing = _apply_combat_briefing(session, markers.get("combat"), "")
                 inline_choices = markers.get("choices")
                 plot_summary = markers.get("summary")
+                marker_env = markers.get("environment")
+
+            if marker_env:
+                env_updates = {**(env_updates or {}), **marker_env}
+            session.apply_environment_updates(env_updates)
 
             # 回忆系统
             response_extra = {}
