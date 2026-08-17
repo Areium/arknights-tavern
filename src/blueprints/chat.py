@@ -185,7 +185,7 @@ def register(app, managers):
         if not user_input:
             return json_error("需要 input 参数")
 
-        player_info = {"identity": data.get("identity", "博士")}
+        player_info = {"identity": data.get("identity") or session.player_identity}
         env_context = session.environment.build_context()
 
         try:
@@ -223,7 +223,7 @@ def register(app, managers):
         if not user_input:
             return json_error("需要 input 参数")
 
-        player_info = {"identity": data.get("identity", "博士")}
+        player_info = {"identity": data.get("identity") or session.player_identity}
         env_context = session.environment.build_context()
 
         try:
@@ -261,7 +261,7 @@ def register(app, managers):
             return err
 
         stream_id = f"narr_{uuid.uuid4().hex[:12]}"
-        player_info = {"identity": request.args.get("identity", "博士")}
+        player_info = {"identity": request.args.get("identity") or session.player_identity}
         user_action = request.args.get("action", "").strip()
         env_context = session.environment.build_context()
 
@@ -440,7 +440,7 @@ def register(app, managers):
             return err
 
         data = request.json or {}
-        player_info = {"identity": data.get("identity", "博士")}
+        player_info = {"identity": data.get("identity") or session.player_identity}
         env_context = session.environment.build_context()
         user_action = data.get("action", "")
 
@@ -576,7 +576,7 @@ def register(app, managers):
             return err
 
         data = request.json or {}
-        player_info = {"identity": data.get("identity", "博士")}
+        player_info = {"identity": data.get("identity") or session.player_identity}
         prompt = data.get("prompt", "").strip()
         env_context = session.environment.build_context()
 

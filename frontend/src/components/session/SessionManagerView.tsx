@@ -14,7 +14,13 @@ import CreateSessionWizard from "./CreateSessionWizard";
 interface CharItem {
   id: string;
   name: string;
+  title?: string;
 }
+
+/** 角色显示名（/api/characters 返回 title/name，兼容两者） */
+const charName = (c: CharItem) => c.name || c.title || c.id;
+/** 角色加载键：目录名（slug），后端按目录加载 */
+const charKey = (c: CharItem) => c.id || charName(c);
 
 const AVATAR_URL = (name: string) => `/api/characters/${encodeURIComponent(name)}/avatar`;
 
@@ -229,7 +235,7 @@ export default function SessionManagerView() {
   const filteredPickerChars = useMemo(() => {
     const q = pickerSearch.trim().toLowerCase();
     return q
-      ? characters.filter((c) => c.name.toLowerCase().includes(q) || c.id.toLowerCase().includes(q))
+      ? characters.filter((c) => charName(c).toLowerCase().includes(q) || c.id.toLowerCase().includes(q))
       : characters;
   }, [characters, pickerSearch]);
 
@@ -522,10 +528,14 @@ export default function SessionManagerView() {
               </div>
 
               {/* 统计网格 */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-2.5">
                 <div className="stat-cell px-3 py-2.5">
                   <div className="text-[10px] text-gray-500">创建时间</div>
                   <div className="text-xs text-gray-200 mt-0.5">{formatDate(selected.created_at)}</div>
+                </div>
+                <div className="stat-cell px-3 py-2.5">
+                  <div className="text-[10px] text-gray-500">玩家身份</div>
+                  <div className="text-xs text-gray-200 mt-0.5">🎭 {selected.player_identity || "博士"}</div>
                 </div>
                 <div className="stat-cell px-3 py-2.5">
                   <div className="text-[10px] text-gray-500">叙述轮数</div>
@@ -705,26 +715,34 @@ export default function SessionManagerView() {
               )}
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pb-3">
                 {filteredPickerChars
-                  .filter((c) => !roster.includes(c.name))
-                  .map((c) => (
-                    <div
-                      key={c.id}
-                      className={`char-tile p-2.5 flex items-center gap-2 ${busyAction === `add-${c.name}` ? "opacity-60" : ""}`}
-                      onClick={() => void addCharacter(c.name)}
-                      title="点击加入本会话"
-                    >
-                      <img
-                        src={AVATAR_URL(c.name)}
-                        alt={c.name}
-                        className="char-avatar sm"
-                        onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }}
-                      />
-                      <div className="min-w-0">
-                        <div className="text-xs text-gray-200 truncate">{c.name}</div>
-                        <div className="text-[10px] text-gray-600 truncate">{busyAction === `add-${c.name}` ? "加载中..." : "点击入队"}</div>
+                  .filter((c) => !roster.includes(charKey(c)))
+                  .map((c) => {
+                    const key = charKey(c);
+                    return (
+                      <div
+                        key={c.id}
+                        className={`char-tile p-2.5 flex items-center gap-2 ${busyAction === `add-${key}` ? "opacity-60" : ""}`}
+                        onClick={() => void addCharacter(key)}
+                        title="点击加入本会话"
+                      >
+                        <img
+                          src={AVATAR_URL(key)}
+                          alt={charName(c)}
+                          className="char-avatar sm"
+                          onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }}
+                        />
+                        <div className="min-w-0">
+                          <div className="text-xs text-gray-200 truncate">
+                            {charName(c)}
+                            {selected?.player_identity === key && (
+                              <span className="ml-1 text-[9px] text-purple-300">🎭 你</span>
+                            )}
+                          </div>
+                          <div className="text-[10px] text-gray-600 truncate">{busyAction === `add-${key}` ? "加载中..." : "点击入队"}</div>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
               </div>
             </div>
           </div>

@@ -737,6 +737,11 @@ export default function ChatPanel() {
                   {msg.character && !dialogueBubbleMode && (
                     <div className="text-sm font-bold text-purple-300 mb-1">{msg.character}</div>
                   )}
+                  {msg.role === "user" && !dialogueBubbleMode && (
+                    <div className="text-sm font-bold text-blue-200 mb-1">
+                      {activeSession?.player_identity || "博士"}
+                    </div>
+                  )}
 
                   {isEditing ? (
                     <div className="space-y-2">
@@ -1111,12 +1116,16 @@ function triggerNarrate(
   const newRound = curCount + 1;
   store.setSessionNarrationCount(sessionId, newRound);
 
+  // 玩家身份：优先使用会话创建时选择的身份角色
+  const session = store.sessions.find((s) => s.id === sessionId);
+  const identity = session?.player_identity || "博士";
+
   let accumulated = "";
   let accumulatedReasoning = "";
 
   const url = action
-    ? `/api/sessions/${sessionId}/narrate?identity=${encodeURIComponent("博士")}&action=${encodeURIComponent(action)}`
-    : `/api/sessions/${sessionId}/narrate?identity=${encodeURIComponent("博士")}`;
+    ? `/api/sessions/${sessionId}/narrate?identity=${encodeURIComponent(identity)}&action=${encodeURIComponent(action)}`
+    : `/api/sessions/${sessionId}/narrate?identity=${encodeURIComponent(identity)}`;
 
   const sse = createSSE(url, {
       onReasoning: (token: string) => {

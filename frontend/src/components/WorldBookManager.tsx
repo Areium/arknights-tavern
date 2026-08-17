@@ -96,6 +96,7 @@ export default function WorldBookManager() {
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ text: string; type: "ok" | "error" } | null>(null);
   const [importReport, setImportReport] = useState<WorldBookImportReport | null>(null);
+  const [importCharacter, setImportCharacter] = useState<{ name: string } | null>(null);
   const [importing, setImporting] = useState(false);
 
   // 书元信息编辑
@@ -212,13 +213,23 @@ export default function WorldBookManager() {
   const onImportFile = async (file: File) => {
     setImporting(true);
     setImportReport(null);
+    setImportCharacter(null);
     try {
-      const name = file.name.replace(/\.(json|jsonl)$/i, "");
+      const name = file.name.replace(/\.(json|jsonl|txt|png)$/i, "");
       const res = await api.importWorldbookFile(name, file);
       setImportReport(res.report);
+      if (res.character) setImportCharacter(res.character);
       await loadBooks();
-      setSelectedId(res.book.id);
-      showToast(`导入完成：${res.report.imported} 条`);
+      if (res.book) setSelectedId(res.book.id);
+      if (res.character) {
+        showToast(
+          `角色「${res.character.name}」已导入` +
+          (res.book ? `，内嵌世界书 ${res.report.imported} 条` : "（未发现内嵌世界书）"),
+          "ok"
+        );
+      } else {
+        showToast(`导入完成：${res.report.imported} 条`);
+      }
     } catch (err: any) {
       showToast(err.message || "导入失败", "error");
     } finally {
@@ -229,6 +240,7 @@ export default function WorldBookManager() {
   const onImportJsonText = async (text: string, name: string) => {
     setImporting(true);
     setImportReport(null);
+    setImportCharacter(null);
     try {
       let data: any;
       try {
@@ -239,9 +251,18 @@ export default function WorldBookManager() {
       }
       const res = await api.importWorldbookJson(name || "导入的世界书", data);
       setImportReport(res.report);
+      if (res.character) setImportCharacter(res.character);
       await loadBooks();
-      setSelectedId(res.book.id);
-      showToast(`导入完成：${res.report.imported} 条`);
+      if (res.book) setSelectedId(res.book.id);
+      if (res.character) {
+        showToast(
+          `角色「${res.character.name}」已导入` +
+          (res.book ? `，内嵌世界书 ${res.report.imported} 条` : "（未发现内嵌世界书）"),
+          "ok"
+        );
+      } else {
+        showToast(`导入完成：${res.report.imported} 条`);
+      }
     } catch (err: any) {
       showToast(err.message || "导入失败", "error");
     } finally {
@@ -433,7 +454,7 @@ export default function WorldBookManager() {
               className={`text-xs px-2 py-1 rounded bg-blue-600/20 text-blue-300 hover:bg-blue-600/40 transition-colors ${importing ? "opacity-50 cursor-wait" : ""}`}
               onClick={() => fileInputRef.current?.click()}
               disabled={importing}
-              title="导入酒馆世界书 JSON / 聊天备份 jsonl"
+              title="导入酒馆世界书 JSON / 聊天备份 jsonl / 角色卡 PNG·JSON"
             >
               {importing ? "导入中…" : "⬆导入"}
             </button>
@@ -442,7 +463,7 @@ export default function WorldBookManager() {
         <input
           ref={fileInputRef}
           type="file"
-          accept=".json,.jsonl,.txt"
+          accept=".json,.jsonl,.txt,.png"
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
@@ -451,8 +472,8 @@ export default function WorldBookManager() {
           }}
         />
         <p className="text-xs text-gray-500 mb-2 leading-relaxed">
-          支持酒馆世界书导出 JSON（v1/v2）、角色卡内嵌世界书、聊天备份 .jsonl。
-          兼容触发词/副键/常驻/概率/插入位置等语义。
+          支持酒馆世界书导出 JSON（v1/v2）、角色卡内嵌世界书（PNG/JSON，自动连带导入角色）、
+          聊天备份 .jsonl。兼容触发词/副键/常驻/概率/插入位置等语义。
         </p>
 
         {/* 粘贴导入 */}
@@ -470,6 +491,9 @@ export default function WorldBookManager() {
               导入成功 {importReport.imported} 条
               {importReport.skipped > 0 && `，跳过 ${importReport.skipped} 条`}
             </p>
+            {importCharacter && (
+              <p className="text-cyan-300 mt-0.5">🎭 角色「{importCharacter.name}」已连带导入，可在新建会话时入队</p>
+            )}
             <p className="text-gray-500 mt-0.5">来源：{sourceLabel(importReport.source_format)}</p>
             {importReport.warnings.length > 0 && (
               <ul className="mt-1 text-amber-400/80 list-disc list-inside max-h-24 overflow-y-auto">

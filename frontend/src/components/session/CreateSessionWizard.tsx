@@ -10,7 +10,13 @@ import type { PlotInfo, WorldBookSummary, Session } from "../../types";
 interface CharItem {
   id: string;
   name: string;
+  title?: string;
 }
+
+/** 角色显示名（/api/characters 返回 title/name，兼容两者） */
+const charName = (c: CharItem) => c.name || c.title || c.id;
+/** 角色加载键：目录名（slug），后端按目录加载 */
+const charKey = (c: CharItem) => c.id || charName(c);
 
 interface CreateSessionWizardProps {
   open: boolean;
@@ -21,6 +27,7 @@ interface CreateSessionWizardProps {
 
 const STEP_LABELS: Record<string, string> = {
   mode: "模式选择",
+  identity: "玩家身份",
   plot: "选择剧情",
   worldbook: "绑定世界书",
   roster: "角色入队",
@@ -35,6 +42,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
   const [step, setStep] = useState(0);
   const [mode, setMode] = useState<"story" | "free">(chatMode);
   const [combatMode, setCombatMode] = useState<"narrative" | "tactical">("narrative");
+  const [identity, setIdentity] = useState("博士");
   const [plotId, setPlotId] = useState("");
   const [worldbookId, setWorldbookId] = useState<string | null>(null);
   const [roster, setRoster] = useState<string[]>([]);
@@ -49,9 +57,10 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
   const [loading, setLoading] = useState(false);
   const [plotSearch, setPlotSearch] = useState("");
   const [charSearch, setCharSearch] = useState("");
+  const [identitySearch, setIdentitySearch] = useState("");
 
   const steps = useMemo(
-    () => (mode === "story" ? ["mode", "plot", "worldbook", "roster", "finish"] : ["mode", "worldbook", "roster", "finish"]),
+    () => (mode === "story" ? ["mode", "identity", "plot", "worldbook", "roster", "finish"] : ["mode", "identity", "worldbook", "roster", "finish"]),
     [mode]
   );
 
@@ -62,8 +71,13 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
 
   const filteredChars = useMemo(() => {
     const q = charSearch.trim().toLowerCase();
-    return q ? characters.filter((c) => c.name.toLowerCase().includes(q) || c.id.toLowerCase().includes(q)) : characters;
+    return q ? characters.filter((c) => charName(c).toLowerCase().includes(q) || c.id.toLowerCase().includes(q)) : characters;
   }, [characters, charSearch]);
+
+  const filteredIdentityChars = useMemo(() => {
+    const q = identitySearch.trim().toLowerCase();
+    return q ? characters.filter((c) => charName(c).toLowerCase().includes(q) || c.id.toLowerCase().includes(q)) : characters;
+  }, [characters, identitySearch]);
 
   // 打开时重置并加载数据
   useEffect(() => {
@@ -71,6 +85,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
     setStep(0);
     setMode(chatMode);
     setCombatMode("narrative");
+    setIdentity("博士");
     setPlotId("");
     setWorldbookId(null);
     setRoster([]);
@@ -114,7 +129,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
     setCreating(true);
     setError("");
     try {
-      const session = await api.createSession(mode, name.trim(), mode === "story" ? plotId : "", combatMode);
+      const session = await api.createSession(mode, name.trim(), mode === "story" ? plotId : "", combatMode, identity || "博士");
       // 绑定世界书
       if (worldbookId) {
         try {
@@ -224,6 +239,83 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
             </div>
           )}
 
+          {!loading && current === "identity" && (
+            <div className="space-y-3">
+              <p className="text-xs text-gray-400">
+                选择你的玩家身份 — 你将以该角色身份参与对话（默认：博士）
+              </p>
+              {/* 默认身份：博士 */}
+              <div
+                className={`pick-card p-3 flex items-center gap-3 ${identity === "博士" ? "selected" : ""}`}
+                onClick={() => setIdentity("博士")}
+              >
+                <img
+                  src="/api/characters/博士/avatar"
+                  alt="博士"
+                  className="char-avatar"
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }}
+                />
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-gray-200">
+                    博士
+                    <span className="badge badge-narrative ml-2">默认玩家身份</span>
+                  </div>
+                  <div className="text-[10px] text-gray-500 mt-0.5 truncate">
+                    罗德岛战术指挥官 · 失忆的战场决策者
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] text-gray-500">或从角色库选择其他角色作为你的身份</p>
+                <input
+                  className="input text-xs w-48"
+                  placeholder="搜索角色..."
+                  value={identitySearch}
+                  onChange={(e) => setIdentitySearch(e.target.value)}
+                />
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-h-72 overflow-y-auto lobby-scroll pr-1">
+                {filteredIdentityChars
+                  .filter((c) => charKey(c) !== "博士")
+                  .map((c) => {
+                    const key = charKey(c);
+                    const selected = identity === key;
+                    return (
+                      <div
+                        key={c.id}
+                        className={`char-tile p-2.5 flex flex-col items-center gap-1.5 ${selected ? "selected" : ""}`}
+                        onClick={() => setIdentity(key)}
+                        title={selected ? `以「${charName(c)}」身份参与对话` : `选择「${charName(c)}」作为你的身份`}
+                      >
+                        <div className="relative w-full flex justify-center">
+                          <img
+                            src={`/api/characters/${encodeURIComponent(key)}/avatar`}
+                            alt={charName(c)}
+                            className="char-avatar"
+                            onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }}
+                          />
+                          {selected && (
+                            <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-500 text-black text-[10px] font-bold flex items-center justify-center shadow">
+                              ✓
+                            </span>
+                          )}
+                        </div>
+                        <span className={`text-xs truncate w-full text-center ${selected ? "text-amber-300 font-medium" : "text-gray-200"}`}>
+                          {charName(c)}
+                        </span>
+                        {selected && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-600/30 text-amber-300">
+                            我的身份
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
+
           {!loading && current === "plot" && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
@@ -312,21 +404,40 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                 />
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-h-80 overflow-y-auto lobby-scroll pr-1">
-                {filteredChars.map((c) => (
-                  <div
-                    key={c.id}
-                    className={`char-tile p-2.5 flex flex-col items-center gap-1.5 ${roster.includes(c.name) ? "selected" : ""}`}
-                    onClick={() => toggleRoster(c.name)}
-                  >
-                    <img
-                      src={`/api/characters/${encodeURIComponent(c.name)}/avatar`}
-                      alt={c.name}
-                      className="char-avatar"
-                      onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }}
-                    />
-                    <span className="text-xs text-gray-200 truncate w-full text-center">{c.name}</span>
-                  </div>
-                ))}
+                {filteredChars.map((c) => {
+                  const key = charKey(c);
+                  const selected = roster.includes(key);
+                  return (
+                    <div
+                      key={c.id}
+                      className={`char-tile p-2.5 flex flex-col items-center gap-1.5 ${selected ? "selected" : ""}`}
+                      onClick={() => toggleRoster(key)}
+                      title={selected ? `已入队：${charName(c)}` : `点击将 ${charName(c)} 入队`}
+                    >
+                      <div className="relative w-full flex justify-center">
+                        <img
+                          src={`/api/characters/${encodeURIComponent(key)}/avatar`}
+                          alt={charName(c)}
+                          className="char-avatar"
+                          onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }}
+                        />
+                        {selected && (
+                          <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-500 text-black text-[10px] font-bold flex items-center justify-center shadow">
+                            ✓
+                          </span>
+                        )}
+                      </div>
+                      <span className={`text-xs truncate w-full text-center ${selected ? "text-amber-300 font-medium" : "text-gray-200"}`}>
+                        {charName(c)}
+                      </span>
+                      {selected && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-600/30 text-amber-300">
+                          已入队
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
                 {filteredChars.length === 0 && (
                   <p className="text-gray-500 text-sm col-span-full text-center py-6">暂无可用角色，可前往「资产」页面导入角色卡</p>
                 )}
@@ -352,6 +463,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                   <span className={`badge ${mode === "story" ? "badge-story" : "badge-free"}`}>
                     {mode === "story" ? "📖 剧情模式" : "🕊️ 自由模式"}
                   </span>
+                  <span className="badge badge-narrative">🎭 玩家身份：{identity || "博士"}</span>
                   <span className={`badge ${combatMode === "tactical" ? "badge-tactical" : "badge-narrative"}`}>
                     {combatMode === "tactical" ? "⚔️ 战术模式" : "📜 纯剧情"}
                   </span>
@@ -362,7 +474,15 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                     <span className="badge badge-wb">📖 {books.find((b) => b.id === worldbookId)?.name || worldbookId}</span>
                   )}
                   {roster.length > 0 && (
-                    <span className="badge badge-narrative">👥 {roster.length} 名角色</span>
+                    <>
+                      <span className="badge badge-narrative">👥 已入队 {roster.length} 名</span>
+                      <p className="text-[11px] text-gray-400 w-full mt-1">
+                        角色：{roster.map((k) => {
+                          const c = characters.find((x) => charKey(x) === k);
+                          return c ? charName(c) : k;
+                        }).join("、")}
+                      </p>
+                    </>
                   )}
                 </div>
               </div>

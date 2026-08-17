@@ -44,12 +44,15 @@ class Session:
 
     def __init__(self, session_id: str, llm_backend_manager: LLMBackendManager,
                  name: str = "", mode: str = "free", combat_mode: str = "narrative",
+                 player_identity: str = "博士",
                  wiki_manager=None, worldbook_manager=None):
         self.id = session_id
         mode_label = "剧情" if mode == "story" else "自由"
         self.name = name or f"{mode_label}对话"
         self.mode = mode  # "free" | "story"
         self.combat_mode = combat_mode  # "narrative" | "tactical"，创建时选定，不可更改
+        # 玩家身份角色（用户自身）：默认"博士"，创建时可选择其他角色卡
+        self.player_identity = (player_identity or "").strip() or "博士"
         self.created_at = time.time()
         self._llm_backend = llm_backend_manager
 
@@ -491,6 +494,7 @@ class Session:
             "name": self.name,
             "mode": self.mode,
             "combat_mode": self.combat_mode,
+            "player_identity": self.player_identity,
             "plot_id": self.overlay.get_plot_id(),
             "worldbook_id": self.overlay.get_worldbook_id(),
             "custom_prompt": self.overlay.get_custom_prompt(),
@@ -536,11 +540,13 @@ class SessionManager:
         self._restore_sessions()
 
     def create_session(self, name: str = "", mode: str = "free", plot_name: str = "",
-                        combat_mode: str = "narrative", worldbook_id: str = "") -> Session:
+                        combat_mode: str = "narrative", worldbook_id: str = "",
+                        player_identity: str = "博士") -> Session:
         """创建新会话。
 
         Args:
             worldbook_id: 可选，创建时绑定世界书（未绑定则回落全局默认书）。
+            player_identity: 玩家身份角色名（用户自身，默认"博士"）。
         """
         session_id = self._generate_id()
         if not name:
@@ -559,7 +565,9 @@ class SessionManager:
                 counter += 1
                 name = f"{base}·{counter}"
         session = Session(session_id, self._llm_backend, name=name, mode=mode,
-                         combat_mode=combat_mode, wiki_manager=self._wiki_manager,
+                         combat_mode=combat_mode,
+                         player_identity=player_identity,
+                         wiki_manager=self._wiki_manager,
                          worldbook_manager=self._worldbook_manager)
         if worldbook_id:
             session.overlay.set_worldbook_id(worldbook_id)
@@ -573,7 +581,7 @@ class SessionManager:
     def _save_session_meta(self, session: Session):
         """保存会话元数据到 session.json。"""
         self._save_session_meta_raw(session.id, session.mode, session.name, session.created_at,
-                                    session.combat_mode)
+                                    session.combat_mode, session.player_identity)
 
     def _restore_sessions(self):
         """从磁盘恢复会话元数据。
@@ -586,7 +594,7 @@ class SessionManager:
             return
 
         max_counter = 0
-        to_restore: list[tuple[str, str, str, float, str]] = []  # (id, mode, name, created_at, combat_mode)
+        to_restore: list[tuple[str, str, str, float, str, str]] = []  # (id, mode, name, created_at, combat_mode, player_identity)
 
         for entry in _SESSIONS_DIR.iterdir():
             if not entry.is_dir():
@@ -603,10 +611,12 @@ class SessionManager:
                     if meta:
                         to_restore.append(meta)
 
-        for sid, mode, name, created_at, combat_mode in to_restore:
+        for sid, mode, name, created_at, combat_mode, player_identity in to_restore:
             try:
                 session = Session(sid, self._llm_backend, name=name, mode=mode,
-                                 combat_mode=combat_mode, wiki_manager=self._wiki_manager)
+                                 combat_mode=combat_mode,
+                                 player_identity=player_identity,
+                                 wiki_manager=self._wiki_manager)
                 session.created_at = created_at
                 self._sessions[sid] = session
 
@@ -633,7 +643,8 @@ class SessionManager:
                     data = json.load(f)
                 return (data["id"], data.get("mode", mode),
                         data.get("name", ""), data.get("created_at", 0),
-                        data.get("combat_mode", "narrative"))
+                        data.get("combat_mode", "narrative"),
+                        data.get("player_identity", "博士"))
             except Exception:
                 pass
 
@@ -656,12 +667,13 @@ class SessionManager:
             self._save_session_meta_raw(sid, mode, name, created_at)
 
             logger.info("从 overrides.json 推断并补写 session.json: %s/%s", mode, sid)
-            return (sid, mode, name, created_at, "narrative")
+            return (sid, mode, name, created_at, "narrative", "博士")
 
         return None
 
     def _save_session_meta_raw(self, sid: str, mode: str, name: str, created_at: float,
-                                combat_mode: str = "narrative"):
+                                combat_mode: str = "narrative",
+                                player_identity: str = "博士"):
         """直接写入 session.json（不依赖 Session 对象）。"""
         session_file = _SESSIONS_DIR / mode / sid / "session.json"
         session_file.parent.mkdir(parents=True, exist_ok=True)
@@ -671,6 +683,7 @@ class SessionManager:
                 "name": name,
                 "mode": mode,
                 "combat_mode": combat_mode,
+                "player_identity": player_identity,
                 "created_at": created_at,
             }, f, ensure_ascii=False, indent=2)
             f.write("\n")
@@ -685,10 +698,12 @@ class SessionManager:
                                        session_id, mode)
         if not meta:
             return None
-        _sid, _mode, name, created_at, combat_mode = meta
+        _sid, _mode, name, created_at, combat_mode, player_identity = meta
         try:
             session = Session(_sid, self._llm_backend, name=name, mode=_mode,
-                              combat_mode=combat_mode, wiki_manager=self._wiki_manager)
+                              combat_mode=combat_mode,
+                              player_identity=player_identity,
+                              wiki_manager=self._wiki_manager)
         except Exception as e:
             logger.warning("导入会话构造失败 %s/%s: %s", mode, session_id, e)
             return None

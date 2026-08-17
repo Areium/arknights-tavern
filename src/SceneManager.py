@@ -748,6 +748,38 @@ speaker 必须从场景角色列表选择，无法判断时用 null
         )
         if wb_before:
             ref_parts.append(wb_before)
+
+        # 开场设定（首轮：让开场白与场景对应）
+        # 角色卡导入时把 scenario/first_mes 写入角色 frontmatter，首轮叙述
+        # 注入为参考，LLM 开篇即呈现卡片定义的开场场景与角色台词。
+        if is_first_turn:
+            opening_parts = []
+            for name, agent in self._agents.items():
+                meta = getattr(agent, "metadata", None) or {}
+                scenario = str(meta.get("scenario", "") or "").strip()
+                first_mes = str(meta.get("first_mes", "") or "").strip()
+                if not scenario and not first_mes:
+                    continue
+                first_mes = first_mes.replace("{{char}}", name).replace("{{user}}", identity)
+                scenario = scenario.replace("{{char}}", name).replace("{{user}}", identity)
+                block = [f"角色「{name}」的开场设定（故事开篇必须忠实呈现）："]
+                if scenario:
+                    block.append(f"场景设定：{scenario}")
+                if first_mes:
+                    block.append(f"角色开场白（开篇应自然呈现这段台词/场景）：{first_mes}")
+                opening_parts.append("\n".join(block))
+            if opening_parts:
+                ref_parts.append(
+                    "<opening_setup>\n" + "\n\n".join(opening_parts) + "\n</opening_setup>")
+
+        # 玩家身份角色设定（用户自身，稳定层）
+        try:
+            from player_profile import load_player_profile
+            player_profile = load_player_profile(identity)
+            if player_profile:
+                ref_parts.append(f"<player_profile>\n{player_profile}\n</player_profile>")
+        except Exception:
+            logger.debug("玩家身份档案注入失败: %s", identity)
         if ref_parts:
             context_parts.append("<reference>\n" + "\n\n".join(ref_parts) + "\n</reference>")
 

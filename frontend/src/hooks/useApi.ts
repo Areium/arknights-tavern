@@ -70,10 +70,10 @@ export function useApi() {
     listSessions: () => request<any[]>("/api/sessions"),
     listPlots: () => request<any[]>("/api/plots"),
     createSession: (mode: "free" | "story" = "free", name = "", plotId = "",
-      combatMode: "narrative" | "tactical" = "narrative") =>
+      combatMode: "narrative" | "tactical" = "narrative", identity = "博士") =>
       request<any>("/api/sessions", {
         method: "POST",
-        body: JSON.stringify({ mode, name, plot_id: plotId, combat_mode: combatMode }),
+        body: JSON.stringify({ mode, name, plot_id: plotId, combat_mode: combatMode, identity }),
       }),
     getSession: (id: string) => request<any>(`/api/sessions/${id}`),
     deleteSession: (id: string) =>

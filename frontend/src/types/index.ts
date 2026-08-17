@@ -27,6 +27,7 @@ export interface Session {
   id: string;
   name: string;
   mode: "free" | "story";
+  player_identity?: string;
   plot_id: string | null;
   worldbook_id?: string | null;
   created_at: number;
@@ -538,8 +539,10 @@ export interface WorldBookImportReport {
 
 /** 导入结果 */
 export interface WorldBookImportResult {
-  book: WorldBookSummary;
+  book: WorldBookSummary | null;
   report: WorldBookImportReport;
+  /** 角色卡导入时连带创建的角色（PNG/JSON 角色卡） */
+  character?: { name: string; slug: string; path: string; source: string; has_avatar: boolean } | null;
 }
 
 /** 会话当前生效世界书查询结果 */

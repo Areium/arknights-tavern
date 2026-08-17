@@ -116,11 +116,15 @@ def register(app, managers):
                 resolved = _resolve_plot_dir(plot_id) or plot_id
                 plot_name = resolved
 
+        # 玩家身份角色（用户自身，默认"博士"）
+        player_identity = str(data.get("identity", "") or "").strip() or "博士"
+
         session = session_mgr.create_session(
             name=data.get("name", ""),
             mode=mode,
             plot_name=plot_name if not data.get("name") else "",
             combat_mode=combat_mode,
+            player_identity=player_identity,
         )
 
         if plot_id and mode == "story":
@@ -396,6 +400,7 @@ def register(app, managers):
             "name": session.name,
             "combat_mode": session.combat_mode,
             "plot_id": session.overlay.get_plot_id() or None,
+            "player_identity": session.player_identity,
         }
         out_dir = tempfile.mkdtemp(prefix="sess_export_")
         out_path = Path(out_dir) / f"session-{session_id}.zip"

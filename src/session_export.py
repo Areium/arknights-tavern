@@ -112,6 +112,7 @@ def export_session_zip(session_dir: Path, session_meta: dict, out_path: Path) ->
             "mode": mode,
             "name": session_meta.get("name", ""),
             "combat_mode": session_meta.get("combat_mode", "narrative"),
+            "player_identity": session_meta.get("player_identity", "博士"),
             "plot_id": session_meta.get("plot_id"),
         },
         "dependencies": {

@@ -9,14 +9,25 @@ SillyTavern 角色卡解析与导入。
 - 规范化角色元数据（name/description/personality/scenario/first_mes/mes_example/tags/creator_notes）
 - 干净的卡片图像字节（已剥离内嵌 JSON 块，可作头像）
 - 内嵌世界书原始数据（若有 character_book，可交给世界书导入）
+
+导入流水线（/api/characters/import 与 /api/worldbook/import 共用）：
+- write_character_dir() — 写入 data/characters/<slug>/index.md（frontmatter 含
+  first_mes/scenario，供首轮叙述注入）+ 头像
+- import_character_card() — 解析 + 写角色 + 导入内嵌世界书
 """
 
 import base64
 import json
 import logging
 import re
+from pathlib import Path
+
+import yaml
 
 logger = logging.getLogger(__name__)
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_DEFAULT_CHARS_DIR = _REPO_ROOT / "data" / "characters"
 
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
@@ -131,11 +142,12 @@ def parse_character_card(raw: bytes) -> dict:
 
     meta = _normalize_card(card_json)
     book_data = meta.get("character_book")
-    if book_data and not book_data.get("entries"):
+    if not (book_data and book_data.get("entries")):
         # v2 内嵌书也可能在 extensions.world / data.world
         ext = meta.get("extensions") or {}
         world = ext.get("world") if isinstance(ext.get("world"), dict) else None
-        book_data = world or None
+        book_data = (book_data if (book_data and book_data.get("entries"))
+                     else (world or None))
     return {
         "meta": meta,
         "image_bytes": image_bytes,
@@ -148,3 +160,121 @@ def slugify(name: str) -> str:
     s = re.sub(r'[\\/:*?"<>|\s]+', "_", name.strip())
     s = s.strip("._")
     return s or "imported_character"
+
+
+# ── 角色目录写入（/api/characters/import 与 /api/worldbook/import 共用） ──
+
+
+def build_index_md(meta: dict) -> str:
+    """把规范化角色元数据渲染为 index.md（frontmatter + 正文分节）。
+
+    frontmatter 额外写入 scenario / first_mes：供会话首轮叙述注入
+    （开场白与场景设定对应），正文分节保留供角色卡阅读。
+    """
+    summary = " ".join(meta["description"].split())[:160]
+    fm = {"name": meta["name"], "summary": summary, "source": "imported"}
+    if meta.get("tags"):
+        fm["tags"] = meta["tags"]
+    if meta.get("creator"):
+        fm["creator"] = meta["creator"]
+    if meta.get("character_version"):
+        fm["character_version"] = meta["character_version"]
+    if meta.get("scenario"):
+        fm["scenario"] = meta["scenario"]
+    if meta.get("first_mes"):
+        fm["first_mes"] = meta["first_mes"]
+
+    parts = []
+    if meta["description"]:
+        parts.append("# 角色背景\n\n" + meta["description"].strip())
+    if meta["personality"]:
+        parts.append("## 性格\n\n" + meta["personality"].strip())
+    if meta["scenario"]:
+        parts.append("## 场景\n\n" + meta["scenario"].strip())
+    if meta["first_mes"]:
+        parts.append("## 开场白\n\n" + meta["first_mes"].strip())
+    if meta["mes_example"]:
+        parts.append("## 对话示例\n\n" + meta["mes_example"].strip())
+    if meta["creator_notes"]:
+        parts.append("## 作者备注\n\n" + meta["creator_notes"].strip())
+
+    return (
+        "---\n"
+        + yaml.safe_dump(fm, allow_unicode=True, sort_keys=False).strip()
+        + "\n---\n\n"
+        + "\n\n".join(parts)
+        + "\n"
+    )
+
+
+def write_character_dir(meta: dict, image_bytes: bytes | None,
+                        chars_dir: str | Path | None = None) -> dict:
+    """把角色卡元数据写入 data/characters/<slug>/ 目录（index.md + 头像）。
+
+    Returns:
+        {"name", "slug", "path", "source", "has_avatar"}
+    """
+    base_dir = Path(chars_dir) if chars_dir else _DEFAULT_CHARS_DIR
+    name = meta["name"]
+    slug = slugify(name)
+    target = base_dir / slug
+    if target.exists():
+        i = 2
+        while (base_dir / f"{slug}_{i}").exists():
+            i += 1
+        target = base_dir / f"{slug}_{i}"
+        slug = target.name
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "index.md").write_text(build_index_md(meta), encoding="utf-8")
+
+    # 玩家身份档案缓存失效（该角色可能被用作玩家身份）
+    try:
+        from player_profile import invalidate_profile_cache
+        invalidate_profile_cache(name)
+    except Exception:
+        pass
+
+    avatar_path = None
+    if image_bytes:
+        avatar_dir = target / "avatar"
+        avatar_dir.mkdir(exist_ok=True)
+        avatar_path = avatar_dir / f"{slug}.png"
+        avatar_path.write_bytes(image_bytes)
+
+    return {
+        "name": name,
+        "slug": slug,
+        "path": f"characters/{slug}",
+        "source": "imported",
+        "has_avatar": avatar_path is not None,
+    }
+
+
+def import_character_card(raw: bytes, wb_mgr=None, chars_dir: str | Path | None = None,
+                          book_name: str | None = None) -> dict:
+    """解析角色卡文件并完整导入：角色目录 + 头像 + 内嵌世界书。
+
+    Args:
+        raw: 角色卡文件字节（PNG 或 JSON）。
+        wb_mgr: WorldBookManager 实例（可空，为空则不导入内嵌世界书）。
+        chars_dir: 角色数据目录（默认 data/characters）。
+        book_name: 内嵌世界书命名（默认 "<角色名>（角色卡）"）。
+
+    Returns:
+        {"character": {...}, "worldbook": {...} | None}
+    """
+    parsed = parse_character_card(raw)
+    meta = parsed["meta"]
+    character = write_character_dir(meta, parsed["image_bytes"], chars_dir=chars_dir)
+
+    book_summary = None
+    if parsed["book_data"] and wb_mgr is not None:
+        book, _report = wb_mgr.import_book(
+            book_name or f"{meta['name']}（角色卡）", parsed["book_data"])
+        book_summary = {
+            "id": book.id,
+            "name": book.name,
+            "source": book.source,
+            "entry_count": len(book.entries),
+        }
+    return {"character": character, "worldbook": book_summary}
