@@ -53,11 +53,11 @@ def _load_plot_opening(session, plot_id: str):
             elif isinstance(atmosphere, list):
                 session.environment.atmosphere = atmosphere
 
-        # 2. 加载初始角色（跳过不存在的角色 & 博士=玩家）
-        player_identities = {"博士"}
+        # 2. 加载初始角色（跳过不存在的角色 & 玩家身份角色）
+        player_identity = session.player_identity
         for char_name in meta.get("initial_characters", []):
             name = char_name.strip()
-            if name and name not in player_identities:
+            if name and name != player_identity:
                 ok = session.scene_manager.load_character(name)
                 if ok:
                     logger.debug("开场加载角色: %s", name)

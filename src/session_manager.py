@@ -156,7 +156,7 @@ class Session:
         self.scene_manager._persist_scene()
 
     def _plot_initial_characters(self) -> list[str]:
-        """读取绑定剧情的 initial_characters（排除玩家"博士"）。"""
+        """读取绑定剧情的 initial_characters（排除当前玩家身份）。"""
         try:
             from session_overlay import _read_plot_file
             plot_id = self.overlay.get_plot_id()
@@ -165,10 +165,10 @@ class Session:
             result = _read_plot_file(plot_id)
             if not result:
                 return []
-            player = {"博士"}
+            player = self.player_identity
             return [
                 n.strip() for n in result[0].get("initial_characters", [])
-                if n.strip() and n.strip() not in player
+                if n.strip() and n.strip() != player
             ]
         except Exception as e:
             logger.warning("读取剧情初始角色失败: %s", e)
