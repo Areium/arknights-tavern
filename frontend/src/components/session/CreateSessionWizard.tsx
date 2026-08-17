@@ -36,6 +36,7 @@ const STEP_LABELS: Record<string, string> = {
 
 export default function CreateSessionWizard({ open, onClose, onCreated }: CreateSessionWizardProps) {
   const chatMode = useAppStore((s) => s.chatMode);
+  const { setCurrentView } = useAppStore();
   const api = useApi();
 
   // ── 向导状态 ──
@@ -54,6 +55,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
   const [plots, setPlots] = useState<PlotInfo[]>([]);
   const [books, setBooks] = useState<WorldBookSummary[]>([]);
   const [characters, setCharacters] = useState<CharItem[]>([]);
+  const [identities, setIdentities] = useState<{ id: string; name: string; summary: string; tags: string[] }[]>([]);
   const [loading, setLoading] = useState(false);
   const [plotSearch, setPlotSearch] = useState("");
   const [charSearch, setCharSearch] = useState("");
@@ -74,10 +76,15 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
     return q ? characters.filter((c) => charName(c).toLowerCase().includes(q) || c.id.toLowerCase().includes(q)) : characters;
   }, [characters, charSearch]);
 
-  const filteredIdentityChars = useMemo(() => {
+  const filteredIdentities = useMemo(() => {
     const q = identitySearch.trim().toLowerCase();
-    return q ? characters.filter((c) => charName(c).toLowerCase().includes(q) || c.id.toLowerCase().includes(q)) : characters;
-  }, [characters, identitySearch]);
+    if (!q) return identities;
+    return identities.filter((i) =>
+      (i.name || "").toLowerCase().includes(q) ||
+      (i.summary || "").toLowerCase().includes(q) ||
+      (i.tags || []).some((t) => t.toLowerCase().includes(q))
+    );
+  }, [identities, identitySearch]);
 
   // 打开时重置并加载数据
   useEffect(() => {
@@ -97,11 +104,13 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
       api.listPlots(),
       api.listWorldbooks(),
       api.getCharacters(),
-    ]).then(([p, b, c]) => {
+      api.getPlayerIdentities(),
+    ]).then(([p, b, c, i]) => {
       if (cancelled) return;
       if (p.status === "fulfilled") setPlots(p.value || []);
       if (b.status === "fulfilled") setBooks(b.value?.books || []);
       if (c.status === "fulfilled") setCharacters(c.value || []);
+      if (i.status === "fulfilled") setIdentities(i.value || []);
       setLoading(false);
     });
     return () => { cancelled = true; };
@@ -241,9 +250,17 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
 
           {!loading && current === "identity" && (
             <div className="space-y-3">
-              <p className="text-xs text-gray-400">
-                选择你的玩家身份 — 你将以该角色身份参与对话（默认：博士）
-              </p>
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-gray-400">
+                  选择你的玩家身份 — 你将以该角色身份参与对话（默认：博士）
+                </p>
+                <button
+                  onClick={() => { setCurrentView("characters"); onClose(); }}
+                  className="text-[11px] px-2 py-1 rounded bg-gray-700 text-gray-300 hover:bg-gray-600 transition-colors"
+                >
+                  管理玩家身份
+                </button>
+              </div>
               {/* 默认身份：博士 */}
               <div
                 className={`pick-card p-3 flex items-center gap-3 ${identity === "博士" ? "selected" : ""}`}
@@ -267,31 +284,33 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
               </div>
 
               <div className="flex items-center justify-between">
-                <p className="text-[11px] text-gray-500">或从角色库选择其他角色作为你的身份</p>
+                <p className="text-[11px] text-gray-500">或从已创建的玩家身份中选择</p>
                 <input
                   className="input text-xs w-48"
-                  placeholder="搜索角色..."
+                  placeholder="搜索身份..."
                   value={identitySearch}
                   onChange={(e) => setIdentitySearch(e.target.value)}
                 />
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-h-72 overflow-y-auto lobby-scroll pr-1">
-                {filteredIdentityChars
-                  .filter((c) => charKey(c) !== "博士")
-                  .map((c) => {
-                    const key = charKey(c);
-                    const selected = identity === key;
+              {identities.length === 0 ? (
+                <p className="text-sm text-gray-500 text-center py-6">
+                  暂无自定义玩家身份，可点击右上角「管理玩家身份」创建。
+                </p>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-h-72 overflow-y-auto lobby-scroll pr-1">
+                  {filteredIdentities.map((i) => {
+                    const selected = identity === i.id;
                     return (
                       <div
-                        key={c.id}
+                        key={i.id}
                         className={`char-tile p-2.5 flex flex-col items-center gap-1.5 ${selected ? "selected" : ""}`}
-                        onClick={() => setIdentity(key)}
-                        title={selected ? `以「${charName(c)}」身份参与对话` : `选择「${charName(c)}」作为你的身份`}
+                        onClick={() => setIdentity(i.id)}
+                        title={selected ? `以「${i.name}」身份参与对话` : `选择「${i.name}」作为你的身份`}
                       >
                         <div className="relative w-full flex justify-center">
                           <img
-                            src={`/api/characters/${encodeURIComponent(key)}/avatar`}
-                            alt={charName(c)}
+                            src={`/api/characters/${encodeURIComponent(i.id)}/avatar`}
+                            alt={i.name}
                             className="char-avatar"
                             onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }}
                           />
@@ -302,7 +321,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                           )}
                         </div>
                         <span className={`text-xs truncate w-full text-center ${selected ? "text-amber-300 font-medium" : "text-gray-200"}`}>
-                          {charName(c)}
+                          {i.name || i.id}
                         </span>
                         {selected && (
                           <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-600/30 text-amber-300">
@@ -312,7 +331,8 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                       </div>
                     );
                   })}
-              </div>
+                </div>
+              )}
             </div>
           )}
 

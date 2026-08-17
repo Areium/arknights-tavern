@@ -49,6 +49,7 @@ export default function SessionManagerView() {
   const [plots, setPlots] = useState<PlotInfo[]>([]);
   const [books, setBooks] = useState<WorldBookSummary[]>([]);
   const [characters, setCharacters] = useState<CharItem[]>([]);
+  const [identities, setIdentities] = useState<{ id: string; name: string; summary: string; tags: string[] }[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerSearch, setPickerSearch] = useState("");
 
@@ -56,15 +57,18 @@ export default function SessionManagerView() {
   const [renaming, setRenaming] = useState(false);
   const [renameDraft, setRenameDraft] = useState("");
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [identityPickerOpen, setIdentityPickerOpen] = useState(false);
+  const [identitySearch, setIdentitySearch] = useState("");
 
-  // 加载剧情/世界书/角色库
+  // 加载剧情/世界书/角色库/玩家身份
   useEffect(() => {
     let cancelled = false;
-    Promise.allSettled([api.listPlots(), api.listWorldbooks(), api.getCharacters()]).then(([p, b, c]) => {
+    Promise.allSettled([api.listPlots(), api.listWorldbooks(), api.getCharacters(), api.getPlayerIdentities()]).then(([p, b, c, i]) => {
       if (cancelled) return;
       if (p.status === "fulfilled") setPlots(p.value || []);
       if (b.status === "fulfilled") setBooks(b.value?.books || []);
       if (c.status === "fulfilled") setCharacters(c.value || []);
+      if (i.status === "fulfilled") setIdentities(i.value || []);
     });
     return () => { cancelled = true; };
   }, [api]);
@@ -185,6 +189,22 @@ export default function SessionManagerView() {
     }
   };
 
+  // ── 玩家身份 ──
+
+  const setIdentity = async (identity: string) => {
+    if (!selected) return;
+    setBusyAction("set-identity");
+    try {
+      await api.setPlayerIdentity(selected.id, identity);
+      setSessions(sessions.map((s) => (s.id === selected.id ? { ...s, player_identity: identity } : s)));
+      setIdentityPickerOpen(false);
+    } catch (err: any) {
+      alert("设置玩家身份失败: " + (err?.message || "未知错误"));
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
   // ── 世界书绑定 ──
 
   const bindBook = async (bookId: string | null) => {
@@ -238,6 +258,16 @@ export default function SessionManagerView() {
       ? characters.filter((c) => charName(c).toLowerCase().includes(q) || c.id.toLowerCase().includes(q))
       : characters;
   }, [characters, pickerSearch]);
+
+  const filteredIdentities = useMemo(() => {
+    const q = identitySearch.trim().toLowerCase();
+    if (!q) return identities;
+    return identities.filter((i) =>
+      (i.name || "").toLowerCase().includes(q) ||
+      (i.summary || "").toLowerCase().includes(q) ||
+      (i.tags || []).some((t) => t.toLowerCase().includes(q))
+    );
+  }, [identities, identitySearch]);
 
   const tabCounts = useMemo(() => ({
     story: sessions.filter((s) => s.mode === "story").length,
@@ -533,9 +563,16 @@ export default function SessionManagerView() {
                   <div className="text-[10px] text-gray-500">创建时间</div>
                   <div className="text-xs text-gray-200 mt-0.5">{formatDate(selected.created_at)}</div>
                 </div>
-                <div className="stat-cell px-3 py-2.5">
+                <div
+                  className="stat-cell px-3 py-2.5 cursor-pointer hover:bg-gray-800/60 transition-colors"
+                  onClick={() => { setIdentityPickerOpen(true); setIdentitySearch(""); }}
+                  title="点击修改玩家身份"
+                >
                   <div className="text-[10px] text-gray-500">玩家身份</div>
-                  <div className="text-xs text-gray-200 mt-0.5">🎭 {selected.player_identity || "博士"}</div>
+                  <div className="text-xs text-gray-200 mt-0.5">
+                    🎭 {selected.player_identity || "博士"}
+                    <span className="text-[10px] text-amber-500/80 ml-1">✎</span>
+                  </div>
                 </div>
                 <div className="stat-cell px-3 py-2.5">
                   <div className="text-[10px] text-gray-500">叙述轮数</div>
@@ -744,6 +781,95 @@ export default function SessionManagerView() {
                     );
                   })}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 玩家身份选择器 */}
+      {identityPickerOpen && selected && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setIdentityPickerOpen(false)}>
+          <div
+            className="bg-gray-800 border border-gray-700 rounded-xl w-[520px] max-h-[600px] flex flex-col shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700">
+              <div>
+                <h2 className="text-base font-semibold">选择玩家身份</h2>
+                <p className="text-[11px] text-gray-500 mt-0.5">当前：{selected.player_identity || "博士"}</p>
+              </div>
+              <button onClick={() => setIdentityPickerOpen(false)} className="text-gray-500 hover:text-gray-300 text-lg leading-none">✕</button>
+            </div>
+            <div className="px-5 pt-3 pb-2">
+              <input
+                className="input text-sm"
+                placeholder="搜索身份..."
+                value={identitySearch}
+                onChange={(e) => setIdentitySearch(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-2 lobby-scroll">
+              {/* 默认博士 */}
+              <div
+                className={`pick-card p-3 mb-2 flex items-center gap-3 ${(selected.player_identity || "博士") === "博士" ? "selected" : ""}`}
+                onClick={() => void setIdentity("博士")}
+              >
+                <img
+                  src="/api/characters/博士/avatar"
+                  alt="博士"
+                  className="char-avatar sm"
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }}
+                />
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-gray-200">博士</div>
+                  <div className="text-[10px] text-gray-500 truncate">默认玩家身份 · 罗德岛战术指挥官</div>
+                </div>
+              </div>
+
+              {filteredIdentities.length === 0 && !identitySearch && (
+                <p className="text-gray-500 text-sm text-center py-6">暂无自定义玩家身份</p>
+              )}
+              {filteredIdentities.length === 0 && identitySearch && (
+                <p className="text-gray-500 text-sm text-center py-6">未找到匹配身份</p>
+              )}
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pb-3">
+                {filteredIdentities.map((i) => {
+                  const isCurrent = selected.player_identity === i.id;
+                  return (
+                    <div
+                      key={i.id}
+                      className={`char-tile p-2.5 flex flex-col items-center gap-1.5 ${isCurrent ? "selected" : ""} ${busyAction === "set-identity" ? "opacity-60" : ""}`}
+                      onClick={() => void setIdentity(i.id)}
+                    >
+                      <div className="relative w-full flex justify-center">
+                        <img
+                          src={`/api/characters/${encodeURIComponent(i.id)}/avatar`}
+                          alt={i.name}
+                          className="char-avatar"
+                          onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }}
+                        />
+                        {isCurrent && (
+                          <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-500 text-black text-[10px] font-bold flex items-center justify-center shadow">✓</span>
+                        )}
+                      </div>
+                      <span className={`text-xs truncate w-full text-center ${isCurrent ? "text-amber-300 font-medium" : "text-gray-200"}`}>
+                        {i.name || i.id}
+                      </span>
+                      {i.summary && <span className="text-[9px] text-gray-500 truncate w-full text-center">{i.summary}</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="px-5 py-3 border-t border-gray-700 flex justify-end">
+              <button
+                onClick={() => { setCurrentView("characters"); setIdentityPickerOpen(false); }}
+                className="text-xs px-3 py-1.5 rounded bg-gray-700 text-gray-300 hover:bg-gray-600 transition-colors"
+              >
+                管理玩家身份
+              </button>
             </div>
           </div>
         </div>
