@@ -419,6 +419,21 @@ export function useApi() {
     importCharacterCard: (file: File) =>
       uploadMultipart("/api/characters/import", {}, file),
 
+    // ── 玩家身份角色 ──
+    getPlayerIdentities: () => request<{ id: string; name: string; summary: string; tags: string[] }[]>("/api/player-identities"),
+    savePlayerIdentity: (name: string, metadata: Record<string, any>, content: string) =>
+      request<any>(`/api/player-identities/${encodeURIComponent(name)}`, {
+        method: "PUT",
+        body: JSON.stringify({ metadata, content }),
+      }),
+    deletePlayerIdentity: (name: string) =>
+      request<any>(`/api/player-identities/${encodeURIComponent(name)}`, { method: "DELETE" }),
+    setPlayerIdentity: (sessionId: string, identity: string) =>
+      request<{ message: string; player_identity: string }>(`/api/sessions/${sessionId}/identity`, {
+        method: "PUT",
+        body: JSON.stringify({ identity }),
+      }),
+
     // ── 物品库 ──
     getItems: () => request<any[]>("/api/items"),
     getItem: (id: string) => request<any>(`/api/items/${encodeURIComponent(id)}`),

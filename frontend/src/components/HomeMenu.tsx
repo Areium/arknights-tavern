@@ -11,7 +11,7 @@ import { audioManager } from "../audio/audioManager";
 
 const asset = (p: string) => import.meta.env.BASE_URL + p;
 
-type MenuView = "sessions" | "content" | "docs" | "settings";
+type MenuView = "sessions" | "characters" | "worldbook" | "content" | "docs" | "settings";
 
 interface MenuItem {
   id: MenuView;
@@ -23,7 +23,9 @@ interface MenuItem {
 
 const MENU_ITEMS: MenuItem[] = [
   { id: "sessions", label: "会话大厅", icon: "🏛️", desc: "进入故事与战斗", primary: true },
-  { id: "content", label: "内容中心", icon: "🗂️", desc: "文档 · 世界书 · 索引 · 资产 · 卡牌" },
+  { id: "characters", label: "角色管理", icon: "🎭", desc: "角色库 · 玩家身份 · 卡牌" },
+  { id: "worldbook", label: "世界书", icon: "📖", desc: "关键词触发式设定注入" },
+  { id: "content", label: "内容中心", icon: "🗂️", desc: "文档 · 索引 · 资产 · 卡牌" },
   { id: "docs", label: "文档", icon: "📘", desc: "帮助与设定文档" },
   { id: "settings", label: "设置", icon: "⚙️", desc: "LLM · 主题 · 叙述选项" },
 ];

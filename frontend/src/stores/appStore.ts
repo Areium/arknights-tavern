@@ -15,7 +15,7 @@ export interface CombatContext {
   selectedUnitId: string | null;
 }
 
-type ViewName = "home" | "chat" | "sessions" | "documents" | "settings" | "combat" | "index" | "worldbook" | "content" | "docs";
+type ViewName = "home" | "chat" | "sessions" | "documents" | "settings" | "combat" | "index" | "worldbook" | "content" | "docs" | "characters";
 
 /** 内容中心内部 Tab（统一管理：文档/世界书/索引/资产/卡牌） */
 export type ContentHubTab = "docs" | "worldbook" | "index" | "images" | "cards";
