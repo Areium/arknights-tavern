@@ -88,7 +88,7 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
   （`max_rounds` 超时判负 / `escape_enabled` 允许撤退）均被读取；`trigger_plot` **未读取**。
 - **tactical 模式下**：LLM 叙述后 `extract_markers` 输出 `combat_trigger` → SSE
   `combat_briefing`（含打法列表）→ 玩家选打法后 POST `/combat/start` 开战（或谈判检定/撤退）。
-  **没有** `[COMBAT:enc_id]` 代码级解析（战斗目标仍由 LLM 提取，见 `combat-core-design.md` A2.5）。
+  战斗目标优先级：节拍 `[COMBAT:enc_id]`（代码确定性解析）> LLM `combat_trigger` 提取。
 
 ## 10. 消耗品与奖励
 
@@ -125,5 +125,4 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
 敌人意图系统、SPD 行动顺序、max_rounds/逃跑条件、战斗内状态效果（护盾/减速/束缚/
 虚弱/增幅/沉默/灼烧/嘲讽/闪避/致盲 + 净化/破甲）、战后卡牌 1 选 1、剧情分支投点接入战斗。
 
-**未实现**：节拍 `[COMBAT:enc_id]` 代码级解析（当前由 LLM `combat_trigger` 提取）、
-波次逐波触发（`waves` 一次性展开）、敌人 `ai_skills` 数据驱动（当前按职业硬编码三套卡）。
+**未实现**：波次逐波触发（`waves` 一次性展开）、敌人 `ai_skills` 数据驱动（当前按职业硬编码三套卡）。

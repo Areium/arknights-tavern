@@ -14,6 +14,7 @@ from flask import Blueprint, jsonify, request
 
 from shared.helpers import json_error, make_sse_response, build_character_metas
 from combat_approaches import resolve_approach, list_approaches, roll_check
+from combat_engine.engine import CombatEvent
 
 logger = logging.getLogger(__name__)
 
@@ -90,11 +91,8 @@ def _check_combat_timeout(session, timeout: int = 600):
     if combat.engine:
         combat.engine.state.phase = "END"
         try:
-            _Event = type("_CombatEvent", (), {})
-            ev = _Event()
-            ev.type = "battle_end"
-            ev.data = {"winner": "timeout", "reason": "战斗超时"}
-            combat.event_queue.put_nowait(ev)
+            combat.event_queue.put_nowait(
+                CombatEvent("battle_end", {"winner": "timeout", "reason": "战斗超时"}))
         except Exception:
             pass
 
@@ -466,29 +464,10 @@ def register(app, managers):
         # Accept frontend-submitted details (survivors, character_stats)
         req_data = request.json or {}
 
-        history_entry = {
-            "encounter_id": combat_data.get("encounter_id", ""),
-            "result": combat_data.get("engine_state", {}).get("winner", ""),
-            "rounds": combat_data.get("engine_state", {}).get("round_num", 0),
-            "timestamp": time.time(),
-        }
-        # Store additional details from frontend
-        for key in ("survivors", "character_stats"):
-            if key in req_data:
-                history_entry[key] = req_data[key]
-
-        overlay_data["combat_history"].append(history_entry)
-
-        # Keep only the last 20 entries
-        if len(overlay_data["combat_history"]) > 20:
-            overlay_data["combat_history"] = overlay_data["combat_history"][-20:]
-
-        session.overlay._save()
-
-        combat_history = overlay_data["combat_history"]
         winner = combat_data.get("engine_state", {}).get("winner", "")
         round_num = combat_data.get("engine_state", {}).get("round_num", 0)
         encounter_id = combat_data.get("encounter_id", "")
+        reward_mult = float(combat_data.get("reward_mult", 1.0) or 1.0)
 
         # 将战斗结果注入场景日志，下一轮叙述会自动引用
         if winner == "player":
@@ -506,19 +485,41 @@ def register(app, managers):
 
         session.combat = None
 
-        # 结算奖励（胜利才有 XP 和掉落）
+        # 结算奖励（胜利才有 XP 和掉落）——先结算，再写 history 以便记录 rewards
         rewards = {"xp": 0, "items": [], "level_ups": [], "card_choices": []}
         if winner == "player":
             try:
-                reward_mult = float(combat_data.get("reward_mult", 1.0) or 1.0)
                 rewards = _settle_combat_rewards(session, combat_data, reward_mult)
                 # 卡组构建：胜利后 1 选 1（3 张候选卡）
                 rewards["card_choices"] = _generate_card_choices(
                     session, combat_data.get("character_metas", []) or [])
                 session.overlay._data["pending_card_choices"] = rewards["card_choices"]
                 session.overlay._save()
-            except Exception as e:
+            except Exception:
                 logger.exception("会话 %s: 战斗奖励结算失败", session_id)
+
+        history_entry = {
+            "encounter_id": encounter_id,
+            "result": winner,
+            "rounds": round_num,
+            "reward_mult": reward_mult,
+            "rewards": {"xp": rewards.get("xp", 0), "items": rewards.get("items", [])},
+            "timestamp": time.time(),
+        }
+        # Store additional details from frontend
+        for key in ("survivors", "character_stats"):
+            if key in req_data:
+                history_entry[key] = req_data[key]
+
+        overlay_data["combat_history"].append(history_entry)
+
+        # Keep only the last 20 entries
+        if len(overlay_data["combat_history"]) > 20:
+            overlay_data["combat_history"] = overlay_data["combat_history"][-20:]
+
+        session.overlay._save()
+
+        combat_history = overlay_data["combat_history"]
 
         # Generate auto-narrate action for frontend（fail-forward：撤退/战败都不判死，继续推进）
         if winner == "escaped":
@@ -586,11 +587,8 @@ def register(app, managers):
             combat.engine.state.phase = "END"
             combat.engine.state.winner = "abandoned"
             try:
-                _Event = type("_CombatEvent", (), {})
-                ev = _Event()
-                ev.type = "battle_end"
-                ev.data = {"winner": "abandoned", "reason": "战斗已放弃"}
-                combat.event_queue.put_nowait(ev)
+                combat.event_queue.put_nowait(
+                    CombatEvent("battle_end", {"winner": "abandoned", "reason": "战斗已放弃"}))
             except Exception:
                 pass
 

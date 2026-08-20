@@ -721,6 +721,8 @@ class CombatEngine:
             if self.grid.is_valid_position(new_pos, unit.team):
                 if self.grid.move_unit(unit, new_pos):
                     unit.AP -= 1
+                    self._emit("move", unit_id=unit_id, name=unit.name,
+                               from_pos=[r, c], to_pos=[new_pos[0], new_pos[1]])
 
         return []
 

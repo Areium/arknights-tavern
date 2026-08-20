@@ -356,6 +356,19 @@ class SessionOverlay:
             return beats[ci]["beats"][bi]
         return None
 
+    def get_current_beat_combat_id(self) -> str:
+        """从当前节拍的 content 提取确定性战斗目标 `[COMBAT:enc_id]`。
+
+        章节战斗目标由代码确定（docs/combat-core-design.md A2.5 / D2.2），
+        优先于 LLM 的 combat_trigger 提取；无标记返回空串。
+        """
+        beat = self.get_current_beat()
+        if not beat:
+            return ""
+        content = beat.get("content", "") or ""
+        m = re.search(r"\[COMBAT:([\w-]+)\]", content)
+        return m.group(1) if m else ""
+
     def get_next_beat(self) -> dict | None:
         """获取下一节拍的完整信息（content + dialogue + reveals）。
 

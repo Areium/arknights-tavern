@@ -101,17 +101,25 @@ def _should_extract_markers(session, choices_count: int) -> bool:
     return False
 
 
-def _apply_combat_briefing(session, combat_data: dict | None, stream_id: str) -> dict | None:
+def _beat_combat_target(session) -> str:
+    """确定性战斗目标：当前节拍声明的 `[COMBAT:enc_id]`（推进节拍前读取）。"""
+    overlay = getattr(session, "overlay", None)
+    if overlay is None:
+        return ""
+    return overlay.get_current_beat_combat_id()
+
+
+def _apply_combat_briefing(session, combat_data: dict | None, stream_id: str,
+                           beat_combat_id: str = "") -> dict | None:
     """从标记提取结果生成战前简报（含打法列表），不再自动开战。
 
     玩家在简报面板选择打法后，由前端 POST /combat/start 启动战斗（见
-    docs/combat-core-design.md C1）。返回 briefing dict 或 None。
+    docs/combat-core-design.md C1）。战斗目标优先级：节拍 `[COMBAT:enc_id]`
+    （代码确定性解析）> LLM `combat_trigger` 提取。返回 briefing dict 或 None。
     """
-    if not combat_data:
-        return None
     if getattr(session, 'combat_mode', 'narrative') != "tactical":
         return None
-    encounter_id = combat_data.get("encounter_id", "")
+    encounter_id = beat_combat_id or (combat_data or {}).get("encounter_id", "")
     if not encounter_id:
         return None
     try:
@@ -369,8 +377,14 @@ def register(app, managers):
                     )
                     if markers.get("usage"):
                         session.accumulate_usage(markers["usage"])
+                    # 节拍确定性战斗目标：推进节拍前读取当前节拍的 [COMBAT:enc_id]
+                    beat_combat_id = _beat_combat_target(session)
+                    combat_due = bool(markers.get("combat")) or bool(markers.get("beat_complete"))
                     _apply_beat_complete(session, markers.get("beat_complete", False))
-                    briefing = _apply_combat_briefing(session, markers.get("combat"), stream_id)
+                    briefing = _apply_combat_briefing(
+                        session, markers.get("combat"), stream_id,
+                        beat_combat_id=beat_combat_id if combat_due else "",
+                    )
                     if briefing:
                         yield f"data: {json.dumps({'type': 'combat_briefing', 'data': briefing}, ensure_ascii=False)}\n\n"
                     inline_choices = markers.get("choices")
@@ -521,8 +535,14 @@ def register(app, managers):
                 )
                 if markers.get("usage"):
                     session.accumulate_usage(markers["usage"])
+                # 节拍确定性战斗目标：推进节拍前读取当前节拍的 [COMBAT:enc_id]
+                beat_combat_id = _beat_combat_target(session)
+                combat_due = bool(markers.get("combat")) or bool(markers.get("beat_complete"))
                 _apply_beat_complete(session, markers.get("beat_complete", False))
-                combat_briefing = _apply_combat_briefing(session, markers.get("combat"), "")
+                combat_briefing = _apply_combat_briefing(
+                    session, markers.get("combat"), "",
+                    beat_combat_id=beat_combat_id if combat_due else "",
+                )
                 inline_choices = markers.get("choices")
                 plot_summary = markers.get("summary")
 

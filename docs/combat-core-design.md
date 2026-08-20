@@ -2,8 +2,8 @@
 
 > 定位：在**保持现有战斗形式不变**的前提下，把游戏从「LLM 主导叙事」重构为「战斗为主体、LLM 只做战前/战后简报」的章节式玩法，并系统性加深战斗策略深度。
 >
-> 状态：**大部分已实现（2026-08 审计后）**。战前简报/打法选择（Approach）、`combat_briefing` SSE、谈判 d20 检定、`reward_mult` 结算、战后 1 选 1 卡组构建、敌人意图、SPD 行动顺序、`max_rounds`/撤退、状态效果（护盾/减速/束缚/虚弱/增幅/沉默/灼烧/嘲讽/闪避/致盲）均已落地。
-> ⚠️ 仍未实现：节拍 `[COMBAT:enc_id]` 代码级解析（当前依赖 LLM `extract_markers` 输出 `combat_trigger` 触发）、波次（waves 逐波生效）、敌人 `ai_skills` 数据驱动（当前按职业硬编码三套卡）。
+> 状态：**大部分已实现（2026-08 审计后）**。战前简报/打法选择（Approach）、`combat_briefing` SSE、谈判 d20 检定、`reward_mult` 结算、战后 1 选 1 卡组构建、敌人意图、SPD 行动顺序、`max_rounds`/撤退、状态效果（护盾/减速/束缚/虚弱/增幅/沉默/灼烧/嘲讽/闪避/致盲）、节拍 `[COMBAT:enc_id]` 代码级确定性解析（优先于 LLM 提取）均已落地。
+> ⚠️ 仍未实现：波次（waves 逐波生效）、敌人 `ai_skills` 数据驱动（当前按职业硬编码三套卡）。
 > 现状请以 `src/combat_engine/`、`src/combat_session.py`、`src/combat_approaches.py`、`src/blueprints/combat.py` 为准。
 
 ---
