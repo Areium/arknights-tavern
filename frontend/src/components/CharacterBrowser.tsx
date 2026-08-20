@@ -6,6 +6,7 @@ import CharacterDetailCard from "./CharacterDetailCard";
 interface AvailableCharacter {
   id: string;
   name: string;
+  title?: string;
 }
 
 export default function CharacterBrowser({
@@ -114,11 +115,11 @@ export default function CharacterBrowser({
     };
   }, [open, api]);
 
-  const handleAdd = async (name: string) => {
+  const handleAdd = async (key: string) => {
     if (!activeSessionId) return;
-    setLoadingName(name);
+    setLoadingName(key);
     try {
-      await api.loadCharacter(activeSessionId, name);
+      await api.loadCharacter(activeSessionId, key);
       onAdded?.();
     } catch (err: any) {
       alert("加载失败: " + err.message);
@@ -129,7 +130,7 @@ export default function CharacterBrowser({
 
   const filtered = search.trim()
     ? characters.filter((c) =>
-        c.name.toLowerCase().includes(search.toLowerCase())
+        (c.name || c.title || c.id || "").toLowerCase().includes(search.toLowerCase())
       )
     : characters;
 
@@ -181,7 +182,7 @@ export default function CharacterBrowser({
                 className="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-gray-700/50 transition-colors"
               >
                 <div>
-                  <span className="text-sm font-medium">{c.name}</span>
+                  <span className="text-sm font-medium">{c.name || c.title || c.id}</span>
                   <span className="text-xs text-gray-500 ml-2">{c.id}</span>
                 </div>
                 <div className="flex items-center gap-1">
@@ -200,12 +201,12 @@ export default function CharacterBrowser({
                     📌
                   </button>
                   <button
-                    onClick={() => handleAdd(c.name)}
-                    disabled={loadingName === c.name}
+                    onClick={() => handleAdd(c.id || c.name || c.title || "")}
+                    disabled={loadingName === (c.id || c.name || c.title || "")}
                     className="text-xs px-3 py-1.5 rounded bg-green-700/30 text-green-300
                       hover:bg-green-700/50 disabled:opacity-50"
                   >
-                    {loadingName === c.name ? "加载中..." : "加入场景"}
+                    {loadingName === (c.id || c.name || c.title || "") ? "加载中..." : "加入场景"}
                   </button>
                 </div>
               </div>

@@ -75,6 +75,7 @@ class DocumentInfo:
             "category_id": self.category_id,
             "id": self.id,
             "title": self.title,
+            "name": self.title,  # 兼容别名：前端角色库/入队选择使用 name 字段
             "hash": self.hash,
             "mtime": self.mtime,
             "summary": self.summary,

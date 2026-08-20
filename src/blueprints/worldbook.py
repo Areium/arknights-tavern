@@ -17,6 +17,7 @@ Worldbook blueprint — 世界书（酒馆 Lorebook 兼容）管理 API。
     GET    /api/worldbook/resolve              查询会话当前生效的书
 """
 
+import json
 import logging
 import uuid
 
@@ -63,6 +64,59 @@ def _decode_upload(raw: bytes) -> str:
         except UnicodeDecodeError:
             continue
     return raw.decode("utf-8", errors="replace")
+
+
+def _try_json(text: str):
+    """尝试把文本解析为单个 JSON 对象，失败返回 None。"""
+    try:
+        obj = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
+def _looks_like_card(obj) -> bool:
+    """判断 JSON 对象是否为 SillyTavern 角色卡（含角色身份字段）。"""
+    if not isinstance(obj, dict):
+        return False
+    data = obj.get("data") if isinstance(obj.get("data"), dict) else obj
+    if not isinstance(data, dict) or not data.get("name"):
+        return False
+    return (
+        isinstance(data.get("character_book"), dict)
+        or isinstance(obj.get("character_book"), dict)
+        or bool(data.get("first_mes"))
+        or bool(data.get("personality"))
+        or bool(data.get("description"))
+        or bool(data.get("scenario"))
+    )
+
+
+def _parse_card_or_error(raw: bytes):
+    """尝试解析角色卡（PNG/JSON），失败返回 None。"""
+    try:
+        from character_card import CharacterCardError, parse_character_card
+        return parse_character_card(raw)
+    except CharacterCardError as exc:
+        logger.warning("角色卡解析失败: %s", exc)
+        return None
+    except Exception as exc:
+        logger.warning("角色卡解析异常: %s", exc)
+        return None
+
+
+def _import_card_character(card_result: dict, managers: dict):
+    """把角色卡中的角色写入 data/characters（连带导入内嵌世界书场景共用）。"""
+    from character_card import write_character_dir
+    from shared.cache import invalidate_all_caches
+    character = write_character_dir(
+        card_result["meta"], card_result["image_bytes"])
+    try:
+        import index_manager as idxmgr
+        invalidate_all_caches(idxmgr, managers.get("wiki"))
+    except Exception:
+        pass
+    return character
 
 
 def register(app, managers):
@@ -117,11 +171,31 @@ def register(app, managers):
     def import_book():
         name = ""
         source = None
+        card_result = None  # 角色卡解析结果；非 None 时连带导入角色（角色/开场白可入队使用）
 
         if "file" in request.files and request.files["file"]:
             f = request.files["file"]
             name = str(request.form.get("name", "") or "").strip() or f.filename
-            source = _decode_upload(f.read())
+            raw = f.read()
+            if raw.startswith(b"\x89PNG"):
+                # PNG 角色卡：提取内嵌世界书 + 角色
+                card_result = _parse_card_or_error(raw)
+                if card_result is None:
+                    return json_error("PNG 角色卡解析失败（未找到内嵌 chara JSON）", 400)
+                source = card_result["book_data"]
+                if source is None:
+                    return json_error(
+                        "该 PNG 角色卡未包含内嵌世界书（character_book / extensions.world）", 400)
+            else:
+                text = _decode_upload(raw)
+                obj = _try_json(text)
+                if _looks_like_card(obj):
+                    card_result = _parse_card_or_error(raw)
+                    if card_result is None:
+                        return json_error("角色卡解析失败", 400)
+                    source = card_result["book_data"] or obj
+                else:
+                    source = text
         elif request.json is not None:
             data = request.json
             name = str(data.get("name", "") or "").strip()
@@ -129,6 +203,12 @@ def register(app, managers):
             if source is None:
                 # 允许直接把整本书 JSON 作为 body（无 name/data 包装）
                 source = {k: v for k, v in data.items() if k != "name"}
+            if _looks_like_card(source):
+                card_result = _parse_card_or_error(
+                    json.dumps(source, ensure_ascii=False).encode("utf-8"))
+                if card_result is None:
+                    return json_error("角色卡解析失败", 400)
+                source = card_result["book_data"] or source
         else:
             return json_error("需要上传文件或 JSON body")
 
@@ -141,16 +221,20 @@ def register(app, managers):
             logger.exception("世界书导入失败")
             return json_error(f"导入失败: {e!s}", 500)
 
-        if report.imported == 0:
-            return jsonify({
-                "book": _book_detail(book, include_entries=False),
-                "report": report.to_dict(),
-            })
+        # 角色卡连带导入角色：角色卡自带角色/开场白等内容可正常使用
+        character = None
+        if card_result is not None:
+            try:
+                character = _import_card_character(card_result, managers)
+            except Exception as exc:
+                logger.warning("角色卡连带导入角色失败: %s", exc)
 
-        return jsonify({
+        resp = {
             "book": _book_detail(book, include_entries=False),
             "report": report.to_dict(),
-        }), 201
+            "character": character,
+        }
+        return jsonify(resp), 201
 
     # ── 3. 书详情 / 更新 / 删除 / 导出 ──
 

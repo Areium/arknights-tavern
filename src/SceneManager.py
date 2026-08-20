@@ -17,6 +17,7 @@ def _empty_extraction_result() -> dict:
         "combat": None,
         "choices": None,
         "summary": None,
+        "environment": None,
         "usage": None,
         "error": None,
     }
@@ -60,6 +61,7 @@ def _parse_extraction_json(text: str) -> dict:
         "combat": _normalize_combat_field(data.get("combat_trigger")),
         "choices": _normalize_choices_field(data.get("choices")),
         "summary": _normalize_summary_field(data.get("summary")),
+        "environment": _normalize_environment_field(data.get("environment")),
     }
 
 
@@ -74,6 +76,25 @@ def _normalize_combat_field(combat_data) -> dict | None:
     if params is not None and not isinstance(params, dict):
         params = None
     return {"encounter_id": encounter_id.strip(), "params": params}
+
+
+def _normalize_environment_field(env_data) -> dict | None:
+    """验证并规范化 environment 字段（只保留明确出现的场景变化）。"""
+    if not env_data or not isinstance(env_data, dict):
+        return None
+    result = {}
+    for key in ("location", "weather", "time"):
+        val = env_data.get(key)
+        if isinstance(val, str) and val.strip():
+            result[key] = val.strip()
+    atmosphere = env_data.get("atmosphere")
+    if isinstance(atmosphere, str) and atmosphere.strip():
+        result["atmosphere"] = [atmosphere.strip()]
+    elif isinstance(atmosphere, list):
+        items = [str(v).strip() for v in atmosphere if str(v).strip()]
+        if items:
+            result["atmosphere"] = items
+    return result or None
 
 
 def _normalize_choices_field(choices) -> list[str] | None:
@@ -519,7 +540,8 @@ speaker 必须从场景角色列表选择，无法判断时用 null
 - MUST：只有叙述末尾场景明确达到段落结束点（角色离开、对话结束、行动完成等），才设置 beat_complete 为 true
 - MUST：只有叙述中明确出现了敌对冲突/战斗场面时，才设置 combat_trigger
 - MUST：选项必须基于叙述内容推导，每个选项不超过15个汉字
-- 如果对某个字段没有把握，使用默认值（false / null / null / null）
+- MUST：只有叙述中明确出现了场景转移、天气/时段/氛围变化时，才填写 environment；没有变化时为 null
+- 如果对某个字段没有把握，使用默认值（false / null / null / null / null）
 </core_rules>
 
 <output_format>
@@ -528,7 +550,8 @@ speaker 必须从场景角色列表选择，无法判断时用 null
   "beat_complete": false,
   "combat_trigger": null,
   "choices": null,
-  "summary": null
+  "summary": null,
+  "environment": null
 }
 
 字段说明：
@@ -536,6 +559,7 @@ speaker 必须从场景角色列表选择，无法判断时用 null
 - combat_trigger: null 或 {"encounter_id": "遭遇ID", "params": null}
 - choices: null 或字符串数组（每个选项不超过15个汉字）
 - summary: null 或字符串（不超过50个汉字，只写事实不写评价）
+- environment: null 或对象，可包含 location（地点名）、weather（天气）、time（时段）、atmosphere（氛围字符串或字符串数组）；只填写叙述中明确出现变化的内容
 </output_format>"""
 
     def _build_extraction_messages(
@@ -548,7 +572,11 @@ speaker 必须从场景角色列表选择，无法判断时用 null
         """
         parts = [f"<narrative>\n{narrative}\n</narrative>"]
 
-        tasks = []
+        tasks = [
+            "- 判断叙述中是否发生了场景变化：地点转移、天气变化、时段变化、氛围变化。\n"
+            "  如果有，将变化内容填入 environment 对象；没有则 environment 为 null。\n"
+            "  只提取叙述中明确写出的内容，不要推测。"
+        ]
 
         if beat_state_active:
             tasks.append(
@@ -748,6 +776,38 @@ speaker 必须从场景角色列表选择，无法判断时用 null
         )
         if wb_before:
             ref_parts.append(wb_before)
+
+        # 开场设定（首轮：让开场白与场景对应）
+        # 角色卡导入时把 scenario/first_mes 写入角色 frontmatter，首轮叙述
+        # 注入为参考，LLM 开篇即呈现卡片定义的开场场景与角色台词。
+        if is_first_turn:
+            opening_parts = []
+            for name, agent in self._agents.items():
+                meta = getattr(agent, "metadata", None) or {}
+                scenario = str(meta.get("scenario", "") or "").strip()
+                first_mes = str(meta.get("first_mes", "") or "").strip()
+                if not scenario and not first_mes:
+                    continue
+                first_mes = first_mes.replace("{{char}}", name).replace("{{user}}", identity)
+                scenario = scenario.replace("{{char}}", name).replace("{{user}}", identity)
+                block = [f"角色「{name}」的开场设定（故事开篇必须忠实呈现）："]
+                if scenario:
+                    block.append(f"场景设定：{scenario}")
+                if first_mes:
+                    block.append(f"角色开场白（开篇应自然呈现这段台词/场景）：{first_mes}")
+                opening_parts.append("\n".join(block))
+            if opening_parts:
+                ref_parts.append(
+                    "<opening_setup>\n" + "\n\n".join(opening_parts) + "\n</opening_setup>")
+
+        # 玩家身份角色设定（用户自身，稳定层）
+        try:
+            from player_profile import load_player_profile
+            player_profile = load_player_profile(identity)
+            if player_profile:
+                ref_parts.append(f"<player_profile>\n{player_profile}\n</player_profile>")
+        except Exception:
+            logger.debug("玩家身份档案注入失败: %s", identity)
         if ref_parts:
             context_parts.append("<reference>\n" + "\n\n".join(ref_parts) + "\n</reference>")
 

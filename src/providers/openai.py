@@ -61,6 +61,8 @@ class OpenAIAdapter(ProviderAdapter):
             payload["stream_options"] = {"include_usage": True}
         if tools:
             payload["tools"] = tools
+        if enable_thinking and reasoning_effort:
+            payload["reasoning_effort"] = reasoning_effort
         return payload
 
     def parse_response(self, response_json: dict) -> dict:

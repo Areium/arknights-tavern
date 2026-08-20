@@ -19,21 +19,26 @@ function filterSceneLog(log: string[]): string[] {
 }
 
 export default function ChatPanel() {
-  const { activeSessionId, chatMode, sessions, setSessions, triggerEnvRefresh, triggerMemoryRefresh, chatRefreshKey, characterRefreshKey, editBeforeSend, sceneSwitchKey, dialogueBubbleMode, currentView, setCurrentView, setCombatContext, pendingAutoNarrate, setPendingAutoNarrate, pendingBriefing, setPendingBriefing, resourcePanelOpen, setResourcePanelOpen } = useAppStore();
+  const { activeSessionId, chatMode, sessions, setSessions, triggerEnvRefresh, triggerMemoryRefresh, chatRefreshKey, characterRefreshKey, editBeforeSend, sceneSwitchKey, dialogueBubbleMode, currentView, setCurrentView, setCombatContext, pendingAutoNarrate, setPendingAutoNarrate, pendingBriefing, setPendingBriefing, resourcePanelOpen, setResourcePanelOpen, chatFontSize, setChatFontSize } = useAppStore();
   const activeMode = sessions.find((s) => s.id === activeSessionId)?.mode || "free";
 
   const sceneCharacters: string[] = (() => {
     const session = sessions.find((s) => s.id === activeSessionId);
-    if (!session || !session.characters) return [];
-    return session.characters.map((c: any) =>
+    if (!session) return [];
+    const chars = (session.characters || []).map((c: any) =>
       typeof c === "string" ? c : c.name || c.id || ""
     );
+    // 玩家身份也参与说话人推断，避免玩家台词被误判给场景角色
+    const player = session.player_identity || "博士";
+    if (player && !chars.includes(player)) chars.push(player);
+    return chars;
   })();
 
   const [characterColors, setCharacterColors] = useState<Record<string, string>>({});
   const [customPromptOpen, setCustomPromptOpen] = useState(false);
   const [customPromptDraft, setCustomPromptDraft] = useState("");
   const [customPromptSaving, setCustomPromptSaving] = useState(false);
+  const customPromptInitSession = useRef<string | null>(null);
 
   const api = useApi();
 
@@ -52,12 +57,17 @@ export default function ChatPanel() {
     return () => { cancelled = true; };
   }, [activeSessionId, characterRefreshKey, chatRefreshKey, api]);
 
-  // Sync custom prompt draft when modal opens or session changes
+  // Sync custom prompt draft only when modal opens or active session changes.
+  // 不依赖 sessions 轮询更新，避免用户输入过程中被外部刷新覆盖。
   useEffect(() => {
-    if (customPromptOpen && activeSessionId) {
-      const session = sessions.find(s => s.id === activeSessionId);
-      setCustomPromptDraft(session?.custom_prompt || "");
+    if (!customPromptOpen) {
+      customPromptInitSession.current = null;
+      return;
     }
+    if (customPromptInitSession.current === activeSessionId) return;
+    const session = sessions.find(s => s.id === activeSessionId);
+    setCustomPromptDraft(session?.custom_prompt || "");
+    customPromptInitSession.current = activeSessionId ?? null;
   }, [customPromptOpen, activeSessionId, sessions]);
 
   const messages = useAppStore(s => s.sessionMessages[activeSessionId || ""] ?? EMPTY_MSGS);
@@ -633,6 +643,23 @@ export default function ChatPanel() {
             >
               🗂
             </button>
+            <div className="flex items-center gap-1 text-[10px] text-gray-400 select-none">
+              <button
+                onClick={() => setChatFontSize(chatFontSize - 1)}
+                className="px-1.5 py-0.5 rounded bg-gray-700/50 hover:bg-gray-600/60 transition-colors"
+                title="减小字体"
+              >
+                A−
+              </button>
+              <span className="w-6 text-center text-gray-500">{chatFontSize}</span>
+              <button
+                onClick={() => setChatFontSize(chatFontSize + 1)}
+                className="px-1.5 py-0.5 rounded bg-gray-700/50 hover:bg-gray-600/60 transition-colors"
+                title="增大字体"
+              >
+                A+
+              </button>
+            </div>
             <button
               onClick={() => setCustomPromptOpen(true)}
               className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${
@@ -655,7 +682,7 @@ export default function ChatPanel() {
           </div>
         </div>
       )}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3" style={{ fontSize: `${chatFontSize}px` }}>
         {initialLoading && messages.length === 0 && (
           <div className="flex items-center justify-center h-full text-gray-500">
             <span className="text-sm">加载会话中...</span>
@@ -716,7 +743,7 @@ export default function ChatPanel() {
 
               <div className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div
-                  className={`max-w-[80%] rounded-xl px-4 py-2.5 text-sm leading-relaxed relative group ${
+                  className={`max-w-[80%] rounded-xl px-4 py-2.5 leading-relaxed relative group ${
                     msg.role === "user"
                       ? "bg-blue-600 text-white"
                       : msg.role === "character"
@@ -736,6 +763,11 @@ export default function ChatPanel() {
                 >
                   {msg.character && !dialogueBubbleMode && (
                     <div className="text-sm font-bold text-purple-300 mb-1">{msg.character}</div>
+                  )}
+                  {msg.role === "user" && !dialogueBubbleMode && (
+                    <div className="text-sm font-bold text-blue-200 mb-1">
+                      {activeSession?.player_identity || "博士"}
+                    </div>
                   )}
 
                   {isEditing ? (
@@ -1111,12 +1143,16 @@ function triggerNarrate(
   const newRound = curCount + 1;
   store.setSessionNarrationCount(sessionId, newRound);
 
+  // 玩家身份：优先使用会话创建时选择的身份角色
+  const session = store.sessions.find((s) => s.id === sessionId);
+  const identity = session?.player_identity || "博士";
+
   let accumulated = "";
   let accumulatedReasoning = "";
 
   const url = action
-    ? `/api/sessions/${sessionId}/narrate?identity=${encodeURIComponent("博士")}&action=${encodeURIComponent(action)}`
-    : `/api/sessions/${sessionId}/narrate?identity=${encodeURIComponent("博士")}`;
+    ? `/api/sessions/${sessionId}/narrate?identity=${encodeURIComponent(identity)}&action=${encodeURIComponent(action)}`
+    : `/api/sessions/${sessionId}/narrate?identity=${encodeURIComponent(identity)}`;
 
   const sse = createSSE(url, {
       onReasoning: (token: string) => {

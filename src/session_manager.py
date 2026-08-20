@@ -44,12 +44,16 @@ class Session:
 
     def __init__(self, session_id: str, llm_backend_manager: LLMBackendManager,
                  name: str = "", mode: str = "free", combat_mode: str = "narrative",
-                 wiki_manager=None, worldbook_manager=None):
+                 player_identity: str = "博士",
+                 wiki_manager=None, worldbook_manager=None,
+                 empty_environment: bool | None = None):
         self.id = session_id
         mode_label = "剧情" if mode == "story" else "自由"
         self.name = name or f"{mode_label}对话"
         self.mode = mode  # "free" | "story"
         self.combat_mode = combat_mode  # "narrative" | "tactical"，创建时选定，不可更改
+        # 玩家身份角色（用户自身）：默认"博士"，创建时可选择其他角色卡
+        self.player_identity = (player_identity or "").strip() or "博士"
         self.created_at = time.time()
         self._llm_backend = llm_backend_manager
 
@@ -74,13 +78,34 @@ class Session:
         self.environment = EnvironmentState()
         self.environment.load_default()
 
-        # 应用环境覆盖
+        # 应用环境覆盖（优先恢复本会话上次持久化的场景）
         env_overrides = self.overlay.get_environment_overrides()
-        if env_overrides:
-            if env_overrides.get("time_of_day"):
-                self.environment.time_of_day = env_overrides["time_of_day"]
-            if env_overrides.get("atmosphere"):
-                self.environment.atmosphere = env_overrides["atmosphere"]
+        has_env = bool(
+            env_overrides.get("location")
+            or env_overrides.get("weather")
+            or env_overrides.get("time_of_day")
+            or env_overrides.get("atmosphere")
+        )
+
+        # 无预设场景的剧情会话：不套用默认地点/天气，留空交由角色卡开场与 LLM 生成。
+        # empty_environment=True 表示新建时已明确不绑定剧情；
+        # empty_environment=None 表示恢复旧会话，按 overlay 中是否已有剧情/环境自动判断。
+        if empty_environment is True:
+            self.environment.reset()
+        elif empty_environment is None and self.mode == "story" and not self.overlay.get_plot_id() and not has_env:
+            self.environment.reset()
+
+        if env_overrides.get("location"):
+            self.environment.set_location(env_overrides["location"])
+        if env_overrides.get("weather"):
+            self.environment.set_weather(env_overrides["weather"])
+        if env_overrides.get("time_of_day"):
+            self.environment.time_of_day = env_overrides["time_of_day"]
+        if env_overrides.get("atmosphere"):
+            self.environment.atmosphere = env_overrides["atmosphere"]
+        if not env_overrides.get("location") and self.mode == "story":
+            # 旧会话可能没有持久化环境；有剧情绑定时回退到剧情开场场景
+            self._restore_plot_initial_environment()
 
         # 战斗系统
         self.combat = None  # CombatSession | None
@@ -120,6 +145,52 @@ class Session:
             return True
         return False
 
+    def persist_environment(self):
+        """把当前环境状态持久化到会话 overrides，重启/重新进入后不丢失。"""
+        self.overlay.set_environment_overrides({
+            "location": self.environment.location,
+            "weather": self.environment.weather,
+            "time_of_day": self.environment.time_of_day,
+            "atmosphere": list(self.environment.atmosphere),
+        })
+
+    def apply_environment_updates(self, updates: dict):
+        """应用 LLM 返回的环境更新，并同步持久化。"""
+        if not updates:
+            return
+        self.environment.apply_update(updates)
+        self.persist_environment()
+
+    def _restore_plot_initial_environment(self):
+        """旧剧情会话无持久化环境时，用剧情开场配置补环境。"""
+        try:
+            from session_overlay import _read_plot_file
+            plot_id = self.overlay.get_plot_id()
+            if not plot_id:
+                return
+            result = _read_plot_file(plot_id)
+            if not result:
+                return
+            meta = result[0]
+            location = meta.get("initial_location", "")
+            if not location:
+                return
+            self.environment.set_location(location)
+            time_val = meta.get("initial_time", "")
+            if time_val:
+                self.environment.time_of_day = time_val
+            atmosphere = meta.get("initial_atmosphere", "")
+            if atmosphere:
+                if isinstance(atmosphere, str):
+                    self.environment.atmosphere = [atmosphere]
+                elif isinstance(atmosphere, list):
+                    self.environment.atmosphere = atmosphere
+            self.persist_environment()
+            logger.info("会话 %s: 从剧情开场恢复环境 loc=%s time=%s",
+                        self.id, location, time_val)
+        except Exception as e:
+            logger.warning("从剧情开场恢复环境失败 %s: %s", self.id, e)
+
     def _restore_scene(self):
         """从持久化场景状态恢复角色/物品/当前对话目标（后端重启后不丢失）。
 
@@ -153,7 +224,7 @@ class Session:
         self.scene_manager._persist_scene()
 
     def _plot_initial_characters(self) -> list[str]:
-        """读取绑定剧情的 initial_characters（排除玩家"博士"）。"""
+        """读取绑定剧情的 initial_characters（排除当前玩家身份）。"""
         try:
             from session_overlay import _read_plot_file
             plot_id = self.overlay.get_plot_id()
@@ -162,10 +233,10 @@ class Session:
             result = _read_plot_file(plot_id)
             if not result:
                 return []
-            player = {"博士"}
+            player = self.player_identity
             return [
                 n.strip() for n in result[0].get("initial_characters", [])
-                if n.strip() and n.strip() not in player
+                if n.strip() and n.strip() != player
             ]
         except Exception as e:
             logger.warning("读取剧情初始角色失败: %s", e)
@@ -491,6 +562,7 @@ class Session:
             "name": self.name,
             "mode": self.mode,
             "combat_mode": self.combat_mode,
+            "player_identity": self.player_identity,
             "plot_id": self.overlay.get_plot_id(),
             "worldbook_id": self.overlay.get_worldbook_id(),
             "custom_prompt": self.overlay.get_custom_prompt(),
@@ -536,11 +608,14 @@ class SessionManager:
         self._restore_sessions()
 
     def create_session(self, name: str = "", mode: str = "free", plot_name: str = "",
-                        combat_mode: str = "narrative", worldbook_id: str = "") -> Session:
+                        combat_mode: str = "narrative", worldbook_id: str = "",
+                        player_identity: str = "博士", plot_id: str = "") -> Session:
         """创建新会话。
 
         Args:
             worldbook_id: 可选，创建时绑定世界书（未绑定则回落全局默认书）。
+            player_identity: 玩家身份角色名（用户自身，默认"博士"）。
+            plot_id: 可选，创建时绑定的剧情 ID；用于决定无剧情会话是否留空初始场景。
         """
         session_id = self._generate_id()
         if not name:
@@ -559,8 +634,11 @@ class SessionManager:
                 counter += 1
                 name = f"{base}·{counter}"
         session = Session(session_id, self._llm_backend, name=name, mode=mode,
-                         combat_mode=combat_mode, wiki_manager=self._wiki_manager,
-                         worldbook_manager=self._worldbook_manager)
+                         combat_mode=combat_mode,
+                         player_identity=player_identity,
+                         wiki_manager=self._wiki_manager,
+                         worldbook_manager=self._worldbook_manager,
+                         empty_environment=(mode == "story" and not plot_id))
         if worldbook_id:
             session.overlay.set_worldbook_id(worldbook_id)
         with self._lock:
@@ -573,7 +651,7 @@ class SessionManager:
     def _save_session_meta(self, session: Session):
         """保存会话元数据到 session.json。"""
         self._save_session_meta_raw(session.id, session.mode, session.name, session.created_at,
-                                    session.combat_mode)
+                                    session.combat_mode, session.player_identity)
 
     def _restore_sessions(self):
         """从磁盘恢复会话元数据。
@@ -586,7 +664,7 @@ class SessionManager:
             return
 
         max_counter = 0
-        to_restore: list[tuple[str, str, str, float, str]] = []  # (id, mode, name, created_at, combat_mode)
+        to_restore: list[tuple[str, str, str, float, str, str]] = []  # (id, mode, name, created_at, combat_mode, player_identity)
 
         for entry in _SESSIONS_DIR.iterdir():
             if not entry.is_dir():
@@ -603,10 +681,12 @@ class SessionManager:
                     if meta:
                         to_restore.append(meta)
 
-        for sid, mode, name, created_at, combat_mode in to_restore:
+        for sid, mode, name, created_at, combat_mode, player_identity in to_restore:
             try:
                 session = Session(sid, self._llm_backend, name=name, mode=mode,
-                                 combat_mode=combat_mode, wiki_manager=self._wiki_manager)
+                                 combat_mode=combat_mode,
+                                 player_identity=player_identity,
+                                 wiki_manager=self._wiki_manager)
                 session.created_at = created_at
                 self._sessions[sid] = session
 
@@ -633,7 +713,8 @@ class SessionManager:
                     data = json.load(f)
                 return (data["id"], data.get("mode", mode),
                         data.get("name", ""), data.get("created_at", 0),
-                        data.get("combat_mode", "narrative"))
+                        data.get("combat_mode", "narrative"),
+                        data.get("player_identity", "博士"))
             except Exception:
                 pass
 
@@ -656,12 +737,13 @@ class SessionManager:
             self._save_session_meta_raw(sid, mode, name, created_at)
 
             logger.info("从 overrides.json 推断并补写 session.json: %s/%s", mode, sid)
-            return (sid, mode, name, created_at, "narrative")
+            return (sid, mode, name, created_at, "narrative", "博士")
 
         return None
 
     def _save_session_meta_raw(self, sid: str, mode: str, name: str, created_at: float,
-                                combat_mode: str = "narrative"):
+                                combat_mode: str = "narrative",
+                                player_identity: str = "博士"):
         """直接写入 session.json（不依赖 Session 对象）。"""
         session_file = _SESSIONS_DIR / mode / sid / "session.json"
         session_file.parent.mkdir(parents=True, exist_ok=True)
@@ -671,6 +753,7 @@ class SessionManager:
                 "name": name,
                 "mode": mode,
                 "combat_mode": combat_mode,
+                "player_identity": player_identity,
                 "created_at": created_at,
             }, f, ensure_ascii=False, indent=2)
             f.write("\n")
@@ -685,10 +768,12 @@ class SessionManager:
                                        session_id, mode)
         if not meta:
             return None
-        _sid, _mode, name, created_at, combat_mode = meta
+        _sid, _mode, name, created_at, combat_mode, player_identity = meta
         try:
             session = Session(_sid, self._llm_backend, name=name, mode=_mode,
-                              combat_mode=combat_mode, wiki_manager=self._wiki_manager)
+                              combat_mode=combat_mode,
+                              player_identity=player_identity,
+                              wiki_manager=self._wiki_manager)
         except Exception as e:
             logger.warning("导入会话构造失败 %s/%s: %s", mode, session_id, e)
             return None
@@ -719,6 +804,17 @@ class SessionManager:
                 self._save_session_meta(session)
                 return True
             return False
+
+    def set_player_identity(self, session_id: str, identity: str) -> bool:
+        """设置会话的玩家身份角色，并持久化到 session.json。"""
+        identity = (identity or "").strip() or "博士"
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if not session:
+                return False
+            session.player_identity = identity
+            self._save_session_meta(session)
+            return True
 
     def list_sessions(self) -> list[dict]:
         """列出所有会话摘要。"""

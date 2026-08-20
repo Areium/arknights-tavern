@@ -80,7 +80,12 @@ class CharacterAgent:
                 logger.debug("已应用角色 %s 的会话覆盖", character_name)
 
             self.metadata = metadata
-            char_card = yaml.dump(metadata, allow_unicode=True, default_flow_style=False, sort_keys=False)
+            # first_mes/scenario 仅作为结构化元数据供首轮叙述注入使用
+            # （正文分节已含其内容），不重复注入角色常驻 prompt
+            dump_meta = {k: v for k, v in metadata.items()
+                         if k not in ("first_mes", "scenario")}
+            char_card = yaml.dump(dump_meta, allow_unicode=True, default_flow_style=False,
+                                  sort_keys=False)
 
             logger.debug("角色卡内容:\n%s\n%s", char_card, content)
 
@@ -147,6 +152,13 @@ class CharacterAgent:
         if player_info:
             identity = player_info.get("identity", "博士")
             player_section = f"\n当前玩家身份: {identity}\n"
+            try:
+                from player_profile import load_player_profile
+                profile = load_player_profile(identity)
+                if profile:
+                    player_section += "\n" + profile + "\n"
+            except Exception:
+                logger.debug("玩家身份档案注入失败: %s", identity)
 
         # ── 世界书触发匹配（position=0 卡前 / position=1 卡后）──
         wb_before, wb_after = "", ""

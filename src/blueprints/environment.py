@@ -72,6 +72,8 @@ def register(app, managers):
             elif isinstance(data["atmosphere"], str):
                 env.atmosphere = [data["atmosphere"]]
 
+        session.persist_environment()
+
         return jsonify({
             "location": env.location,
             "weather": env.weather,

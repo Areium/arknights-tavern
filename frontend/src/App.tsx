@@ -14,6 +14,7 @@ import IndexManager from "./components/IndexManager";
 import WorldBookManager from "./components/WorldBookManager";
 import ContentHub from "./components/ContentHub";
 import DocsView from "./components/DocsView";
+import CharacterManager from "./components/CharacterManager";
 
 /** 沉浸式视图：全屏无顶栏（对话 = 故事沉浸，战斗 = 战场沉浸） */
 const IMMERSIVE_VIEWS = new Set(["chat", "combat"]);
@@ -138,6 +139,8 @@ export default function App() {
         return <IndexManager />;
       case "worldbook":
         return <WorldBookManager />;
+      case "characters":
+        return <CharacterManager />;
       case "content":
         return <ContentHub />;
       case "docs":

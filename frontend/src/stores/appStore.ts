@@ -15,7 +15,7 @@ export interface CombatContext {
   selectedUnitId: string | null;
 }
 
-type ViewName = "home" | "chat" | "sessions" | "documents" | "settings" | "combat" | "index" | "worldbook" | "content" | "docs";
+type ViewName = "home" | "chat" | "sessions" | "documents" | "settings" | "combat" | "index" | "worldbook" | "content" | "docs" | "characters";
 
 /** 内容中心内部 Tab（统一管理：文档/世界书/索引/资产/卡牌） */
 export type ContentHubTab = "docs" | "worldbook" | "index" | "images" | "cards";
@@ -77,6 +77,10 @@ interface AppState {
   // 对话气泡模式：将角色对话以聊天气泡形式显示
   dialogueBubbleMode: boolean;
   setDialogueBubbleMode: (v: boolean) => void;
+
+  // 聊天字体大小（px）
+  chatFontSize: number;
+  setChatFontSize: (size: number) => void;
 
   // 角色变更触发器（加载/卸载角色后 +1）
   characterRefreshKey: number;
@@ -184,6 +188,20 @@ export const useAppStore = create<AppState>((set, get) => ({
   // 对话气泡模式
   dialogueBubbleMode: false,
   setDialogueBubbleMode: (v) => set({ dialogueBubbleMode: v }),
+
+  // 聊天字体大小（默认 15px，持久化到 localStorage）
+  chatFontSize: (() => {
+    if (typeof localStorage === "undefined") return 15;
+    const saved = Number(localStorage.getItem("ark_chat_font_size"));
+    return saved >= 12 && saved <= 24 ? saved : 15;
+  })(),
+  setChatFontSize: (size) => {
+    const clamped = Math.max(12, Math.min(24, size));
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem("ark_chat_font_size", String(clamped));
+    }
+    set({ chatFontSize: clamped });
+  },
 
   // 角色变更触发器
   characterRefreshKey: 0,

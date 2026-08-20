@@ -70,10 +70,10 @@ export function useApi() {
     listSessions: () => request<any[]>("/api/sessions"),
     listPlots: () => request<any[]>("/api/plots"),
     createSession: (mode: "free" | "story" = "free", name = "", plotId = "",
-      combatMode: "narrative" | "tactical" = "narrative") =>
+      combatMode: "narrative" | "tactical" = "narrative", identity = "博士") =>
       request<any>("/api/sessions", {
         method: "POST",
-        body: JSON.stringify({ mode, name, plot_id: plotId, combat_mode: combatMode }),
+        body: JSON.stringify({ mode, name, plot_id: plotId, combat_mode: combatMode, identity }),
       }),
     getSession: (id: string) => request<any>(`/api/sessions/${id}`),
     deleteSession: (id: string) =>
@@ -418,6 +418,21 @@ export function useApi() {
     getCharacter: (id: string) => request<any>(`/api/characters/${encodeURIComponent(id)}`),
     importCharacterCard: (file: File) =>
       uploadMultipart("/api/characters/import", {}, file),
+
+    // ── 玩家身份角色 ──
+    getPlayerIdentities: () => request<{ id: string; name: string; summary: string; tags: string[] }[]>("/api/player-identities"),
+    savePlayerIdentity: (name: string, metadata: Record<string, any>, content: string) =>
+      request<any>(`/api/player-identities/${encodeURIComponent(name)}`, {
+        method: "PUT",
+        body: JSON.stringify({ metadata, content }),
+      }),
+    deletePlayerIdentity: (name: string) =>
+      request<any>(`/api/player-identities/${encodeURIComponent(name)}`, { method: "DELETE" }),
+    setPlayerIdentity: (sessionId: string, identity: string) =>
+      request<{ message: string; player_identity: string }>(`/api/sessions/${sessionId}/identity`, {
+        method: "PUT",
+        body: JSON.stringify({ identity }),
+      }),
 
     // ── 物品库 ──
     getItems: () => request<any[]>("/api/items"),
@@ -823,6 +838,7 @@ function connectSSE(
   }
 ): { close: () => void } {
   let closed = false;
+  let finished = false;
   const controller = new AbortController();
 
   async function connect() {
@@ -869,6 +885,7 @@ function connectSSE(
           const jsonStr = line.slice(6);
           if (jsonStr.trim() === "[DONE]") {
             handlers.onDone?.();
+            finished = true;
             continue;
           }
 
@@ -910,10 +927,16 @@ function connectSSE(
                 break;
               case "done":
                 handlers.onDone?.();
+                finished = true;
                 break;
             }
           } catch {}
         }
+      }
+
+      // 服务端未发送 done 就关闭连接时，也结束流式状态，避免一直“思考中”
+      if (!closed && !finished) {
+        handlers.onDone?.();
       }
     } catch (err: any) {
       if (!closed) {

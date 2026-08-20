@@ -466,7 +466,7 @@ export default function SettingsPanel() {
                   placeholder="deepseek-v4-flash"
                 />
               </div>
-              {config.provider === "deepseek" && (
+              {["auto", "openai", "deepseek"].includes(config.provider) && (
                 <div className="space-y-2">
                   <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
                     <input

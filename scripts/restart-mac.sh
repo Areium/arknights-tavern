@@ -88,6 +88,7 @@ echo ""
 
 # ── 2. 启动 Flask ──
 echo -e "  ${YELLOW}●${NC} 启动 Flask 后端..."
+cd "$PROJECT_DIR"
 "$VENV_PYTHON" "$PROJECT_DIR/src/app.py" > "$FLOG" 2>&1 &
 FLASK_PID=$!
 echo "$FLASK_PID" > "$PID_FILE"
