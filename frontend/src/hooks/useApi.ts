@@ -838,6 +838,7 @@ function connectSSE(
   }
 ): { close: () => void } {
   let closed = false;
+  let finished = false;
   const controller = new AbortController();
 
   async function connect() {
@@ -884,6 +885,7 @@ function connectSSE(
           const jsonStr = line.slice(6);
           if (jsonStr.trim() === "[DONE]") {
             handlers.onDone?.();
+            finished = true;
             continue;
           }
 
@@ -925,10 +927,16 @@ function connectSSE(
                 break;
               case "done":
                 handlers.onDone?.();
+                finished = true;
                 break;
             }
           } catch {}
         }
+      }
+
+      // 服务端未发送 done 就关闭连接时，也结束流式状态，避免一直“思考中”
+      if (!closed && !finished) {
+        handlers.onDone?.();
       }
     } catch (err: any) {
       if (!closed) {

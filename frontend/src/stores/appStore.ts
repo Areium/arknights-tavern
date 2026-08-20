@@ -78,6 +78,10 @@ interface AppState {
   dialogueBubbleMode: boolean;
   setDialogueBubbleMode: (v: boolean) => void;
 
+  // 聊天字体大小（px）
+  chatFontSize: number;
+  setChatFontSize: (size: number) => void;
+
   // 角色变更触发器（加载/卸载角色后 +1）
   characterRefreshKey: number;
   triggerCharacterRefresh: () => void;
@@ -184,6 +188,20 @@ export const useAppStore = create<AppState>((set, get) => ({
   // 对话气泡模式
   dialogueBubbleMode: false,
   setDialogueBubbleMode: (v) => set({ dialogueBubbleMode: v }),
+
+  // 聊天字体大小（默认 15px，持久化到 localStorage）
+  chatFontSize: (() => {
+    if (typeof localStorage === "undefined") return 15;
+    const saved = Number(localStorage.getItem("ark_chat_font_size"));
+    return saved >= 12 && saved <= 24 ? saved : 15;
+  })(),
+  setChatFontSize: (size) => {
+    const clamped = Math.max(12, Math.min(24, size));
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem("ark_chat_font_size", String(clamped));
+    }
+    set({ chatFontSize: clamped });
+  },
 
   // 角色变更触发器
   characterRefreshKey: 0,
