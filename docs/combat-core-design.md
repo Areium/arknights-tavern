@@ -2,9 +2,9 @@
 
 > 定位：在**保持现有战斗形式不变**的前提下，把游戏从「LLM 主导叙事」重构为「战斗为主体、LLM 只做战前/战后简报」的章节式玩法，并系统性加深战斗策略深度。
 >
-> 状态：**重构提案（未实现，目标态）**。
-> ⚠️ 本文件描述的是**未来目标**，当前代码几乎全部未落地（Approach 打法、战前简报、SPD 行动顺序、敌人意图、max_rounds、剧情投点分支等均未实现，`src/` 中无对应代码）。
-> **现状请以 `src/combat_engine/` 与 `docs/combat-design.md`（已按代码更新）为准**；本文仅 §B1「保持不变的骨架」与现状一致（2026-08 审计结论）。
+> 状态：**大部分已实现（2026-08 审计后）**。战前简报/打法选择（Approach）、`combat_briefing` SSE、谈判 d20 检定、`reward_mult` 结算、战后 1 选 1 卡组构建、敌人意图、SPD 行动顺序、`max_rounds`/撤退、状态效果（护盾/减速/束缚/虚弱/增幅/沉默/灼烧/嘲讽/闪避/致盲）均已落地。
+> ⚠️ 仍未实现：节拍 `[COMBAT:enc_id]` 代码级解析（当前依赖 LLM `extract_markers` 输出 `combat_trigger` 触发）、波次（waves 逐波生效）、敌人 `ai_skills` 数据驱动（当前按职业硬编码三套卡）。
+> 现状请以 `src/combat_engine/`、`src/combat_session.py`、`src/combat_approaches.py`、`src/blueprints/combat.py` 为准。
 
 ---
 
@@ -101,7 +101,7 @@
 ### B4. 骰子系统（双层）
 
 **战斗内（底层 · 隐藏）**：沿用 `src/combat_engine/dice.py`。
-- 命中：`d20 + 命中 vs 10 + 闪避`；自然 20 = 暴击 ×2、自然 1 = 必失。
+- 命中：`d20 + 命中 vs 6 + 闪避`；自然 20 = 暴击 ×2、自然 1 = 必失（DC 由 10+EVA 重平衡为 6+EVA）。
 - 伤害：`random(min,max) + 攻击×倍率 − 抗性`（物理减 DEF、法术减 RES）。
 - **展示规则**：战斗内**不展示投点**，只展示结果（伤害数字/miss/暴击）。保持节奏流畅。
 
@@ -149,18 +149,26 @@ approaches:
 
 **可靠性设计**：approaches 定义在代码侧数据（平衡、可预期），LLM 只负责在简报里用叙述引出，不决定机制；遭遇未定义 approaches 时用兜底 `[强攻, 撤退]`；**选定打法后才通过 POST `/combat/start` 启动**，不再由 LLM 自动开战。
 
-### B6. 深度机制（Phase 2）
+### B6. 深度机制（实施状态）
 
-1. **敌人意图（Enemy Intent）★ 最高性价比**：ROUND_START 计算每个敌人意图 `{type: 攻击/治疗/护盾/技能, target, 强度范围}`，前端头顶图标展示；敌人 AI 从贪心升级为模式化（`ai_skills` 数据已存在未实现）。
-2. **状态效果实装**：现有大量卡牌描述（防御/拦截/减速/增益）只是文案、引擎只做伤害/治疗。实装 `status_effects` 运行时表，卡牌声明 `apply: {effect}`。可对接 `data/rules/buff-pool/`、`debuff-system/`。
-3. **卡组构建 ★ 长线深度**：战后 1 选 1「抽新卡 / 删卡 / 强化卡」，卡组战役内持久，跨场次成长。
-4. **行动顺序**：敌人阶段按 SPD 降序逐个行动（现有 SPD 属性未被使用）。
-5. **波次与条件生效**：落实数据里已定义但引擎未读取的 `max_rounds`（超时判退/判负）、`escape_enabled`、波次触发。
-6. **Phase 3 备选**：遗物、干员士气、卡牌稀有度/升级树、指挥官模式。
+> ✅ = 已实现，⚠️ = 未实现，🔜 = Phase 3 备选。详见 `docs/combat-design.md` §14。
+
+1. **敌人意图（Enemy Intent）★ 最高性价比 ✅**：ROUND_START 计算每个敌人意图
+   `{type: 攻击/重击/范围攻击/移动/坚守, target, 强度范围}`，前端头顶图标展示；
+   执行时优先消费意图卡牌（所见即所得）。敌人卡牌仍按职业硬编码三套，
+   `ai_skills` 数据尚未驱动 AI ⚠️。
+2. **状态效果实装 ✅**：护盾/减速/束缚/虚弱/增幅/沉默/灼烧/嘲讽/闪避/致盲 +
+   净化/破甲均已实装（`entity.py` 运行时状态表 + 卡牌 `effects` 声明）。
+3. **卡组构建 ★ 长线深度 ✅**：战后 1 选 1「抽新卡」（3 张候选）已实现，
+   删卡/强化卡未实现 ⚠️。
+4. **行动顺序 ✅**：敌人阶段按 SPD 降序逐个行动。
+5. **波次与条件生效（部分）⚠️**：`max_rounds`（超时判负）、`escape_enabled`（撤退）
+   已读取；`waves` 仍一次性展开、逐波触发未实现。
+6. **🔜 Phase 3 备选**：遗物、干员士气、卡牌稀有度/升级树、指挥官模式。
 
 ### B7. 战后奖励与成长
 
-- **奖励结算**（打通现有缺口）：XP = `Σ 敌人.xp_reward × 遭遇rewards.xp × approach.reward_mult`；物品 = 遭遇 `rewards.items` + 按 `drop_rate` roll 敌人 `drop_items`；卡牌奖励（B6-3）1 选 1。结算写入 `session.overlay.combat_history` + 累积角色 XP。
+- **奖励结算**（已实现）：XP = `(遭遇 rewards.xp + Σ 敌人.xp_reward) × approach.reward_mult`；物品 = 遭遇 `rewards.items` + 按 `drop_rate` roll 敌人 `drop_items`（不乘倍率）；卡牌奖励（B6-3）1 选 1。结算写入 `session.overlay.combat_history` + 累积角色 XP。
 - **成长（轻量）**：XP 阈值 → 等级 → 属性 +1（复用 8 维属性 → 战斗数值公式）。重养成留 Phase 3。
 - **战果影响章节**：胜负 + 谁幸存 + 战利品写入章节状态，影响后续节拍；失败向前（战败 = 撤退/带伤继续，不 GAME OVER）。
 

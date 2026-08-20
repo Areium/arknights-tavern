@@ -75,16 +75,20 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
 
 ## 8. 敌人与 AI
 
-- 敌人卡牌按职业**硬编码**三套（术师/狙击/近战），**不读** frontmatter 的 `ai_skills`/`ai_behavior`。
-- 敌人 AI 现状（`engine.py`）：**找最近玩家 → 打出可负担的最高伤害卡 → 否则移动一步**。
-  无 SPD 行动排序、无撤退阈值、无意图系统（这些是 `combat-core-design.md` 提案内容）。
+- 敌人卡牌按职业**硬编码**三套（术师/狙击/近战），**不读** frontmatter 的 `ai_skills`（`ai_behavior` 的 defensive 姿态已用于「坚守」意图判定）。
+- 敌人 AI（`engine.py`）：**意图驱动**——ROUND_START 计算每个敌人意图
+  `{type: 攻击/重击/范围攻击/移动/坚守, target, 强度范围}` 推送前端；执行按 **SPD 降序**
+  逐个行动，优先消费意图卡牌（精英卡消耗后本场不可再用），无法攻击时向最近玩家移动。
+  目标选择优先嘲讽单位，否则最近玩家；无撤退阈值（撤退为玩家主动 `escape_enabled`）。
 - 敌人 `level` 字段不读取，`combat_stats` 直接作为最终值。
 
 ## 9. 遭遇战与战斗触发
 
-- 遭遇字段消费：仅 `waves`、`background`；`conditions`（max_rounds/escape_enabled）与 `trigger_plot` **未被读取**。
-- **tactical 模式下**：LLM 叙述后 `extract_markers` 输出 `combat_trigger` 字段 → 自动开战（SSE `combat_trigger` 事件）。
-  **没有** `[COMBAT:enc_id]` 代码级解析、没有战前简报/打法选择。
+- 遭遇字段消费：`waves`、`background`、`approaches`（打法）、`conditions`
+  （`max_rounds` 超时判负 / `escape_enabled` 允许撤退）均被读取；`trigger_plot` **未读取**。
+- **tactical 模式下**：LLM 叙述后 `extract_markers` 输出 `combat_trigger` → SSE
+  `combat_briefing`（含打法列表）→ 玩家选打法后 POST `/combat/start` 开战（或谈判检定/撤退）。
+  **没有** `[COMBAT:enc_id]` 代码级解析（战斗目标仍由 LLM 提取，见 `combat-core-design.md` A2.5）。
 
 ## 10. 消耗品与奖励
 
@@ -96,26 +100,30 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
 
 事件统一包装为 `{"type": "<事件名>", "data": {...}}`（`blueprints/combat.py`）。引擎发出的事件：
 
-`battle_start` / `round_start`（仅含 `round`）/ `card_played` / `damage` / `heal` /
-`move` / `death` / `turn_end`（回合切换，无 round_end）/ `battle_end` / `error`
+`battle_start` / `round_start`（含 `round` 与 `intents`）/ `card_played` / `damage` / `heal` /
+`move` / `death` / `status`（状态效果）/ `cleanse`（净化）/ `turn_end`（回合切换，无 round_end）/ `battle_end` / `error`
 
 状态快照由 `combat_session.py` 输出；`valid_moves` 恒为 `[]`（客户端计算）。
 
 ## 12. API（`src/blueprints/combat.py`）
 
-`/api/sessions/<id>/combat/start|action|state|complete` 及战斗测试会话对应端点；
+`/api/sessions/<id>/combat/start|action|state|complete|events|card-pick|abandon` 及战斗测试会话对应端点；
+`start` 支持 `approach_id`（打法），`complete` 结算奖励（XP/物品/卡组候选）并回写；
 战斗回写（HP/受伤/死亡）在 `combat_complete` 处理。
 
 ## 13. 前端
 
 - `CombatView.tsx`（主控）+ `CombatGrid.tsx`（CSS 3D 网格，`rotateX(33deg)`）+ `PixiCombatScene.tsx`（Spine 覆盖层，runtime-3.8）+ `CombatHand/DeckViewer/CardEditor` + `audioManager.ts`（音效）。
+- 战前简报/打法卡片在 `ChatPanel.tsx`（`pendingBriefing` + `combat_briefing` SSE）与 `CombatView.tsx`（`approaches`）中渲染。
 - 格子/卡牌双模式尺寸、快捷键（1-5 选牌、F 结束回合、Esc 取消）详见 `combat-ui-design.md`。
 
 ## 14. 路线图（现状）
 
 **已实现**：7×7 网格 + Spine 覆盖 + 拖卡/点选操作、共享手牌 6 张、双 AP 池、d20 判定、
 消耗品、XP/物品奖励与升级、战斗结算画面（含奖励展示 + 战后自动叙述）、卡牌 JSON CRUD、
-战斗背景图（含会话级覆盖、AI 生成工作流）、音效。
+战斗背景图（含会话级覆盖、AI 生成工作流）、音效、战前简报与打法选择（Approach）、
+敌人意图系统、SPD 行动顺序、max_rounds/逃跑条件、战斗内状态效果（护盾/减速/束缚/
+虚弱/增幅/沉默/灼烧/嘲讽/闪避/致盲 + 净化/破甲）、战后卡牌 1 选 1、剧情分支投点接入战斗。
 
-**未实现（见 combat-core-design.md 提案）**：战前简报与打法选择（Approach）、敌人意图系统、
-SPD 行动顺序、max_rounds/逃跑条件、战斗内卡牌奖励、剧情分支投点接入战斗。
+**未实现**：节拍 `[COMBAT:enc_id]` 代码级解析（当前由 LLM `combat_trigger` 提取）、
+波次逐波触发（`waves` 一次性展开）、敌人 `ai_skills` 数据驱动（当前按职业硬编码三套卡）。

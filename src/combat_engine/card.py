@@ -11,7 +11,7 @@ Card is the fundamental action in combat. Each card has:
 """
 
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Optional
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -59,7 +59,12 @@ class Card:
 
     @classmethod
     def from_dict(cls, d: dict) -> "Card":
-        return cls(**d)
+        """从字典重建卡牌，忽略未知字段（容忍 schema 演进/前端多余字段）。"""
+        return cls(**{k: v for k, v in d.items() if k in _CARD_FIELDS})
+
+
+# 卡牌合法字段集合（from_dict 白名单，用于忽略未知键）
+_CARD_FIELDS = {f.name for f in fields(Card)}
 
 
 # ══════════════════════════════════════════════════════════════════════════════

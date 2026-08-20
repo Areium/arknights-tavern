@@ -23,6 +23,7 @@ INTENT_LABELS = {
     "aoe": "范围攻击",
     "move": "移动",
     "defend": "坚守",
+    "heal": "治疗",
 }
 
 
@@ -349,6 +350,13 @@ class CombatEngine:
             enemies = [u for u in self.units.values()
                       if u.team != unit.team and u.is_alive]
             affected_positions = [u.pos for u in enemies]
+        elif card.target == "LINE_3":
+            # 直线卡沿施法者→目标的方向延伸（而非固定向右）
+            dr = 0 if unit.pos[0] == target_pos[0] else (1 if target_pos[0] > unit.pos[0] else -1)
+            dc = 0 if unit.pos[1] == target_pos[1] else (1 if target_pos[1] > unit.pos[1] else -1)
+            if dr == 0 and dc == 0:
+                dr, dc = 0, 1
+            affected_positions = resolve_targets(card.target, target_pos, direction=(dr, dc))
         else:
             affected_positions = resolve_targets(card.target, target_pos)
 
@@ -510,11 +518,14 @@ class CombatEngine:
     # ── Enemy intent ──
 
     def _enemy_card_pool(self, unit: CombatUnit) -> list[Card]:
-        """Return all cards available to an enemy (deck + hand + discard + exhaust)."""
+        """Return all cards available to an enemy (deck + hand + discard).
+
+        exhaust 堆排除：elite 卡被消耗后本场战斗不可再用（Slay the Spire 语义）。
+        """
         pool = self.enemy_pools.get(unit.unit_id)
         if not pool:
             return []
-        return pool.deck + pool.hand + pool.discard + pool.exhaust
+        return pool.deck + pool.hand + pool.discard
 
     @staticmethod
     def _classify_enemy_intent(card: Card) -> str:
@@ -522,7 +533,7 @@ class CombatEngine:
         if card.target in ("ADJACENT", "AREA_2X2", "CROSS", "LINE_3", "ROW"):
             return "aoe"
         if card.damage_type == "healing":
-            return "attack"
+            return "heal"
         if card.cost >= 2 or card.max_damage >= 12:
             return "heavy"
         return "attack"
@@ -648,8 +659,25 @@ class CombatEngine:
 
     # ── Enemy AI ──
 
+    def _find_enemy_card(self, unit: CombatUnit, card_id: str) -> Card | None:
+        """Locate the precomputed intent card in the enemy's available piles."""
+        if not card_id:
+            return None
+        pool = self.enemy_pools.get(unit.unit_id)
+        if not pool:
+            return None
+        for pile in (pool.hand, pool.deck, pool.discard):
+            for c in pile:
+                if c.card_id == card_id:
+                    return c
+        return None
+
     def _execute_enemy_turn(self, unit_id: str) -> list[DamageResult]:
-        """Execute an enemy's planned action, following its precomputed intent."""
+        """Execute an enemy's planned action, following its precomputed intent.
+
+        优先执行 ROUND_START 阶段展示给玩家的意图卡牌（所见即所得）；仅当该卡
+        因回合内局势变化失效时（目标死亡/超出射程/AP 不足）才回退到重选。
+        """
         unit = self.units[unit_id]
         intent = self.state.enemy_intents.get(unit_id, {})
         intent_type = intent.get("type", "attack")
@@ -673,7 +701,12 @@ class CombatEngine:
         if target is None:
             target = self._enemy_target(unit, players)
 
-        card = self._pick_enemy_card(unit, target)
+        # 优先执行意图中声明的卡牌，保证与玩家所见一致。
+        card = self._find_enemy_card(unit, intent.get("card_id", ""))
+        if card is not None and card.cost > unit.AP:
+            card = None  # AP 不足，意图失效
+        if card is None:
+            card = self._pick_enemy_card(unit, target)
         if card:
             self._ensure_card_in_hand(unit, card)
             return self.play_card(unit_id, card, target.pos)

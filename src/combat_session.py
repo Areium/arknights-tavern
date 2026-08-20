@@ -313,8 +313,6 @@ class CombatSession:
                     return {"ok": False, "error": f"Invalid card index: {card_index}"}
 
                 card = hand[card_index]
-                if card.cost > self.engine.shared_ap:
-                    return {"ok": False, "error": f"共用 AP 不足 ({self.engine.shared_ap} < {card.cost})"}
 
                 # Find the unit that owns this card
                 owner_unit = None
@@ -324,6 +322,18 @@ class CombatSession:
                         break
                 if not owner_unit:
                     return {"ok": False, "error": f"Card owner '{card.owner}' not found or not alive"}
+
+                # 职业限制校验（卡牌 class_required 与 owner 职业不符时拒绝）
+                if card.class_required not in ("any", "", None) and \
+                        card.class_required != owner_unit.char_class:
+                    return {"ok": False,
+                            "error": f"{owner_unit.name} 的职业无法使用 '{card.name}'"}
+
+                # AP 校验：出牌先耗 owner 个人 AP，不足部分以共享 AP 补足（与引擎一致）
+                total_available = owner_unit.AP + self.engine.shared_ap
+                if card.cost > total_available:
+                    return {"ok": False,
+                            "error": f"AP 不足 (个人 {owner_unit.AP} + 共享 {self.engine.shared_ap} < {card.cost})"}
 
                 # For auto-target cards, use caster position
                 if card.target in ("SELF", "ALL_ALLIES", "GLOBAL"):
@@ -392,6 +402,9 @@ class CombatSession:
         target = self.engine.units.get(target_id)
         if not target or not target.is_alive:
             return {"ok": False, "error": "目标无效"}
+        # 消耗品只能作用于我方干员（不能给敌方回血/加护盾）
+        if target.team != "player":
+            return {"ok": False, "error": "物品只能对我方干员使用"}
 
         # 使用物品消耗 1 点共享 AP
         if self.engine.shared_ap < 1:
@@ -556,14 +569,18 @@ class CombatSession:
             "session_id": self.session_id,
             "session_dir": self._session_dir,
             "reward_mult": self._reward_mult,
+            "enemy_scale": self._enemy_scale,
             "max_rounds": self.engine.max_rounds if self.engine else 0,
             "escape_enabled": self.engine.escape_enabled if self.engine else False,
+            "shared_ap": self.engine.shared_ap if self.engine else 0,
+            "shared_ap_max": self.engine.SHARED_AP_MAX if self.engine else 2,
             "engine_state": {
                 "round_num": self.engine.state.round_num,
                 "phase": self.engine.state.phase,
                 "winner": self.engine.state.winner,
                 "turn_order": self.engine.state.turn_order,
                 "current_idx": self.engine.state.current_idx,
+                "enemy_intents": getattr(self.engine.state, "enemy_intents", {}) or {},
             },
             "units": {uid: u.to_dict() for uid, u in self.engine.units.items()},
             "shared_pool": self.engine.shared_pool.to_dict() if self.engine.shared_pool else {},
@@ -578,8 +595,7 @@ class CombatSession:
         cs._encounter_id = data.get("encounter_id", "")
         cs._session_dir = data.get("session_dir", "")
         cs._reward_mult = data.get("reward_mult", 1.0)
-        cs._max_rounds = data.get("max_rounds", 0)
-        cs._escape_enabled = data.get("escape_enabled", False)
+        cs._enemy_scale = data.get("enemy_scale", 1.0)
         cs._character_metas = data.get("character_metas", [])
 
         # Reconstruct engine
@@ -592,6 +608,7 @@ class CombatSession:
             current_idx=es.get("current_idx", 0),
             phase=es.get("phase", "INIT"),
             winner=es.get("winner", ""),
+            enemy_intents=es.get("enemy_intents", {}) or {},
         )
 
         # Restore units
@@ -642,8 +659,10 @@ class CombatSession:
             engine.enemy_pools[uid] = pool
 
         cs.engine = engine
-        engine.max_rounds = cs._max_rounds
-        engine.escape_enabled = cs._escape_enabled
+        engine.max_rounds = int(data.get("max_rounds", 0) or 0)
+        engine.escape_enabled = bool(data.get("escape_enabled", False))
+        engine.shared_ap = int(data.get("shared_ap", 0) or 0)
+        engine.SHARED_AP_MAX = int(data.get("shared_ap_max", 2) or 2)
 
         # Re-resolve background (location context is not persisted; the
         # encounter-level field or the default background still applies).

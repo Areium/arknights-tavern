@@ -39,7 +39,12 @@ class DiceSystem:
 
         success = None
         if difficulty is not None:
-            success = total >= difficulty
+            if roll == 20:
+                success = True      # 自然 20 = 大成功（必成）
+            elif roll == 1:
+                success = False     # 自然 1 = 大失败（必败）
+            else:
+                success = total >= difficulty
 
         text = DiceSystem._format_roll(roll, modifier, total, difficulty, success)
 
@@ -78,7 +83,7 @@ class DiceSystem:
                 parts.append(f"  ✅ 成功 (DC {difficulty})")
             else:
                 parts.append(f"  ❌ 失败 (DC {difficulty})")
-        elif roll == 20:
+        if roll == 20:
             parts.append("  🌟 大成功！")
         elif roll == 1:
             parts.append("  💀 大失败！")
