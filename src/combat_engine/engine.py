@@ -4,6 +4,7 @@ Combat engine — state machine, turn management, enemy AI.
 States: INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN (loop) → ROUND_END → (repeat or END)
 """
 
+import copy
 import random
 from dataclasses import dataclass, field
 from typing import Optional, Callable
@@ -25,6 +26,39 @@ INTENT_LABELS = {
     "defend": "坚守",
     "heal": "治疗",
 }
+
+
+# ── 敌人卡牌目录（ai_skills 数据驱动）──
+# 敌人 frontmatter 的 `ai_skills` 引用这里的 card_id；每个敌人实例深拷贝，避免共享可变状态。
+ENEMY_CARD_CATALOG: dict[str, Card] = {
+    "enemy_atk": Card("enemy_atk", "攻击", "基础攻击",
+                      "physical", 5, 10, 0.5, "SINGLE", 1, 1, "basic", "any"),
+    "enemy_heavy": Card("enemy_heavy", "重击", "强力攻击",
+                        "physical", 8, 16, 0.8, "SINGLE", 1, 2, "basic", "any"),
+    "enemy_aoe": Card("enemy_aoe", "横扫", "范围攻击",
+                      "physical", 3, 6, 0.3, "ADJACENT", 1, 2, "basic", "any"),
+    "enemy_shot": Card("enemy_shot", "射击", "精准射击",
+                       "physical", 6, 12, 0.6, "SINGLE", 3, 1, "basic", "any"),
+    "enemy_barrage": Card("enemy_barrage", "连射", "快速连射",
+                          "physical", 4, 8, 0.4, "SINGLE", 3, 2, "basic", "any"),
+    "enemy_bolt": Card("enemy_bolt", "能量弹", "发射源石能量弹",
+                       "arts", 5, 10, 0.5, "SINGLE", 3, 1, "basic", "any"),
+    "enemy_storm": Card("enemy_storm", "法术风暴", "范围法术攻击",
+                        "arts", 4, 8, 0.4, "ADJACENT", 2, 2, "basic", "any"),
+    "enemy_blast": Card("enemy_blast", "法术冲击", "高密度源石能量",
+                        "arts", 8, 16, 0.8, "SINGLE", 2, 2, "basic", "any"),
+}
+
+# 职业 → 默认 ai_skills（ai_skills 未定义或全部未知时回退）
+_ENEMY_CLASS_DEFAULT_SKILLS: dict[str, list[str]] = {
+    "术师": ["enemy_bolt", "enemy_storm", "enemy_blast"],
+    "caster": ["enemy_bolt", "enemy_storm", "enemy_blast"],
+    "caster_elite": ["enemy_bolt", "enemy_storm", "enemy_blast"],
+    "狙击": ["enemy_shot", "enemy_barrage"],
+    "sniper": ["enemy_shot", "enemy_barrage"],
+    "sniper_elite": ["enemy_shot", "enemy_barrage"],
+}
+_ENEMY_MELEE_SKILLS = ["enemy_atk", "enemy_heavy", "enemy_aoe"]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -76,6 +110,8 @@ class CombatEngine:
         self.SHARED_AP_MAX = 2
         self.max_rounds = 0          # 回合上限（0 = 无限制）
         self.escape_enabled = False  # 是否允许撤退
+        self.pending_waves: list[list[tuple[CombatUnit, tuple[int, int]]]] = []  # 待入场波次
+        self.wave_num = 0            # 当前波次编号（1 起）
 
         # Callbacks for external input
         self.on_event: Optional[Callable[[CombatEvent], None]] = None
@@ -111,34 +147,30 @@ class CombatEngine:
 
     @staticmethod
     def _enemy_cards(unit: CombatUnit) -> list[Card]:
-        """Generate enemy attack cards based on class/archetype."""
-        # Caster-type enemies use arts damage
-        if unit.char_class in ("术师", "caster", "caster_elite"):
-            return [
-                Card("enemy_bolt", "能量弹", "发射源石能量弹",
-                     "arts", 5, 10, 0.5, "SINGLE", 3, 1, "basic", "any"),
-                Card("enemy_storm", "法术风暴", "范围法术攻击",
-                     "arts", 4, 8, 0.4, "ADJACENT", 2, 2, "basic", "any"),
-                Card("enemy_blast", "法术冲击", "高密度源石能量",
-                     "arts", 8, 16, 0.8, "SINGLE", 2, 2, "basic", "any"),
-            ]
-        # Sniper-type enemies use physical ranged attacks
-        if unit.char_class in ("狙击", "sniper", "sniper_elite"):
-            return [
-                Card("enemy_shot", "射击", "精准射击",
-                     "physical", 6, 12, 0.6, "SINGLE", 3, 1, "basic", "any"),
-                Card("enemy_barrage", "连射", "快速连射",
-                     "physical", 4, 8, 0.4, "SINGLE", 3, 2, "basic", "any"),
-            ]
-        # Default melee enemies (guard, defender, soldier)
-        return [
-            Card("enemy_atk", "攻击", "基础攻击",
-                 "physical", 5, 10, 0.5, "SINGLE", 1, 1, "basic", "any"),
-            Card("enemy_heavy", "重击", "强力攻击",
-                 "physical", 8, 16, 0.8, "SINGLE", 1, 2, "basic", "any"),
-            Card("enemy_aoe", "横扫", "范围攻击",
-                 "physical", 3, 6, 0.3, "ADJACENT", 1, 2, "basic", "any"),
-        ]
+        """敌人卡组由 frontmatter `ai_skills` 数据驱动；未声明/全部未知时回退职业默认。"""
+        ids = [i for i in (getattr(unit, "ai_skills", None) or [])
+               if i in ENEMY_CARD_CATALOG]
+        if not ids:
+            cls = getattr(unit, "char_class", "")
+            ids = _ENEMY_CLASS_DEFAULT_SKILLS.get(cls, _ENEMY_MELEE_SKILLS)
+        return [copy.deepcopy(ENEMY_CARD_CATALOG[i]) for i in ids]
+
+    def load_waves(self, waves: list[list[tuple[CombatUnit, tuple[int, int]]]]):
+        """接收预构建波次（wave 0 立即入场，其余进入 pending_waves 按波触发）。"""
+        self.pending_waves = [list(w) for w in waves]
+        self.wave_num = 0
+        self._spawn_next_wave()
+
+    def _spawn_next_wave(self) -> bool:
+        """将 pending_waves 队首波次入场；无更多波次返回 False。"""
+        if not self.pending_waves:
+            return False
+        wave = self.pending_waves.pop(0)
+        self.wave_num += 1
+        for unit, pos in wave:
+            self.add_enemy_unit(unit, pos)
+        self._emit("wave_start", wave=self.wave_num)
+        return True
 
     # ── State Machine ──
 
@@ -744,10 +776,16 @@ class CombatEngine:
     def _check_battle_end(self) -> bool:
         """Check if the battle has ended (all players or all enemies dead).
         Returns True if the battle ended."""
+        if self.state.phase == "END":
+            return True
+
         players_alive = any(u.team == "player" and u.is_alive for u in self.units.values())
         enemies_alive = any(u.team == "enemy" and u.is_alive for u in self.units.values())
 
         if not enemies_alive:
+            # 波次：清空当前波后还有待入场波次则继续战斗，否则胜利
+            if self._spawn_next_wave():
+                return False
             self.state.phase = "END"
             self.state.winner = "player"
             self._emit("battle_end", winner="player", reason="所有敌人已消灭")

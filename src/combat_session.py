@@ -150,41 +150,49 @@ class CombatSession:
                 card.owner = owner
                 self.engine.shared_pool.deck.append(card)
 
-        # ── Load enemies ──
+        # ── Load enemies（按波次预构建，wave 0 立即入场，其余按波触发）──
         if enemies_override:
-            enemy_defs = enemies_override
+            wave_defs_list = [enemies_override]
         else:
-            enemy_defs = []
-            for wave in encounter.get("waves", []):
-                enemy_defs.extend(wave.get("enemies", []))
+            wave_defs_list = [w.get("enemies", []) for w in encounter.get("waves", [])]
+            if not wave_defs_list:
+                wave_defs_list = [[]]
 
-        for enemy_def in enemy_defs:
-            enemy_name = enemy_def.get("enemy", enemy_def.get("name", ""))
-            count = enemy_def.get("count", 1)
-            if not enemies_override:
-                count = max(1, round(count * self._enemy_scale))
-            positions = enemy_def.get("positions", [])
+        all_waves: list[list[tuple[CombatUnit, tuple[int, int]]]] = []
+        enemy_seq = 0
+        for wave_defs in wave_defs_list:
+            wave_units: list[tuple[CombatUnit, tuple[int, int]]] = []
+            for enemy_def in wave_defs:
+                enemy_name = enemy_def.get("enemy", enemy_def.get("name", ""))
+                count = enemy_def.get("count", 1)
+                if not enemies_override:
+                    count = max(1, round(count * self._enemy_scale))
+                positions = enemy_def.get("positions", [])
 
-            for j in range(count):
-                enemy_unit = self.loader.load_enemy(enemy_name)
-                if not enemy_unit:
-                    logger.warning("Enemy '%s' not found, skipping", enemy_name)
-                    continue
+                for j in range(count):
+                    enemy_unit = self.loader.load_enemy(enemy_name)
+                    if not enemy_unit:
+                        logger.warning("Enemy '%s' not found, skipping", enemy_name)
+                        continue
 
-                # 同名敌人需唯一 unit_id，否则 add_enemy_unit 会互相覆盖
-                # （导致 count>1 的敌人只生成 1 个，难度曲线失真）
-                if count > 1:
-                    enemy_unit.unit_id = f"{enemy_name}#{j + 1}"
+                    # 唯一 unit_id（同名 count>1 或跨波次重复都不冲突）
+                    enemy_seq += 1
+                    if count > 1 or len(wave_defs_list) > 1:
+                        enemy_unit.unit_id = f"{enemy_name}#{enemy_seq}"
 
-                # Use specified position or auto-place
-                if j < len(positions):
-                    pos = tuple(positions[j])
-                else:
-                    # Auto-place in enemy zone (cols 3-7)
-                    pos = (random.randint(0, TOTAL_ROWS - 1),
-                           random.randint(ENEMY_COL_START, TOTAL_COLS - 1))
+                    # Use specified position or auto-place
+                    if j < len(positions):
+                        pos = tuple(positions[j])
+                    else:
+                        # Auto-place in enemy zone (cols 3-7)
+                        pos = (random.randint(0, TOTAL_ROWS - 1),
+                               random.randint(ENEMY_COL_START, TOTAL_COLS - 1))
 
-                self.engine.add_enemy_unit(enemy_unit, pos)
+                    wave_units.append((enemy_unit, pos))
+            all_waves.append(wave_units)
+
+        # 波次交给引擎管理：wave 0 立即入场，其余进 pending_waves
+        self.engine.load_waves(all_waves)
 
         # Start the state machine
         self.engine.start_battle()
@@ -527,6 +535,8 @@ class CombatSession:
             "shared_ap_max": e.SHARED_AP_MAX,
             "max_rounds": e.max_rounds,
             "escape_enabled": e.escape_enabled,
+            "wave_num": e.wave_num,
+            "pending_waves": len(e.pending_waves),
             "units": units,
             "shared_hand": shared_hand,
             "player_hands": player_hands,
@@ -619,6 +629,7 @@ class CombatSession:
                 team=udict["team"],
                 char_class=udict.get("char_class", ""),
                 ai_behavior=udict.get("ai_behavior", "aggressive"),
+                ai_skills=udict.get("ai_skills", []),
                 max_hp=udict["max_hp"],
                 hp=udict["hp"],
                 PATK=udict.get("PATK", 10),

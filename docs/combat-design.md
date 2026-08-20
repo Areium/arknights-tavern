@@ -75,7 +75,9 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
 
 ## 8. 敌人与 AI
 
-- 敌人卡牌按职业**硬编码**三套（术师/狙击/近战），**不读** frontmatter 的 `ai_skills`（`ai_behavior` 的 defensive 姿态已用于「坚守」意图判定）。
+- 敌人卡组由 frontmatter `ai_skills` **数据驱动**（`engine.py` 的 `ENEMY_CARD_CATALOG` 目录解析 card_id，
+  每实例深拷贝）；未声明/全部未知时回退职业默认（术师→arts、狙击→远程物理、其余→近战）。
+  `ai_behavior` 的 defensive 姿态用于「坚守」意图判定。
 - 敌人 AI（`engine.py`）：**意图驱动**——ROUND_START 计算每个敌人意图
   `{type: 攻击/重击/范围攻击/移动/坚守, target, 强度范围}` 推送前端；执行按 **SPD 降序**
   逐个行动，优先消费意图卡牌（精英卡消耗后本场不可再用），无法攻击时向最近玩家移动。
@@ -84,8 +86,9 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
 
 ## 9. 遭遇战与战斗触发
 
-- 遭遇字段消费：`waves`、`background`、`approaches`（打法）、`conditions`
-  （`max_rounds` 超时判负 / `escape_enabled` 允许撤退）均被读取；`trigger_plot` **未读取**。
+- 遭遇字段消费：`waves`（**逐波触发**：清空当前波后刷出下一波，全清才胜利）、`background`、
+  `approaches`（打法）、`conditions`（`max_rounds` 超时判负 / `escape_enabled` 允许撤退）均被读取；
+  `trigger_plot` **未读取**。
 - **tactical 模式下**：LLM 叙述后 `extract_markers` 输出 `combat_trigger` → SSE
   `combat_briefing`（含打法列表）→ 玩家选打法后 POST `/combat/start` 开战（或谈判检定/撤退）。
   战斗目标优先级：节拍 `[COMBAT:enc_id]`（代码确定性解析）> LLM `combat_trigger` 提取。
@@ -101,7 +104,8 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
 事件统一包装为 `{"type": "<事件名>", "data": {...}}`（`blueprints/combat.py`）。引擎发出的事件：
 
 `battle_start` / `round_start`（含 `round` 与 `intents`）/ `card_played` / `damage` / `heal` /
-`move` / `death` / `status`（状态效果）/ `cleanse`（净化）/ `turn_end`（回合切换，无 round_end）/ `battle_end` / `error`
+`move` / `death` / `status`（状态效果）/ `cleanse`（净化）/ `wave_start`（新一波敌人入场）/
+`turn_end`（回合切换，无 round_end）/ `battle_end` / `error`
 
 状态快照由 `combat_session.py` 输出；`valid_moves` 恒为 `[]`（客户端计算）。
 
@@ -123,6 +127,7 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
 消耗品、XP/物品奖励与升级、战斗结算画面（含奖励展示 + 战后自动叙述）、卡牌 JSON CRUD、
 战斗背景图（含会话级覆盖、AI 生成工作流）、音效、战前简报与打法选择（Approach）、
 敌人意图系统、SPD 行动顺序、max_rounds/逃跑条件、战斗内状态效果（护盾/减速/束缚/
-虚弱/增幅/沉默/灼烧/嘲讽/闪避/致盲 + 净化/破甲）、战后卡牌 1 选 1、剧情分支投点接入战斗。
+虚弱/增幅/沉默/灼烧/嘲讽/闪避/致盲 + 净化/破甲）、战后卡牌 1 选 1、剧情分支投点接入战斗、
+节拍 `[COMBAT:enc_id]` 代码级解析、波次逐波触发、敌人 `ai_skills` 数据驱动。
 
-**未实现**：波次逐波触发（`waves` 一次性展开）、敌人 `ai_skills` 数据驱动（当前按职业硬编码三套卡）。
+**未实现**：部署区 `deploy_zones`/`grid_size` 字段（当前玩家/敌人用默认站位）、`trigger_plot` 结算联动。

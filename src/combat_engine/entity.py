@@ -65,6 +65,7 @@ class CombatUnit:
     team: str            # "player" | "enemy"
     char_class: str = ""  # Chinese class name
     ai_behavior: str = "aggressive"  # "aggressive" | "defensive" (enemy stance)
+    ai_skills: list = field(default_factory=list)  # 敌人 frontmatter 声明的技能卡 card_id 列表
 
     # Core combat stats (derived from attributes)
     max_hp: int = 100
@@ -239,7 +240,8 @@ class CombatUnit:
                      defense: int = 4, resist: int = 4,
                      spd: float = 8, hit: int = 4, eva: int = 4,
                      max_ap: int = 3,
-                     ai_behavior: str = "aggressive") -> "CombatUnit":
+                     ai_behavior: str = "aggressive",
+                     ai_skills: list = None) -> "CombatUnit":
         """Quick enemy creation with explicit stats."""
         return cls(
             unit_id=name,
@@ -247,6 +249,7 @@ class CombatUnit:
             team="enemy",
             char_class=char_class,
             ai_behavior=ai_behavior,
+            ai_skills=list(ai_skills or []),
             max_hp=hp, hp=hp,
             PATK=patk, MATK=matk,
             DEF=defense, RES=resist,
@@ -261,6 +264,7 @@ class CombatUnit:
             "team": self.team,
             "char_class": self.char_class,
             "ai_behavior": self.ai_behavior,
+            "ai_skills": list(self.ai_skills),
             "hp": self.hp, "max_hp": self.max_hp,
             "PATK": self.PATK, "MATK": self.MATK,
             "DEF": self.DEF, "RES": self.RES,
