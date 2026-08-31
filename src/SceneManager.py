@@ -589,11 +589,14 @@ speaker 必须从场景角色列表选择，无法判断时用 null
         if self._combat_mode == "tactical":
             encounters = self._list_encounters()
             tasks.append(
-                f"- 判断叙述中是否出现了需要触发回合制战斗的明确的敌对冲突。\n"
-                f"  如果是，从以下遭遇列表中选择最匹配剧情的遭遇ID：\n"
+                f"- 判断叙述中是否出现了需要触发回合制战斗的明确的敌对冲突：\n"
+                f"  袭击、交火、武装对峙（武器出鞘/即将动手）等场面。\n"
+                f"  MUST：出现上述场面时 combat_trigger 必须填写遭遇ID，不得为 null；\n"
+                f"  仅言语争吵或没有动手意图的对峙不算。\n"
+                f"  从以下列表直接选择语义最接近的遭遇，不要过度分析匹配度：\n"
                 f"  可用遭遇：{encounters}\n"
+                f"  无法判断时使用默认遭遇（初遇整合运动）。\n"
                 f"  将结果填入 combat_trigger 字段（格式：{{\"encounter_id\": \"遭遇ID\", \"params\": null}}）。\n"
-                f"  如果不是，combat_trigger 设为 null。\n"
                 f"  可选：在 combat_trigger.params 中设置 status_effects，\n"
                 f"  格式 {{\"角色名\": {{\"hp_penalty\": 0.0~1.0}}}}"
             )
@@ -653,24 +656,36 @@ speaker 必须从场景角色列表选择，无法判断时用 null
             logger.info("[TIMING] extract_markers LLM调用: %.0fms", (time.monotonic() - _t0) * 1000)
             text = result.get("content", "") if isinstance(result, dict) else str(result)
             usage = result.get("usage") if isinstance(result, dict) else None
+            finish_reason = result.get("finish_reason") if isinstance(result, dict) else None
             parsed = _parse_extraction_json(text)
+
+            # 空响应/截断重试一次：推理 token 消耗存在随机抖动（实测同一案例跨运行
+            # 空/截断概率 8%~42% 不等），单次重试可吸收该随机性。
+            retried = False
+            if not (text or "").strip() or finish_reason == "length":
+                logger.warning("Marker extraction 空/截断，重试一次 (empty=%s, finish=%s)",
+                               not (text or "").strip(), finish_reason)
+                result2 = self._llm.chat(messages, stream=False, max_tokens=2048)
+                text2 = result2.get("content", "") if isinstance(result2, dict) else str(result2)
+                if (text2 or "").strip():
+                    text, parsed = text2, _parse_extraction_json(text2)
+                    usage = result2.get("usage") if isinstance(result2, dict) else None
+                    finish_reason = result2.get("finish_reason") if isinstance(result2, dict) else None
+                    retried = True
             parsed["usage"] = usage
             parsed.setdefault("error", None)
-            parsed["finish_reason"] = (
-                result.get("finish_reason") if isinstance(result, dict) else None)
-            # 显式降级标记：空响应（预算截断/服务异常）与"模型判定无标记"区分开，
+            parsed["finish_reason"] = finish_reason
+            # 显式降级标记：最终仍为空响应（预算截断/服务异常）与"模型判定无标记"区分开，
             # 避免静默默认值被误读为成功抽取。
-            if not (text or "").strip():
-                parsed["degraded"] = True
-                logger.warning("Marker extraction: empty content (finish_reason=%s)",
-                               parsed["finish_reason"])
-            else:
-                parsed["degraded"] = False
+            parsed["degraded"] = not (text or "").strip()
+            parsed["retried"] = retried
+            if parsed["degraded"]:
+                logger.warning("Marker extraction: empty content (finish_reason=%s)", finish_reason)
             return parsed
         except Exception as e:
             logger.warning("Marker extraction failed: %s", e)
             return {**_empty_extraction_result(), "error": str(e),
-                    "degraded": True, "finish_reason": None}
+                    "degraded": True, "finish_reason": None, "retried": False}
 
     @staticmethod
     def _build_conversation_history(history: list[dict],
@@ -710,9 +725,16 @@ speaker 必须从场景角色列表选择，无法判断时用 null
 
     @classmethod
     def _list_encounters(cls) -> str:
-        """返回可用遭遇的缓存列表字符串。"""
+        """返回可用遭遇的缓存列表字符串（id（中文名），供战斗触发任务语义匹配）。
+
+        实测：纯机器 ID 列表导致模型在多个候选间过度推理（单案例空响应耗尽 2048
+        tokens），注入中文名后触发召回 +8pt 且推理明显收敛。
+        """
         if cls._encounters_cache is None:
             import os
+
+            import frontmatter as _fm
+
             encounters_dir = os.path.join(
                 os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                 "data", "combat", "encounters",
@@ -720,8 +742,17 @@ speaker 必须从场景角色列表选择，无法判断时用 null
             result = []
             if os.path.isdir(encounters_dir):
                 for f in sorted(os.listdir(encounters_dir)):
-                    if f.endswith(".md"):
-                        result.append(f[:-3])
+                    if not f.endswith(".md"):
+                        continue
+                    entry_id = f[:-3]
+                    name = ""
+                    try:
+                        with open(os.path.join(encounters_dir, f), "r", encoding="utf-8") as fh:
+                            meta = _fm.load(fh).metadata
+                        name = str(meta.get("name") or "")
+                    except Exception:
+                        name = ""
+                    result.append(f"{entry_id}（{name}）" if name else entry_id)
             cls._encounters_cache = result
         return "、".join(cls._encounters_cache) if cls._encounters_cache else "初遇整合运动"
 
