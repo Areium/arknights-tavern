@@ -647,9 +647,9 @@ speaker 必须从场景角色列表选择，无法判断时用 null
         try:
             _t0 = time.monotonic()
             # 输出预算：512 对会先消耗推理 token 的模型过小——实测战术模式（含战斗触发任务）
-            # 空响应率约 8/11（finish_reason=length，预算耗尽于推理），上调至 1024 并保留
-            # finish_reason 供诊断（length=截断，stop=正常结束）。
-            result = self._llm.chat(messages, stream=False, max_tokens=1024)
+            # 空响应率约 8/11（finish_reason=length，预算耗尽于推理）；1024 后仍有约 40%
+            # 案例耗尽（部分推理 >1000 tokens），继续上调至 2048 并保留 finish_reason 供诊断。
+            result = self._llm.chat(messages, stream=False, max_tokens=2048)
             logger.info("[TIMING] extract_markers LLM调用: %.0fms", (time.monotonic() - _t0) * 1000)
             text = result.get("content", "") if isinstance(result, dict) else str(result)
             usage = result.get("usage") if isinstance(result, dict) else None
