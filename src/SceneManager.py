@@ -646,17 +646,31 @@ speaker 必须从场景角色列表选择，无法判断时用 null
 
         try:
             _t0 = time.monotonic()
-            result = self._llm.chat(messages, stream=False, max_tokens=512)
+            # 输出预算：512 对会先消耗推理 token 的模型过小——实测战术模式（含战斗触发任务）
+            # 空响应率约 8/11（finish_reason=length，预算耗尽于推理），上调至 1024 并保留
+            # finish_reason 供诊断（length=截断，stop=正常结束）。
+            result = self._llm.chat(messages, stream=False, max_tokens=1024)
             logger.info("[TIMING] extract_markers LLM调用: %.0fms", (time.monotonic() - _t0) * 1000)
             text = result.get("content", "") if isinstance(result, dict) else str(result)
             usage = result.get("usage") if isinstance(result, dict) else None
             parsed = _parse_extraction_json(text)
             parsed["usage"] = usage
             parsed.setdefault("error", None)
+            parsed["finish_reason"] = (
+                result.get("finish_reason") if isinstance(result, dict) else None)
+            # 显式降级标记：空响应（预算截断/服务异常）与"模型判定无标记"区分开，
+            # 避免静默默认值被误读为成功抽取。
+            if not (text or "").strip():
+                parsed["degraded"] = True
+                logger.warning("Marker extraction: empty content (finish_reason=%s)",
+                               parsed["finish_reason"])
+            else:
+                parsed["degraded"] = False
             return parsed
         except Exception as e:
             logger.warning("Marker extraction failed: %s", e)
-            return {**_empty_extraction_result(), "error": str(e)}
+            return {**_empty_extraction_result(), "error": str(e),
+                    "degraded": True, "finish_reason": None}
 
     @staticmethod
     def _build_conversation_history(history: list[dict],
