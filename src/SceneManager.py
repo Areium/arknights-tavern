@@ -335,7 +335,8 @@ class SceneManager:
         return True
 
     def chat(self, user_input: str, player_info: dict | None = None,
-             env_context: str = "", stream_callback=None) -> tuple[str, dict, dict | None]:
+             env_context: str = "", stream_callback=None,
+             thinking: str | None = None) -> tuple[str, dict, dict | None]:
         """场景对话处理。
 
         流程:
@@ -376,6 +377,7 @@ class SceneManager:
             clean_input,
             player_info,
             env_context,
+            thinking=thinking,
             scene_context=scene_context,
             stream_callback=stream_callback,
             custom_prompt=custom_prompt,
@@ -391,7 +393,8 @@ class SceneManager:
         return response, env_updates, usage
 
     def group_chat(self, user_input: str, player_info: dict | None = None,
-                   env_context: str = "", stream_callback=None) -> list[dict]:
+                   env_context: str = "", stream_callback=None,
+                   thinking: str | None = None) -> list[dict]:
         """群聊模式：将用户输入发送给场景中所有角色。
 
         每个角色独立调用 chat()，收集所有回复。
@@ -422,6 +425,7 @@ class SceneManager:
                     user_input,
                     player_info,
                     env_context,
+                    thinking=thinking,
                     scene_context=scene_context,
                     stream_callback=stream_callback,
                     custom_prompt=custom_prompt,
@@ -652,7 +656,9 @@ speaker 必须从场景角色列表选择，无法判断时用 null
             # 输出预算：512 对会先消耗推理 token 的模型过小——实测战术模式（含战斗触发任务）
             # 空响应率约 8/11（finish_reason=length，预算耗尽于推理）；1024 后仍有约 40%
             # 案例耗尽（部分推理 >1000 tokens），继续上调至 2048 并保留 finish_reason 供诊断。
-            result = self._llm.chat(messages, stream=False, max_tokens=2048)
+            # 分类/提取任务：显式关闭思考（实测 none 下无空响应/截断重试；
+            # 思考预算 2048 下空/截断率 8%~42% ——见 results_extract_52.json）
+            result = self._llm.chat(messages, stream=False, max_tokens=2048, thinking="none")
             logger.info("[TIMING] extract_markers LLM调用: %.0fms", (time.monotonic() - _t0) * 1000)
             text = result.get("content", "") if isinstance(result, dict) else str(result)
             usage = result.get("usage") if isinstance(result, dict) else None
@@ -665,7 +671,7 @@ speaker 必须从场景角色列表选择，无法判断时用 null
             if not (text or "").strip() or finish_reason == "length":
                 logger.warning("Marker extraction 空/截断，重试一次 (empty=%s, finish=%s)",
                                not (text or "").strip(), finish_reason)
-                result2 = self._llm.chat(messages, stream=False, max_tokens=2048)
+                result2 = self._llm.chat(messages, stream=False, max_tokens=2048, thinking="none")
                 text2 = result2.get("content", "") if isinstance(result2, dict) else str(result2)
                 if (text2 or "").strip():
                     text, parsed = text2, _parse_extraction_json(text2)
@@ -925,7 +931,8 @@ speaker 必须从场景角色列表选择，无法判断时用 null
                 max_tokens: int | None = None,
                 word_limit: int = 500,
                 conversation_history: str = "",
-                is_first_turn: bool = True) -> tuple[str, dict, dict | None]:
+                is_first_turn: bool = True,
+                thinking: str | None = None) -> tuple[str, dict, dict | None]:
         """生成剧情叙述（非流式）。
 
         用于需要完整响应后再处理的场景（气泡模式、缓冲模式）。
@@ -950,7 +957,8 @@ speaker 必须从场景角色列表选择，无法判断时用 null
         )
 
         _t0 = time.monotonic()
-        result = self._llm.chat(messages, stream=False, max_tokens=max_tokens)
+        result = self._llm.chat(messages, stream=False, max_tokens=max_tokens,
+                                thinking=thinking)
         logger.info("[TIMING] narrate LLM调用: %.0fms (输出 %d 字符)", (time.monotonic() - _t0) * 1000, len(result.get("content", "")))
         narrative = result.get("content", "")
         usage = result.get("usage")
@@ -965,7 +973,8 @@ speaker 必须从场景角色列表选择，无法判断时用 null
                        max_tokens: int | None = None,
                        word_limit: int = 500,
                        conversation_history: str = "",
-                       is_first_turn: bool = True):
+                       is_first_turn: bool = True,
+                       thinking: str | None = None):
         """流式生成剧情叙述 — 生成器，逐 token yield。
 
         使用线程+队列桥接 LLM 的 on_token 回调和 SSE 生成器，
@@ -1002,7 +1011,8 @@ speaker 必须从场景角色列表选择，无法判断时用 null
 
                 result = self._llm.chat(messages, stream=True, on_token=on_token,
                                         on_reasoning=on_reasoning,
-                                        max_tokens=max_tokens)
+                                        max_tokens=max_tokens,
+                                        thinking=thinking)
                 q.put(("result", result))
             except Exception as e:
                 q.put(("error", e))

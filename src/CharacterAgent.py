@@ -129,7 +129,8 @@ class CharacterAgent:
     def chat(self, user_input: str, player_info: dict = None,
              environment_context: str = "", scene_context: str = "",
              stream_callback=None, custom_prompt: str | None = None,
-             worldbook=None, recent_text: str = "") -> tuple[str, dict, dict | None]:
+             worldbook=None, recent_text: str = "",
+             thinking: str | None = None) -> tuple[str, dict, dict | None]:
         """
         与角色进行对话。
 
@@ -233,7 +234,7 @@ class CharacterAgent:
         # 工具调用循环 (max 3 rounds)
         total_usage = None
         for _round in range(3):
-            result = self.llm.chat(messages, stream=False, tools=tools)
+            result = self.llm.chat(messages, stream=False, tools=tools, thinking=thinking)
 
             # Accumulate token usage
             call_usage = result.get("usage")

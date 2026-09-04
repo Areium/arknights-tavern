@@ -15,6 +15,13 @@
 ---
 
 ## 更新记录
+### 2026-08-21 — 对话延迟优化：真流式 + 分调用思考档位
+
+- **修复伪流式（关键）**：`load_llm.py` 流式路径由 `httpx client.post()`（先下载完整响应体再 `iter_lines`，导致 SSE 所有 chunk 一次性到达、首字可见≈总时长）改为 `client.stream()` 真流式；ApiLLM 与 LocalLLM（Ollama）同步修复，保留连接错误/429/5xx 重试与 400/422 stream_options 降级。实测叙述首字 20.5s → ~0.4-0.8s。
+- **按调用类型显式思考档位**：`ApiLLM.chat`/`LocalLLM.chat` 新增 `thinking` 参数；新增配置 `narration_reasoning_effort`（默认 `none`）控制剧情叙述/角色对话；标记提取、回忆生成、文档摘要批处理固定 `thinking="none"`。此前 `enable_thinking=false` 时不发任何参数，DeepSeek 混合模型仍缺省思考（实测 ~550 tok），现在显式发送 `reasoning_effort=none` 才能真正关闭。
+- **实测收益**：叙述总时长 20.5-23.2s → ~2.7-3.5s；标记提取 3.9-8.0s → ~1.2-2s；提取空/截断重试率明显下降。
+- **设置 UI**：设置页新增「叙述思考档位」（关闭/低/中/高）。
+- **其他**：embedding 端点首次失败后短路跳过（自由模式每轮省 2 次注定失败的网络请求）；`docs/perf-round-latency.md` 记录完整分段测量与前后对比。
 
 ### 2026-08-18 — 外部世界书/角色卡导入修复 + 玩家身份角色
 

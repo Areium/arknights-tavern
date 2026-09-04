@@ -197,10 +197,13 @@ def register(app, managers):
 
         player_info = {"identity": data.get("identity") or session.player_identity}
         env_context = session.environment.build_context()
+        config = llm_backend.get_config()
+        thinking = config.get("narration_reasoning_effort", "none")
 
         try:
             response, env_updates, usage = session.scene_manager.chat(
-                user_input, player_info, env_context
+                user_input, player_info, env_context,
+                thinking=thinking,
             )
             session.accumulate_usage(usage)
             session.apply_environment_updates(env_updates)
@@ -235,10 +238,13 @@ def register(app, managers):
 
         player_info = {"identity": data.get("identity") or session.player_identity}
         env_context = session.environment.build_context()
+        config = llm_backend.get_config()
+        thinking = config.get("narration_reasoning_effort", "none")
 
         try:
             results, total_usage = session.scene_manager.group_chat(
-                user_input, player_info, env_context
+                user_input, player_info, env_context,
+                thinking=thinking,
             )
             session.accumulate_usage(total_usage)
             for r in results:
@@ -319,6 +325,7 @@ def register(app, managers):
                 choices_count = choice_count if auto_choices else 0
                 max_tokens = config.get("max_output_tokens", 16384)
                 word_limit = config.get("word_limit", 500)
+                thinking = config.get("narration_reasoning_effort", "none")
 
                 # 构建对话历史（滑动窗口，最近 ~3000 字符）
                 conversation_history = session.scene_manager._build_conversation_history(
@@ -346,6 +353,7 @@ def register(app, managers):
                     word_limit=word_limit,
                     conversation_history=conversation_history,
                     is_first_turn=is_first_turn,
+                    thinking=thinking,
                 ):
                     if event_type == "token":
                         yield f"data: {json.dumps({'type': 'text', 'data': {'token': data, 'stream_id': stream_id}})}\n\n"
@@ -493,6 +501,7 @@ def register(app, managers):
             choices_count = config.get("choice_count", 3) if auto_choices else 0
             max_tokens = config.get("max_output_tokens", 16384)
             word_limit = config.get("word_limit", 500)
+            thinking = config.get("narration_reasoning_effort", "none")
 
             conversation_history = session.scene_manager._build_conversation_history(
                 session._narration_history, structured=bubble_mode
@@ -507,6 +516,7 @@ def register(app, managers):
                 word_limit=word_limit,
                 conversation_history=conversation_history,
                 is_first_turn=is_first_turn,
+                thinking=thinking,
             )
             session.accumulate_usage(usage)
 
@@ -620,6 +630,7 @@ def register(app, managers):
             bubble_mode = config.get("dialogue_bubble_mode", False)
             max_tokens = config.get("max_output_tokens", 16384)
             word_limit = config.get("word_limit", 500)
+            thinking = config.get("narration_reasoning_effort", "none")
 
             conversation_history = session.scene_manager._build_conversation_history(
                 session._narration_history
@@ -634,6 +645,7 @@ def register(app, managers):
                 is_first_turn=is_first_turn,
                 max_tokens=max_tokens,
                 word_limit=word_limit,
+                thinking=thinking,
             )
             session.accumulate_usage(usage)
             response = {"narrative": narrative}

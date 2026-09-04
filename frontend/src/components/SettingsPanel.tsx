@@ -22,6 +22,7 @@ export default function SettingsPanel() {
     provider: "auto",
     enable_thinking: false,
     reasoning_effort: "medium",
+    narration_reasoning_effort: "none",
     auto_generate_choices: false,
     choice_count: 3,
     memory_interval: 5,
@@ -90,6 +91,7 @@ export default function SettingsPanel() {
         provider: data.provider || "auto",
         enable_thinking: data.enable_thinking || false,
         reasoning_effort: data.reasoning_effort || "medium",
+        narration_reasoning_effort: data.narration_reasoning_effort || "none",
         auto_generate_choices: data.auto_generate_choices || false,
         choice_count: data.choice_count || 3,
         memory_interval: data.memory_interval || 5,
@@ -121,6 +123,7 @@ export default function SettingsPanel() {
         provider: config.provider,
         enable_thinking: config.enable_thinking,
         reasoning_effort: config.reasoning_effort,
+        narration_reasoning_effort: config.narration_reasoning_effort,
         auto_generate_choices: config.auto_generate_choices,
         choice_count: config.choice_count,
         memory_interval: config.memory_interval,
@@ -495,6 +498,22 @@ export default function SettingsPanel() {
                       </select>
                     </div>
                   )}
+                    <div className="flex items-center gap-2 ml-6">
+                      <label className="text-xs text-gray-500 shrink-0">叙述思考档位</label>
+                      <select
+                        className="input text-sm"
+                        value={config.narration_reasoning_effort}
+                        onChange={(e) =>
+                          setConfig({ ...config, narration_reasoning_effort: e.target.value })
+                        }
+                      >
+                        <option value="none">关闭（最快）</option>
+                        <option value="low">低（快速）</option>
+                        <option value="medium">中（均衡）</option>
+                        <option value="high">高（深度）</option>
+                      </select>
+                    </div>
+                    <p className="text-xs text-gray-500 ml-6">作用于剧情叙述与角色对话；选项/回忆等分类任务始终关闭思考。</p>
                 </div>
               )}
               <button

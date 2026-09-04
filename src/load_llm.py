@@ -1,3 +1,4 @@
+import contextlib
 import httpx
 import json
 import hashlib
@@ -83,6 +84,43 @@ def _post_with_retry(client: httpx.Client, path: str, payload: dict,
     raise last_connect_error or LLMError("unknown", "request failed after retries")
 
 
+def _open_stream_with_retry(client: httpx.Client, path: str, payload: dict,
+                             max_retries: int = 2) -> tuple[contextlib.ExitStack, httpx.Response]:
+    """以真流式打开 POST 响应，在可重试失败（连接错误/429/5xx）上指数退避重试。
+
+    httpx 的 client.post() 会先下载完整响应体再返回——对 SSE 而言是"伪流式"：
+    所有 chunk 一次性到达，前端在整个生成期间看不到任何增量。必须用
+    client.stream() 才能增量拿到 chunk。重试只覆盖"打开阶段"的失败（连接错误、
+    可重试状态码）；一旦开始迭代响应体，读超时按 LLMTimeoutError 处理，不再重试
+    （模型可能只是慢，重试会双倍计费）。
+
+    Returns:
+        (ExitStack, Response)：调用方必须在 finally 中 stack.close() 释放连接。
+    """
+    stack = contextlib.ExitStack()
+    last_connect_error: LLMConnectError | None = None
+    for attempt in range(max_retries + 1):
+        try:
+            cm = client.stream("POST", path, json=payload)
+            response = stack.enter_context(cm)
+        except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+            last_connect_error = LLMConnectError(str(e))
+            if attempt < max_retries:
+                time.sleep(0.5 * (attempt + 1))
+                continue
+            stack.close()
+            raise last_connect_error from e
+        if response.status_code in (429, 500, 502, 503, 504) and attempt < max_retries:
+            logger.warning("LLM %s 流式返回 %s，%.0fs 后重试 (%d/%d)",
+                           path, response.status_code, 2 ** attempt, attempt + 1, max_retries)
+            stack.close()
+            time.sleep(2 ** attempt)
+            continue
+        return stack, response
+    stack.close()
+    raise last_connect_error or LLMError("unknown", "stream request failed after retries")
+
+
 class ModelConfig:
     """模型配置"""
 
@@ -153,7 +191,7 @@ class LocalLLM:
 
     def chat(self, messages: list, stream: bool = False, on_token=None,
              on_reasoning=None, tools: list[dict] | None = None,
-             max_tokens: int | None = None) -> dict:
+             max_tokens: int | None = None, thinking: str | None = None) -> dict:
         """
         使用本地模型进行聊天，支持多轮对话。
 
@@ -164,6 +202,8 @@ class LocalLLM:
             on_reasoning: 流式模式下每收到一个 thinking token 时回调 (Ollama)。
             tools: 可选的工具定义列表 (Ollama 格式)。
             max_tokens: 覆盖默认的 max_tokens 限制。
+            thinking: 按调用覆盖思考档位。"none" → Ollama ``think: false``
+                （qwen3 等思考模型显式关闭）；None/其他值 → 不发送该字段（模型缺省）。
 
         Returns:
             dict: {"type": "text", "content": str, "reasoning": str,
@@ -184,47 +224,64 @@ class LocalLLM:
             }
             if tools:
                 payload["tools"] = tools
+            if thinking == "none":
+                # qwen3 等混合思考模型：显式关闭思考（Ollama /api/chat 的 think 字段）
+                payload["think"] = False
 
             fingerprint, est_tokens = _request_fingerprint(messages)
-            logger.info("[LLM] request fingerprint=%s est_tokens=%d messages=%d model=%s",
-                        fingerprint, est_tokens, len(messages), self.config.model)
-
-            response = _post_with_retry(self.client, "/api/chat", payload)
-            response.raise_for_status()
+            logger.info("[LLM] request fingerprint=%s est_tokens=%d messages=%d model=%s thinking=%s",
+                        fingerprint, est_tokens, len(messages), self.config.model,
+                        thinking or "default")
 
             if effective_stream:
-                full_response = ""
-                full_reasoning = ""
-                usage = None
-                finish_reason = None
-                for line in response.iter_lines():
-                    if line:
-                        json_part = json.loads(line)
-                        content_part = json_part.get("message", {}).get("content", "")
-                        if content_part:
-                            full_response += content_part
-                            if on_token:
-                                on_token(content_part)
-                        # Ollama thinking/reasoning (some models use "thinking" field)
-                        thinking_part = json_part.get("message", {}).get("thinking", "")
-                        if thinking_part:
-                            full_reasoning += thinking_part
-                            if on_reasoning:
-                                on_reasoning(thinking_part)
-                        if json_part.get("done"):
-                            prompt_tokens = json_part.get("prompt_eval_count")
-                            completion_tokens = json_part.get("eval_count")
-                            if prompt_tokens is not None and completion_tokens is not None:
-                                usage = {
-                                    "prompt_tokens": prompt_tokens,
-                                    "completion_tokens": completion_tokens,
-                                    "total_tokens": prompt_tokens + completion_tokens,
-                                }
-                            finish_reason = json_part.get("done_reason", "stop")
-                return {"type": "text", "content": full_response,
-                        "reasoning": full_reasoning, "usage": usage,
-                        "finish_reason": finish_reason}
+                # ── 真流式（同 ApiLLM：client.post 会缓冲完整响应体）──
+                stack, response = _open_stream_with_retry(
+                    self.client, "/api/chat", payload)
+                try:
+                    if response.status_code >= 400:
+                        try:
+                            error_body = response.read()
+                        except Exception:
+                            error_body = b""
+                        raise LLMHTTPError(
+                            response.status_code,
+                            error_body.decode("utf-8", "replace")[:200])
+                    full_response = ""
+                    full_reasoning = ""
+                    usage = None
+                    finish_reason = None
+                    for line in response.iter_lines():
+                        if line:
+                            json_part = json.loads(line)
+                            content_part = json_part.get("message", {}).get("content", "")
+                            if content_part:
+                                full_response += content_part
+                                if on_token:
+                                    on_token(content_part)
+                            # Ollama thinking/reasoning (some models use "thinking" field)
+                            thinking_part = json_part.get("message", {}).get("thinking", "")
+                            if thinking_part:
+                                full_reasoning += thinking_part
+                                if on_reasoning:
+                                    on_reasoning(thinking_part)
+                            if json_part.get("done"):
+                                prompt_tokens = json_part.get("prompt_eval_count")
+                                completion_tokens = json_part.get("eval_count")
+                                if prompt_tokens is not None and completion_tokens is not None:
+                                    usage = {
+                                        "prompt_tokens": prompt_tokens,
+                                        "completion_tokens": completion_tokens,
+                                        "total_tokens": prompt_tokens + completion_tokens,
+                                    }
+                                finish_reason = json_part.get("done_reason", "stop")
+                    return {"type": "text", "content": full_response,
+                            "reasoning": full_reasoning, "usage": usage,
+                            "finish_reason": finish_reason}
+                finally:
+                    stack.close()
             else:
+                response = _post_with_retry(self.client, "/api/chat", payload)
+                response.raise_for_status()
                 result = response.json()
                 msg = result.get("message", {})
                 content = msg.get("content", "") or ""
@@ -329,6 +386,10 @@ class ApiLLM:
         Returns:
             list[list[float]] | None: 向量列表，不支持时返回 None。
         """
+        # 短路：端点首次失败后不再重复发起网络调用（DeepSeek 等不提供 /embeddings，
+        # 每轮 2 次注定失败的调用纯属浪费 ~125ms/次）
+        if getattr(self, "_embed_disabled", False):
+            return None
         try:
             payload = {
                 "model": "text-embedding-3-small",
@@ -343,11 +404,12 @@ class ApiLLM:
             if not getattr(self, "_embed_warned", False):
                 logger.warning("Embedding API 不可用 (将回退到滑动窗口模式)")
                 self._embed_warned = True
+            self._embed_disabled = True
             return None
 
     def chat(self, messages: list, stream: bool = False, on_token=None,
              on_reasoning=None, tools: list[dict] | None = None,
-             max_tokens: int | None = None) -> dict:
+             max_tokens: int | None = None, thinking: str | None = None) -> dict:
         """
         使用API模型进行聊天。
 
@@ -358,6 +420,11 @@ class ApiLLM:
             on_reasoning: 流式模式下每收到一个 reasoning token 时回调。
             tools: 可选的工具定义列表 (OpenAI 格式)。
             max_tokens: 覆盖默认的 max_tokens 限制（发送至 API）。
+            thinking: 按调用覆盖思考档位（覆盖实例级 enable_thinking/reasoning_effort）。
+                None = 实例默认；"none" 显式关闭思考（混合模型缺省仍会思考，必须
+                显式发送该值才能真正关闭——实测缺省思考 ~550 tok、medium 1.3k~4k tok，
+                是叙述延迟的主因）；"low"/"medium"/"high" 显式指定强度。
+                分类/提取/摘要类任务建议 "none"（可消除推理预算耗尽导致的截断重试）。
 
         Returns:
             dict: {"type": "text", "content": str, "reasoning": str,
@@ -368,6 +435,16 @@ class ApiLLM:
             effective_stream = stream and tools is None
             mt = max_tokens if max_tokens is not None else self.config.max_tokens
 
+            # 思考档位：调用级参数 > 实例配置。
+            # thinking="none" → enable_thinking=True + effort="none"，
+            # 让 adapter 显式发送 reasoning_effort="none"（真正关闭思考）。
+            if thinking is not None:
+                effective_enable_thinking = True
+                effective_effort = thinking
+            else:
+                effective_enable_thinking = self.enable_thinking
+                effective_effort = self.reasoning_effort
+
             def _build_payload(include_stream_opts: bool) -> dict:
                 if self.adapter:
                     return self.adapter.build_payload(
@@ -377,8 +454,8 @@ class ApiLLM:
                         temperature=self.config.temperature,
                         tools=tools,
                         include_stream_options=include_stream_opts,
-                        enable_thinking=self.enable_thinking,
-                        reasoning_effort=self.reasoning_effort,
+                        enable_thinking=effective_enable_thinking,
+                        reasoning_effort=effective_effort,
                     )
                 # Fallback: inline payload when no adapter
                 payload: dict = {
@@ -392,64 +469,83 @@ class ApiLLM:
                     payload["stream_options"] = {"include_usage": True}
                 if tools:
                     payload["tools"] = tools
+                if effective_enable_thinking and effective_effort:
+                    payload["reasoning_effort"] = effective_effort
                 return payload
 
             payload = _build_payload(True)
             fingerprint, est_tokens = _request_fingerprint(messages)
-            logger.info("[LLM] request fingerprint=%s est_tokens=%d messages=%d model=%s",
-                        fingerprint, est_tokens, len(messages), self.config.model)
-
-            response = _post_with_retry(self.client, "/chat/completions", payload)
-
-            # Graceful degradation: retry without stream_options on 400/422
-            if response.status_code in (400, 422) and effective_stream:
-                logger.info("stream_options 不被支持，回退为无 stream_options")
-                payload = _build_payload(False)
-                response = self.client.post("/chat/completions", json=payload)
-
-            response.raise_for_status()
+            logger.info("[LLM] request fingerprint=%s est_tokens=%d messages=%d model=%s thinking=%s",
+                        fingerprint, est_tokens, len(messages), self.config.model,
+                        effective_effort if effective_enable_thinking else "default")
 
             if effective_stream:
-                full_response = ""
-                full_reasoning = ""
-                usage = None
-                finish_reason = None
-                for line in response.iter_lines():
-                    if line.startswith("data: "):
-                        line = line[6:]
-                    if line.strip() == "[DONE]":
-                        break
-                    if line:
+                # ── 真流式：httpx client.post() 会先下载完整响应体（伪流式——
+                # 实测所有 chunk 一次性到达、首字可见≈总时长），必须用 stream() ──
+                stack, response = _open_stream_with_retry(
+                    self.client, "/chat/completions", payload)
+                try:
+                    # Graceful degradation: retry without stream_options on 400/422
+                    if response.status_code in (400, 422):
+                        logger.info("stream_options 不被支持，回退为无 stream_options")
+                        stack.close()
+                        payload = _build_payload(False)
+                        stack, response = _open_stream_with_retry(
+                            self.client, "/chat/completions", payload)
+                    if response.status_code >= 400:
+                        # 流式响应体未读取时 .text 会抛 ResponseNotRead，
+                        # 显式读取后抛结构化错误（与 raise_for_status 路径等价）
                         try:
-                            json_part = json.loads(line)
-                            delta = json_part.get("choices", [{}])[0].get("delta", {})
-                            content_part = delta.get("content", "")
-                            if content_part:
-                                full_response += content_part
-                                if on_token:
-                                    on_token(content_part)
-                            reasoning_part = delta.get("reasoning_content", "")
-                            if reasoning_part:
-                                full_reasoning += reasoning_part
-                                if on_reasoning:
-                                    on_reasoning(reasoning_part)
-                            chunk_usage = json_part.get("usage")
-                            if chunk_usage:
-                                usage = {
-                                    "prompt_tokens": chunk_usage.get("prompt_tokens"),
-                                    "completion_tokens": chunk_usage.get("completion_tokens"),
-                                    "total_tokens": chunk_usage.get("total_tokens"),
-                                }
-                            chunk_finish = json_part.get("choices", [{}])[0].get("finish_reason")
-                            if chunk_finish:
-                                finish_reason = chunk_finish
-                        except json.JSONDecodeError:
-                            logger.warning("无法解码JSON行: %s", line)
-                            continue
-                return {"type": "text", "content": full_response,
-                        "reasoning": full_reasoning, "usage": usage,
-                        "finish_reason": finish_reason}
+                            error_body = response.read()
+                        except Exception:
+                            error_body = b""
+                        raise LLMHTTPError(
+                            response.status_code,
+                            error_body.decode("utf-8", "replace")[:200])
+                    full_response = ""
+                    full_reasoning = ""
+                    usage = None
+                    finish_reason = None
+                    for line in response.iter_lines():
+                        if line.startswith("data: "):
+                            line = line[6:]
+                        if line.strip() == "[DONE]":
+                            break
+                        if line:
+                            try:
+                                json_part = json.loads(line)
+                                delta = json_part.get("choices", [{}])[0].get("delta", {})
+                                content_part = delta.get("content", "")
+                                if content_part:
+                                    full_response += content_part
+                                    if on_token:
+                                        on_token(content_part)
+                                reasoning_part = delta.get("reasoning_content", "")
+                                if reasoning_part:
+                                    full_reasoning += reasoning_part
+                                    if on_reasoning:
+                                        on_reasoning(reasoning_part)
+                                chunk_usage = json_part.get("usage")
+                                if chunk_usage:
+                                    usage = {
+                                        "prompt_tokens": chunk_usage.get("prompt_tokens"),
+                                        "completion_tokens": chunk_usage.get("completion_tokens"),
+                                        "total_tokens": chunk_usage.get("total_tokens"),
+                                    }
+                                chunk_finish = json_part.get("choices", [{}])[0].get("finish_reason")
+                                if chunk_finish:
+                                    finish_reason = chunk_finish
+                            except json.JSONDecodeError:
+                                logger.warning("无法解码JSON行: %s", line)
+                                continue
+                    return {"type": "text", "content": full_response,
+                            "reasoning": full_reasoning, "usage": usage,
+                            "finish_reason": finish_reason}
+                finally:
+                    stack.close()
             else:
+                response = _post_with_retry(self.client, "/chat/completions", payload)
+                response.raise_for_status()
                 result = response.json()
                 msg = result.get("choices", [{}])[0].get("message", {})
                 content = msg.get("content", "") or ""

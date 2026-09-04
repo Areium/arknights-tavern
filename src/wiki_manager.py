@@ -577,6 +577,7 @@ class WikiManager:
                 result = llm.chat(
                     [{"role": "user", "content": prompt}],
                     stream=False,
+                    thinking="none",
                 )
                 summary = result.get("content", "").strip()
             except Exception as e:

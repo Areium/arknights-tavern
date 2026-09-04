@@ -374,7 +374,7 @@ class Session:
                     "</output_format>"
                 )},
                 {"role": "user", "content": prompt},
-            ], stream=False)
+            ], stream=False, thinking="none")
             logger.info("[TIMING] generate_memory LLM调用: %.0fms", (time.monotonic() - _t0) * 1000)
             response_text = response.get("content", "") if isinstance(response, dict) else str(response)
         except Exception as e:
@@ -455,7 +455,7 @@ class Session:
                 response = self._llm.chat([
                     {"role": "system", "content": "你是一个专业的剧情编辑，负责为TRPG游戏记录详尽的剧情摘要。需要包含关键情节转折、角色互动和重要事件。只输出JSON，不要有其他内容。"},
                     {"role": "user", "content": prompt},
-                ], stream=False)
+                ], stream=False, thinking="none")
                 response_text = response.get("content", "") if isinstance(response, dict) else str(response)
 
                 import re

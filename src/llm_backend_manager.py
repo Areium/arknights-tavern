@@ -40,6 +40,10 @@ _DEFAULT_CONFIG = {
     "provider": "auto",
     "enable_thinking": False,
     "reasoning_effort": "medium",
+    # 叙述/角色对话的思考档位（按调用覆盖全局 enable_thinking）。
+    # 默认 none：实测混合模型（deepseek-v4-flash）缺省思考 ~550 tok、medium 1.3k~4k tok，
+    # 是叙述延迟主因；分类/提取/回忆生成固定走 none（见各调用点）。
+    "narration_reasoning_effort": "none",
     "auto_generate_choices": False,
     "choice_count": 3,
     "memory_interval": 5,
@@ -451,6 +455,7 @@ class LLMBackendManager:
             "provider": merged.get("provider", "auto"),
             "enable_thinking": merged.get("enable_thinking", False),
             "reasoning_effort": merged.get("reasoning_effort", "medium"),
+            "narration_reasoning_effort": merged.get("narration_reasoning_effort", "none"),
             "auto_generate_choices": merged.get("auto_generate_choices", False),
             "choice_count": merged.get("choice_count", 3),
             "memory_interval": merged.get("memory_interval", 5),
@@ -501,6 +506,11 @@ class LLMBackendManager:
             merged["enable_thinking"] = bool(data["enable_thinking"])
         if "reasoning_effort" in data:
             merged["reasoning_effort"] = data["reasoning_effort"]
+        if "narration_reasoning_effort" in data:
+            effort = str(data["narration_reasoning_effort"]).strip().lower()
+            if effort not in ("none", "low", "medium", "high"):
+                effort = "none"
+            merged["narration_reasoning_effort"] = effort
 
         # 持久化到 JSON 文件
         _write_config_file(merged)
