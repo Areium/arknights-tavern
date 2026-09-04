@@ -17,7 +17,7 @@ _WIKI_TOOL = {
     "function": {
         "name": "wiki_query",
         "description": (
-            "查询明日方舟世界文档库，获取角色、种族、职业、势力、物品、地点、天气、"
+            "查询当前世界文档库，获取角色、种族、职业、势力、物品、地点、天气、"
             "敌人或剧情设定的详细信息。当对话触及'预加载资料'和'延伸参考'未覆盖的细节时使用。"
         ),
         "parameters": {
@@ -25,7 +25,7 @@ _WIKI_TOOL = {
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "查询关键词：实体名称（如'临光'、'库兰塔'）、文档路径（如'characters/临光'）或简短描述"
+                    "description": "查询关键词：实体名称、文档路径（如'characters/角色名'）或简短描述"
                 }
             },
             "required": ["query"]
@@ -162,6 +162,7 @@ class CharacterAgent:
                 logger.debug("玩家身份档案注入失败: %s", identity)
 
         # ── 世界书触发匹配（position=0 卡前 / position=1 卡后）──
+        is_custom_worldbook = worldbook is not None and getattr(worldbook, "source", "") == "imported"
         wb_before, wb_after = "", ""
         if worldbook is not None:
             try:
@@ -177,6 +178,9 @@ class CharacterAgent:
         # ── 世界书（position=0，紧跟角色卡，稳定层）──
         if wb_before:
             system_parts.append(wb_before)
+        # 世界观标注：明确当前生效的世界书，自定义世界书不再跟随方舟默认。
+        if worldbook is not None:
+            system_parts.append(f"<worldview>\n当前世界观：{worldbook.name}\n</worldview>")
 
         # ── Identity：Registry 上下文（仅在无预加载时作为 fallback）──
         if not (self._session_context and self._session_context.preloaded):
@@ -191,7 +195,9 @@ class CharacterAgent:
             preloaded_text = self._session_context.format_preloaded()
             if preloaded_text:
                 system_parts.append(preloaded_text)
-        if self._wiki_manager:
+        # 内置文档目录只在非自定义世界书下注入，避免把方舟角色/势力/地点
+        # 泄漏到用户导入的第三方世界观中。
+        if self._wiki_manager and not is_custom_worldbook:
             catalog = self._wiki_manager.format_catalog_summary(
                 self._wiki_manager.CHARACTER_CATALOG_CATS
             )
@@ -229,7 +235,8 @@ class CharacterAgent:
             {"role": "user", "content": user_input},
         ]
 
-        tools = [_WIKI_TOOL] if self._wiki_manager else None
+        # 自定义世界书不使用内置 wiki 工具，避免查询结果把方舟设定带回来
+        tools = [_WIKI_TOOL] if (self._wiki_manager and not is_custom_worldbook) else None
 
         # 工具调用循环 (max 3 rounds)
         total_usage = None

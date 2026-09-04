@@ -229,6 +229,12 @@ class SceneManager:
         """构建世界书关键词扫描用的最近对话文本（场景事件日志尾部）。"""
         return "\n".join(self._scene_log[-limit:]) if self._scene_log else ""
 
+    @staticmethod
+    def _is_custom_worldbook(worldbook) -> bool:
+        """用户导入/新建的世界书（source=imported）视为自定义世界观。"""
+        return worldbook is not None and getattr(worldbook, "source", "") == "imported"
+
+
     def _build_worldbook_parts(self, worldbook, recent_text: str,
                                current_input: str, identity: str,
                                active_char: str | None = None) -> tuple[str, str]:
@@ -483,7 +489,7 @@ class SceneManager:
 
     _NARRATOR_SYSTEM = """\
 <role>
-你是明日方舟文字冒险游戏的场景叙述者，负责推进剧情。
+你是文字冒险游戏的场景叙述者，负责推进剧情。
 </role>
 
 <core_rules>
@@ -509,7 +515,7 @@ class SceneManager:
 
     _NARRATOR_SYSTEM_STRUCTURED = """\
 <role>
-你是明日方舟文字冒险游戏的场景叙述者，负责推进剧情。
+你是文字冒险游戏的场景叙述者，负责推进剧情。
 </role>
 
 <core_rules>
@@ -779,6 +785,65 @@ speaker 必须从场景角色列表选择，无法判断时用 null
             active_mark = " ← 对话中" if name == self.active else ""
             char_summaries.append(f"- {name}{tag_str}{active_mark}")
 
+        # 提前解析世界书：后续的目录注入、世界观标注、条目触发都依赖它
+        worldbook = self._resolve_worldbook()
+
+        # 先准备首轮的开场设定与玩家档案文本。
+        # 它们在首轮同时用于世界书关键词扫描，这样自定义世界书（如魔法学院）
+        # 不会因为首轮没有用户输入而完全无法触发。
+        opening_setup_text = ""
+        if is_first_turn:
+            opening_parts = []
+            for name, agent in self._agents.items():
+                meta = getattr(agent, "metadata", None) or {}
+                scenario = str(meta.get("scenario", "") or "").strip()
+                first_mes = str(meta.get("first_mes", "") or "").strip()
+                if not scenario and not first_mes:
+                    continue
+                first_mes = first_mes.replace("{{char}}", name).replace("{{user}}", identity)
+                scenario = scenario.replace("{{char}}", name).replace("{{user}}", identity)
+                block = [f"角色「{name}」的开场设定（故事开篇必须忠实呈现）："]
+                if scenario:
+                    block.append(f"场景设定：{scenario}")
+                if first_mes:
+                    block.append(f"角色开场白（开篇应自然呈现这段台词/场景）：{first_mes}")
+                opening_parts.append("\n".join(block))
+            if opening_parts:
+                opening_setup_text = (
+                    "<opening_setup>\n" + "\n\n".join(opening_parts) + "\n</opening_setup>")
+
+        player_profile_text = ""
+        try:
+            from player_profile import load_player_profile
+            player_profile = load_player_profile(identity)
+            if player_profile:
+                player_profile_text = f"<player_profile>\n{player_profile}\n</player_profile>"
+        except Exception:
+            logger.debug("玩家身份档案注入失败: %s", identity)
+
+        # 世界书触发扫描文本：
+        # - 首轮把开场设定/玩家档案/环境也纳入扫描，让“选中世界观”在开篇即生效；
+        # - 后续轮次仍只扫描近期对话与当前输入，避免常驻内容重复触发。
+        if is_first_turn:
+            wb_scan_text = "\n".join(
+                t for t in (
+                    conversation_history,
+                    self._recent_scene_text(),
+                    player_profile_text,
+                    opening_setup_text,
+                    env_context,
+                ) if t
+            )
+        else:
+            wb_scan_text = (conversation_history or "") + "\n" + self._recent_scene_text()
+
+        wb_before, wb_after = self._build_worldbook_parts(
+            worldbook,
+            recent_text=wb_scan_text,
+            current_input=user_action,
+            identity=identity,
+        )
+
         # 构建用户消息，稳定内容在前（利用 API 前缀缓存），易变内容在后（recency 效应）
         context_parts = []
 
@@ -811,54 +876,24 @@ speaker 必须从场景角色列表选择，无法判断时用 null
             retrieved_text = self._session_context.format_wiki_retrieved()
             if retrieved_text:
                 ref_parts.append(retrieved_text)
-        if self._wiki_manager:
+        # 世界观标注：优先于文档目录，明确当前生效的世界书。
+        if worldbook is not None:
+            ref_parts.append(f"<worldview>\n当前世界观：{worldbook.name}\n</worldview>")
+        # 内置文档目录只在非自定义世界书下注入，避免把方舟角色/地点/势力
+        # 泄漏到用户导入的第三方世界观中。
+        if self._wiki_manager and not self._is_custom_worldbook(worldbook):
             catalog = self._wiki_manager.format_catalog_summary(
                 self._wiki_manager.NARRATIVE_CATALOG_CATS
             )
             if catalog:
                 ref_parts.append(catalog)
         # 世界书（position=0 → 稳定参考层）
-        worldbook = self._resolve_worldbook()
-        wb_before, wb_after = self._build_worldbook_parts(
-            worldbook,
-            recent_text=(conversation_history or "") + "\n" + self._recent_scene_text(),
-            current_input=user_action,
-            identity=identity,
-        )
         if wb_before:
             ref_parts.append(wb_before)
-
-        # 开场设定（首轮：让开场白与场景对应）
-        # 角色卡导入时把 scenario/first_mes 写入角色 frontmatter，首轮叙述
-        # 注入为参考，LLM 开篇即呈现卡片定义的开场场景与角色台词。
-        if is_first_turn:
-            opening_parts = []
-            for name, agent in self._agents.items():
-                meta = getattr(agent, "metadata", None) or {}
-                scenario = str(meta.get("scenario", "") or "").strip()
-                first_mes = str(meta.get("first_mes", "") or "").strip()
-                if not scenario and not first_mes:
-                    continue
-                first_mes = first_mes.replace("{{char}}", name).replace("{{user}}", identity)
-                scenario = scenario.replace("{{char}}", name).replace("{{user}}", identity)
-                block = [f"角色「{name}」的开场设定（故事开篇必须忠实呈现）："]
-                if scenario:
-                    block.append(f"场景设定：{scenario}")
-                if first_mes:
-                    block.append(f"角色开场白（开篇应自然呈现这段台词/场景）：{first_mes}")
-                opening_parts.append("\n".join(block))
-            if opening_parts:
-                ref_parts.append(
-                    "<opening_setup>\n" + "\n\n".join(opening_parts) + "\n</opening_setup>")
-
-        # 玩家身份角色设定（用户自身，稳定层）
-        try:
-            from player_profile import load_player_profile
-            player_profile = load_player_profile(identity)
-            if player_profile:
-                ref_parts.append(f"<player_profile>\n{player_profile}\n</player_profile>")
-        except Exception:
-            logger.debug("玩家身份档案注入失败: %s", identity)
+        if opening_setup_text:
+            ref_parts.append(opening_setup_text)
+        if player_profile_text:
+            ref_parts.append(player_profile_text)
         if ref_parts:
             context_parts.append("<reference>\n" + "\n\n".join(ref_parts) + "\n</reference>")
 
