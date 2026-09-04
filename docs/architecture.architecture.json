@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Arknights Tavern — 运行时架构",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "output": "architecture.html",
+    "viewBox": [1385, 485],
+    "views": [
+      { "id": "request-path", "label": "对话主路径", "focus": ["user", "react-ui", "flask-api", "scene-orchestrator", "llm-backend"], "note": "从桌面 UI 到 Flask API 再到 LLM 的流式叙述链路。" },
+      { "id": "combat-path", "label": "战斗子系统", "focus": ["react-ui", "flask-api", "combat-engine", "pixi-spine", "data-files"], "note": "7×7 网格回合制引擎与 Spine 动画覆盖层。" },
+      { "id": "memory-injection", "label": "记忆与注入", "focus": ["scene-orchestrator", "session-manager", "worldbook", "memory", "data-files"], "note": "世界书关键词注入、ChromaDB 语义记忆与会话状态。" }
+    ]
+  },
+  "components": [
+    { "id": "user", "type": "external", "label": "玩家", "sublabel": "桌面用户", "pos": [20, 150], "size": [110, 64] },
+    { "id": "electron-main", "type": "backend", "label": "Electron 主进程", "sublabel": "生命周期 + IPC", "tag": "spawn Python", "pos": [260, 28], "size": [150, 64] },
+    { "id": "react-ui", "type": "frontend", "label": "React 渲染进程", "sublabel": "ChatView / CombatView", "tag": "Zustand", "pos": [260, 153], "size": [150, 70] },
+    { "id": "pixi-spine", "type": "frontend", "label": "PixiJS / Spine 覆盖层", "sublabel": "骨骼动画", "pos": [260, 284], "size": [150, 64] },
+    { "id": "flask-api", "type": "backend", "label": "Flask API", "sublabel": "14 Blueprint + SSE", "tag": ":5000", "pos": [570, 153], "size": [150, 70] },
+    { "id": "scene-orchestrator", "type": "backend", "label": "SceneManager / CharacterAgent", "sublabel": "两阶段叙述 + 标记提取", "pos": [880, 153], "size": [210, 70] },
+    { "id": "llm-backend", "type": "cloud", "label": "LLM 后端", "sublabel": "Ollama / OpenAI / DeepSeek", "tag": "主备降级", "pos": [1190, 28], "size": [170, 74] },
+    { "id": "combat-engine", "type": "backend", "label": "战斗引擎", "sublabel": "7×7 网格 · AP · 卡牌", "pos": [570, 284], "size": [150, 64] },
+    { "id": "session-manager", "type": "backend", "label": "会话管理", "sublabel": "CRUD / 回滚 / 覆盖", "pos": [880, 284], "size": [160, 58] },
+    { "id": "worldbook", "type": "database", "label": "世界书", "sublabel": "关键词触发注入", "pos": [1060, 284], "size": [150, 58] },
+    { "id": "memory", "type": "database", "label": "向量记忆", "sublabel": "ChromaDB 语义检索", "pos": [1225, 284], "size": [140, 58] },
+    { "id": "data-files", "type": "database", "label": "data/ 数据文件层", "sublabel": "角色 · 世界 · 战斗 · 会话", "pos": [880, 401], "size": [400, 64] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Electron 桌面应用", "wraps": ["electron-main", "react-ui", "pixi-spine"], "pad": 10 },
+    { "kind": "region", "label": "Python 后端进程 (:5000)", "wraps": ["flask-api", "scene-orchestrator", "combat-engine", "session-manager", "worldbook", "memory", "data-files"], "pad": 10 }
+  ],
+  "connections": [
+    { "id": "user-to-ui", "from": "user", "to": "react-ui", "label": "交互", "variant": "emphasis" },
+    { "id": "main-to-ui", "from": "electron-main", "to": "react-ui", "label": "loadURL / IPC", "labelAt": [345, 122] },
+    { "id": "main-to-api", "from": "electron-main", "to": "flask-api", "label": "spawn + 健康检查", "variant": "dashed", "fromSide": "right", "toSide": "top" },
+    { "id": "ui-to-api", "from": "react-ui", "to": "flask-api", "label": "REST + SSE /api", "variant": "emphasis" },
+    { "id": "ui-to-spine", "from": "react-ui", "to": "pixi-spine", "label": "Spine 渲染", "labelAt": [345, 253] },
+    { "id": "api-to-scene", "from": "flask-api", "to": "scene-orchestrator", "label": "narrate / chat" },
+    { "id": "scene-to-llm", "from": "scene-orchestrator", "to": "llm-backend", "label": "LLM 调用 · 主备降级", "variant": "emphasis" },
+    { "id": "scene-to-session", "from": "scene-orchestrator", "to": "session-manager", "label": "会话读写", "labelAt": [950, 270], "fromSide": "bottom", "toSide": "top" },
+    { "id": "scene-to-worldbook", "from": "scene-orchestrator", "to": "worldbook", "label": "关键词注入", "fromSide": "bottom", "toSide": "top" },
+    { "id": "scene-to-memory", "from": "scene-orchestrator", "to": "memory", "label": "记忆检索", "fromSide": "bottom", "toSide": "top" },
+    { "id": "api-to-combat", "from": "flask-api", "to": "combat-engine", "label": "combat SSE", "labelAt": [655, 253] },
+    { "id": "combat-to-data", "from": "combat-engine", "to": "data-files", "label": "卡牌 / 敌人数据", "fromSide": "bottom", "toSide": "top" },
+    { "id": "session-to-data", "from": "session-manager", "to": "data-files", "label": "持久化", "variant": "dashed", "fromSide": "bottom", "toSide": "top" },
+    { "id": "worldbook-to-data", "from": "worldbook", "to": "data-files", "label": "data/worldbooks", "variant": "dashed", "fromSide": "bottom", "toSide": "top" },
+    { "id": "memory-to-data", "from": "memory", "to": "data-files", "label": "ChromaDB", "variant": "dashed", "fromSide": "bottom", "toSide": "top" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "对话主路径", "items": ["桌面 UI → Flask API → SceneManager → LLM 流式叙述", "两阶段叙述：先流式文本，再提取 [BEAT_COMPLETE] / [COMBAT] / [CHOICES] 标记", "CharacterAgent 支持最多 3 轮 wiki 工具调用"] },
+    { "dot": "violet", "title": "记忆与注入", "items": ["世界书（酒馆 Lorebook 兼容）关键词触发注入，常驻条目进稳定层", "ChromaDB 语义记忆 + 最近轮次滑动窗口", "会话状态：回滚 / 覆盖 / 任务 / 世界书绑定"] },
+    { "dot": "rose", "title": "战斗子系统", "items": ["7×7 等距网格回合制：共享 AP、士气、卡牌池", "PixiJS + Spine 骨骼动画覆盖层（runtime-3.8）", "SSE 推送战斗事件，战后自动叙述"] }
+  ]
+}
