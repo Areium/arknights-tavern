@@ -26,17 +26,20 @@ export function parseDialogue(
   let lastSpeaker: string | undefined;
 
   while ((match = regex.exec(text)) !== null) {
-    const before = match[1];
+    const rawBefore = match[1];
     const dialogue = match[2];
+    let before = rawBefore;
 
-    if (before) {
-      segments.push({ type: "narration", text: before });
+    // 说话人优先取引号前的“角色名：/角色说：”前缀，并把前缀从叙述里剥离，
+    // 避免“银灰：”这类署名残留在叙述文字中。
+    let speaker: string | undefined = knownSpeaker;
+    if (!speaker) {
+      const extracted = extractSpeakerBefore(rawBefore, sceneCharacters);
+      speaker = extracted.speaker;
+      before = extracted.cleanBefore;
     }
 
-    let speaker: string | undefined;
-    if (knownSpeaker) {
-      speaker = knownSpeaker;
-    } else if (sceneCharacters.length > 0) {
+    if (!speaker && sceneCharacters.length > 0) {
       if (before) {
         speaker = inferSpeaker(before, sceneCharacters);
       }
@@ -49,6 +52,9 @@ export function parseDialogue(
       lastSpeaker = speaker;
     }
 
+    if (before && before.trim()) {
+      segments.push({ type: "narration", text: before });
+    }
     segments.push({ type: "dialogue", text: dialogue, speaker });
 
     lastIndex = regex.lastIndex;
@@ -108,6 +114,31 @@ export function normalizeSegments(
   }
 
   return result;
+}
+
+/**
+ * 从引号前的叙述中提取“角色名：/角色名说道：”这类署名。
+ * 若命中且名字在场景角色列表内，返回说话人并清掉该前缀（cleanBefore）。
+ */
+function extractSpeakerBefore(
+  before: string,
+  sceneCharacters: string[],
+): { speaker?: string; cleanBefore: string } {
+  if (!before) return { cleanBefore: before };
+
+  // 角色：「...」
+  let m = /([\u4e00-\u9fa5·A-Za-z0-9_-]{1,15})\s*[：:]\s*$/.exec(before);
+  if (m && sceneCharacters.includes(m[1])) {
+    return { speaker: m[1], cleanBefore: before.slice(0, m.index) };
+  }
+
+  // 角色说道：「...」/ 角色低声说：「...」
+  m = /([\u4e00-\u9fa5·A-Za-z0-9_-]{1,15})(?:说道|轻声说|低声说|沉声说|笑着说|淡淡道|冷冷地说|冷冷道|问道|喊道|答道|回答(?:道)?|开口(?:道)?|喃喃道?|提醒道?|补充道?|重复道?|叹道?|解释(?:道)?|说|道|问|答|喊)\s*[：:]\s*$/.exec(before);
+  if (m && sceneCharacters.includes(m[1])) {
+    return { speaker: m[1], cleanBefore: before.slice(0, m.index) };
+  }
+
+  return { cleanBefore: before };
 }
 
 /**

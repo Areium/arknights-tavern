@@ -577,7 +577,7 @@ export default function ChatPanel() {
     return (
       <div>
         {segments.map((seg, si) => {
-          if (seg.type === "narration" || !seg.speaker) {
+          if (seg.type === "narration") {
             return <NarrationText key={si} text={seg.text} />;
           }
           return (
@@ -585,7 +585,7 @@ export default function ChatPanel() {
               key={si}
               text={seg.text}
               speaker={seg.speaker}
-              color={characterColors[seg.speaker]}
+              color={seg.speaker ? characterColors[seg.speaker] : undefined}
               sessionId={activeSessionId ?? undefined}
             />
           );
