@@ -636,7 +636,7 @@ export default function SettingsPanel() {
                 API 硬上限：模型输出超过此 token 数时强制截断
               </p>
               <div className="flex items-center gap-2 mt-2">
-                <label className="text-xs text-gray-500 shrink-0">叙述字数</label>
+                <label className="text-xs text-gray-500 shrink-0">每轮字数</label>
                 <input
                   type="number"
                   min={100}
@@ -654,7 +654,7 @@ export default function SettingsPanel() {
                 <span className="text-xs text-gray-500">字（100-3000）</span>
               </div>
               <p className="text-xs text-gray-600 mt-1">
-                提示词中引导 LLM 每次叙述约输出此字数，在自然段落处收尾
+                每轮叙述/角色回复的目标字数上限，提示词与输出 token 预算都会按此约束
               </p>
               <div className="border-t border-gray-700/50 pt-2 mt-2">
                 <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">

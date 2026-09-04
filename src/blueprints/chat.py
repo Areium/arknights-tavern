@@ -8,7 +8,12 @@ import logging
 
 from flask import Blueprint, jsonify, request, Response, stream_with_context
 
-from shared.helpers import json_error, make_sse_response, inject_memory_context
+from shared.helpers import (
+    json_error,
+    make_sse_response,
+    inject_memory_context,
+    estimate_output_token_budget,
+)
 from hooks.base import HookContext
 
 logger = logging.getLogger(__name__)
@@ -199,11 +204,18 @@ def register(app, managers):
         env_context = session.environment.build_context()
         config = llm_backend.get_config()
         thinking = config.get("narration_reasoning_effort", "none")
+        word_limit = config.get("word_limit", 500)
+        max_tokens = min(
+            config.get("max_output_tokens", 16384),
+            estimate_output_token_budget(word_limit, structured=False),
+        )
 
         try:
             response, env_updates, usage = session.scene_manager.chat(
                 user_input, player_info, env_context,
                 thinking=thinking,
+                word_limit=word_limit,
+                max_tokens=max_tokens,
             )
             session.accumulate_usage(usage)
             session.apply_environment_updates(env_updates)
@@ -240,11 +252,18 @@ def register(app, managers):
         env_context = session.environment.build_context()
         config = llm_backend.get_config()
         thinking = config.get("narration_reasoning_effort", "none")
+        word_limit = config.get("word_limit", 500)
+        max_tokens = min(
+            config.get("max_output_tokens", 16384),
+            estimate_output_token_budget(word_limit, structured=False),
+        )
 
         try:
             results, total_usage = session.scene_manager.group_chat(
                 user_input, player_info, env_context,
                 thinking=thinking,
+                word_limit=word_limit,
+                max_tokens=max_tokens,
             )
             session.accumulate_usage(total_usage)
             for r in results:
@@ -323,8 +342,11 @@ def register(app, managers):
                 auto_choices = config.get("auto_generate_choices", False)
                 choice_count = config.get("choice_count", 3)
                 choices_count = choice_count if auto_choices else 0
-                max_tokens = config.get("max_output_tokens", 16384)
                 word_limit = config.get("word_limit", 500)
+                max_tokens = min(
+                    config.get("max_output_tokens", 16384),
+                    estimate_output_token_budget(word_limit, structured=False),
+                )
                 thinking = config.get("narration_reasoning_effort", "none")
 
                 # 构建对话历史（滑动窗口，最近 ~3000 字符）
@@ -499,8 +521,11 @@ def register(app, managers):
             bubble_mode = config.get("dialogue_bubble_mode", False)
             auto_choices = config.get("auto_generate_choices", False)
             choices_count = config.get("choice_count", 3) if auto_choices else 0
-            max_tokens = config.get("max_output_tokens", 16384)
             word_limit = config.get("word_limit", 500)
+            max_tokens = min(
+                config.get("max_output_tokens", 16384),
+                estimate_output_token_budget(word_limit, structured=bubble_mode),
+            )
             thinking = config.get("narration_reasoning_effort", "none")
 
             conversation_history = session.scene_manager._build_conversation_history(
@@ -628,8 +653,11 @@ def register(app, managers):
         try:
             config = llm_backend.get_config()
             bubble_mode = config.get("dialogue_bubble_mode", False)
-            max_tokens = config.get("max_output_tokens", 16384)
             word_limit = config.get("word_limit", 500)
+            max_tokens = min(
+                config.get("max_output_tokens", 16384),
+                estimate_output_token_budget(word_limit, structured=bubble_mode),
+            )
             thinking = config.get("narration_reasoning_effort", "none")
 
             conversation_history = session.scene_manager._build_conversation_history(

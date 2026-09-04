@@ -342,7 +342,9 @@ class SceneManager:
 
     def chat(self, user_input: str, player_info: dict | None = None,
              env_context: str = "", stream_callback=None,
-             thinking: str | None = None) -> tuple[str, dict, dict | None]:
+             thinking: str | None = None,
+             word_limit: int | None = None,
+             max_tokens: int | None = None) -> tuple[str, dict, dict | None]:
         """场景对话处理。
 
         流程:
@@ -389,6 +391,8 @@ class SceneManager:
             custom_prompt=custom_prompt,
             worldbook=worldbook,
             recent_text=recent_text,
+            word_limit=word_limit,
+            max_tokens=max_tokens,
         )
 
         # 更新场景日志
@@ -400,7 +404,9 @@ class SceneManager:
 
     def group_chat(self, user_input: str, player_info: dict | None = None,
                    env_context: str = "", stream_callback=None,
-                   thinking: str | None = None) -> list[dict]:
+                   thinking: str | None = None,
+                   word_limit: int | None = None,
+                   max_tokens: int | None = None):
         """群聊模式：将用户输入发送给场景中所有角色。
 
         每个角色独立调用 chat()，收集所有回复。
@@ -437,6 +443,8 @@ class SceneManager:
                     custom_prompt=custom_prompt,
                     worldbook=worldbook,
                     recent_text=recent_text,
+                    word_limit=word_limit,
+                    max_tokens=max_tokens,
                 )
                 results.append({
                     "character": name,
@@ -954,6 +962,11 @@ speaker 必须从场景角色列表选择，无法判断时用 null
             )
             system_prompt = self._build_system_prompt(word_limit, structured=False,
                                                       custom_prompt=custom_prompt)
+        # 末尾重申硬长度约束（对抗长上下文下的 Lost-in-the-Middle）
+        context_parts.append(
+            f"MUST：本轮所有正文内容（叙述 + 角色台词合计）控制在 {word_limit} 字以内，"
+            "宁短勿长，不要为了凑字数堆砌描写。"
+        )
 
         context = "\n\n".join(context_parts)
         return [

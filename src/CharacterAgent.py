@@ -130,7 +130,9 @@ class CharacterAgent:
              environment_context: str = "", scene_context: str = "",
              stream_callback=None, custom_prompt: str | None = None,
              worldbook=None, recent_text: str = "",
-             thinking: str | None = None) -> tuple[str, dict, dict | None]:
+             thinking: str | None = None,
+             word_limit: int | None = None,
+             max_tokens: int | None = None) -> tuple[str, dict, dict | None]:
         """
         与角色进行对话。
 
@@ -141,6 +143,8 @@ class CharacterAgent:
             scene_context: 场景上下文（同场角色、场景动态），由 SceneManager 传入。
             worldbook: WorldBook 实例（可空），触发命中的条目按 position 注入。
             recent_text: 最近的对话文本，供世界书关键词扫描。
+            word_limit: 可选，本轮回复期望字数上限。
+            max_tokens: 可选，传给 LLM 的 token 硬上限。
 
         Returns:
             tuple[str, dict, dict|None]: (角色的回复, 环境更新字典, token使用量)。
@@ -213,6 +217,15 @@ class CharacterAgent:
                 f"</custom_instruction>"
             )
 
+        # ── 回复长度控制 ──
+        if word_limit:
+            system_parts.append(
+                f"<length_rule>\n"
+                f"- MUST：本轮回复控制在 {word_limit} 字以内，只表达当前最必要的反应与台词，"
+                "不要超长、不要连续输出大段背景说明。\n"
+                f"</length_rule>"
+            )
+
         # ── Situation：当前情境 ──
         if player_section:
             system_parts.append(player_section)
@@ -241,7 +254,8 @@ class CharacterAgent:
         # 工具调用循环 (max 3 rounds)
         total_usage = None
         for _round in range(3):
-            result = self.llm.chat(messages, stream=False, tools=tools, thinking=thinking)
+            result = self.llm.chat(messages, stream=False, tools=tools, thinking=thinking,
+                                   max_tokens=max_tokens)
 
             # Accumulate token usage
             call_usage = result.get("usage")

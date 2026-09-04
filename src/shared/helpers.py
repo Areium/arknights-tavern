@@ -41,6 +41,19 @@ def inject_memory_context(session, env_context: str) -> str:
     return env_context + "\n".join(lines)
 
 
+def estimate_output_token_budget(word_limit: int, structured: bool = False) -> int:
+    """根据期望中文字数估算本轮输出的 token 预算。
+
+    中文大致接近 1 token/字。这里按 1.1~1.4 倍预留换行/标点/JSON 结构开销，
+    并带少量余量，避免模型刚写到自然结尾就被截断。
+    """
+    word_limit = int(word_limit or 0)
+    if word_limit <= 0:
+        return 0
+    ratio = 1.4 if structured else 1.1
+    return max(128, int(word_limit * ratio) + 128)
+
+
 def build_character_metas(session, doc_mgr):
     """从 session overlay 和磁盘构建角色元数据列表，供战斗初始化使用。
 
