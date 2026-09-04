@@ -1196,22 +1196,22 @@ function triggerNarrate(
         ]);
       },
       onDialogueSegments: (segments) => {
-        useAppStore.getState().setSessionMessages(sessionId, (prev) => {
-          const last = prev[prev.length - 1];
-          if (last?.role === "narrator" && last.round === newRound) {
-            return [...prev.slice(0, -1), { ...last, streaming: true, dialogueSegments: segments }];
-          }
-          return prev;
-        });
+        useAppStore.getState().setSessionMessages(sessionId, (prev) =>
+          prev.map((m) =>
+            m.role === "narrator" && m.round === newRound
+              ? { ...m, streaming: true, dialogueSegments: segments }
+              : m
+          )
+        );
       },
       onTokenUsage: (usage) => {
-        useAppStore.getState().setSessionMessages(sessionId, (prev) => {
-          const last = prev[prev.length - 1];
-          if (last?.role === "narrator" && last.round === newRound) {
-            return [...prev.slice(0, -1), { ...last, streaming: true, usage }];
-          }
-          return prev;
-        });
+        useAppStore.getState().setSessionMessages(sessionId, (prev) =>
+          prev.map((m) =>
+            m.role === "narrator" && m.round === newRound
+              ? { ...m, streaming: true, usage }
+              : m
+          )
+        );
       },
       onCombatTrigger: (data: { encounter_id: string; session_id: string }) => {
         useAppStore.getState().setSessionStreaming(sessionId, false);
@@ -1255,25 +1255,24 @@ function triggerNarrate(
       onDone: () => {
         useAppStore.getState().setSessionStreaming(sessionId, false);
         useAppStore.getState().setSessionSending(sessionId, false);
-        useAppStore.getState().setSessionMessages(sessionId, (prev) => {
-          const last = prev[prev.length - 1];
-          if (last?.role === "narrator" && last.round === newRound) {
-            const content = last.content || accumulated || "";
+        useAppStore.getState().setSessionMessages(sessionId, (prev) =>
+          prev.map((m) => {
+            if (m.role !== "narrator" || m.round !== newRound) return m;
+            const content = m.content || accumulated || "";
             // 优先使用后端结构化片段；否则用完整文本在流式结束后统一解析为气泡
-            const segments = last.dialogueSegments?.length
-              ? normalizeSegments(last.dialogueSegments)
-              : normalizeSegments(parseDialogue(content, last.character, sceneChars));
-            return [...prev.slice(0, -1), {
-              ...last,
+            const segments = m.dialogueSegments?.length
+              ? normalizeSegments(m.dialogueSegments)
+              : normalizeSegments(parseDialogue(content, m.character, sceneChars));
+            return {
+              ...m,
               streaming: false,
               content,
               variants: [content],
               variantIndex: 0,
               dialogueSegments: segments,
-            }];
-          }
-          return prev;
-        });
+            };
+          })
+        );
       },
     }
   );
