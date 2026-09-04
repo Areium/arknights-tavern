@@ -556,6 +556,12 @@ export default function ChatPanel() {
       return <div className="whitespace-pre-wrap">{msg.content || ""}</div>;
     }
 
+    // 流式生成中的叙述先以纯文本展示，完成后（onDone）再统一解析为气泡，
+    // 避免半句引号/说话人未闭合时渲染出错误或不完整的气泡。
+    if (msg.streaming) {
+      return <div className="whitespace-pre-wrap">{msg.content}</div>;
+    }
+
     // Prefer backend-provided segments, fall back to frontend parser
     let segments = msg.dialogueSegments;
     if (!segments || segments.length === 0) {
@@ -1147,6 +1153,12 @@ function triggerNarrate(
   const session = store.sessions.find((s) => s.id === sessionId);
   const identity = session?.player_identity || "博士";
 
+  // 与组件内 sceneCharacters 一致：流式结束后用完整叙述解析气泡说话人
+  const sceneChars: string[] = (session?.characters || [])
+    .map((c: any) => (typeof c === "string" ? c : c.name || c.id || ""))
+    .filter(Boolean);
+  if (identity && !sceneChars.includes(identity)) sceneChars.push(identity);
+
   let accumulated = "";
   let accumulatedReasoning = "";
 
@@ -1160,9 +1172,9 @@ function triggerNarrate(
         useAppStore.getState().setSessionMessages(sessionId, (prev) => {
           const last = prev[prev.length - 1];
           if (last?.role === "narrator" && last.round === newRound) {
-            return [...prev.slice(0, -1), { ...last, reasoning: accumulatedReasoning }];
+            return [...prev.slice(0, -1), { ...last, streaming: true, reasoning: accumulatedReasoning }];
           }
-          return [...prev, { role: "narrator", content: "", reasoning: accumulatedReasoning, round: newRound }];
+          return [...prev, { role: "narrator", content: "", reasoning: accumulatedReasoning, round: newRound, streaming: true }];
         });
       },
       onText: (token: string) => {
@@ -1170,9 +1182,9 @@ function triggerNarrate(
         useAppStore.getState().setSessionMessages(sessionId, (prev) => {
           const last = prev[prev.length - 1];
           if (last?.role === "narrator" && last.round === newRound) {
-            return [...prev.slice(0, -1), { role: "narrator", content: accumulated, round: newRound }];
+            return [...prev.slice(0, -1), { role: "narrator", content: accumulated, round: newRound, streaming: true }];
           }
-          return [...prev, { role: "narrator", content: accumulated, round: newRound }];
+          return [...prev, { role: "narrator", content: accumulated, round: newRound, streaming: true }];
         });
       },
       onSceneEvent: () => useAppStore.getState().triggerEnvRefresh(),
@@ -1187,7 +1199,7 @@ function triggerNarrate(
         useAppStore.getState().setSessionMessages(sessionId, (prev) => {
           const last = prev[prev.length - 1];
           if (last?.role === "narrator" && last.round === newRound) {
-            return [...prev.slice(0, -1), { ...last, dialogueSegments: segments }];
+            return [...prev.slice(0, -1), { ...last, streaming: true, dialogueSegments: segments }];
           }
           return prev;
         });
@@ -1196,7 +1208,7 @@ function triggerNarrate(
         useAppStore.getState().setSessionMessages(sessionId, (prev) => {
           const last = prev[prev.length - 1];
           if (last?.role === "narrator" && last.round === newRound) {
-            return [...prev.slice(0, -1), { ...last, usage }];
+            return [...prev.slice(0, -1), { ...last, streaming: true, usage }];
           }
           return prev;
         });
@@ -1204,12 +1216,18 @@ function triggerNarrate(
       onCombatTrigger: (data: { encounter_id: string; session_id: string }) => {
         useAppStore.getState().setSessionStreaming(sessionId, false);
         useAppStore.getState().setSessionSending(sessionId, false);
+        useAppStore.getState().setSessionMessages(sessionId, (prev) =>
+          prev.map((m) => (m.role === "narrator" && m.round === newRound ? { ...m, streaming: false } : m))
+        );
         useAppStore.getState().setCombatContext({ sessionId: data.session_id });
         useAppStore.getState().setCurrentView("combat");
       },
       onCombatBriefing: (data: { encounter_id: string; session_id: string; name: string; approaches: { id: string; label: string; hint: string; kind: "combat" | "check" | "avoid" }[] }) => {
         useAppStore.getState().setSessionStreaming(sessionId, false);
         useAppStore.getState().setSessionSending(sessionId, false);
+        useAppStore.getState().setSessionMessages(sessionId, (prev) =>
+          prev.map((m) => (m.role === "narrator" && m.round === newRound ? { ...m, streaming: false } : m))
+        );
         useAppStore.getState().setPendingBriefing(data);
       },
       onAttributeRoll: (data: {
@@ -1229,6 +1247,9 @@ function triggerNarrate(
       onError: (msg: string) => {
         useAppStore.getState().setSessionStreaming(sessionId, false);
         useAppStore.getState().setSessionSending(sessionId, false);
+        useAppStore.getState().setSessionMessages(sessionId, (prev) =>
+          prev.map((m) => (m.role === "narrator" && m.round === newRound ? { ...m, streaming: false } : m))
+        );
         useAppStore.getState().setSessionMessages(sessionId, (prev) => [...prev, { role: "system", content: `错误: ${msg}` }]);
       },
       onDone: () => {
@@ -1237,7 +1258,19 @@ function triggerNarrate(
         useAppStore.getState().setSessionMessages(sessionId, (prev) => {
           const last = prev[prev.length - 1];
           if (last?.role === "narrator" && last.round === newRound) {
-            return [...prev.slice(0, -1), { ...last, variants: [last.content], variantIndex: 0 }];
+            const content = last.content || accumulated || "";
+            // 优先使用后端结构化片段；否则用完整文本在流式结束后统一解析为气泡
+            const segments = last.dialogueSegments?.length
+              ? normalizeSegments(last.dialogueSegments)
+              : normalizeSegments(parseDialogue(content, last.character, sceneChars));
+            return [...prev.slice(0, -1), {
+              ...last,
+              streaming: false,
+              content,
+              variants: [content],
+              variantIndex: 0,
+              dialogueSegments: segments,
+            }];
           }
           return prev;
         });

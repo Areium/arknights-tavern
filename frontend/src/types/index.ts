@@ -139,6 +139,8 @@ export interface ChatMessage {
   variants?: string[];
   variantIndex?: number;
   dialogueSegments?: { type: string; text: string; speaker?: string }[];
+  /** 是否为正在流式生成的叙述消息（气泡模式下流式期间先显示纯文本） */
+  streaming?: boolean;
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
   reasoning?: string;
   rollData?: AttributeRollData;
