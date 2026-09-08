@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useAppStore } from "../../stores/appStore";
 import { useApi, createCombatSSE, createCombatTestSSE } from "../../hooks/useApi";
-import type { CombatEventDTO, CombatStateDTO, CardDTO } from "../../types";
+import type { CombatEventDTO, CombatStateDTO, CombatUnitDTO, CardDTO } from "../../types";
 import PixiCombatScene, { type PixiCombatSceneHandle } from "./PixiCombatScene";
 import { audioManager } from "../../audio/audioManager";
 import CombatGrid from "./CombatGrid";
@@ -435,6 +435,25 @@ export default function CombatView() {
     );
     return (owner?.personal_ap ?? 0) + (combatState.shared_ap ?? 0);
   }, [combatState]);
+
+  // 意图徽标锚点：以角色「实际渲染包围盒」的顶部中心为准（Pixi 覆盖层与网格容器同原点同尺寸），
+  // 无 Spine/包围盒时回退到格子上方；横向按容器安全区夹紧，保证换行后的长文本不越界。
+  const getIntentAnchor = useCallback((enemy: CombatUnitDTO): { x: number; y: number } | null => {
+    const rel = relativeRef.current;
+    if (!rel) return null;
+    const relRect = rel.getBoundingClientRect();
+    const maxW = Math.max(72, cfg.cellSize * 2.6); // 与徽标 maxWidth 保持一致
+    const clampX = (x: number) => Math.max(maxW / 2, Math.min(x, relRect.width - maxW / 2));
+
+    const unitRect = pixiRef.current?.getUnitRect(enemy.unit_id);
+    if (unitRect) {
+      return { x: clampX(unitRect.left + unitRect.width / 2), y: unitRect.top };
+    }
+    const grid = gridRef.current;
+    const sp = grid ? getCellCenter(grid, enemy.pos[0], enemy.pos[1]) : null;
+    if (!sp) return null;
+    return { x: clampX(sp.x - relRect.left), y: sp.y - relRect.top - cfg.cellSize * 0.85 };
+  }, [cfg.cellSize]);
 
   // Build owner name → {url, crop} mapping for card face images
   const ownerSkins = useMemo(() => {
@@ -1414,6 +1433,7 @@ export default function CombatView() {
               containerEl={containerEl}
               resizeTick={resizeTick}
               cellSize={cfg.cellSize}
+              enemyScale={cfg.enemySpineScale}
             />
 
             {/* Damage numbers */}
@@ -1444,26 +1464,24 @@ export default function CombatView() {
               );
             })}
 
-            {/* Enemy intent badges（敌人意图头顶图标）— 仅玩家回合展示 */}
+            {/* Enemy intent badges（敌人意图）— 锚定角色渲染包围盒顶部，长文本自动换行 */}
             {combatState.phase === "PLAYER_TURN" && combatState.enemy_intents && Object.entries(combatState.enemy_intents).map(([uid, it]: [string, any]) => {
               const enemy = combatState.units.find((u) => u.unit_id === uid && u.team === "enemy" && u.is_alive);
               if (!enemy) return null;
               const badge = INTENT_BADGE[it.type] || INTENT_BADGE.attack;
-              const center = (() => {
-                const grid = gridRef.current;
-                const rel = relativeRef.current;
-                if (!grid || !rel) return null;
-                const sp = getCellCenter(grid, enemy.pos[0], enemy.pos[1]);
-                if (!sp) return null;
-                const relRect = rel.getBoundingClientRect();
-                return { x: sp.x - relRect.left, y: sp.y - relRect.top };
-              })();
-              if (!center) return null;
+              const anchor = getIntentAnchor(enemy);
+              if (!anchor) return null;
               return (
                 <span
                   key={uid}
-                  className={"absolute -translate-x-1/2 px-1.5 py-0.5 rounded-full text-[10px] font-display border whitespace-nowrap " + badge.cls}
-                  style={{ left: center.x, top: center.y - cfg.cellSize * 0.85, zIndex: 90, pointerEvents: "none" }}
+                  className={"absolute -translate-x-1/2 -translate-y-full px-1.5 py-0.5 rounded-full text-[10px] font-display border text-center leading-tight whitespace-normal break-words " + badge.cls}
+                  style={{
+                    left: anchor.x,
+                    top: anchor.y - 2, // 与角色头顶留 2px 间隙，避免压住小人
+                    maxWidth: Math.max(72, cfg.cellSize * 2.6),
+                    zIndex: 90,
+                    pointerEvents: "none",
+                  }}
                 >
                   {badge.icon} {it.label}
                 </span>

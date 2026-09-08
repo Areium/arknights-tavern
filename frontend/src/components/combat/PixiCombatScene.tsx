@@ -73,6 +73,8 @@ export interface PixiCombatSceneProps {
   resizeTick: number;
   /** Grid cell size in px (used to compute spine scale). */
   cellSize?: number;
+  /** 敌方小人高度缩放系数（相对我方目标高度）。等比缩放，不改素材宽高比。 */
+  enemyScale?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -141,6 +143,12 @@ async function loadSpine(baseUrl: string, fn: string): Promise<Spine> {
         try {
           const al = new AtlasAttachmentLoader(atlas);
           const skeletonData = new SkeletonBinary(al).readSkeletonData(new Uint8Array(skelBuffer));
+          // 兼容「附件存放在命名 skin、defaultSkin 为空」的模型（如 enemy_1011_wizard）：
+          // 这类模型 Skeleton.getAttachment() 对每个插槽都返回 null，装配不出任何 sprite，
+          // getBounds() 得到 0×0 → 小人完全不显示。此处把首个命名 skin 当作默认皮肤。
+          if (!skeletonData.defaultSkin && skeletonData.skins.length > 0) {
+            skeletonData.defaultSkin = skeletonData.skins[0];
+          }
           const spine = new Spine(skeletonData);
           resolve(spine);
         } catch (e) {
@@ -162,6 +170,11 @@ export interface PixiCombatSceneHandle {
   playDeath(unitId: string): void;
   playStart(unitId: string): void;
   moveTo(unitId: string, to: [number, number], durationMs?: number): void;
+  /**
+   * 单位当前的实际渲染包围盒，坐标系与覆盖层容器（= 网格相对容器）一致。
+   * 供 UI（如敌方意图徽标）按真实尺寸定位，避免硬编码偏移。
+   */
+  getUnitRect(unitId: string): { left: number; top: number; width: number; height: number } | null;
 }
 
 /** 顺序播放动画链，末段结束回 finalIdle。listener 挂在 entry 上，被新动画中断时自动失效。 */
@@ -183,7 +196,7 @@ function playChain(spine: Spine, names: string[], finalIdle: string) {
 }
 
 const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(function PixiCombatScene(
-  { units, gridEl, containerEl, resizeTick, cellSize = 64 }, ref,
+  { units, gridEl, containerEl, resizeTick, cellSize = 64, enemyScale = 1 }, ref,
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const appRef = useRef<Application | null>(null);
@@ -399,7 +412,8 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
             const finalSy = latestPos?.[1] ?? sy;
             // 用实际渲染 bounds 高度归一化，避免不同角色的 spineData.height 不可靠
             // 导致显示大小不一致（如银灰骨骼高度偏小 → scale 过大）。
-            const TARGET_H = cellSize * 1.6;
+            // 敌方额外乘以 enemyScale 缩小体积；scale 为等比（x 取负仅做水平镜像），不拉伸。
+            const TARGET_H = cellSize * 1.6 * (u.team === "enemy" ? enemyScale : 1);
             let renderHeight = TARGET_H;
             try {
               spine.update(0);
@@ -472,7 +486,7 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
         setPosTick((t) => t + 1);
       });
     }
-  }, [ready, units, getCanvasPos, gridReady, posTick]);
+  }, [ready, units, getCanvasPos, gridReady, posTick, enemyScale]);
 
   // ── Reposition units on resize ─────────────────────────────────────
   useEffect(() => {
@@ -657,6 +671,15 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
         }
       };
       ticker.add(tick);
+    },
+
+    getUnitRect: (unitId: string) => {
+      const entry = unitMapRef.current.get(unitId);
+      if (!entry) return null;
+      // unitLayer 位于 stage 原点，故 getBounds() 即覆盖层局部坐标
+      const b = entry.displayObject.getBounds();
+      if (!b || b.width <= 0 || b.height <= 0) return null;
+      return { left: b.x, top: b.y, width: b.width, height: b.height };
     },
   }), []);
 
