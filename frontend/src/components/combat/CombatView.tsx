@@ -835,9 +835,29 @@ export default function CombatView() {
       writingBackRef.current = false;
     }
 
+    // 测试模式：无会话写回，仅销毁后端测试会话
+    if (combatTestId) {
+      writingBackRef.current = true;
+      audioManager.stopBgm();
+      try {
+        await api.combatTestDelete(combatTestId);
+      } catch {
+        // 测试会话可能已过期或已被清理：不阻塞退出
+      }
+      writingBackRef.current = false;
+    }
+
     setCombatContext(null);
     setCurrentView("chat");
   }, [combatTestId, sessionId, combatState, encounterId, api, setCombatContext, setCurrentView, setPendingAutoNarrate, setSessions, sessions]);
+
+  // 结束测试：确认后复用 handleReturnToChat（内含测试会话销毁 + 返回对话大厅）
+  const handleEndTest = useCallback(async () => {
+    if (!combatTestId) return;
+    // 战斗进行中才有损失，需二次确认；已结束则直接退出
+    if (!combatState?.battle_over && !window.confirm("结束本次战斗测试并返回对话大厅？")) return;
+    await handleReturnToChat();
+  }, [combatTestId, combatState?.battle_over, handleReturnToChat]);
 
   const handleCardPick = useCallback(async (cardId: string) => {
     if (!sessionId) return;
@@ -1601,6 +1621,16 @@ export default function CombatView() {
               onClick={handleAbandon}
             >
               放弃战斗
+            </button>
+          )}
+          {combatTestId && (
+            <button
+              className="px-4 py-1.5 text-xs bg-red-900/40 hover:bg-red-800/50 text-red-300 rounded-lg transition-all border border-red-800/30"
+              onClick={handleEndTest}
+              disabled={loading}
+              title="退出测试模式并返回对话大厅"
+            >
+              结束测试
             </button>
           )}
         </div>

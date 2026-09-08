@@ -652,6 +652,11 @@ export function useApi() {
       request<any>(`/api/combat/test/${testId}/end-turn`, {
         method: "POST",
       }),
+
+    combatTestDelete: (testId: string) =>
+      request<{ ok: boolean }>(`/api/combat/test/${testId}`, {
+        method: "DELETE",
+      }),
   }), []);
 }
 
