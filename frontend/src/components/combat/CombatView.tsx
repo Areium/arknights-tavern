@@ -18,7 +18,8 @@ import CombatQuestBar from "./CombatQuestBar";
 import CardFlyOverlay, { type CardFlight } from "./CardFlyOverlay";
 import { getCombatConfig, type LayoutMode } from "./combatConfig";
 
-const DEFAULT_CHARACTERS = ["阿米娅", "博士", "银灰", "灵知"];
+// 默认出战队伍（均具备 Spine 战斗小人；博士/霜星无骨骼，不再作为默认单位）
+const DEFAULT_CHARACTERS = ["阿米娅", "陈", "银灰", "灵知"];
 const DEFAULT_ENCOUNTER = "初遇整合运动";
 
 const INTENT_BADGE: Record<string, { icon: string; cls: string }> = {

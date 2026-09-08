@@ -639,7 +639,8 @@ def register(app, managers):
 
         data = request.json or {}
         encounter_id = data.get("encounter_id", config.get("default_encounter", "初遇整合运动"))
-        character_names = data.get("characters", config.get("characters", ["阿米娅", "博士", "银灰", "霜星"]))
+        # 默认队伍：三人均有 Spine 战斗小人（博士/霜星无骨骼，故不再作为默认出战单位）
+        character_names = data.get("characters", config.get("characters", ["阿米娅", "银灰", "灵知"]))
 
         # Randomly pick enemies from pool
         enemy_pool = config.get("enemy_pool", [])

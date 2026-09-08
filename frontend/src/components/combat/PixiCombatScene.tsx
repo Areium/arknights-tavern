@@ -35,12 +35,27 @@ const SPINE_VARIANT: Record<string, string> = {
   "阿米娅": "char_002_amiya/char_002_amiya_test_1",
   "陈": "char_010_chen/char_010_chen_nian_2",
   "灵知": "char_206_gnosis",
+  "初雪": "char_174_slbell",
+  "崖心": "char_173_slchan",
+  "锏": "char_4116_blkkgt",
 };
 
 // 敌人 Spine 变体 — 约定与角色一致：文件放 data/characters/<敌名>/spine/<变体>/Front|Back/，
 // 在此注册敌名即可启用；未注册或加载失败的敌人自动回退 fallback token。
-// 例（敌人骨骼文件就位后填写）："整合运动士兵": "enemy_1002_nsabr"
-const ENEMY_SPINE_VARIANT: Record<string, string> = {};
+// 来源 Ark-Models models_enemies（tools/import_spine.py enemies），均含 Idle/Attack/Die。
+const ENEMY_SPINE_VARIANT: Record<string, string> = {
+  "整合运动士兵": "enemy_1002_nsabr",
+  "整合运动术师": "enemy_1011_wizard",
+  "整合运动狙击手": "enemy_1003_ncbow",
+  "整合运动盾卫": "enemy_1006_shield",
+  "冰原战士": "enemy_1189_krgaxe",
+  "冰原猎人": "enemy_1190_krgbow",
+  "冰原术师": "enemy_1192_krgscr",
+  "冰原狂战士": "enemy_1193_krgbsk",
+  "山雪鬼": "enemy_1194_krgmtr",
+  "山雪鬼队长": "enemy_1194_krgmtr_2",
+  "雪原爪兽": "enemy_1187_krghd",
+};
 
 const SPINE_VARIANT_ALL: Record<string, string> = { ...SPINE_VARIANT, ...ENEMY_SPINE_VARIANT };
 

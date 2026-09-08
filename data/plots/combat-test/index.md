@@ -1,5 +1,9 @@
 ---
 category: test
+characters:
+- 阿米娅
+- 银灰
+- 灵知
 deviation_policy:
   allow: false
 effects: {}
