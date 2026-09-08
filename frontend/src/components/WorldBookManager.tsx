@@ -113,6 +113,7 @@ export default function WorldBookManager() {
   const [editingUid, setEditingUid] = useState<string | null>(null);
   const [draft, setDraft] = useState<EntryDraft | null>(null);
   const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false); // 是否存在未保存修改
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -380,6 +381,7 @@ export default function WorldBookManager() {
   const openCreate = () => {
     setEditorMode("create");
     setEditingUid(null);
+    setDirty(false);
     setDraft(entryToDraft({
       uid: "", name: "", content: "", trigger_keys: [], secondary_keys: [],
       always_active: false, selective: true, enabled: true, position: 0,
@@ -391,6 +393,7 @@ export default function WorldBookManager() {
   const openEdit = (e: WorldBookEntryDTO) => {
     setEditorMode("edit");
     setEditingUid(e.uid);
+    setDirty(false);
     setDraft(entryToDraft(e));
   };
 
@@ -410,6 +413,7 @@ export default function WorldBookManager() {
       }
       setEditorMode(null);
       setDraft(null);
+      setDirty(false);
       await loadDetail(detail.id);
       showToast("已保存条目");
     } catch (err: any) {
@@ -427,6 +431,7 @@ export default function WorldBookManager() {
       if (editingUid === entryId) {
         setEditorMode(null);
         setDraft(null);
+        setDirty(false);
       }
       await loadDetail(detail.id);
       showToast("已删除条目");
@@ -434,6 +439,37 @@ export default function WorldBookManager() {
       showToast(err.message || "删除条目失败", "error");
     }
   };
+
+  // ── 条目编辑器（模态框）：关闭前提示 + Esc 关闭 + 切换书籍自动关闭 ──
+  const cancelEditor = useCallback(() => {
+    if (saving) return;
+    if (!dirty || window.confirm("有未保存的修改，确定关闭编辑器吗？")) {
+      setEditorMode(null);
+      setDraft(null);
+      setDirty(false);
+    }
+  }, [dirty, saving]);
+
+  const handleDraftChange = useCallback((patch: Partial<EntryDraft>) => {
+    setDraft((prev) => (prev ? { ...prev, ...patch } : prev));
+    setDirty(true);
+  }, []);
+
+  useEffect(() => {
+    if (!editorMode || !draft) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") cancelEditor();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [editorMode, draft, cancelEditor]);
+
+  // 切换书籍时关闭编辑器，避免把上一本书的草稿保存到新书
+  useEffect(() => {
+    setEditorMode(null);
+    setDraft(null);
+    setDirty(false);
+  }, [selectedId]);
 
   // ── 渲染 ──
   return (
@@ -736,6 +772,10 @@ export default function WorldBookManager() {
                       ? "border-amber-600/60 bg-amber-600/5"
                       : "border-gray-700 bg-gray-800/60"
                   }`}
+                  onDoubleClick={(ev) => {
+                    if ((ev.target as HTMLElement).closest("button")) return;
+                    openEdit(e);
+                  }}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-sm text-gray-200 truncate">
@@ -794,139 +834,27 @@ export default function WorldBookManager() {
               ))}
             </div>
 
-            {/* ── 条目编辑器 ── */}
-            {editorMode && draft && (
-              <div className="mt-4 p-3 rounded-lg border border-amber-600/40 bg-gray-900/60">
-                <h3 className="text-sm text-amber-300 mb-3">
-                  {editorMode === "create" ? "新增条目" : "编辑条目"}
-                </h3>
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="text-xs text-gray-400 col-span-2">
-                    名称（comment）
-                    <input
-                      className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200"
-                      value={draft.name}
-                      onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                    />
-                  </label>
-                  <label className="text-xs text-gray-400 col-span-2">
-                    内容（content）
-                    <textarea
-                      className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200 min-h-[100px]"
-                      value={draft.content}
-                      onChange={(e) => setDraft({ ...draft, content: e.target.value })}
-                    />
-                  </label>
-                  <label className="text-xs text-gray-400">
-                    触发词（正则，逗号分隔）
-                    <input
-                      className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200"
-                      value={draft.triggerKeysText}
-                      onChange={(e) => setDraft({ ...draft, triggerKeysText: e.target.value })}
-                    />
-                  </label>
-                  <label className="text-xs text-gray-400">
-                    副键（逗号分隔）
-                    <input
-                      className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200"
-                      value={draft.secondaryKeysText}
-                      onChange={(e) => setDraft({ ...draft, secondaryKeysText: e.target.value })}
-                    />
-                  </label>
-                  <label className="text-xs text-gray-400">
-                    分组
-                    <input
-                      className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200"
-                      value={draft.group}
-                      onChange={(e) => setDraft({ ...draft, group: e.target.value })}
-                    />
-                  </label>
-                  <label className="text-xs text-gray-400">
-                    插入位置
-                    <select
-                      className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200"
-                      value={draft.position}
-                      onChange={(e) => setDraft({ ...draft, position: Number(e.target.value) })}
-                    >
-                      <option value={0}>0 - 卡前（稳定层）</option>
-                      <option value={1}>1 - 卡后（动态层）</option>
-                    </select>
-                  </label>
-                  <label className="text-xs text-gray-400">
-                    深度
-                    <input
-                      className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200"
-                      type="number" min={0} max={20}
-                      value={draft.depth}
-                      onChange={(e) => setDraft({ ...draft, depth: Number(e.target.value) })}
-                    />
-                  </label>
-                  <label className="text-xs text-gray-400">
-                    扫描回溯消息数
-                    <input
-                      className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200"
-                      type="number" min={1} max={50}
-                      value={draft.scanDepth}
-                      onChange={(e) => setDraft({ ...draft, scanDepth: Number(e.target.value) })}
-                    />
-                  </label>
-                  <label className="text-xs text-gray-400">
-                    概率 %
-                    <input
-                      className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200"
-                      type="number" min={0} max={100}
-                      value={draft.probability}
-                      onChange={(e) => setDraft({ ...draft, probability: Number(e.target.value) })}
-                    />
-                  </label>
-                  <label className="text-xs text-gray-400">
-                    组权重
-                    <input
-                      className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200"
-                      type="number"
-                      value={draft.groupWeight}
-                      onChange={(e) => setDraft({ ...draft, groupWeight: Number(e.target.value) })}
-                    />
-                  </label>
-                </div>
-                <div className="mt-3 flex items-center gap-4 flex-wrap text-xs text-gray-300">
-                  {[
-                    ["alwaysActive", "常驻（constant）"],
-                    ["selective", "选择性（主键命中才查副键）"],
-                    ["enabled", "启用"],
-                    ["caseSensitive", "区分大小写"],
-                    ["matchWholeWords", "全词匹配"],
-                  ].map(([key, label]) => (
-                    <label key={key} className="flex items-center gap-1 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={(draft as any)[key]}
-                        onChange={(e) => setDraft({ ...draft, [key]: e.target.checked })}
-                      />
-                      {label}
-                    </label>
-                  ))}
-                </div>
-                <div className="mt-4 flex gap-2">
-                  <button
-                    className="text-xs px-3 py-1 rounded bg-amber-600 text-white hover:bg-amber-500 disabled:opacity-50"
-                    onClick={saveEntry}
-                    disabled={saving}
-                  >
-                    {saving ? "保存中…" : "保存条目"}
-                  </button>
-                  <button
-                    className="text-xs px-3 py-1 rounded bg-gray-700 text-gray-300 hover:bg-gray-600"
-                    onClick={() => { setEditorMode(null); setDraft(null); }}
-                  >
-                    取消
-                  </button>
-                </div>
-              </div>
-            )}
           </>
         )}
       </div>
+
+      {/* ── 条目编辑模态框（居中弹出，无需滚动定位） ── */}
+      {editorMode && draft && (
+        <EntryEditorModal
+          key={editingUid ?? "create"}
+          mode={editorMode}
+          title={
+            editorMode === "create"
+              ? "新增条目"
+              : `编辑条目：${draft.name || "(未命名)"}`
+          }
+          draft={draft}
+          saving={saving}
+          onChange={handleDraftChange}
+          onCancel={cancelEditor}
+          onSave={saveEntry}
+        />
+      )}
 
       {/* Toast */}
       {toast && (
@@ -940,6 +868,194 @@ export default function WorldBookManager() {
           {toast.text}
         </div>
       )}
+    </div>
+  );
+}
+
+/** 条目编辑模态框：打开即居中显示，不依赖列表滚动位置 */
+function EntryEditorModal({
+  mode,
+  title,
+  draft,
+  saving,
+  onChange,
+  onCancel,
+  onSave,
+}: {
+  mode: "create" | "edit";
+  title: string;
+  draft: EntryDraft;
+  saving: boolean;
+  onChange: (patch: Partial<EntryDraft>) => void;
+  onCancel: () => void;
+  onSave: () => void;
+}) {
+  const nameRef = useRef<HTMLInputElement>(null);
+  const contentRef = useRef<HTMLTextAreaElement>(null);
+
+  // 打开时自动聚焦：新增 → 名称，编辑 → 内容
+  useEffect(() => {
+    (mode === "create" ? nameRef.current : contentRef.current)?.focus();
+  }, [mode]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      onClick={onCancel}
+    >
+      <div
+        className="w-full max-w-2xl max-h-[88vh] flex flex-col rounded-lg border border-amber-600/40 bg-gray-900 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* 头部 */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700 shrink-0">
+          <h3 className="text-sm text-amber-300 truncate">{title}</h3>
+          <button
+            className="text-gray-400 hover:text-gray-200 text-sm px-1 shrink-0"
+            onClick={onCancel}
+            title="关闭（Esc）"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* 表单（超高时内部滚动） */}
+        <div className="overflow-y-auto p-4">
+          <div className="grid grid-cols-2 gap-3">
+            <label className="text-xs text-gray-400 col-span-2">
+              名称（comment）
+              <input
+                ref={nameRef}
+                className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200"
+                value={draft.name}
+                onChange={(e) => onChange({ name: e.target.value })}
+              />
+            </label>
+            <label className="text-xs text-gray-400 col-span-2">
+              内容（content）
+              <textarea
+                ref={contentRef}
+                className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200 min-h-[120px]"
+                value={draft.content}
+                onChange={(e) => onChange({ content: e.target.value })}
+                onKeyDown={(e) => {
+                  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") onSave();
+                }}
+              />
+            </label>
+            <label className="text-xs text-gray-400">
+              触发词（正则，逗号分隔）
+              <input
+                className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200"
+                value={draft.triggerKeysText}
+                onChange={(e) => onChange({ triggerKeysText: e.target.value })}
+              />
+            </label>
+            <label className="text-xs text-gray-400">
+              副键（逗号分隔）
+              <input
+                className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200"
+                value={draft.secondaryKeysText}
+                onChange={(e) => onChange({ secondaryKeysText: e.target.value })}
+              />
+            </label>
+            <label className="text-xs text-gray-400">
+              分组
+              <input
+                className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200"
+                value={draft.group}
+                onChange={(e) => onChange({ group: e.target.value })}
+              />
+            </label>
+            <label className="text-xs text-gray-400">
+              插入位置
+              <select
+                className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200"
+                value={draft.position}
+                onChange={(e) => onChange({ position: Number(e.target.value) })}
+              >
+                <option value={0}>0 - 卡前（稳定层）</option>
+                <option value={1}>1 - 卡后（动态层）</option>
+              </select>
+            </label>
+            <label className="text-xs text-gray-400">
+              深度
+              <input
+                className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200"
+                type="number" min={0} max={20}
+                value={draft.depth}
+                onChange={(e) => onChange({ depth: Number(e.target.value) })}
+              />
+            </label>
+            <label className="text-xs text-gray-400">
+              扫描回溯消息数
+              <input
+                className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200"
+                type="number" min={1} max={50}
+                value={draft.scanDepth}
+                onChange={(e) => onChange({ scanDepth: Number(e.target.value) })}
+              />
+            </label>
+            <label className="text-xs text-gray-400">
+              概率 %
+              <input
+                className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200"
+                type="number" min={0} max={100}
+                value={draft.probability}
+                onChange={(e) => onChange({ probability: Number(e.target.value) })}
+              />
+            </label>
+            <label className="text-xs text-gray-400">
+              组权重
+              <input
+                className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200"
+                type="number"
+                value={draft.groupWeight}
+                onChange={(e) => onChange({ groupWeight: Number(e.target.value) })}
+              />
+            </label>
+          </div>
+          <div className="mt-3 flex items-center gap-4 flex-wrap text-xs text-gray-300">
+            {[
+              ["alwaysActive", "常驻（constant）"],
+              ["selective", "选择性（主键命中才查副键）"],
+              ["enabled", "启用"],
+              ["caseSensitive", "区分大小写"],
+              ["matchWholeWords", "全词匹配"],
+            ].map(([key, label]) => (
+              <label key={key} className="flex items-center gap-1 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={draft[key as keyof EntryDraft] as boolean}
+                  onChange={(e) => onChange({ [key]: e.target.checked } as Partial<EntryDraft>)}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* 底部操作 */}
+        <div className="flex gap-2 px-4 py-3 border-t border-gray-700 shrink-0">
+          <button
+            className="text-xs px-3 py-1 rounded bg-amber-600 text-white hover:bg-amber-500 disabled:opacity-50"
+            onClick={onSave}
+            disabled={saving}
+          >
+            {saving ? "保存中…" : "保存条目"}
+          </button>
+          <button
+            className="text-xs px-3 py-1 rounded bg-gray-700 text-gray-300 hover:bg-gray-600 disabled:opacity-50"
+            onClick={onCancel}
+            disabled={saving}
+          >
+            取消
+          </button>
+          <span className="ml-auto text-[10px] text-gray-600 self-center">
+            Ctrl+Enter 保存 · Esc 关闭
+          </span>
+        </div>
+      </div>
     </div>
   );
 }
