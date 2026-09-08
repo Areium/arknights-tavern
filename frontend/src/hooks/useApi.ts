@@ -52,7 +52,9 @@ async function request<T>(
       } catch {
         message = body;
       }
-      throw new Error(message || `HTTP ${res.status}`);
+      const err = new Error(message || `HTTP ${res.status}`) as Error & { status?: number };
+      err.status = res.status;
+      throw err;
     }
 
     return res.json();

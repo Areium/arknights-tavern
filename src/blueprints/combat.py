@@ -73,11 +73,16 @@ def _check_combat_timeout(session, timeout: int = 600):
 
     When a combat times out, the engine is stopped, a battle_end event is pushed
     to wake the SSE generator, and session.combat is cleared.
+
+    已结束的战斗（battle_over）不做 idle 超时清理：结果尚未通过 complete 回写，
+    此时清掉 session.combat 会导致 complete 404，玩家被永久卡在结算界面。
     """
     if not session.combat:
         return None
     combat = session.combat
     if not hasattr(combat, 'last_activity_at'):
+        return None
+    if combat.engine and combat.engine.is_battle_over():
         return None
     if time.time() - combat.last_activity_at <= timeout:
         return None

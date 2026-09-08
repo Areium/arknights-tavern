@@ -817,8 +817,18 @@ export default function CombatView() {
           writingBackRef.current = false;
           return;
         }
-      } catch {
-        alert("战斗结果保存失败，请重试");
+      } catch (e: any) {
+        // 后端已无战斗状态（结果已保存过，或战斗已被清理）：写回无从谈起，
+        // 不应把玩家卡在结算界面，直接返回对话
+        if (e?.status === 404) {
+          console.warn("combat/complete: 后端无进行中的战斗，跳过写回", e?.message);
+          setSessions(sessions.map(s => s.id === sessionId ? { ...s, in_combat: false, combat: null } : s));
+          writingBackRef.current = false;
+          setCombatContext(null);
+          setCurrentView("chat");
+          return;
+        }
+        alert(`战斗结果保存失败：${e?.message || "未知错误"}，请重试`);
         writingBackRef.current = false;
         return; // Don't clear state or switch view on failure
       }
