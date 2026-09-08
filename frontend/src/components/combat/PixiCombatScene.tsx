@@ -34,7 +34,15 @@ const SPINE_VARIANT: Record<string, string> = {
   "闪灵": "char_147_shining/char_147_shining_summer_1",
   "阿米娅": "char_002_amiya/char_002_amiya_test_1",
   "陈": "char_010_chen/char_010_chen_nian_2",
+  "灵知": "char_206_gnosis",
 };
+
+// 敌人 Spine 变体 — 约定与角色一致：文件放 data/characters/<敌名>/spine/<变体>/Front|Back/，
+// 在此注册敌名即可启用；未注册或加载失败的敌人自动回退 fallback token。
+// 例（敌人骨骼文件就位后填写）："整合运动士兵": "enemy_1002_nsabr"
+const ENEMY_SPINE_VARIANT: Record<string, string> = {};
+
+const SPINE_VARIANT_ALL: Record<string, string> = { ...SPINE_VARIANT, ...ENEMY_SPINE_VARIANT };
 
 // ---------------------------------------------------------------------------
 // Types
@@ -56,13 +64,13 @@ export interface PixiCombatSceneProps {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function hasSpine(name: string): boolean { return name in SPINE_VARIANT; }
+function hasSpine(name: string): boolean { return name in SPINE_VARIANT_ALL; }
 function spineFileName(name: string): string {
   // 变体可能是嵌套路径（如 char_4064_mlynar/char_4064_mlynar_iteration_3），文件名取 basename
-  return SPINE_VARIANT[name].split("/").pop()!;
+  return SPINE_VARIANT_ALL[name].split("/").pop()!;
 }
 function spineAssetUrl(name: string, dir: "Front" | "Back"): string {
-  return `/api/assets/characters/${encodeURIComponent(name)}/spine/${SPINE_VARIANT[name]}/${dir}`;
+  return `/api/assets/characters/${encodeURIComponent(name)}/spine/${SPINE_VARIANT_ALL[name]}/${dir}`;
 }
 
 interface UnitEntry {
@@ -169,6 +177,8 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
   const loadedRef = useRef<Set<string>>(new Set());
   const loadingRef = useRef<Map<string, Promise<Spine | void>>>(new Map());
   const loadingUnitsRef = useRef<Set<string>>(new Set());
+  /** 加载失败的资产负缓存（cacheKey）：避免每次重渲染重复请求 404 */
+  const failedRef = useRef<Set<string>>(new Set());
   const [ready, setReady] = useState(false);
   const [gridReady, setGridReady] = useState(false);
   const [posTick, setPosTick] = useState(0);
@@ -242,6 +252,7 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
       loadedRef.current.clear();
       loadingRef.current.clear();
       loadingUnitsRef.current.clear();
+      failedRef.current.clear();
       initialPosDoneRef.current = false;
       setReady(false);
     };
@@ -339,6 +350,19 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
         const fn = spineFileName(u.name);
         const cacheKey = `${fn}_${dir}`;
 
+        // 曾加载失败的资产（负缓存）直接走 fallback，不再重复请求
+        if (failedRef.current.has(cacheKey)) {
+          loadingUnitsRef.current.delete(u.unit_id);
+          const fb = makeFallbackToken(u, sx, sy, cellSize);
+          fb.container.zIndex = zIndex;
+          ul.addChild(fb.container);
+          map.set(u.unit_id, {
+            displayObject: fb.container, cell: [u.pos[0], u.pos[1]], yAnchorOffset: 0,
+            isSpine: false, flipped: u.team === "enemy", hpBar: fb.hpBar, hpWidth: fb.hpWidth,
+          });
+          continue;
+        }
+
         (async () => {
           try {
             let spine: Spine;
@@ -393,11 +417,15 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
             loadingUnitsRef.current.delete(u.unit_id);
             setPosTick((t) => t + 1);
           } catch (err) {
-            console.error(`[PixiCombatScene] Spine load failed for ${u.name}:`, err);
-            if (err instanceof Error) {
-              console.error(`[PixiCombatScene]   message: ${err.message}`);
-              console.error(`[PixiCombatScene]   stack:`, err.stack);
+            // 负缓存：失败资产只记一次详细日志，之后直接走 fallback
+            if (!failedRef.current.has(cacheKey)) {
+              console.error(`[PixiCombatScene] Spine load failed for ${u.name}:`, err);
+              if (err instanceof Error) {
+                console.error(`[PixiCombatScene]   message: ${err.message}`);
+                console.error(`[PixiCombatScene]   stack:`, err.stack);
+              }
             }
+            failedRef.current.add(cacheKey);
             const fb = makeFallbackToken(u, sx, sy, cellSize);
             fb.container.zIndex = zIndex;
             ul.addChild(fb.container);

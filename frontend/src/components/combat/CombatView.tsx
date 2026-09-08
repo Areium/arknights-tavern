@@ -18,7 +18,7 @@ import CombatQuestBar from "./CombatQuestBar";
 import CardFlyOverlay, { type CardFlight } from "./CardFlyOverlay";
 import { getCombatConfig, type LayoutMode } from "./combatConfig";
 
-const DEFAULT_CHARACTERS = ["阿米娅", "博士", "银灰", "霜星"];
+const DEFAULT_CHARACTERS = ["阿米娅", "博士", "银灰", "灵知"];
 const DEFAULT_ENCOUNTER = "初遇整合运动";
 
 const INTENT_BADGE: Record<string, { icon: string; cls: string }> = {
