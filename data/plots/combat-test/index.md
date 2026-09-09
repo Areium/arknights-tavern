@@ -1,5 +1,8 @@
 ---
 category: test
+# 战斗演练（/api/combat/test/start）的默认出战阵容，仅演练入口读取。
+# 本剧情会话的参战阵容一律来自玩家创建会话时选择的入队角色（写入场景），
+# 因此这里不再声明 initial_characters——否则演练阵容会混入测试会话的战斗。
 characters:
 - 阿米娅
 - 银灰
@@ -9,10 +12,6 @@ deviation_policy:
 effects: {}
 id: combat_test
 initial_atmosphere: 训练场内的模拟战斗环境已启动——警戒灯闪烁，战术面板上显示着敌情信息，空气中弥漫着紧张的气氛
-initial_characters:
-- 阿米娅
-- 银灰
-- 灵知
 initial_location: 罗德岛训练场
 initial_time: 上午
 name: 战斗功能测试
