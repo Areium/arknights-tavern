@@ -89,9 +89,13 @@ export default function ChatPanel() {
   const customPromptDialog = useDialogMinimize("chat-custom-prompt", "自定义提示词", customPromptOpen);
   const briefingDialog = useDialogMinimize(
     "combat-briefing",
-    pendingBriefing ? `战斗选项 · ${pendingBriefing.name}` : "战斗选项",
+    pendingBriefing ? `战斗选项 · ${pendingBriefing.name}（必选）` : "战斗选项（必选）",
     !!pendingBriefing,
   );
+
+  // 战斗选项是必选流程节点：未完成选择前禁止输入与推进剧情。
+  // 展开态由全屏遮罩天然拦截，最小化态由本标记拦截（输入框/发送/内联选项/手动开战）。
+  const choiceLocked = !!pendingBriefing;
   const bottomRef = useRef<HTMLDivElement>(null);
   const waitStartRef = useRef<number>(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -271,7 +275,8 @@ export default function ChatPanel() {
   }, []);
 
   const commitEdit = useCallback(async () => {
-    if (editingIdx == null || !activeSessionId) return;
+    // 必选战斗选项未完成前禁止通过编辑消息回滚/推进剧情
+    if (editingIdx == null || !activeSessionId || choiceLocked) return;
     const targetMsg = messages[editingIdx];
     const targetRound = targetMsg?.round;
     const edited = editText.trim();
@@ -301,7 +306,7 @@ export default function ChatPanel() {
       alert("编辑失败: " + (err.message || "未知错误"));
       useAppStore.getState().setSessionStreaming(activeSessionId, false);
     }
-  }, [editingIdx, editText, activeSessionId, messages, api, triggerMemoryRefresh, cancelEdit]);
+  }, [editingIdx, editText, activeSessionId, messages, api, triggerMemoryRefresh, cancelEdit, choiceLocked]);
 
   // ── Send ──
 
@@ -406,7 +411,7 @@ export default function ChatPanel() {
 
   const handleSend = useCallback(() => {
     const text = input.trim();
-    if (!text || sending || streaming || !activeSessionId) return;
+    if (!text || sending || streaming || !activeSessionId || choiceLocked) return;
 
     const sid = activeSessionId;
     const curRound = useAppStore.getState().sessionNarrationCount[sid] || 0;
@@ -418,6 +423,8 @@ export default function ChatPanel() {
 
   const handleChoiceClick = useCallback(
     (choice: string) => {
+      // 必选战斗选项未完成前，内联选项同样不允许推进剧情
+      if (choiceLocked) return;
       if (editBeforeSend) {
         setInput(choice);
         return;
@@ -489,7 +496,7 @@ export default function ChatPanel() {
   }, []);
 
   const handleRegenerateSubmit = useCallback(async () => {
-    if (!activeSessionId || regeneratingRound == null) return;
+    if (!activeSessionId || regeneratingRound == null || choiceLocked) return;
     const sid = activeSessionId;
     const round = regeneratingRound;
     const prompt = regenerationPrompt.trim();
@@ -523,7 +530,7 @@ export default function ChatPanel() {
     } finally {
       useAppStore.getState().setSessionStreaming(sid, false);
     }
-  }, [activeSessionId, regeneratingRound, regenerationPrompt, api]);
+  }, [activeSessionId, regeneratingRound, regenerationPrompt, api, choiceLocked]);
 
   // ── Single message deletion ──
 
@@ -632,8 +639,9 @@ export default function ChatPanel() {
                     alert("启动战斗失败: " + (err.message || "未知错误"));
                   }
                 }}
-                className="text-[10px] px-1.5 py-0.5 rounded bg-orange-700/30 text-orange-300 hover:bg-orange-700/50 transition-colors"
-                title="手动触发战斗"
+                className="text-[10px] px-1.5 py-0.5 rounded bg-orange-700/30 text-orange-300 hover:bg-orange-700/50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                title={choiceLocked ? "请先完成战斗选项" : "手动触发战斗"}
+                disabled={choiceLocked}
               >
                 ⚔
               </button>
@@ -795,7 +803,7 @@ export default function ChatPanel() {
                         autoFocus
                       />
                       <div className="flex gap-2">
-                        <button onClick={commitEdit} className="btn-primary text-xs px-2 py-1">保存并继续</button>
+                        <button onClick={commitEdit} disabled={choiceLocked} className="btn-primary text-xs px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed">保存并继续</button>
                         <button onClick={cancelEdit} className="btn-ghost text-xs px-2 py-1">取消</button>
                       </div>
                     </div>
@@ -819,7 +827,7 @@ export default function ChatPanel() {
                         <div className="flex items-center justify-end gap-1 mt-1.5">
                           <button
                             onClick={() => handleVariantPrev(i)}
-                            disabled={(msg.variantIndex ?? 0) <= 0}
+                            disabled={choiceLocked || (msg.variantIndex ?? 0) <= 0}
                             className="text-xs px-1.5 py-0.5 rounded text-gray-500 hover:text-gray-300 disabled:opacity-30 transition-colors"
                             title="上一个版本"
                           >
@@ -836,7 +844,8 @@ export default function ChatPanel() {
                                 handleRegeneratePrompt(msg.round ?? 0);
                               }
                             }}
-                            className="text-xs px-1.5 py-0.5 rounded text-gray-500 hover:text-gray-300 transition-colors"
+                            disabled={choiceLocked}
+                            className="text-xs px-1.5 py-0.5 rounded text-gray-500 hover:text-gray-300 disabled:opacity-30 transition-colors"
                             title={(msg.variantIndex ?? 0) < msg.variants!.length - 1 ? "下一个版本" : "重新生成"}
                           >
                             ▸
@@ -865,7 +874,8 @@ export default function ChatPanel() {
                           <div className="flex gap-1.5">
                             <button
                               onClick={handleRegenerateSubmit}
-                              className="text-xs px-2 py-0.5 rounded bg-amber-700/30 text-amber-300 hover:bg-amber-700/50"
+                              disabled={choiceLocked}
+                              className="text-xs px-2 py-0.5 rounded bg-amber-700/30 text-amber-300 hover:bg-amber-700/50 disabled:opacity-40 disabled:cursor-not-allowed"
                             >
                               重新生成
                             </button>
@@ -885,7 +895,7 @@ export default function ChatPanel() {
                             <button
                               key={ci}
                               onClick={() => handleChoiceClick(choice)}
-                              disabled={sending || streaming || !!activeSession?.in_combat || (msg.round != null && msg.round < narrationCount)}
+                              disabled={sending || streaming || choiceLocked || !!activeSession?.in_combat || (msg.round != null && msg.round < narrationCount)}
                               className="px-3 py-1.5 rounded-lg text-sm border border-amber-600/40
                                 text-amber-300 hover:bg-amber-600/20 transition-colors disabled:opacity-50"
                             >
@@ -902,9 +912,10 @@ export default function ChatPanel() {
                       {!streaming && (
                         <button
                           onClick={() => handleDeleteMessage(i)}
+                          disabled={choiceLocked}
                           className="absolute -top-2 -left-2 w-5 h-5 rounded-full bg-gray-600
                             text-gray-300 hover:bg-red-500 text-[10px] leading-5
-                            opacity-0 group-hover:opacity-100 transition-opacity"
+                            opacity-0 group-hover:opacity-100 transition-opacity disabled:hidden"
                           title="删除此消息"
                         >
                           ×
@@ -915,9 +926,10 @@ export default function ChatPanel() {
                       {msg.role === "user" && chatMode === "story" && !streaming && (
                         <button
                           onClick={() => startEdit(i, msg.content)}
+                          disabled={choiceLocked}
                           className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-gray-600
                             text-gray-300 hover:bg-gray-500 text-[10px] leading-5
-                            opacity-0 group-hover:opacity-100 transition-opacity"
+                            opacity-0 group-hover:opacity-100 transition-opacity disabled:hidden"
                           title="编辑此消息"
                         >
                           ✎
@@ -950,32 +962,39 @@ export default function ChatPanel() {
 
       {/* Input */}
       <div className="px-4 py-3 border-t border-gray-700 bg-gray-850">
+        {choiceLocked && (
+          <p className="text-[11px] text-amber-300/80 mb-2">
+            ⚔ 待完成战斗选项：已暂停输入与剧情推进，请点击左下角「战斗选项（必选）」恢复并选择打法。
+          </p>
+        )}
         <div className="flex gap-2">
           <textarea
-            className="input resize-none text-sm"
+            className={"input resize-none text-sm" + (choiceLocked ? " opacity-60 cursor-not-allowed" : "")}
             rows={2}
             placeholder={
-              !activeSessionId
-                ? "请先选择或创建会话"
-                : activeSession?.in_combat
-                  ? "战斗中，无法对话..."
-                  : sending
-                    ? "发送中..."
-                    : chatMode === "story"
-                      ? "输入行动或对话推进剧情..."
-                      : "输入消息..."
+              choiceLocked
+                ? "请先完成战斗选项..."
+                : !activeSessionId
+                  ? "请先选择或创建会话"
+                  : activeSession?.in_combat
+                    ? "战斗中，无法对话..."
+                    : sending
+                      ? "发送中..."
+                      : chatMode === "story"
+                        ? "输入行动或对话推进剧情..."
+                        : "输入消息..."
             }
             value={activeSession?.in_combat ? "（战斗中 — 请先完成战斗）" : input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            disabled={!activeSessionId || sending || !!activeSession?.in_combat}
+            disabled={!activeSessionId || sending || !!activeSession?.in_combat || choiceLocked}
           />
           <button
             onClick={handleSend}
-            disabled={!input.trim() || !activeSessionId || sending || streaming || !!activeSession?.in_combat}
+            disabled={!input.trim() || !activeSessionId || sending || streaming || !!activeSession?.in_combat || choiceLocked}
             className="btn-primary self-end shrink-0"
           >
-            {activeSession?.in_combat ? "战斗中" : sending ? "发送中..." : "发送"}
+            {choiceLocked ? "待选择" : activeSession?.in_combat ? "战斗中" : sending ? "发送中..." : "发送"}
           </button>
         </div>
       </div>
@@ -1094,26 +1113,19 @@ export default function ChatPanel() {
           >
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700">
               <h2 className="text-base font-semibold">⚔ {pendingBriefing.name}</h2>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={briefingDialog.minimize}
-                  className="text-gray-500 hover:text-gray-300 text-lg leading-none px-1"
-                  title="最小化（保留当前选择状态）"
-                  aria-label="最小化对话框"
-                >
-                  —
-                </button>
-                <button
-                  onClick={() => setPendingBriefing(null)}
-                  className="text-gray-500 hover:text-gray-300 text-lg leading-none px-1"
-                  title="关闭"
-                  aria-label="关闭对话框"
-                >
-                  ✕
-                </button>
-              </div>
+              <button
+                onClick={briefingDialog.minimize}
+                className="text-gray-500 hover:text-gray-300 text-lg leading-none px-1"
+                title="最小化（必选流程，需回到此处完成选择）"
+                aria-label="最小化对话框"
+              >
+                —
+              </button>
             </div>
             <div className="flex-1 overflow-y-auto px-5 py-4">
+              <p className="text-[11px] text-gray-500 mb-3">
+                战斗选项为必选流程节点，无法关闭；可最小化后继续查看剧情，完成后自动恢复。
+              </p>
               {briefingCheck ? (
                 <div>
                   <p className="text-xs text-amber-200 font-display mb-2">
