@@ -18,8 +18,6 @@ import CombatQuestBar from "./CombatQuestBar";
 import CardFlyOverlay, { type CardFlight } from "./CardFlyOverlay";
 import { getCombatConfig, type LayoutMode } from "./combatConfig";
 
-// 默认出战队伍（均具备 Spine 战斗小人；博士/霜星无骨骼，不再作为默认单位）
-const DEFAULT_CHARACTERS = ["阿米娅", "陈", "银灰", "灵知"];
 const DEFAULT_ENCOUNTER = "初遇整合运动";
 
 const INTENT_BADGE: Record<string, { icon: string; cls: string }> = {
@@ -88,9 +86,10 @@ export default function CombatView() {
   const [cardFlight, setCardFlight] = useState<CardFlight | null>(null);
   const clearCardFlight = useCallback(() => setCardFlight(null), []);
   const cardPlayInProgressRef = useRef(false);
-  const [startChars, setStartChars] = useState<string[]>(DEFAULT_CHARACTERS);
+  // 会话参战阵容：只读展示会话场景中的入队角色（战斗后端按场景角色出阵，此处不再本地编辑）
+  const [sessionRoster, setSessionRoster] = useState<string[]>([]);
+  const [rosterLoading, setRosterLoading] = useState(false);
   const [encounterId, setEncounterId] = useState(DEFAULT_ENCOUNTER);
-  const [charInput, setCharInput] = useState("");
   const [hoveredUnitId, setHoveredUnitId] = useState<string | null>(null);
   const [hoveredUnitRect, setHoveredUnitRect] = useState<DOMRect | null>(null);
   const [showDeckViewer, setShowDeckViewer] = useState(false);
@@ -282,6 +281,27 @@ export default function CombatView() {
     };
   }, [fetchState, connectSSE]);
 
+  // 读取会话的入队角色（= 战斗后端实际出阵阵容），仅用于开战面板展示与校验
+  useEffect(() => {
+    if (!sessionId) {
+      setSessionRoster([]);
+      return;
+    }
+    let cancelled = false;
+    setRosterLoading(true);
+    api.getSceneCharacters(sessionId)
+      .then((res: any) => {
+        if (!cancelled) setSessionRoster(res?.characters || []);
+      })
+      .catch(() => {
+        if (!cancelled) setSessionRoster([]);
+      })
+      .finally(() => {
+        if (!cancelled) setRosterLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [sessionId, api]);
+
   // Re-render chibi overlay on window resize (positions shift with perspective)
   useEffect(() => {
     const handler = () => {
@@ -328,11 +348,11 @@ export default function CombatView() {
   }, [combatState?.units, cfg.cellSize, resizeTick, recomputeOverlayCenters]);
 
   const startCombat = useCallback(async (approachId?: string) => {
-    if (!sessionId || startChars.length === 0) return;
+    if (!sessionId || sessionRoster.length === 0) return;
     setLoading(true);
     setError(null);
     try {
-      const resp = await api.combatStart(sessionId, encounterId, startChars, approachId);
+      const resp = await api.combatStart(sessionId, encounterId, sessionRoster, approachId);
       if (resp?.state) {
         setCombatContext({ state: resp.state as CombatStateDTO });
         setEvents([]);
@@ -360,7 +380,7 @@ export default function CombatView() {
     } finally {
       setLoading(false);
     }
-  }, [sessionId, encounterId, startChars, api, setCombatContext, connectSSE]);
+  }, [sessionId, encounterId, sessionRoster, api, setCombatContext, connectSSE]);
 
   const handleStartBattle = useCallback(() => {
     startCombat(undefined);
@@ -385,18 +405,6 @@ export default function CombatView() {
       setLoading(false);
     }
   }, [encounterId, api, setCombatContext]);
-
-  const addChar = () => {
-    const name = charInput.trim();
-    if (name && !startChars.includes(name)) {
-      setStartChars([...startChars, name]);
-    }
-    setCharInput("");
-  };
-
-  const removeChar = (name: string) => {
-    setStartChars(startChars.filter((c) => c !== name));
-  };
 
   // Active unit (engine's current turn)
   const activeUnit = combatState?.units.find((u) => u.unit_id === combatState.active_unit_id) ?? null;
@@ -1152,32 +1160,31 @@ export default function CombatView() {
             onChange={(e) => setEncounterId(e.target.value)}
           />
 
-          <label className="block text-xs text-gray-500 mb-1 font-display tracking-wider">出战角色 (会话模式)</label>
-          <div className="flex flex-wrap gap-1 mb-2">
-            {startChars.map((c) => (
-              <span key={c} className="inline-flex items-center gap-1 px-2.5 py-1 text-xs bg-cyan-950/50 border border-cyan-900/50 text-cyan-300 rounded-full">
-                {c}
-                <button className="text-gray-500 hover:text-red-400 ml-0.5" onClick={() => removeChar(c)}>×</button>
-              </span>
-            ))}
-          </div>
-          <div className="flex gap-1.5 mb-4">
-            <input
-              className="flex-1 bg-surface-dark border border-combat-border rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:border-combat-player transition-colors"
-              placeholder="输入角色名"
-              value={charInput}
-              onChange={(e) => setCharInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && addChar()}
-            />
-            <button className="px-3 py-1.5 text-xs bg-surface-hover hover:bg-gray-700 text-gray-300 rounded-lg transition-colors" onClick={addChar}>
-              添加
-            </button>
-          </div>
+          <label className="block text-xs text-gray-500 mb-1 font-display tracking-wider">参战角色（会话入队阵容）</label>
+          {!sessionId ? (
+            <p className="text-xs text-gray-500 mb-4">
+              未选择会话 — 参战阵容取自会话的入队角色
+            </p>
+          ) : rosterLoading ? (
+            <p className="text-xs text-gray-500 mb-4">读取会话阵容中...</p>
+          ) : sessionRoster.length === 0 ? (
+            <p className="text-xs text-amber-400/80 mb-4">
+              会话暂无入队角色 — 请先在会话大厅「角色阵容」中入队
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-1 mb-4">
+              {sessionRoster.map((c) => (
+                <span key={c} className="inline-flex items-center px-2.5 py-1 text-xs bg-cyan-950/50 border border-cyan-900/50 text-cyan-300 rounded-full">
+                  {c}
+                </span>
+              ))}
+            </div>
+          )}
 
           <button
             className="w-full py-2.5 bg-cyan-900 hover:bg-cyan-800 text-cyan-200 rounded-lg text-sm font-medium transition-all disabled:opacity-40 mb-3 border border-cyan-800/50"
             onClick={handleStartBattle}
-            disabled={!sessionId || startChars.length === 0 || loading}
+            disabled={!sessionId || sessionRoster.length === 0 || loading}
           >
             {loading ? "启动中..." : "开始战斗"}
           </button>
