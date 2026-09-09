@@ -1,11 +1,12 @@
 /**
- * 内容中心 — 资产/世界书/索引三模块整合后的统一管理入口。
+ * 内容中心 — 资产/索引等模块整合后的统一管理入口。
  *
  * 管理模式：
- *  - 单一入口：导航仅保留「内容中心」，内部按 Tab 组织（文档/世界书/索引/资产/卡牌）。
+ *  - 单一入口：导航仅保留「内容中心」，内部按 Tab 组织（文档/索引/资产/卡牌）。
  *  - 统一来源：内置（builtin，只读开箱即用）与导入（imported，自由扩展）内容徽章区分。
- *  - 统一检索：顶部搜索框跨世界书条目/文档检索，命中可一键跳转对应 Tab。
+ *  - 统一检索：顶部搜索框跨世界书条目/文档检索，命中可一键跳转到对应页面或 Tab。
  *  - 依赖管理收敛到「索引」Tab（文档 Tab 内仅保留跳转入口，消除重复实现）。
+ *  - 世界书不在内部重复承载：上一级导航「世界书」页为唯一入口（检索命中直接跳该页）。
  */
 import { useEffect, useRef, useState } from "react";
 import { useApi } from "../hooks/useApi";
@@ -13,12 +14,10 @@ import { useAppStore, type ContentHubTab } from "../stores/appStore";
 import type { WorldBookSearchHit } from "../types";
 import SourceBadge from "./SourceBadge";
 import DocumentManager from "./DocumentManager";
-import WorldBookManager from "./WorldBookManager";
 import IndexManager from "./IndexManager";
 
 const TABS: { id: ContentHubTab; label: string; icon: string; hint: string }[] = [
   { id: "docs", label: "角色·剧情", icon: "📜", hint: "角色资料与剧情文档（内置开箱即用）" },
-  { id: "worldbook", label: "世界书", icon: "📖", hint: "关键词触发式设定注入（内置 + 导入）" },
   { id: "index", label: "索引", icon: "🔗", hint: "文档依赖关系与会话白名单" },
   { id: "images", label: "资产", icon: "🖼️", hint: "图片资产上传 / 裁剪 / 默认图" },
   { id: "cards", label: "卡牌", icon: "🃏", hint: "角色与职业卡牌编辑" },
@@ -34,12 +33,12 @@ export default function ContentHub() {
   const [searchOpen, setSearchOpen] = useState(false);
   const searchSeq = useRef(0);
 
-  // 世界书跳转（检索结果点击 / 其他模块联动）→ 世界书 Tab 选中该书（由 WorldBookManager 消费并清除）
+  // 世界书跳转（检索结果点击 / 其他模块联动）→ 上一级「世界书」页选中该书（由 WorldBookManager 消费并清除）
   useEffect(() => {
     if (worldbookJumpId) {
-      setContentHubTab("worldbook");
+      setCurrentView("worldbook");
     }
-  }, [worldbookJumpId, setContentHubTab]);
+  }, [worldbookJumpId, setCurrentView]);
 
   // 统一检索：跨世界书条目 + 文档
   useEffect(() => {
@@ -184,7 +183,6 @@ export default function ContentHub() {
         {contentHubTab === "docs" && <DocumentManager key="dm-docs" initialTab="docs" />}
         {contentHubTab === "images" && <DocumentManager key="dm-images" initialTab="images" />}
         {contentHubTab === "cards" && <DocumentManager key="dm-cards" initialTab="cards" />}
-        {contentHubTab === "worldbook" && <WorldBookManager key="wbm" />}
         {contentHubTab === "index" && <IndexManager key="im" />}
       </div>
     </div>

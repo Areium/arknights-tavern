@@ -17,8 +17,8 @@ export interface CombatContext {
 
 type ViewName = "home" | "chat" | "sessions" | "documents" | "settings" | "combat" | "index" | "worldbook" | "content" | "docs" | "characters";
 
-/** 内容中心内部 Tab（统一管理：文档/世界书/索引/资产/卡牌） */
-export type ContentHubTab = "docs" | "worldbook" | "index" | "images" | "cards";
+/** 内容中心内部 Tab（统一管理：文档/索引/资产/卡牌；世界书为上一级独立入口，不在此重复） */
+export type ContentHubTab = "docs" | "index" | "images" | "cards";
 
 /** 最小化对话框的恢复入口信息（key = 对话框 id） */
 export interface MinimizedDialogEntry {
@@ -35,7 +35,7 @@ interface AppState {
   contentHubTab: ContentHubTab;
   setContentHubTab: (tab: ContentHubTab) => void;
 
-  // 内容中心：跳转并选中指定世界书（统一检索结果点击）
+  // 内容中心检索命中世界书 → 跳转上一级「世界书」页并选中该书
   worldbookJumpId: string | null;
   setWorldbookJumpId: (id: string | null) => void;
 
@@ -147,7 +147,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   contentHubTab: "docs",
   setContentHubTab: (tab) => set({ contentHubTab: tab }),
 
-  // 内容中心：世界书跳转
+  // 内容中心检索 → 上一级「世界书」页跳转
   worldbookJumpId: null,
   setWorldbookJumpId: (id) => set({ worldbookJumpId: id }),
 
