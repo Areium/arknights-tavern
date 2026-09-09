@@ -15,6 +15,7 @@ import WorldBookManager from "./components/WorldBookManager";
 import ContentHub from "./components/ContentHub";
 import DocsView from "./components/DocsView";
 import CharacterManager from "./components/CharacterManager";
+import MinimizedDialogDock from "./components/common/MinimizedDialogDock";
 
 /** 沉浸式视图：全屏无顶栏（对话 = 故事沉浸，战斗 = 战场沉浸） */
 const IMMERSIVE_VIEWS = new Set(["chat", "combat"]);
@@ -173,6 +174,9 @@ export default function App() {
 
       {/* 状态栏：仅管理页显示（主页有自带状态，沉浸式页面隐藏） */}
       {currentView !== "home" && !immersive && <StatusBar />}
+
+      {/* 最小化对话框的恢复入口（全局单例，多个对话框各占一条） */}
+      <MinimizedDialogDock />
     </div>
   );
 }

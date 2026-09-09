@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { CardDTO, CombatUnitDTO, PlayerPoolDTO } from "../../types";
 import { DMG_LABELS, DMG_COLORS } from "./combatConfig";
+import { useDialogMinimize } from "../../hooks/useDialogMinimize";
 
 export type DeckFilterMode = "all" | "deck" | "discard";
 
@@ -160,6 +161,8 @@ function CardDetail({ card, onClose }: { card: CardDTO; onClose: () => void }) {
 
 export default function DeckViewer({ units, sharedPool, filterMode = "all", onClose }: Props) {
   const [detailCard, setDetailCard] = useState<CardDTO | null>(null);
+  // 最小化：保留分组/滚动位置，与关闭独立
+  const dialog = useDialogMinimize("deck-viewer", TITLES[filterMode], true);
 
   const allCards: CardDTO[] = [
     ...(sharedPool.hand || []),
@@ -188,11 +191,13 @@ export default function DeckViewer({ units, sharedPool, filterMode = "all", onCl
 
   return (
     <>
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      <div className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm ${dialog.minimizedClass}`}
         onClick={onClose}
       >
         <div
-          className="bg-surface-card border border-combat-border rounded-2xl shadow-2xl w-[720px] max-h-[85vh] flex flex-col"
+          ref={dialog.containerRef}
+          tabIndex={-1}
+          className="bg-surface-card border border-combat-border rounded-2xl shadow-2xl w-[720px] max-h-[85vh] flex flex-col outline-none"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
@@ -203,8 +208,18 @@ export default function DeckViewer({ units, sharedPool, filterMode = "all", onCl
             <span className="text-[11px] text-gray-500 font-display">{grandTotal} 张</span>
             <div className="flex-1" />
             <button
+              onClick={dialog.minimize}
+              className="text-gray-500 hover:text-gray-300 text-lg leading-none px-1"
+              title="最小化（保留滚动位置）"
+              aria-label="最小化对话框"
+            >
+              —
+            </button>
+            <button
               onClick={onClose}
               className="text-gray-500 hover:text-gray-300 text-lg leading-none px-1"
+              title="关闭"
+              aria-label="关闭对话框"
             >
               ×
             </button>

@@ -10,6 +10,7 @@ import { useAppStore } from "../../stores/appStore";
 import { useApi } from "../../hooks/useApi";
 import type { PlotInfo, WorldBookSummary, Session } from "../../types";
 import CreateSessionWizard from "./CreateSessionWizard";
+import { useDialogMinimize } from "../../hooks/useDialogMinimize";
 
 interface CharItem {
   id: string;
@@ -89,6 +90,10 @@ export default function SessionManagerView() {
 
   const selected = sessions.find((s) => s.id === selectedId) || null;
   const plotName = (plotId: string | null) => plots.find((p) => p.id === plotId)?.name || plotId || "";
+
+  // 两个选择器各自独立的最小化状态（保留搜索词与滚动位置）
+  const pickerDialog = useDialogMinimize("session-character-picker", "添加角色入队", pickerOpen && !!selected);
+  const identityPickerDialog = useDialogMinimize("session-identity-picker", "选择玩家身份", identityPickerOpen && !!selected);
 
   // ── 会话操作 ──
 
@@ -726,14 +731,33 @@ export default function SessionManagerView() {
 
       {/* 添加角色选择器 */}
       {pickerOpen && selected && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setPickerOpen(false)}>
+        <div className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 ${pickerDialog.minimizedClass}`} onClick={() => setPickerOpen(false)}>
           <div
-            className="bg-gray-800 border border-gray-700 rounded-xl w-[560px] max-h-[640px] flex flex-col shadow-2xl"
+            ref={pickerDialog.containerRef}
+            tabIndex={-1}
+            className="bg-gray-800 border border-gray-700 rounded-xl w-[560px] max-h-[640px] flex flex-col shadow-2xl outline-none"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700">
               <h2 className="text-base font-semibold">添加角色入队</h2>
-              <button onClick={() => setPickerOpen(false)} className="text-gray-500 hover:text-gray-300 text-lg leading-none">✕</button>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={pickerDialog.minimize}
+                  className="text-gray-500 hover:text-gray-300 text-lg leading-none px-1"
+                  title="最小化（保留搜索词）"
+                  aria-label="最小化对话框"
+                >
+                  —
+                </button>
+                <button
+                  onClick={() => setPickerOpen(false)}
+                  className="text-gray-500 hover:text-gray-300 text-lg leading-none px-1"
+                  title="关闭"
+                  aria-label="关闭对话框"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
             <div className="px-5 pt-3 pb-2">
               <input
@@ -788,9 +812,11 @@ export default function SessionManagerView() {
 
       {/* 玩家身份选择器 */}
       {identityPickerOpen && selected && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setIdentityPickerOpen(false)}>
+        <div className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 ${identityPickerDialog.minimizedClass}`} onClick={() => setIdentityPickerOpen(false)}>
           <div
-            className="bg-gray-800 border border-gray-700 rounded-xl w-[520px] max-h-[600px] flex flex-col shadow-2xl"
+            ref={identityPickerDialog.containerRef}
+            tabIndex={-1}
+            className="bg-gray-800 border border-gray-700 rounded-xl w-[520px] max-h-[600px] flex flex-col shadow-2xl outline-none"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700">
@@ -798,7 +824,24 @@ export default function SessionManagerView() {
                 <h2 className="text-base font-semibold">选择玩家身份</h2>
                 <p className="text-[11px] text-gray-500 mt-0.5">当前：{selected.player_identity || "博士"}</p>
               </div>
-              <button onClick={() => setIdentityPickerOpen(false)} className="text-gray-500 hover:text-gray-300 text-lg leading-none">✕</button>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={identityPickerDialog.minimize}
+                  className="text-gray-500 hover:text-gray-300 text-lg leading-none px-1"
+                  title="最小化（保留搜索词）"
+                  aria-label="最小化对话框"
+                >
+                  —
+                </button>
+                <button
+                  onClick={() => setIdentityPickerOpen(false)}
+                  className="text-gray-500 hover:text-gray-300 text-lg leading-none px-1"
+                  title="关闭"
+                  aria-label="关闭对话框"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
             <div className="px-5 pt-3 pb-2">
               <input

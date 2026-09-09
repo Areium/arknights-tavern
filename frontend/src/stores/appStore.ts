@@ -20,6 +20,12 @@ type ViewName = "home" | "chat" | "sessions" | "documents" | "settings" | "comba
 /** 内容中心内部 Tab（统一管理：文档/世界书/索引/资产/卡牌） */
 export type ContentHubTab = "docs" | "worldbook" | "index" | "images" | "cards";
 
+/** 最小化对话框的恢复入口信息（key = 对话框 id） */
+export interface MinimizedDialogEntry {
+  title: string;
+  restore: () => void;
+}
+
 interface AppState {
   // 视图
   currentView: ViewName;
@@ -112,6 +118,10 @@ interface AppState {
   // 战前简报（SSE combat_briefing 事件）
   pendingBriefing: CombatBriefingDTO | null;
   setPendingBriefing: (data: CombatBriefingDTO | null) => void;
+
+  // 对话框最小化：key = 对话框 id，多个对话框各自独立、互不干扰
+  minimizedDialogs: Record<string, MinimizedDialogEntry>;
+  setMinimizedDialog: (id: string, entry: MinimizedDialogEntry | null) => void;
 
   // 按会话存储的消息/流式状态（跨会话切换保留）
   sessionMessages: Record<string, ChatMessage[]>;
@@ -253,6 +263,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   // 战前简报
   pendingBriefing: null,
   setPendingBriefing: (data) => set({ pendingBriefing: data }),
+
+  // 对话框最小化
+  minimizedDialogs: {},
+  setMinimizedDialog: (id, entry) => set((state) => {
+    const next = { ...state.minimizedDialogs };
+    if (entry) next[id] = entry; else delete next[id];
+    return { minimizedDialogs: next };
+  }),
 
   // ── 按会话存储的消息/流式状态 ──
   sessionMessages: {},

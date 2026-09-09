@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useAppStore } from "../stores/appStore";
 import { useApi, createSSE } from "../hooks/useApi";
+import { useDialogMinimize } from "../hooks/useDialogMinimize";
 import { parseDialogue, normalizeSegments } from "../utils/dialogueParser";
 import type { ChatMessage } from "../types";
 import DialogueBubble from "./chat/DialogueBubble";
@@ -83,6 +84,14 @@ export default function ChatPanel() {
   const [editText, setEditText] = useState("");
   const [regeneratingRound, setRegeneratingRound] = useState<number | null>(null);
   const [regenerationPrompt, setRegenerationPrompt] = useState("");
+
+  // 对话框最小化：关闭与最小化是两个独立操作，最小化保留对话框内部状态
+  const customPromptDialog = useDialogMinimize("chat-custom-prompt", "自定义提示词", customPromptOpen);
+  const briefingDialog = useDialogMinimize(
+    "combat-briefing",
+    pendingBriefing ? `战斗选项 · ${pendingBriefing.name}` : "战斗选项",
+    !!pendingBriefing,
+  );
   const bottomRef = useRef<HTMLDivElement>(null);
   const waitStartRef = useRef<number>(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -973,16 +982,32 @@ export default function ChatPanel() {
 
       {/* Custom Prompt Modal */}
       {customPromptOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="bg-gray-800 border border-gray-700 rounded-xl w-[520px] flex flex-col shadow-2xl">
+        <div className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 ${customPromptDialog.minimizedClass}`}>
+          <div
+            ref={customPromptDialog.containerRef}
+            tabIndex={-1}
+            className="bg-gray-800 border border-gray-700 rounded-xl w-[520px] flex flex-col shadow-2xl outline-none"
+          >
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700">
               <h2 className="text-base font-semibold">自定义提示词</h2>
-              <button
-                onClick={() => setCustomPromptOpen(false)}
-                className="text-gray-500 hover:text-gray-300 text-lg leading-none"
-              >
-                ✕
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={customPromptDialog.minimize}
+                  className="text-gray-500 hover:text-gray-300 text-lg leading-none px-1"
+                  title="最小化（保留已输入内容）"
+                  aria-label="最小化对话框"
+                >
+                  —
+                </button>
+                <button
+                  onClick={() => setCustomPromptOpen(false)}
+                  className="text-gray-500 hover:text-gray-300 text-lg leading-none px-1"
+                  title="关闭"
+                  aria-label="关闭对话框"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
             <div className="flex-1 overflow-y-auto px-5 py-4">
               <p className="text-xs text-gray-500 mb-3">
@@ -1061,16 +1086,32 @@ export default function ChatPanel() {
 
       {/* Combat Briefing Modal — 战前打法选择 */}
       {pendingBriefing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="bg-gray-800 border border-gray-700 rounded-xl w-[520px] flex flex-col shadow-2xl">
+        <div className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 ${briefingDialog.minimizedClass}`}>
+          <div
+            ref={briefingDialog.containerRef}
+            tabIndex={-1}
+            className="bg-gray-800 border border-gray-700 rounded-xl w-[520px] flex flex-col shadow-2xl outline-none"
+          >
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700">
               <h2 className="text-base font-semibold">⚔ {pendingBriefing.name}</h2>
-              <button
-                onClick={() => setPendingBriefing(null)}
-                className="text-gray-500 hover:text-gray-300 text-lg leading-none"
-              >
-                ✕
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={briefingDialog.minimize}
+                  className="text-gray-500 hover:text-gray-300 text-lg leading-none px-1"
+                  title="最小化（保留当前选择状态）"
+                  aria-label="最小化对话框"
+                >
+                  —
+                </button>
+                <button
+                  onClick={() => setPendingBriefing(null)}
+                  className="text-gray-500 hover:text-gray-300 text-lg leading-none px-1"
+                  title="关闭"
+                  aria-label="关闭对话框"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
             <div className="flex-1 overflow-y-auto px-5 py-4">
               {briefingCheck ? (

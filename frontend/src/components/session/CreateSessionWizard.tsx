@@ -5,6 +5,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useAppStore } from "../../stores/appStore";
 import { useApi } from "../../hooks/useApi";
+import { useDialogMinimize } from "../../hooks/useDialogMinimize";
 import type { PlotInfo, WorldBookSummary, Session } from "../../types";
 
 interface CharItem {
@@ -60,6 +61,9 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
   const [plotSearch, setPlotSearch] = useState("");
   const [charSearch, setCharSearch] = useState("");
   const [identitySearch, setIdentitySearch] = useState("");
+
+  // 最小化：已填内容（步骤/身份/剧情/阵容/名称）保留，与关闭独立
+  const dialog = useDialogMinimize("create-session-wizard", "新建会话", open);
 
   const steps = useMemo(
     () => (mode === "story" ? ["mode", "identity", "plot", "worldbook", "roster", "finish"] : ["mode", "identity", "worldbook", "roster", "finish"]),
@@ -158,15 +162,37 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
   };
 
   return (
-    <div className="wizard-overlay" onClick={onClose}>
-      <div className="wizard-panel" onClick={(e) => e.stopPropagation()}>
+    <div className={`wizard-overlay ${dialog.minimizedClass}`} onClick={onClose}>
+      <div
+        ref={dialog.containerRef}
+        tabIndex={-1}
+        className="wizard-panel outline-none"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700/70 shrink-0">
           <div>
             <h2 className="text-lg font-bold text-amber-300">新建会话</h2>
             <p className="text-[11px] text-gray-500 mt-0.5">按步骤配置你的故事开端</p>
           </div>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-xl leading-none px-2" title="关闭">✕</button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={dialog.minimize}
+              className="text-gray-500 hover:text-gray-300 text-xl leading-none px-2"
+              title="最小化（保留已填内容）"
+              aria-label="最小化对话框"
+            >
+              —
+            </button>
+            <button
+              onClick={onClose}
+              className="text-gray-500 hover:text-gray-300 text-xl leading-none px-2"
+              title="关闭"
+              aria-label="关闭对话框"
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
         {/* Steps indicator */}

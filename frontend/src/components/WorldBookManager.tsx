@@ -8,6 +8,10 @@ import type {
   WorldBookSummary,
 } from "../types";
 import SourceBadge from "./SourceBadge";
+import { useDialogMinimize } from "../hooks/useDialogMinimize";
+
+/** 条目编辑器对话框 id（Esc 守卫与恢复入口共用） */
+const ENTRY_EDITOR_DIALOG_ID = "worldbook-entry-editor";
 
 /** 条目编辑草稿（触发词/副键用逗号分隔文本编辑） */
 interface EntryDraft {
@@ -455,14 +459,18 @@ export default function WorldBookManager() {
     setDirty(true);
   }, []);
 
+  // 编辑器是否处于最小化（Esc 守卫用；恢复入口由 EntryEditorModal 注册）
+  const editorDialogMinimized = useAppStore((s) => !!s.minimizedDialogs[ENTRY_EDITOR_DIALOG_ID]);
+
   useEffect(() => {
-    if (!editorMode || !draft) return;
+    // 最小化时不响应 Esc：避免把收起的编辑器静默关闭（关闭仍走 × 或取消）
+    if (!editorMode || !draft || editorDialogMinimized) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") cancelEditor();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [editorMode, draft, cancelEditor]);
+  }, [editorMode, draft, cancelEditor, editorDialogMinimized]);
 
   // 切换书籍时关闭编辑器，避免把上一本书的草稿保存到新书
   useEffect(() => {
@@ -892,6 +900,8 @@ function EntryEditorModal({
 }) {
   const nameRef = useRef<HTMLInputElement>(null);
   const contentRef = useRef<HTMLTextAreaElement>(null);
+  // 最小化：保留草稿与滚动位置，与关闭（取消）互相独立
+  const dialog = useDialogMinimize(ENTRY_EDITOR_DIALOG_ID, title, true);
 
   // 打开时自动聚焦：新增 → 名称，编辑 → 内容
   useEffect(() => {
@@ -900,23 +910,36 @@ function EntryEditorModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 ${dialog.minimizedClass}`}
       onClick={onCancel}
     >
       <div
-        className="w-full max-w-2xl max-h-[88vh] flex flex-col rounded-lg border border-amber-600/40 bg-gray-900 shadow-2xl"
+        ref={dialog.containerRef}
+        tabIndex={-1}
+        className="w-full max-w-2xl max-h-[88vh] flex flex-col rounded-lg border border-amber-600/40 bg-gray-900 shadow-2xl outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 头部 */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700 shrink-0">
           <h3 className="text-sm text-amber-300 truncate">{title}</h3>
-          <button
-            className="text-gray-400 hover:text-gray-200 text-sm px-1 shrink-0"
-            onClick={onCancel}
-            title="关闭（Esc）"
-          >
-            ✕
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              className="text-gray-400 hover:text-gray-200 text-sm px-1 shrink-0"
+              onClick={dialog.minimize}
+              title="最小化（保留草稿）"
+              aria-label="最小化对话框"
+            >
+              —
+            </button>
+            <button
+              className="text-gray-400 hover:text-gray-200 text-sm px-1 shrink-0"
+              onClick={onCancel}
+              title="关闭（Esc）"
+              aria-label="关闭对话框"
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
         {/* 表单（超高时内部滚动） */}
