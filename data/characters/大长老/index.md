@@ -1,13 +1,17 @@
 ---
 attributes:
   情绪稳定性: 9
-  战场机动: 2
+  战场机动: 4
   战斗技巧: 3
   战术规划: 8
   源石技艺适应性: 9
   物理强度: 2
   生理耐受: 5
   魅力: 8
+# 演示调参：攻击数值 ×2（派生 patk 10 → 20、matk 34 → 68）
+combat_stats:
+  patk: 20
+  matk: 68
 class: 术师
 faction: 谢拉格
 imports:

@@ -1,13 +1,17 @@
 ---
 attributes:
   情绪稳定性: 9
-  战场机动: 5
+  战场机动: 6
   战斗技巧: 4
   战术规划: 6
   源石技艺适应性: 9
   物理强度: 4
   生理耐受: 5
   魅力: 8
+# 演示调参：攻击数值 ×2（派生 patk 16 → 32、matk 30 → 60）
+combat_stats:
+  patk: 32
+  matk: 60
 class: 辅助
 faction: 喀兰贸易
 imports:

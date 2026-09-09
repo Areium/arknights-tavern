@@ -64,6 +64,7 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
 ## 6. 属性 → 战斗数值
 
 属性文档使用**中文 key**（如 `物理强度`），经 `entity.py` 的 `_ATTR_KEY_MAP` 映射为英文 key（`physical_strength` 等）；**没有旧英文 key（strength/agility）兼容映射**。数值派生公式（HP=END×12+STR×3 等）见 `combat-numerical-design.md` §3 与 `entity.py`。
+角色卡 frontmatter 可选带 `combat_stats`（与敌人卡同格式），**声明即覆盖**对应派生数值，未声明的字段继续走属性派生。
 
 ## 7. 卡牌
 

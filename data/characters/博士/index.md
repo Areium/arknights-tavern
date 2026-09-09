@@ -1,13 +1,17 @@
 ---
 attributes:
   情绪稳定性: 8
-  战场机动: 6
+  战场机动: 8
   战斗技巧: 4
   战术规划: 10
   源石技艺适应性: 3
   物理强度: 5
   生理耐受: 5
   魅力: 7
+# 演示调参：攻击数值 ×2（派生 patk 18 → 36、matk 26 → 52）
+combat_stats:
+  patk: 36
+  matk: 52
 class: 战术指挥
 faction: 罗德岛
 imports:

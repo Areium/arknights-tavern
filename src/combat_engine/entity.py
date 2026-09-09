@@ -201,6 +201,21 @@ class CombatUnit:
         max_ap = 1 + math.floor((MOB - 3) / 3)
         max_ap = max(1, min(max_ap, 4))
 
+        # 可选覆盖：角色卡 frontmatter `combat_stats`（与敌人卡同格式）直接指定最终
+        # 战斗数值，未声明的字段继续沿用属性派生结果。
+        overrides = meta.get("combat_stats", {}) or {}
+        if overrides:
+            max_hp = int(overrides.get("hp", max_hp))
+            patk = float(overrides.get("patk", patk))
+            matk = float(overrides.get("matk", matk))
+            heal = float(overrides.get("heal", heal))
+            defense = int(overrides.get("defense", defense))
+            resist = int(overrides.get("resist", resist))
+            spd = float(overrides.get("spd", spd))
+            hit = int(overrides.get("hit", hit))
+            eva = int(overrides.get("eva", eva))
+            max_ap = max(1, min(int(overrides.get("max_ap", max_ap)), 4))
+
         # Card face URL
         skin_url = ""
         skin_crop = None

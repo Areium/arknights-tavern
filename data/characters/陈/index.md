@@ -1,13 +1,17 @@
 ---
 attributes:
   情绪稳定性: 8
-  战场机动: 9
+  战场机动: 10
   战斗技巧: 9
   战术规划: 7
   源石技艺适应性: 6
   物理强度: 8
   生理耐受: 7
   魅力: 7
+# 演示调参：攻击数值 ×2（派生 patk 34 → 68、matk 26 → 52）
+combat_stats:
+  patk: 68
+  matk: 52
 class: 近卫
 faction: 龙门
 imports:

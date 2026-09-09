@@ -1,13 +1,17 @@
 ---
 attributes:
   情绪稳定性: 8
-  战场机动: 4
+  战场机动: 6
   战斗技巧: 5
   战术规划: 7
   源石技艺适应性: 4
   物理强度: 5
   生理耐受: 7
   魅力: 8
+# 演示调参：攻击数值 ×2（派生 patk 20 → 40、matk 22 → 44）
+combat_stats:
+  patk: 40
+  matk: 44
 class: 重装
 faction: 布朗陶家族
 imports:
