@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useAppStore } from "../../stores/appStore";
 import { useApi, createCombatSSE, createCombatTestSSE } from "../../hooks/useApi";
-import type { CombatEventDTO, CombatStateDTO, CombatUnitDTO, CardDTO } from "../../types";
+import type { CombatEventDTO, CombatStateDTO, CombatUnitDTO, CardDTO, CombatSettlementDTO } from "../../types";
 import PixiCombatScene, { type PixiCombatSceneHandle } from "./PixiCombatScene";
 import { audioManager } from "../../audio/audioManager";
 import CombatGrid from "./CombatGrid";
@@ -16,6 +16,7 @@ import AttackArrow from "./AttackArrow";
 import CharacterIllustration from "./CharacterIllustration";
 import CombatQuestBar from "./CombatQuestBar";
 import CardFlyOverlay, { type CardFlight } from "./CardFlyOverlay";
+import CombatSettlement from "./CombatSettlement";
 import { getCombatConfig, type LayoutMode } from "./combatConfig";
 
 const DEFAULT_ENCOUNTER = "初遇整合运动";
@@ -65,14 +66,11 @@ export default function CombatView() {
   }, [error]);
   const [result, setResult] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  // 战斗奖励结算结果（胜利后展示）
-  const [rewards, setRewards] = useState<{
-    xp: number;
-    items: string[];
-    level_ups: { name: string; level: number; attribute: string }[];
-    card_choices?: CardDTO[];
-  } | null>(null);
-  const [showRewards, setShowRewards] = useState(false);
+  // 战斗结算（胜利判定成立后自动拉取并展示，数值来自后端结算 DTO）
+  const [settlement, setSettlement] = useState<CombatSettlementDTO | null>(null);
+  const [settlementBusy, setSettlementBusy] = useState(false);
+  const [settlementError, setSettlementError] = useState<string | null>(null);
+  const settlementFetchRef = useRef(false);
   const [pickedCardId, setPickedCardId] = useState<string | null>(null);
   // 战前打法（Approach）选择
   const [approaches, setApproaches] = useState<{ id: string; label: string; hint: string; kind: string }[] | null>(null);
@@ -170,6 +168,27 @@ export default function CombatView() {
   const sessionId = combatSessionId || activeSessionId || (sessions.length > 0 ? sessions[0].id : null);
   const effectiveId = combatTestId || sessionId;
 
+  /**
+   * 拉取本场结算数据（幂等端点）：胜利判定成立后自动调用，
+   * 页面刷新 / SSE 断线时也会在 fetchState 中补拉，确保结算不遗漏。
+   */
+  const requestSettlement = useCallback(async () => {
+    if (!sessionId || combatTestId) return;
+    if (settlementFetchRef.current) return;
+    settlementFetchRef.current = true;
+    try {
+      const resp = await api.combatSettlement(sessionId);
+      if (resp?.settlement) setSettlement(resp.settlement);
+    } catch (e: any) {
+      // 结算数据生成失败不应打断战斗结束流程：给出提示，玩家可点重试
+      if (e?.status !== 404) {
+        setSettlementError(e?.message || "结算数据生成失败，请重试");
+      }
+    } finally {
+      settlementFetchRef.current = false;
+    }
+  }, [sessionId, combatTestId, api]);
+
   const fetchState = useCallback(async () => {
     if (!effectiveId) return;
     try {
@@ -179,11 +198,13 @@ export default function CombatView() {
       setCombatContext({ state: state as CombatStateDTO });
       if (state.battle_over && state.winner) {
         setResult(state.winner === "player" ? "胜利" : "失败");
+        // 胜利 → 自动进入结算流程（刷新/重连后同样补拉）
+        if (state.winner === "player") requestSettlement();
       }
     } catch {
       // no combat active
     }
-  }, [effectiveId, combatTestId, sessionId, api, setCombatContext]);
+  }, [effectiveId, combatTestId, sessionId, api, setCombatContext, requestSettlement]);
 
   const connectSSE = useCallback(() => {
     if (!effectiveId) return;
@@ -247,6 +268,10 @@ export default function CombatView() {
           if (w === "player") {
             spawnParticles("victory", [4, 4], 40);
             audioManager.playSfx("victory");
+            // 后端在 battle_end 事件里已附带结算数据（同一份持久化记录）；
+            // 若事件未携带（旧后端/断线），主动补拉一次。
+            if (ev.data.settlement) setSettlement(ev.data.settlement as CombatSettlementDTO);
+            else requestSettlement();
           } else {
             audioManager.playSfx("defeat");
           }
@@ -260,7 +285,7 @@ export default function CombatView() {
     sseRef.current = combatTestId
       ? createCombatTestSSE(combatTestId, handlers)
       : createCombatSSE(sessionId!, handlers);
-  }, [effectiveId, combatTestId, sessionId, fetchState, addDamageNumber, spawnParticles]);
+  }, [effectiveId, combatTestId, sessionId, fetchState, addDamageNumber, spawnParticles, requestSettlement]);
 
   // Auto-fetch when entering via LLM combat trigger (combat already started externally)
   useEffect(() => {
@@ -794,6 +819,10 @@ export default function CombatView() {
     }
   }, [sessionId, combatTestId, api, setCombatContext]);
 
+  /**
+   * 确认结算 → 写回剧情数值（后端幂等）→ 关闭结算面板 → 返回对话并衔接原有叙述。
+   * 写回失败时留在结算界面，保留战斗与待结算记录，可点「重试结算」。
+   */
   const handleReturnToChat = useCallback(async () => {
     if (writingBackRef.current) return;
     sseRef.current?.close();
@@ -801,6 +830,8 @@ export default function CombatView() {
     // Writeback: only for session-based combat (not test)
     if (!combatTestId && sessionId && combatState) {
       writingBackRef.current = true;
+      setSettlementBusy(true);
+      setSettlementError(null);
       const survivors = combatState.units
         .filter((u) => u.is_alive && u.team === "player")
         .map((u) => u.name);
@@ -837,29 +868,21 @@ export default function CombatView() {
             },
           });
         }
-        // 有奖励则展示奖励面板，等用户确认后再切回 chat
-        const r = resp.rewards;
-        if (r && (r.xp > 0 || (r.items && r.items.length > 0) || (r.level_ups && r.level_ups.length > 0))) {
-          setRewards(r);
-          setShowRewards(true);
-          writingBackRef.current = false;
-          return;
-        }
       } catch (e: any) {
         // 后端已无战斗状态（结果已保存过，或战斗已被清理）：写回无从谈起，
         // 不应把玩家卡在结算界面，直接返回对话
         if (e?.status === 404) {
           console.warn("combat/complete: 后端无进行中的战斗，跳过写回", e?.message);
           setSessions(sessions.map(s => s.id === sessionId ? { ...s, in_combat: false, combat: null } : s));
+        } else {
+          // 数值写回 / 存档失败：保留结算界面与待结算记录，允许重试
+          setSettlementError(`战斗结算写入失败：${e?.message || "未知错误"}`);
+          setSettlementBusy(false);
           writingBackRef.current = false;
-          setCombatContext(null);
-          setCurrentView("chat");
           return;
         }
-        alert(`战斗结果保存失败：${e?.message || "未知错误"}，请重试`);
-        writingBackRef.current = false;
-        return; // Don't clear state or switch view on failure
       }
+      setSettlementBusy(false);
       writingBackRef.current = false;
     }
 
@@ -875,9 +898,20 @@ export default function CombatView() {
       writingBackRef.current = false;
     }
 
+    setSettlement(null);
+    setSettlementError(null);
+    setPickedCardId(null);
     setCombatContext(null);
     setCurrentView("chat");
   }, [combatTestId, sessionId, combatState, encounterId, api, setCombatContext, setCurrentView, setPendingAutoNarrate, setSessions, sessions]);
+
+  /** 结算写回失败后重试：重新拉取结算数据再提交写回。 */
+  const handleRetrySettlement = useCallback(async () => {
+    setSettlementError(null);
+    settlementFetchRef.current = false;
+    await requestSettlement();
+    await handleReturnToChat();
+  }, [requestSettlement, handleReturnToChat]);
 
   // 结束测试：确认后复用 handleReturnToChat（内含测试会话销毁 + 返回对话大厅）
   const handleEndTest = useCallback(async () => {
@@ -896,14 +930,6 @@ export default function CombatView() {
       setError(e?.message || "选卡失败");
     }
   }, [sessionId, api]);
-
-  const handleRewardsContinue = useCallback(() => {
-    setShowRewards(false);
-    setRewards(null);
-    setPickedCardId(null);
-    setCombatContext(null);
-    setCurrentView("chat");
-  }, [setCombatContext, setCurrentView]);
 
   const handleUseItem = useCallback(async (itemName: string) => {
     if (!selectedUnit || selectedUnit.team !== "player") {
@@ -1633,7 +1659,7 @@ export default function CombatView() {
               取消 (Esc)
             </button>
           )}
-          {combatState.battle_over && (
+          {combatState.battle_over && !settlement && (
             <button
               className="px-5 py-1.5 text-xs bg-yellow-900/60 hover:bg-yellow-800/60 text-yellow-200 rounded-lg transition-all border border-yellow-800/50"
               onClick={handleReturnToChat}
@@ -1691,85 +1717,38 @@ export default function CombatView() {
       {/* 出牌飞行动画 */}
       <CardFlyOverlay flight={cardFlight} onDone={clearCardFlight} />
 
-      {/* Battle end overlay */}
-      {combatState.battle_over && result && (
+      {/* 战斗结算（胜利判定成立后自动展示，等玩家点「确认结算」） */}
+      {settlement && (
+        <CombatSettlement
+          settlement={settlement}
+          busy={settlementBusy}
+          error={settlementError}
+          pickedCardId={pickedCardId}
+          onCardPick={handleCardPick}
+          onConfirm={handleReturnToChat}
+          onRetry={handleRetrySettlement}
+        />
+      )}
+
+      {/* Battle end overlay（战败/撤退；胜利走结算面板） */}
+      {!settlement && combatState.battle_over && result && (
         <div className="combat-overlay-enter absolute inset-0 flex items-center justify-center bg-black/70 z-40">
           <div className="bg-surface-card border border-combat-border rounded-2xl p-10 text-center shadow-2xl">
-            {showRewards && rewards ? (
-              <>
-                <div className="text-3xl font-black mb-4 font-display tracking-widest text-combat-gold">
-                  战利品结算
-                </div>
-                <div className="text-gray-200 text-sm mb-3 font-display">
-                  获得 {rewards.xp} 点经验
-                </div>
-                {rewards.items && rewards.items.length > 0 && (
-                  <div className="text-gray-300 text-sm mb-3 font-display">
-                    掉落物品：{rewards.items.join("、")}
-                  </div>
-                )}
-                {rewards.level_ups && rewards.level_ups.length > 0 && (
-                  <div className="text-amber-300 text-sm mb-4 font-display">
-                    {rewards.level_ups.map((lu, i) => (
-                      <div key={i}>{lu.name} 升至 Lv.{lu.level}，{lu.attribute} +1</div>
-                    ))}
-                  </div>
-                )}
-                {rewards.card_choices && rewards.card_choices.length > 0 && (
-                  <div className="mb-4">
-                    <div className="text-gray-400 text-xs mb-2 font-display tracking-wider">
-                      选择一张卡加入卡组（下场战斗可用）
-                    </div>
-                    <div className="flex gap-2">
-                      {rewards.card_choices.map((c) => (
-                        <button
-                          key={c.card_id}
-                          className={"flex-1 text-left px-3 py-2 rounded-lg border transition-all " + (
-                            pickedCardId === c.card_id
-                              ? "border-cyan-400 bg-cyan-900/40 text-cyan-100"
-                              : pickedCardId
-                              ? "border-gray-700 bg-gray-900/40 text-gray-500 opacity-60"
-                              : "border-gray-700 bg-gray-900/60 hover:bg-gray-800 text-gray-200"
-                          )}
-                          onClick={() => handleCardPick(c.card_id)}
-                          disabled={!!pickedCardId}
-                        >
-                          <div className="text-xs font-bold">{c.name}</div>
-                          <div className="text-[10px] text-gray-500 mt-0.5">{c.description}</div>
-                          <div className="text-[9px] text-gray-600 mt-1">费用 {c.cost} · {c.class_required}</div>
-                        </button>
-                      ))}
-                    </div>
-                    {pickedCardId && (
-                      <div className="text-emerald-300 text-xs mt-2">✅ 已加入卡组（下场战斗可用）</div>
-                    )}
-                  </div>
-                )}
-                <button
-                  className="px-8 py-2.5 bg-cyan-900/70 hover:bg-cyan-800/70 text-cyan-200 rounded-lg transition-all border border-cyan-800/50 font-display tracking-wider"
-                  onClick={handleRewardsContinue}
-                >
-                  继续
-                </button>
-              </>
-            ) : (
-              <>
-                <div className={`text-5xl font-black mb-4 font-display tracking-widest ${
-                  result === "胜利" ? "text-combat-gold" : "text-combat-enemy"
-                }`}>
-                  {result === "胜利" ? "VICTORY" : result === "撤退" ? "RETREAT" : "DEFEAT"}
-                </div>
-                <div className="text-gray-500 text-sm mb-6 font-display">
-                  战斗结束 — 共 {combatState.round_num} 回合
-                </div>
-                <button
-                  className="px-8 py-2.5 bg-cyan-900/70 hover:bg-cyan-800/70 text-cyan-200 rounded-lg transition-all border border-cyan-800/50 font-display tracking-wider"
-                  onClick={handleReturnToChat}
-                >
-                  返回对话
-                </button>
-              </>
-            )}
+            <div className={`text-5xl font-black mb-4 font-display tracking-widest ${
+              result === "胜利" ? "text-combat-gold" : "text-combat-enemy"
+            }`}>
+              {result === "胜利" ? "VICTORY" : result === "撤退" ? "RETREAT" : "DEFEAT"}
+            </div>
+            <div className="text-gray-500 text-sm mb-6 font-display">
+              战斗结束 — 共 {combatState.round_num} 回合
+            </div>
+            <button
+              className="px-8 py-2.5 bg-cyan-900/70 hover:bg-cyan-800/70 text-cyan-200 rounded-lg transition-all border border-cyan-800/50 font-display tracking-wider disabled:opacity-50"
+              onClick={handleReturnToChat}
+              disabled={settlementBusy}
+            >
+              {settlementBusy ? "结算中…" : "返回对话"}
+            </button>
           </div>
         </div>
       )}

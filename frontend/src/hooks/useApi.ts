@@ -6,6 +6,7 @@
 
 import { useMemo } from "react";
 import { getBaseUrl } from "../utils/baseUrl";
+import type { CombatSettlementDTO } from "../types";
 
 async function uploadMultipart(path: string, fields: Record<string, string>, file: File): Promise<any> {
   const base = await getBaseUrl();
@@ -615,10 +616,23 @@ export function useApi() {
       rounds: number;
       character_stats: Record<string, any>;
     }) =>
-      request<any>(`/api/sessions/${sessionId}/combat/complete`, {
+      request<{
+        message: string;
+        history: any[];
+        settlement: CombatSettlementDTO;
+        rewards: { xp: number; items: string[]; level_ups: any[]; card_choices?: any[] };
+        auto_narrate_action: string;
+      }>(`/api/sessions/${sessionId}/combat/complete`, {
         method: "POST",
         body: JSON.stringify(data),
       }),
+
+    /** 生成/读取本场战斗的结算数据（幂等，胜利后自动调用） */
+    combatSettlement: (sessionId: string) =>
+      request<{ ok: boolean; settlement: CombatSettlementDTO | null; winner?: string; message?: string }>(
+        `/api/sessions/${sessionId}/combat/settlement`,
+        { method: "POST" },
+      ),
 
     combatAbandon: (sessionId: string) =>
       request<{ message: string; auto_narrate_action: string }>(
