@@ -100,6 +100,24 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
 - 奖励结算：XP = 遭遇 `rewards.xp` + Σ 敌人 `xp_reward`；物品 = 遭遇 `rewards.items` + 按 `drop_rate` roll 敌人 `drop_items`；升级阈值 `level×100`，+1 最低战斗属性。
 - 战斗结束回写：角色 HP 变化/受伤/死亡状态写回会话。
 
+## 10.1 战斗结算流程（`combat_settlement.py`）
+
+- **触发**：引擎 `_check_battle_end()` 判定 `winner=player`（多波次只有最后一波清空才成立）→ SSE
+  `battle_end` 下发前由 `_ensure_pending_settlement()` 自动生成并持久化待结算记录，
+  随事件 `data.settlement` 推给前端；页面刷新/断线可用 `POST /combat/settlement` 补拉（幂等）。
+- **数据源**：只读写剧情系统的会话覆盖层 `overrides.json`（`characters[name].progress` +
+  `metadata.attributes`），不新建独立战斗数值副本；写回后 `SceneManager`/`CharacterAgent`/角色面板
+  读到的即为新值。
+- **结算 DTO**：每角色 `xp_gained`、`level_before/after`、`xp_before/after`、`xp_needed`（进度条）、
+  `level_ups`、`attribute_changes`（属性 before→after）、`capped`（成长封顶）；奖励汇总含 XP/掉落/卡牌候选；
+  无经验无奖励时给 `empty_message` 而不是空列表。
+- **幂等与兜底**：待结算记录内 `applied.characters` / `applied.inventory` 逐项标记，
+  写回失败返回 500 并保留战斗与记录（前端可「重试结算」），重试不重复发放；
+  `overrides.json` 采用临时文件 + `os.replace` 原子落盘。
+- **未定义规则的默认值**：无硬等级上限（成长上限 = 8 维属性满值 10，`MAX_LEVEL=None` 可改）；
+  出阵角色无论是否阵亡都获得全额经验（`XP_FOR_DEAD_CHARACTERS=True`，沿用现有行为）；
+  未出阵角色不获得经验；遭遇 `rewards.unlock` 尚未接入（结算面板会提示）。
+
 ## 11. SSE 事件
 
 事件统一包装为 `{"type": "<事件名>", "data": {...}}`（`blueprints/combat.py`）。引擎发出的事件：
@@ -112,8 +130,9 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
 
 ## 12. API（`src/blueprints/combat.py`）
 
-`/api/sessions/<id>/combat/start|action|state|complete|events|card-pick|abandon` 及战斗测试会话对应端点；
-`start` 支持 `approach_id`（打法），`complete` 结算奖励（XP/物品/卡组候选）并回写；
+`/api/sessions/<id>/combat/start|action|state|complete|events|card-pick|abandon|settlement` 及战斗测试会话对应端点；
+`start` 支持 `approach_id`（打法），`settlement` 生成/读取待结算数据（幂等），
+`complete` 写回结算（角色成长/掉落/战斗历史）并清理战斗；
 战斗回写（HP/受伤/死亡）在 `combat_complete` 处理。
 
 ## 13. 前端

@@ -11,6 +11,7 @@
 """
 
 import json
+import os
 import re
 import copy
 import logging
@@ -65,14 +66,30 @@ class SessionOverlay:
             self._data = {}
 
     def _save(self):
+        """原子落盘：先写临时文件再 os.replace，避免中途崩溃损坏存档。
+
+        战斗结算会连续多次调用本方法（逐角色写成长），原子替换保证
+        任何一次失败都不会留下截断的 overrides.json。
+        """
         path = _get_overlay_path(self.mode, self.session_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         import time
         self._data["updated_at"] = time.time()
         self._data["session_id"] = self.session_id
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(self._data, f, ensure_ascii=False, indent=2)
-            f.write("\n")
+        tmp_path = path.with_name(path.name + ".tmp")
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(self._data, f, ensure_ascii=False, indent=2)
+                f.write("\n")
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, path)
+        finally:
+            if tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
 
     # ── 场景状态（场景角色/物品/当前对话目标） ──
 
@@ -234,6 +251,28 @@ class SessionOverlay:
             self._save()
             return True
         return False
+
+    # ── 战斗结算（待结算记录） ──
+
+    def get_pending_settlement(self) -> dict | None:
+        """读取未完成的战斗结算记录（无则 None）。
+
+        结算记录与角色成长写在同一个 overrides.json，保证「战斗结算」与
+        「剧情角色数值」共用同一数据源与同一次落盘。
+        """
+        pending = self._data.get("pending_settlement")
+        return pending if isinstance(pending, dict) else None
+
+    def set_pending_settlement(self, pending: dict) -> None:
+        """持久化待结算记录（含逐角色写回进度，供失败重试幂等跳过）。"""
+        self._data["pending_settlement"] = pending
+        self._save()
+
+    def clear_pending_settlement(self) -> None:
+        """清除待结算记录（结算全部写回成功后调用）。"""
+        if "pending_settlement" in self._data:
+            del self._data["pending_settlement"]
+            self._save()
 
     # ── 剧情/任务 ──
 

@@ -379,6 +379,74 @@ export interface CombatEventDTO {
   data: Record<string, any>;
 }
 
+// ── 战斗结算（胜负判定成立后自动进入） ──
+
+/** 单次升级记录 */
+export interface LevelUpDTO {
+  level: number;
+  attribute: string;
+  value: number;
+  delta: number;
+}
+
+/** 升级导致的属性变化 */
+export interface AttributeChangeDTO {
+  name: string;
+  before: number;
+  after: number;
+  delta: number;
+}
+
+/** 单个参战角色的结算条目 */
+export interface CharacterSettlementDTO {
+  name: string;
+  in_battle: boolean;
+  alive: boolean;
+  xp_gained: number;
+  level_before: number;
+  level_after: number;
+  level_delta: number;
+  xp_before: number;
+  xp_after: number;
+  /** 升级前等级升到下一级所需经验 */
+  xp_needed_before: number;
+  /** 结算后等级升到下一级所需经验 */
+  xp_needed: number;
+  level_ups: LevelUpDTO[];
+  attribute_changes: AttributeChangeDTO[];
+  /** 属性已满值 → 无法继续成长 */
+  capped: boolean;
+  cap_reason: string;
+}
+
+/** 结算奖励汇总 */
+export interface SettlementRewardsDTO {
+  xp_total: number;
+  enemy_xp: number;
+  items: { name: string; count: number }[];
+  cards: CardDTO[];
+  /** 遭遇声明但尚未接入的奖励字段（如 unlock） */
+  unwired: string[];
+  xp_formula: string;
+}
+
+/** 战斗结算 DTO（GET/POST /combat/settlement、SSE battle_end.data.settlement） */
+export interface CombatSettlementDTO {
+  settlement_id: string;
+  encounter_id: string;
+  encounter_name: string;
+  winner: string;
+  rounds: number;
+  reward_mult: number;
+  victory: boolean;
+  characters: CharacterSettlementDTO[];
+  rewards: SettlementRewardsDTO;
+  has_reward: boolean;
+  /** 无经验无奖励时的明确提示文案 */
+  empty_message: string | null;
+  created_at: number;
+}
+
 declare global {
   interface Window {
     electronAPI?: ElectronAPI;
