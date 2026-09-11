@@ -1,4 +1,5 @@
 import hashlib
+import os
 import re
 
 
@@ -29,6 +30,12 @@ class VectorMemory:
         """
         self.character_name = character_name
         self.embed_fn = embed_fn
+
+        # 相对路径锚定到仓库根目录：进程 cwd 不同（src/ 或根目录）时
+        # 会产生两份分裂的记忆库，统一落盘到 <repo>/data/memory
+        if not os.path.isabs(persist_dir):
+            repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            persist_dir = os.path.join(repo_root, persist_dir)
 
         import chromadb
         from chromadb.config import Settings

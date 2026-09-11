@@ -10,9 +10,7 @@ from dataclasses import dataclass, field
 from typing import Optional, Callable
 
 from combat_engine.entity import CombatUnit
-from combat_engine.grid import (Grid, PLAYER_COL_START, PLAYER_COL_END, ENEMY_COL_START,
-                   ENEMY_COL_END, TOTAL_ROWS, TOTAL_COLS, range_between,
-                   resolve_targets, is_player_zone, is_enemy_zone)
+from combat_engine.grid import Grid, range_between, resolve_targets
 from combat_engine.card import Card, CardPool
 from combat_engine.dice import check_hit, compute_damage, HitResult, DamageResult
 

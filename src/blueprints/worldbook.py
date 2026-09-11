@@ -24,7 +24,7 @@ import uuid
 from flask import Blueprint, jsonify, request
 
 from shared.helpers import json_error
-from world_book import WorldBookEntry
+from world_book import WorldBook, WorldBookEntry
 
 logger = logging.getLogger(__name__)
 

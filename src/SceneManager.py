@@ -203,16 +203,6 @@ class SceneManager:
         """返回场景中所有角色名。"""
         return list(self._agents.keys())
 
-    def get_active(self) -> str | None:
-        """返回当前对话目标角色名。"""
-        return self.active
-
-    def get_active_agent(self) -> CharacterAgent | None:
-        """返回当前对话目标的 CharacterAgent 实例。"""
-        if self.active and self.active in self._agents:
-            return self._agents[self.active]
-        return None
-
     # ── 世界书 ──
 
     def _resolve_worldbook(self):
@@ -458,28 +448,6 @@ class SceneManager:
         return results, total_usage
 
     # ── 叙述模式 ──
-
-    def build_status(self, env_context: str, player_info: dict | None = None) -> str:
-        """构建场景状态显示（置于叙述最前）。
-
-        Returns:
-            格式化的状态文本。
-        """
-        scene_chars = self.get_scene_characters()
-        active = self.active or ""
-        identity = (player_info or {}).get("identity", "博士") if player_info else "博士"
-
-        parts = []
-        if env_context:
-            parts.append(env_context)
-        if scene_chars:
-            chars_str = " · ".join(scene_chars)
-            parts.append(f"场景角色：{chars_str}")
-        else:
-            parts.append("场景角色：（无）")
-        if identity:
-            parts.append(f"玩家：{identity}")
-        return "  |  ".join(parts)
 
     _NARRATOR_SYSTEM = """\
 <role>
@@ -895,7 +863,7 @@ speaker 必须从场景角色列表选择，无法判断时用 null
         player_lines = [f"身份：{identity}"]
         if user_action:
             player_lines.append(f"操作：{user_action}")
-        context_parts.append(f"<player>\n" + "\n".join(player_lines) + "\n</player>")
+        context_parts.append("<player>\n" + "\n".join(player_lines) + "\n</player>")
 
         # 场景动态
         recent = self._scene_log[-8:]

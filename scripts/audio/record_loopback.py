@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Windows WASAPI 回环录音：录下系统正在播放的声音（含浏览器）。
+r"""Windows WASAPI 回环录音：录下系统正在播放的声音（含浏览器）。
 用法: python record_loopback.py <秒数> <输出路径>
 例:   python record_loopback.py 150 D:\CloudMusic\mureka_song1.wav
 """
@@ -9,7 +9,6 @@ import pyaudiowpatch as pyaudio
 def main():
     dur = float(sys.argv[1]) if len(sys.argv) > 1 else 60.0
     out = sys.argv[2] if len(sys.argv) > 2 else "loopback.wav"
-    rate = 48000
     p = pyaudio.PyAudio()
     try:
         wasapi = p.get_host_api_info_by_type(pyaudio.paWASAPI)

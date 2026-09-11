@@ -120,7 +120,6 @@ class LLMBackendManager:
         self._fallback: Optional[LLMEndpoint] = None
         self._all_endpoints: list[LLMEndpoint] = []
         self._lock = threading.Lock()
-        self._last_fail_time: float = 0.0
         self._endpoint_fail_time: dict[str, float] = {}
         self._verified_at: dict[str, float] = {}  # 端点最近一次健康检查通过时间
         self._detected = False
@@ -365,8 +364,8 @@ class LLMBackendManager:
 
             try:
                 llm = self._instantiate(ep)
-                test = llm.chat([{"role": "user", "content": "."}], max_tokens=1)
                 # 能返回即视为健康（错误不再伪装成文本，直接抛 LLMError）
+                llm.chat([{"role": "user", "content": "."}], max_tokens=1)
                 self._verified_at[ep.id] = now
                 return llm, ep.id
             except LLMError:
@@ -385,7 +384,6 @@ class LLMBackendManager:
             except Exception:
                 pass
 
-        self._last_fail_time = now
         return None, ""
 
     def mark_endpoint_failed(self, endpoint_id: str):
@@ -393,14 +391,6 @@ class LLMBackendManager:
         self._endpoint_fail_time[endpoint_id] = time.time()
         logger.warning("LLM 端点 %s 标记失败，%ss 内降级到备用后端",
                        endpoint_id, 30.0)
-
-    def get_llm_for_endpoint(self, endpoint_id: str) -> ApiLLM | LocalLLM | None:
-        """为指定端点创建 LLM 实例（前端手动选择时用）。"""
-        self._ensure_detected()
-        for ep in self._all_endpoints:
-            if ep.id == endpoint_id and ep.available:
-                return self._instantiate(ep)
-        return None
 
     def _instantiate(self, ep: LLMEndpoint) -> ApiLLM | LocalLLM:
         """根据端点类型创建 LLM 实例（真实失败经 on_failure 标记端点降级）。"""
@@ -436,11 +426,6 @@ class LLMBackendManager:
             "endpoints": [ep.to_dict() for ep in self._all_endpoints],
             "available": self._primary is not None and self._primary.available,
         }
-
-    def is_available(self) -> bool:
-        """是否有至少一个可用后端。"""
-        self._ensure_detected()
-        return any(ep.available for ep in self._all_endpoints)
 
     # ── 配置管理 ──
 

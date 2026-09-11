@@ -10,26 +10,10 @@ from typing import Optional
 from combat_engine.entity import CombatUnit
 
 # ── Grid dimensions ──
-PLAYER_ROWS = 3
-PLAYER_COLS = 3
-ENEMY_ROWS = 3
-ENEMY_COLS = 3
-
-# Logical column ranges
-PLAYER_COL_START = 0
-PLAYER_COL_END = 2
-ENEMY_COL_START = 3
-ENEMY_COL_END = 6
+# Column layout: cols 0-2 player zone, cols 3-6 enemy zone
 TOTAL_COLS = 7
 TOTAL_ROWS = 7
-
-
-def is_player_zone(col: int) -> bool:
-    return PLAYER_COL_START <= col <= PLAYER_COL_END
-
-
-def is_enemy_zone(col: int) -> bool:
-    return ENEMY_COL_START <= col <= ENEMY_COL_END
+ENEMY_COL_START = 3
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -63,18 +47,12 @@ class Grid:
     def get_unit_at(self, pos: tuple[int, int]) -> Optional[CombatUnit]:
         return self._cells.get(pos)
 
-    def get_position(self, unit: CombatUnit) -> Optional[tuple[int, int]]:
-        return self._positions.get(unit.unit_id)
-
     def get_units(self, team: str = "") -> list[CombatUnit]:
         """Get all units, optionally filtered by team."""
         units = list(self._cells.values())
         if team:
             units = [u for u in units if u.team == team]
         return units
-
-    def get_alive_units(self, team: str = "") -> list[CombatUnit]:
-        return [u for u in self.get_units(team) if u.is_alive]
 
     def move_unit(self, unit: CombatUnit, new_pos: tuple[int, int]) -> bool:
         """Move unit to new_pos. Returns True on success."""
@@ -89,69 +67,6 @@ class Grid:
         """Check if pos is within the grid bounds (units may move anywhere)."""
         row, col = pos
         return 0 <= row < TOTAL_ROWS and 0 <= col < TOTAL_COLS
-
-    def get_valid_moves(self, unit: CombatUnit, shared_ap: int = -1) -> list[tuple[int, int]]:
-        """Get all positions the unit can move to (1 cell Chebyshev distance).
-
-        Args:
-            unit: The unit to move.
-            shared_ap: If >= 0, used as AP check for player units instead of personal AP.
-        """
-        if unit.team == "player":
-            if shared_ap >= 0:
-                if shared_ap < 1:
-                    return []
-            elif unit.AP < 1:
-                return []
-        else:
-            if unit.AP < 1:
-                return []
-        current = unit.pos
-        if current == (-1, -1):
-            return []
-        moves = []
-        for dr in (-1, 0, 1):
-            for dc in (-1, 0, 1):
-                if dr == 0 and dc == 0:
-                    continue
-                npos = (current[0] + dr, current[1] + dc)
-                if self.is_valid_position(npos, unit.team) and not self._cells.get(npos):
-                    moves.append(npos)
-        return moves
-
-    def cells_in_range(self, origin: tuple[int, int], max_range: int,
-                       team: str = "") -> list[tuple[int, int]]:
-        """Get all empty or enemy-occupied cells within Chebyshev range of origin."""
-        cells = []
-        r0, c0 = origin
-        for dr in range(-max_range, max_range + 1):
-            for dc in range(-max_range, max_range + 1):
-                if dr == 0 and dc == 0:
-                    continue
-                pos = (r0 + dr, c0 + dc)
-                if not (0 <= pos[0] < TOTAL_ROWS and 0 <= pos[1] < TOTAL_COLS):
-                    continue
-                if team == "player":
-                    if pos[1] < ENEMY_COL_START:
-                        continue
-                elif team == "enemy":
-                    if pos[1] > PLAYER_COL_END:
-                        continue
-                cells.append(pos)
-        return cells
-
-    # ── Query ──
-
-    def units_in_range(self, origin: tuple[int, int], max_range: int,
-                       target_team: str = "") -> list[CombatUnit]:
-        """Get all units within Chebyshev range of origin."""
-        result = []
-        for pos, unit in self._cells.items():
-            if target_team and unit.team != target_team:
-                continue
-            if range_between(origin, pos) <= max_range:
-                result.append(unit)
-        return result
 
 
 # ══════════════════════════════════════════════════════════════════════════════

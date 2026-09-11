@@ -339,8 +339,6 @@ class EnvironmentState:
             if not line:
                 continue
 
-            obj_name = None
-
             # 1) 优先提取粗体名称 **Name**
             bold = re.match(r"\*\*(.+?)\*\*[：:]?\s*(.*)", line)
             if bold:

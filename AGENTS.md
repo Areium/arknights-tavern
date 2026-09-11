@@ -46,9 +46,9 @@ Electron 主进程管理窗口 + Python 子进程生命周期（`frontend/electr
 
 API 层（`src/blueprints/`）：Flask Blueprint — `chat.py`（对话/叙述/SSE/战斗触发）、`combat.py`（战斗 SSE）、`cards.py`（卡牌 JSON CRUD）、`documents.py`、`sessions.py`、`scene.py`、`environment.py`、`index.py`、`wiki.py`、`llm.py`、`assets.py`、`memories.py`、`status.py`、`worldbook.py`（书 CRUD/导入/条目/默认书/会话绑定）。
 
-战斗引擎（`src/combat_engine/`）：`engine.py`（回合循环/AP/士气）、`entity.py`（CombatUnit）、`grid.py`（7×7 寻路/范围）、`card.py`（卡牌/CardPool）、`card_data.py`（职业基础卡牌）、`card_loader.py`（`data/characters/<名>/combat.json` + `data/classes/<职业>/cards.json` → 卡牌实例）、`dice.py`。
+战斗引擎（`src/combat_engine/`）：`engine.py`（回合循环/AP/士气）、`entity.py`（CombatUnit）、`grid.py`（7×7 寻路/范围）、`card.py`（卡牌/CardPool）、`card_data.py`（职业基础卡牌）、`dice.py`。
 
-服务层（`src/services/`）：`buff_pool.py`、`dice.py`、`attribute_loader.py`。共享工具（`src/shared/`）：`helpers.py`（SSE 响应工厂、记忆注入）、`cache.py`。Provider（`src/providers/`）：`openai.py`、`deepseek.py`。
+服务层（`src/services/`）：`dice.py`、`attribute_loader.py`。共享工具（`src/shared/`）：`helpers.py`（SSE 响应工厂、记忆注入）、`cache.py`。Provider（`src/providers/`）：`openai.py`、`deepseek.py`。
 
 测试：`tests/`（gitignored，仅本地）— `test_world_book.py`、`test_worldbook_integration.py`、`test_llm_client.py`，运行 `python -m pytest tests/ -q`。
 
@@ -68,7 +68,7 @@ API 层（`src/blueprints/`）：Flask Blueprint — `chat.py`（对话/叙述/S
 
 `stores/appStore.ts`（Zustand 4）：**Key 刷新模式** — 多个自增整数 key（`envRefreshKey`、`memoryRefreshKey`、`chatRefreshKey`、`characterRefreshKey`、`sceneSwitchKey`），组件比较 key 检测数据过期。**按会话存储** — 消息/流式/发送状态按 `sessionId` 隔离，切换会话不丢失。关键状态：`combatContext`（VIEWING/TARGETING + 选中卡牌/单位）、`pendingAutoNarrate`（战后自动叙述）、`dialogueBubbleMode`（气泡/纯文本切换）。
 
-`hooks/useApi.ts`：REST + SSE 客户端（`connectSSE` GET 事件流、`createPostSSE` POST 流式），自动检测 Electron/浏览器环境。
+`hooks/useApi.ts`：REST + SSE 客户端（`connectSSE` 支持 GET/POST 事件流），自动检测 Electron/浏览器环境。
 
 **UI 皮肤系统**（`skin`）：`appStore.skin: SkinId = "default" | "prts" | "tavern"`，持久化在后端 `config/llm_config.json` 的 `skin` 字段（`src/llm_backend_manager.py` 白名单校验，非法值回落 `default`）。`App.tsx` 按 `skin` 在 `<html>` 上切换 `skin-prts` / `skin-tavern` / `light` 三个 class —— 皮肤激活时 `light` 被抑制（仅 `skin === "default" && theme === "light"` 才加），设置页的明暗开关同步置灰。两套皮肤是纯覆盖层 CSS（`src/styles/skin-prts.css`、`src/styles/skin-tavern.css`），沿用 `style.css` 中 `html.light` 的既有模式，**不做 CSS 变量重构**；其中颜色工具类覆盖块（两个文件里由 `工具类覆盖（由 scripts/gen_skin_utils.py 生成，勿手改）` 标记界定的区段）由 `scripts/gen_skin_utils.py` 按色板生成 —— 前端实际用到 243 个颜色工具类（含 `hover:` / `placeholder:` 等变体与自定义 `surface-*` 色板），手写必漏，**改配色请改脚本里的色板后重跑**（`python scripts/gen_skin_utils.py`），不要手改该区段；氛围仅静态（PRTS 扫描线、Tavern 烛光渐变），无动画，各带 `prefers-reduced-motion` 兜底。作用域用 `@scope (html.skin-*) to (.bg-combat-bg)` 界定，**战斗页不换肤**（否则它复用的大量 `bg-gray-*` / `text-gray-*` 工具类会被污染）。覆盖范围：外壳 + 会话大厅 + 管理页 + 聊天页；视觉蓝本见 `ui-styles/02-prts-holo-terminal.html`、`ui-styles/03-tavern-journal.html`。
 

@@ -702,34 +702,6 @@ export function createSSE(
 }
 
 /**
- * 创建 POST SSE 连接 — 发送 JSON body，以流式读取 SSE 响应
- */
-export function createPostSSE(
-  path: string,
-  body: Record<string, any>,
-  handlers: {
-    onText?: (token: string) => void;
-    onReasoning?: (token: string) => void;
-    onSceneEvent?: (event: any) => void;
-    onMemoryEvent?: (event: any) => void;
-    onChoice?: (options: string[]) => void;
-    onDialogueSegments?: (segments: { type: string; text: string; speaker?: string }[]) => void;
-    onTokenUsage?: (usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }) => void;
-    onCombatTrigger?: (data: { encounter_id: string; session_id: string }) => void;
-    onCombatBriefing?: (data: { encounter_id: string; session_id: string; name: string; approaches: { id: string; label: string; hint: string; kind: "combat" | "check" | "avoid" }[] }) => void;
-    onAttributeRoll?: (data: {
-      attribute: string; character: string; roll: number;
-      modifier: number; total: number; dc: number;
-      success: boolean; text: string; source: string; stream_id: string;
-    }) => void;
-    onError?: (message: string) => void;
-    onDone?: () => void;
-  }
-): { close: () => void } {
-  return connectSSE(path, "POST", body, handlers);
-}
-
-/**
  * 创建战斗 SSE 连接
  */
 export function createCombatSSE(

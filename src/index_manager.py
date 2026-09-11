@@ -2,13 +2,12 @@
 索引管理 — 全局依赖聚合 + 缓存管理。
 
 职责：
-- 提供 build_overview / build_graph_data 聚合器（基于每文档 imports frontmatter）
+- 提供 build_overview 聚合器（基于每文档 imports frontmatter）
 - 提供 invalidate_cache 显式失效
 - 提供 import 辅助函数（从旧 app.py 移入）
 """
 
 import os
-import json
 import time
 import logging
 import yaml
@@ -166,9 +165,6 @@ def build_overview(data_root: str, doc_manager=None) -> dict:
     if not categories:
         return {"categories": [], "hierarchy": []}
 
-    # 构建 level->label 映射
-    level_labels = {h["level"]: h["label"] for h in hierarchy}
-
     # Phase 1: 扫描所有文档
     cat_docs = {}  # {category: [{id, name, path, import_paths}]}
     doc_index = {}  # {path_key: {category, id, name}}  (path_key = "category/id")
@@ -250,54 +246,4 @@ def build_overview(data_root: str, doc_manager=None) -> dict:
     result = {"categories": result_categories, "hierarchy": hierarchy}
 
     _cache = {"overview": result, "graph": None, "timestamp": time.time()}
-    return result
-
-
-def build_graph_data(data_root: str, doc_manager=None) -> dict:
-    """构建依赖关系图数据。
-
-    Returns:
-        {nodes: [{id, category, name, level}], edges: [{source, target}]}
-        edges[source->target] 表示 source 导入了 target。
-    """
-    global _cache
-    if _cache_valid() and _cache["graph"]:
-        return _cache["graph"]
-
-    categories, hierarchy = _categories_and_hierarchy(data_root)
-    if not categories:
-        return {"nodes": [], "edges": []}
-
-    cat_level_map = {}
-    for h in hierarchy:
-        for c in h.get("categories", []):
-            cat_level_map[c] = h["level"]
-
-    nodes = []
-    edges = []
-    seen_nodes = set()
-
-    for cat_name, dir_rel in categories.items():
-        dir_path = dir_rel if isinstance(dir_rel, str) else dir_rel.get("dir", "")
-        if dir_path.startswith("data/"):
-            dir_path = dir_path[5:]
-        full_dir = os.path.join(data_root, dir_path) if not os.path.isabs(dir_path) else dir_path
-        docs = _scan_docs_in_category(full_dir)
-        for d in docs:
-            node_id = f"{cat_name}/{d['id']}"
-            if node_id not in seen_nodes:
-                nodes.append({
-                    "id": node_id,
-                    "category": cat_name,
-                    "name": d["name"],
-                    "level": cat_level_map.get(cat_name, 99),
-                })
-                seen_nodes.add(node_id)
-            import_paths = read_imports_from_file(d["path"])
-            for imp in import_paths:
-                edges.append({"source": node_id, "target": imp})
-
-    result = {"nodes": nodes, "edges": edges}
-
-    _cache = {"overview": _cache.get("overview"), "graph": result, "timestamp": time.time()}
     return result

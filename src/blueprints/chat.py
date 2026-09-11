@@ -6,7 +6,7 @@ import json
 import uuid
 import logging
 
-from flask import Blueprint, jsonify, request, Response, stream_with_context
+from flask import Blueprint, jsonify, request
 
 from shared.helpers import json_error, make_sse_response, inject_memory_context
 from hooks.base import HookContext

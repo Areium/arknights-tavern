@@ -12,7 +12,6 @@ Card is the fundamental action in combat. Each card has:
 
 import random
 from dataclasses import dataclass, field, fields
-from typing import Optional
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Card
@@ -95,19 +94,6 @@ class CardPool:
         self.hand = []
         self.discard = []
         self.exhaust = []
-
-    def add_card_to_deck(self, card: Card):
-        """Add a new card to the deck (from level-up or acquisition)."""
-        self.deck.append(card)
-
-    def draw_to_hand(self):
-        """Draw cards until hand is full or deck+discard exhausted."""
-        while len(self.hand) < self.hand_size:
-            if not self.deck:
-                if not self.discard:
-                    break
-                self._reshuffle_discard()
-            self.hand.append(self.deck.pop())
 
     def play_card(self, card: Card):
         """Remove card from hand. Elite → exhaust; basic → discard."""

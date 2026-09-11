@@ -17,8 +17,6 @@ Stat conversion: 1-10 roleplay attributes → combat numbers.
 """
 
 from dataclasses import dataclass, field
-from typing import Optional
-import random
 import math
 
 
@@ -101,10 +99,6 @@ class CombatUnit:
     @property
     def is_alive(self) -> bool:
         return self.hp > 0
-
-    @property
-    def is_player(self) -> bool:
-        return self.team == "player"
 
     @property
     def mobility(self) -> int:

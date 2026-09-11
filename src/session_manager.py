@@ -293,20 +293,6 @@ class Session:
             if usage.get(k):
                 self.total_usage[k] = self.total_usage.get(k, 0) + usage[k]
 
-    def start_combat(self, encounter_id: str, character_names: list[str] = None,
-                     character_metas: list[dict] = None, combat_params: dict = None):
-        """启动会话战斗。"""
-        from combat_session import CombatSession
-        if character_names is None and character_metas is None:
-            character_names = self.scene_manager.get_scene_characters()
-        combat = CombatSession(self.id)
-        combat.start(encounter_id, character_names=character_names,
-                     character_metas=character_metas, combat_params=combat_params,
-                     location=self.environment.location or "",
-                     session_dir=str(self.data_dir))
-        self.combat = combat
-        return combat
-
     def get_memories(self) -> list[dict]:
         return list(self._memories)
 

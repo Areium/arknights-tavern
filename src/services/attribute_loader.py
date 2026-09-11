@@ -83,11 +83,3 @@ class AttributeLoader:
                 if key in weather or key in time_of_day:
                     total += modifiers.get(attribute, 0)
         return total
-
-    @staticmethod
-    def cn_to_eng(attribute_cn: str) -> str | None:
-        """中文属性名 → 英文 key。"""
-        for eng, cn in ATTRIBUTE_EN_TO_CN.items():
-            if cn == attribute_cn:
-                return eng
-        return None

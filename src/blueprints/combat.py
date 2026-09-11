@@ -7,7 +7,6 @@ import uuid
 import random
 import time
 import logging
-import queue
 from pathlib import Path
 
 from flask import Blueprint, jsonify, request

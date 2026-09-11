@@ -62,25 +62,6 @@ export interface DocumentCategory {
   refs: string[];
 }
 
-/** 文档信息 */
-export interface DocumentInfo {
-  category_id: string;
-  id: string;
-  title: string;
-  hash: string;
-  mtime: number;
-  summary: string;
-}
-
-/** 文档内容 */
-export interface DocumentContent {
-  metadata: Record<string, any>;
-  content: string;
-  hash: string;
-  path: string;
-  filepath: string;
-}
-
 /** 文档树节点（来自后端） */
 export interface DocTreeNode {
   name: string;
@@ -98,26 +79,6 @@ export interface DocTreeCategory {
   category: string;
   category_info: DocumentCategory;
   children: DocTreeNode[];
-}
-
-/** 移动/重命名操作结果 */
-export interface MoveResult {
-  old_path: string;
-  new_path: string;
-  category: string;
-}
-
-/** SSE 事件 */
-export interface SSEEvent {
-  type: "text" | "scene_event" | "choice" | "heartbeat" | "error" | "done" | "meta" | "combat_trigger" | "combat_briefing";
-  data: Record<string, any>;
-}
-
-/** 群聊回复 */
-export interface GroupChatResponse {
-  character: string;
-  response: string;
-  env_updates: Record<string, any>;
 }
 
 /** Electron API （通过 preload 暴露） */
@@ -473,23 +434,6 @@ export interface IndexOverviewCategory {
 export interface IndexOverview {
   categories: IndexOverviewCategory[];
   hierarchy: { level: number; label: string; categories: string[] }[];
-}
-
-export interface IndexGraphNode {
-  id: string;
-  category: string;
-  name: string;
-  level: number;
-}
-
-export interface IndexGraphEdge {
-  source: string;
-  target: string;
-}
-
-export interface IndexGraph {
-  nodes: IndexGraphNode[];
-  edges: IndexGraphEdge[];
 }
 
 export interface SessionIndexConfig {

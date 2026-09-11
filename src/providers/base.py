@@ -11,7 +11,6 @@ class ProviderAdapter(ABC):
         - endpoint URL construction
         - authentication headers
         - request payload building
-        - response parsing (streaming and non-streaming)
         - connectivity check
     """
 
@@ -50,29 +49,6 @@ class ProviderAdapter(ABC):
         reasoning_effort: str = "medium",
     ) -> dict:
         """Build the JSON request payload for a chat completion."""
-        ...
-
-    # ── Response parsing ──
-
-    @abstractmethod
-    def parse_response(self, response_json: dict) -> dict:
-        """Parse a non-streaming API response into the standard result dict.
-
-        Returns:
-            {"type": "text", "content": "...", "reasoning": "...",
-             "usage": {...} | None, "finish_reason": str | None}
-            or {"type": "tool_call", "tool_calls": [...], ...}
-        """
-        ...
-
-    @abstractmethod
-    def parse_stream_chunk(self, chunk_json: dict) -> dict:
-        """Parse a single SSE chunk into delta tokens.
-
-        Returns:
-            {"content": str | None, "reasoning": str | None,
-             "usage": dict | None, "finish_reason": str | None}
-        """
         ...
 
     # ── Connectivity check ──

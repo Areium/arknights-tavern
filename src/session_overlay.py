@@ -245,13 +245,6 @@ class SessionOverlay:
         self._save()
         logger.info("会话 %s: 环境覆盖已更新", self.session_id)
 
-    def delete_environment_overrides(self) -> bool:
-        if "environment" in self._data:
-            del self._data["environment"]
-            self._save()
-            return True
-        return False
-
     # ── 战斗结算（待结算记录） ──
 
     def get_pending_settlement(self) -> dict | None:
@@ -279,12 +272,6 @@ class SessionOverlay:
     def get_plot_id(self) -> str | None:
         """获取当前会话绑定的剧情 ID。"""
         return self._data.get("plot_id")
-
-    def set_plot_id(self, plot_id: str):
-        """设置当前会话绑定的剧情 ID。"""
-        self._data["plot_id"] = plot_id
-        self._save()
-        logger.info("会话 %s: 剧情绑定为 %s", self.session_id, plot_id)
 
     # ── 剧情开场上下文 ──
 
@@ -327,38 +314,6 @@ class SessionOverlay:
             logger.info("会话 %s: 自定义提示词已删除", self.session_id)
 
     # ── 剧情节拍跟踪 ──
-
-    def init_beat_state(self, plot_id: str):
-        """解析剧情节拍结构并初始化节拍跟踪状态。
-
-        从 index.md 提取「## 章节与节拍」节。
-
-        beat_state 持久化到 overrides.json，节拍文本缓存在内存。
-        """
-        text = self._load_narrative_text(plot_id)
-        if not text:
-            logger.debug("剧情 %s 无节拍数据，跳过初始化", plot_id)
-            self._narrative_beats = []
-            self._narrative_text = ""
-            return
-
-        self._narrative_text = text
-        self._narrative_beats = _parse_narrative_beats(text)
-
-        if "beat_state" not in self._data:
-            self._data["beat_state"] = {
-                "chapter_idx": 0,
-                "beat_idx": 0,
-                "completed_beats": [],
-                "narrations_on_beat": 0,
-            }
-            self._save()
-
-        total_beats = sum(len(ch["beats"]) for ch in self._narrative_beats)
-        logger.info(
-            "会话 %s: 节拍状态已初始化，共 %d 章 %d 个节拍",
-            self.session_id, len(self._narrative_beats), total_beats,
-        )
 
     def _load_narrative_text(self, plot_id: str) -> str:
         """加载剧情节拍文本。
@@ -429,17 +384,6 @@ class SessionOverlay:
             return beats[ci + 1]["beats"][0]
         return None
 
-    def get_current_chapter(self) -> dict | None:
-        """获取当前章节信息。"""
-        beats = self._narrative_beats if hasattr(self, "_narrative_beats") else []
-        bs = self._data.get("beat_state", {})
-        if not beats or not bs:
-            return None
-        ci = bs.get("chapter_idx", 0)
-        if ci < len(beats):
-            return {k: v for k, v in beats[ci].items() if k != "beats"}
-        return None
-
     def _build_beat_roadmap(self) -> str:
         """构建节拍路线图——展示当前章节 ±1，远章节折叠为一行。"""
         beats = self._narrative_beats if hasattr(self, "_narrative_beats") else []
@@ -473,75 +417,6 @@ class SessionOverlay:
                     lines.append(f"{bmarker} {b['id']} — {b['summary'][:60]}")
             # 下一章（i == ci + 1）：仅显示章节标题，不展开节拍
         return "\n".join(lines)
-
-    def get_beat_context(self) -> str:
-        """构建剧情节拍定位上下文，供注入 LLM prompt。
-
-        仅作为定位参考，不包含指令——让 LLM 基于文档自然推进剧情。
-        包含：路线图（标注当前位置） + 下一节拍预告。
-        """
-        beats = self._narrative_beats if hasattr(self, "_narrative_beats") else []
-        bs = self._data.get("beat_state", {})
-        if not beats or not bs:
-            return ""
-
-        ci = bs.get("chapter_idx", 0)
-        bi = bs.get("beat_idx", 0)
-        ch = beats[ci] if ci < len(beats) else None
-        beat = beats[ci]["beats"][bi] if ch and bi < len(ch["beats"]) else None
-
-        parts = []
-
-        # 路线图
-        roadmap = self._build_beat_roadmap()
-        if roadmap:
-            parts.append(f"【剧情进度】\n{roadmap}")
-
-        # 下一节拍（仅作为方向提示，不强制）
-        next_beats = []
-        if ch:
-            for j in range(bi + 1, min(bi + 3, len(ch["beats"]))):
-                nb = ch["beats"][j]
-                next_beats.append(nb["id"])
-        if not next_beats and ci + 1 < len(beats):
-            nch = beats[ci + 1]
-            if nch["beats"]:
-                next_beats.append(nch["beats"][0]["id"])
-        if next_beats:
-            parts.append(f"下一节拍：{' → '.join(next_beats)}")
-
-        return "\n".join(parts) + "\n"
-
-    def get_narrative_full_text(self) -> str:
-        """获取 narrative.md 全文（缓存在内存中）。"""
-        if hasattr(self, "_narrative_text"):
-            return self._narrative_text
-        return ""
-
-    def get_narrative_overview(self) -> str:
-        """构建剧情结构摘要——不含具体场景描写，仅提供全局故事框架。
-
-        用于注入 LLM prompt 作为背景参考，避免具体场景描写引导 LLM 重复叙述。
-        """
-        beats = self._narrative_beats if hasattr(self, "_narrative_beats") else []
-        if not beats:
-            return ""
-
-        # 优先使用存储的剧情概述（由 init_session_docs 提取）
-        overview = self._data.get("plot_overview", "")
-
-        parts = []
-        if overview:
-            parts.append(f"【剧情概要】\n{overview}")
-
-        # 章节摘要
-        ch_summaries = []
-        for i, ch in enumerate(beats):
-            ch_summaries.append(f"第{i + 1}章 {ch['title']}：{ch.get('summary', '')}")
-        if ch_summaries:
-            parts.append("\n章节结构：\n" + "\n".join(f"  - {s}" for s in ch_summaries))
-
-        return "\n".join(parts)
 
     def advance_beat(self):
         """推进到下一个节拍。跨章节自动处理。"""
@@ -584,24 +459,6 @@ class SessionOverlay:
         new_beat = self.get_current_beat()
         new_name = new_beat["id"] if new_beat else "end"
         logger.info("会话 %s: 节拍推进 → %s", self.session_id, new_name)
-
-    def record_narration_on_beat(self):
-        """记录当前节拍的一次叙述。若超过阈值自动推进。"""
-        bs = self._data.get("beat_state", {})
-        if not bs:
-            return
-        bs["narrations_on_beat"] = bs.get("narrations_on_beat", 0) + 1
-        self._data["beat_state"] = bs
-
-        # 超过 8 轮未完成则强制推进
-        if bs["narrations_on_beat"] > 8:
-            logger.info("会话 %s: 节拍 %s 已 %d 轮，自动推进",
-                         self.session_id,
-                         (self.get_current_beat() or {}).get("id", "?"),
-                         bs["narrations_on_beat"])
-            self.advance_beat()
-        else:
-            self._save()
 
     # ── 会话自有文档管理 ──
 
@@ -936,12 +793,6 @@ class SessionOverlay:
         self._data["character_states"][name]["check_history"] = history
         self._save()
 
-    def get_check_history(self, name: str, limit: int = 10) -> list[dict]:
-        """获取角色最近的检定历史。"""
-        state = self.get_character_state(name)
-        history = state.get("check_history", [])
-        return history[-limit:] if len(history) > limit else history
-
     # ── 剧情偏离点检定节点 ──
 
     def get_plot_stat_checks(self) -> dict:
@@ -1164,7 +1015,7 @@ def _parse_narrative_beats(text: str) -> list[dict]:
     section_buf = []
 
     def flush_section():
-        nonlocal current_beat, current_section, section_buf
+        nonlocal current_section, section_buf
         if current_beat and current_section and section_buf:
             text = "\n".join(section_buf).strip()
             if text:

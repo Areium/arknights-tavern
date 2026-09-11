@@ -180,9 +180,9 @@ def register(app, managers):
                 category, doc_id, content,
                 expected_hash=expected_hash or None,
             )
-        except ConflictError as e:
+        except ConflictError:
             return json_error(
-                f"保存冲突：文件已被其他进程修改。请刷新后重试。",
+                "保存冲突：文件已被其他进程修改。请刷新后重试。",
                 409,
             )
         except DocumentNotFoundError:
@@ -423,7 +423,6 @@ def register(app, managers):
         except DocumentNotFoundError:
             return json_error(f"文档不存在: {category}/{doc_id}", 404)
 
-        content = doc.get("content", "")
         title = doc.get("metadata", {}).get("name", doc_id)
 
         # 从层级配置中获取要扫描的类别及其层级

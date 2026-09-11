@@ -5,12 +5,9 @@
 - 从 data/categories.yaml 自动发现文档类别和路径
 - 读文件时返回 SHA256 哈希，写文件时校验哈希以检测冲突
 - 支持类别子目录（如 Location/Rhode_Island/）
-- 可选集成 Git 自动提交
 """
 
 import os
-import re
-import json
 import hashlib
 import logging
 import shutil
@@ -681,25 +678,6 @@ class DocumentManager:
             except OSError:
                 break
 
-    # ── Git 集成 ──
-
-    def git_commit(self, filepath: str, message: str = None):
-        """为单个文件变更创建 Git 提交。"""
-        try:
-            import subprocess
-            rel = os.path.relpath(filepath, self._root)
-            msg = message or f"docs: update {rel}"
-            subprocess.run(
-                ["git", "add", rel],
-                cwd=self._root, capture_output=True, timeout=10,
-            )
-            subprocess.run(
-                ["git", "commit", "-m", msg, "--no-gpg-sign"],
-                cwd=self._root, capture_output=True, timeout=10,
-            )
-        except Exception as e:
-            logger.warning("Git 自动提交失败: %s", e)
-
     # ── 内部方法 ──
 
     def _resolve_path(self, category_id: str, doc_path: str) -> Optional[str]:
@@ -720,8 +698,3 @@ class DocumentManager:
             for chunk in iter(lambda: f.read(65536), b""):
                 h.update(chunk)
         return h.hexdigest()
-
-    @staticmethod
-    def hash_content(content: str) -> str:
-        """计算文本内容的 SHA256 哈希。"""
-        return hashlib.sha256(content.encode("utf-8")).hexdigest()

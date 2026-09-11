@@ -11,7 +11,6 @@ import os
 import sys
 import time
 import random
-from typing import Optional
 
 # Ensure project root and src/ are importable
 _src_dir = os.path.dirname(os.path.abspath(__file__))
@@ -24,7 +23,7 @@ from combat_engine.entity import CombatUnit
 from combat_engine.card import Card, CardPool
 from combat_engine.card_data import get_starting_deck
 from combat_engine.engine import CombatEngine, CombatEvent
-from combat_engine.grid import resolve_targets, range_between, TOTAL_ROWS, TOTAL_COLS, ENEMY_COL_START
+from combat_engine.grid import TOTAL_ROWS, TOTAL_COLS, ENEMY_COL_START
 from combat_data_loader import CombatDataLoader
 
 logger = logging.getLogger(__name__)
@@ -123,7 +122,6 @@ class CombatSession:
             # Load cards: use the class engine pool. Character-specific cards in
             # combat.json are narrative cards (0 damage / narrative SP cost), not
             # combat-engine cards — they belong to the story layer, not the engine.
-            char_name = meta.get("name", "")
             cards = get_starting_deck(char_class, count=7)
             if not cards:
                 cards = get_starting_deck("辅助", count=7)
