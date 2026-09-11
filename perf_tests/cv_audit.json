@@ -1,0 +1,2735 @@
+{
+  "records": [
+    {
+      "card_id": "defender_breach",
+      "class": "重装",
+      "cost": 2,
+      "tier": "elite",
+      "pure_effect": true,
+      "before": {
+        "min_damage": 0,
+        "max_damage": 0,
+        "atk_scale": 0.0,
+        "effects": [
+          {
+            "type": "shield",
+            "value": 12
+          }
+        ],
+        "cv": 7.65
+      },
+      "after": {
+        "min_damage": 0,
+        "max_damage": 0,
+        "atk_scale": 0.0,
+        "effects": [
+          {
+            "type": "shield",
+            "value": 12
+          }
+        ],
+        "cv": 7.65
+      },
+      "budget": 48.0,
+      "band": [
+        42.0,
+        52.0
+      ],
+      "ratio": -0.841,
+      "status": "under",
+      "exception": "effect_only（纯效果卡无法用数值缩放调整，建议按方案 §5.2 增加机制补足剩余预算——P2 内容）",
+      "history": []
+    },
+    {
+      "card_id": "defender_wall",
+      "class": "重装",
+      "cost": 2,
+      "tier": "basic",
+      "pure_effect": true,
+      "before": {
+        "min_damage": 0,
+        "max_damage": 0,
+        "atk_scale": 0.0,
+        "effects": [
+          {
+            "type": "shield",
+            "value": 6
+          }
+        ],
+        "cv": 10.8
+      },
+      "after": {
+        "min_damage": 0,
+        "max_damage": 0,
+        "atk_scale": 0.0,
+        "effects": [
+          {
+            "type": "shield",
+            "value": 12,
+            "def_scale": 0.25,
+            "duration": 1
+          }
+        ],
+        "cv": 21.6
+      },
+      "budget": 48.0,
+      "band": [
+        42.0,
+        52.0
+      ],
+      "ratio": -0.55,
+      "status": "under",
+      "exception": "effect_only（纯效果卡无法用数值缩放调整，建议按方案 §5.2 增加机制补足剩余预算——P2 内容）",
+      "history": [
+        {
+          "step": "explicit_recommendation",
+          "fields": [
+            "effects"
+          ]
+        }
+      ]
+    },
+    {
+      "card_id": "cmd_scan",
+      "class": "战术指挥",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 2,
+        "max_damage": 5,
+        "atk_scale": 0.2,
+        "effects": [
+          {
+            "type": "weaken",
+            "duration": 2
+          }
+        ],
+        "cv": 33.29
+      },
+      "after": {
+        "min_damage": 2,
+        "max_damage": 5,
+        "atk_scale": 0.2,
+        "effects": [
+          {
+            "type": "weaken",
+            "duration": 2
+          }
+        ],
+        "cv": 33.29
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": 0.387,
+      "status": "over",
+      "exception": "effect_dominated（价值主要来自状态效果，数值缩放无效；方案 §3.4 的 SELF 目标系数低估自保型技能，建议 P2 以机制补足而非堆数值）",
+      "history": []
+    },
+    {
+      "card_id": "medic_sanctuary",
+      "class": "医疗",
+      "cost": 3,
+      "tier": "elite",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 8,
+        "max_damage": 14,
+        "atk_scale": 0.7,
+        "effects": [],
+        "cv": 48.21
+      },
+      "after": {
+        "min_damage": 8,
+        "max_damage": 14,
+        "atk_scale": 0.7,
+        "effects": [],
+        "cv": 48.21
+      },
+      "budget": 72.0,
+      "band": [
+        64.0,
+        78.0
+      ],
+      "ratio": -0.33,
+      "status": "under",
+      "exception": "support_discount（纯治疗卡按稳定性溢价允许低于预算 ≤35%）",
+      "history": []
+    },
+    {
+      "card_id": "medic_miracle",
+      "class": "医疗",
+      "cost": 2,
+      "tier": "elite",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 12,
+        "max_damage": 22,
+        "atk_scale": 1.0,
+        "effects": [],
+        "cv": 32.58
+      },
+      "after": {
+        "min_damage": 12,
+        "max_damage": 22,
+        "atk_scale": 1.0,
+        "effects": [],
+        "cv": 32.58
+      },
+      "budget": 48.0,
+      "band": [
+        42.0,
+        52.0
+      ],
+      "ratio": -0.321,
+      "status": "under",
+      "exception": "support_discount（纯治疗卡按稳定性溢价允许低于预算 ≤35%）",
+      "history": []
+    },
+    {
+      "card_id": "supp_overload",
+      "class": "辅助",
+      "cost": 2,
+      "tier": "elite",
+      "pure_effect": true,
+      "before": {
+        "min_damage": 0,
+        "max_damage": 0,
+        "atk_scale": 0.0,
+        "effects": [
+          {
+            "type": "strengthen",
+            "duration": 2
+          }
+        ],
+        "cv": 33.66
+      },
+      "after": {
+        "min_damage": 0,
+        "max_damage": 0,
+        "atk_scale": 0.0,
+        "effects": [
+          {
+            "type": "strengthen",
+            "duration": 2
+          }
+        ],
+        "cv": 33.66
+      },
+      "budget": 48.0,
+      "band": [
+        42.0,
+        52.0
+      ],
+      "ratio": -0.299,
+      "status": "under",
+      "exception": "effect_only（纯效果卡无法用数值缩放调整，建议按方案 §5.2 增加机制补足剩余预算——P2 内容）",
+      "history": []
+    },
+    {
+      "card_id": "cmd_banner",
+      "class": "战术指挥",
+      "cost": 2,
+      "tier": "elite",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 6,
+        "max_damage": 12,
+        "atk_scale": 0.5,
+        "effects": [],
+        "cv": 36.41
+      },
+      "after": {
+        "min_damage": 6,
+        "max_damage": 12,
+        "atk_scale": 0.5,
+        "effects": [],
+        "cv": 36.41
+      },
+      "budget": 48.0,
+      "band": [
+        42.0,
+        52.0
+      ],
+      "ratio": -0.241,
+      "status": "under",
+      "exception": "support_discount（纯治疗卡按稳定性溢价允许低于预算 ≤35%）",
+      "history": []
+    },
+    {
+      "card_id": "medic_heal",
+      "class": "医疗",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 6,
+        "max_damage": 12,
+        "atk_scale": 0.5,
+        "effects": [],
+        "cv": 18.74
+      },
+      "after": {
+        "min_damage": 6,
+        "max_damage": 12,
+        "atk_scale": 0.5,
+        "effects": [],
+        "cv": 18.74
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": -0.219,
+      "status": "under",
+      "exception": "support_discount（方案 §5.2 明确保留治疗术数值）",
+      "history": [
+        {
+          "step": "explicit_recommendation",
+          "fields": []
+        }
+      ]
+    },
+    {
+      "card_id": "medic_group",
+      "class": "医疗",
+      "cost": 2,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 4,
+        "max_damage": 8,
+        "atk_scale": 0.3,
+        "effects": [],
+        "cv": 17.08
+      },
+      "after": {
+        "min_damage": 9,
+        "max_damage": 18,
+        "atk_scale": 0.66,
+        "effects": [],
+        "cv": 37.97
+      },
+      "budget": 48.0,
+      "band": [
+        42.0,
+        52.0
+      ],
+      "ratio": -0.209,
+      "status": "under",
+      "exception": "support_discount（纯治疗卡按稳定性溢价允许低于预算 ≤35%）",
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 2.752
+        }
+      ]
+    },
+    {
+      "card_id": "spec_backstab",
+      "class": "特种",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 5,
+        "max_damage": 9,
+        "atk_scale": 0.5,
+        "effects": [],
+        "cv": 10.4
+      },
+      "after": {
+        "min_damage": 11,
+        "max_damage": 20,
+        "atk_scale": 1.1,
+        "effects": [],
+        "cv": 28.72
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": 0.197,
+      "status": "over",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 2.212
+        }
+      ]
+    },
+    {
+      "card_id": "medic_cleanse",
+      "class": "医疗",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 3,
+        "max_damage": 7,
+        "atk_scale": 0.3,
+        "effects": [],
+        "cv": 19.29
+      },
+      "after": {
+        "min_damage": 3,
+        "max_damage": 7,
+        "atk_scale": 0.3,
+        "effects": [],
+        "cv": 19.29
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": -0.196,
+      "status": "under",
+      "exception": null,
+      "history": []
+    },
+    {
+      "card_id": "caster_shock",
+      "class": "术师",
+      "cost": 2,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 7,
+        "max_damage": 12,
+        "atk_scale": 0.6,
+        "effects": [],
+        "cv": 15.04
+      },
+      "after": {
+        "min_damage": 15,
+        "max_damage": 26,
+        "atk_scale": 1.32,
+        "effects": [],
+        "cv": 38.79
+      },
+      "budget": 48.0,
+      "band": [
+        42.0,
+        52.0
+      ],
+      "ratio": -0.192,
+      "status": "under",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 3.125
+        }
+      ]
+    },
+    {
+      "card_id": "guard_iaido",
+      "class": "近卫",
+      "cost": 3,
+      "tier": "elite",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 8,
+        "max_damage": 12,
+        "atk_scale": 0.8,
+        "effects": [],
+        "cv": 26.03
+      },
+      "after": {
+        "min_damage": 18,
+        "max_damage": 26,
+        "atk_scale": 1.5,
+        "effects": [],
+        "cv": 58.34
+      },
+      "budget": 72.0,
+      "band": [
+        64.0,
+        78.0
+      ],
+      "ratio": -0.19,
+      "status": "under",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 2.728
+        }
+      ]
+    },
+    {
+      "card_id": "medic_arts_atk",
+      "class": "医疗",
+      "cost": 2,
+      "tier": "elite",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 8,
+        "max_damage": 14,
+        "atk_scale": 0.8,
+        "effects": [],
+        "cv": 17.28
+      },
+      "after": {
+        "min_damage": 18,
+        "max_damage": 31,
+        "atk_scale": 1.5,
+        "effects": [],
+        "cv": 38.91
+      },
+      "budget": 48.0,
+      "band": [
+        42.0,
+        52.0
+      ],
+      "ratio": -0.189,
+      "status": "under",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 2.72
+        }
+      ]
+    },
+    {
+      "card_id": "defender_taunt",
+      "class": "重装",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 1,
+        "max_damage": 4,
+        "atk_scale": 0.2,
+        "effects": [
+          {
+            "type": "taunt",
+            "duration": 2,
+            "self": true
+          }
+        ],
+        "cv": 15.86
+      },
+      "after": {
+        "min_damage": 1,
+        "max_damage": 6,
+        "atk_scale": 0.29,
+        "effects": [
+          {
+            "type": "taunt",
+            "duration": 2,
+            "self": true
+          }
+        ],
+        "cv": 19.53
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": -0.186,
+      "status": "under",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 1.45
+        }
+      ]
+    },
+    {
+      "card_id": "supp_disrupt",
+      "class": "辅助",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 4,
+        "max_damage": 7,
+        "atk_scale": 0.4,
+        "effects": [
+          {
+            "type": "silence",
+            "duration": 2
+          }
+        ],
+        "cv": 28.43
+      },
+      "after": {
+        "min_damage": 4,
+        "max_damage": 7,
+        "atk_scale": 0.4,
+        "effects": [
+          {
+            "type": "silence",
+            "duration": 2
+          }
+        ],
+        "cv": 28.43
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": 0.185,
+      "status": "over",
+      "exception": null,
+      "history": []
+    },
+    {
+      "card_id": "sniper_aim",
+      "class": "狙击",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 5,
+        "max_damage": 9,
+        "atk_scale": 0.5,
+        "effects": [],
+        "cv": 11.44
+      },
+      "after": {
+        "min_damage": 10,
+        "max_damage": 18,
+        "atk_scale": 1.01,
+        "effects": [],
+        "cv": 28.37
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": 0.182,
+      "status": "over",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 2.01
+        }
+      ]
+    },
+    {
+      "card_id": "defender_fortress",
+      "class": "重装",
+      "cost": 1,
+      "tier": "elite",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 15,
+        "max_damage": 25,
+        "atk_scale": 0.8,
+        "effects": [],
+        "cv": 28.32
+      },
+      "after": {
+        "min_damage": 15,
+        "max_damage": 25,
+        "atk_scale": 0.8,
+        "effects": [],
+        "cv": 28.32
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": 0.18,
+      "status": "over",
+      "exception": null,
+      "history": []
+    },
+    {
+      "card_id": "supp_debuff",
+      "class": "辅助",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 1,
+        "max_damage": 4,
+        "atk_scale": 0.2,
+        "effects": [
+          {
+            "type": "weaken",
+            "duration": 2
+          }
+        ],
+        "cv": 18.42
+      },
+      "after": {
+        "min_damage": 1,
+        "max_damage": 5,
+        "atk_scale": 0.25,
+        "effects": [
+          {
+            "type": "weaken",
+            "duration": 2
+          }
+        ],
+        "cv": 19.84
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": -0.173,
+      "status": "under",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 1.249
+        }
+      ]
+    },
+    {
+      "card_id": "supp_zone",
+      "class": "辅助",
+      "cost": 2,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 3,
+        "max_damage": 6,
+        "atk_scale": 0.3,
+        "effects": [
+          {
+            "type": "weaken",
+            "duration": 2
+          }
+        ],
+        "cv": 39.8
+      },
+      "after": {
+        "min_damage": 3,
+        "max_damage": 6,
+        "atk_scale": 0.3,
+        "effects": [
+          {
+            "type": "weaken",
+            "duration": 2
+          }
+        ],
+        "cv": 39.8
+      },
+      "budget": 48.0,
+      "band": [
+        42.0,
+        52.0
+      ],
+      "ratio": -0.171,
+      "status": "under",
+      "exception": null,
+      "history": []
+    },
+    {
+      "card_id": "sniper_lethal",
+      "class": "狙击",
+      "cost": 3,
+      "tier": "elite",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 12,
+        "max_damage": 22,
+        "atk_scale": 1.5,
+        "effects": [],
+        "cv": 35.16
+      },
+      "after": {
+        "min_damage": 36,
+        "max_damage": 65,
+        "atk_scale": 1.5,
+        "effects": [],
+        "cv": 60.21
+      },
+      "budget": 72.0,
+      "band": [
+        64.0,
+        78.0
+      ],
+      "ratio": -0.164,
+      "status": "under",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 2.019
+        },
+        {
+          "step": "scale_up",
+          "factor": 1.483
+        }
+      ]
+    },
+    {
+      "card_id": "vang_quick",
+      "class": "先锋",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 5,
+        "max_damage": 8,
+        "atk_scale": 0.5,
+        "effects": [],
+        "cv": 10.0
+      },
+      "after": {
+        "min_damage": 11,
+        "max_damage": 18,
+        "atk_scale": 1.1,
+        "effects": [],
+        "cv": 27.92
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": 0.163,
+      "status": "over",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 2.3
+        }
+      ]
+    },
+    {
+      "card_id": "caster_storm",
+      "class": "术师",
+      "cost": 2,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 5,
+        "max_damage": 10,
+        "atk_scale": 0.5,
+        "effects": [],
+        "cv": 20.41
+      },
+      "after": {
+        "min_damage": 11,
+        "max_damage": 22,
+        "atk_scale": 1.1,
+        "effects": [],
+        "cv": 55.79
+      },
+      "budget": 48.0,
+      "band": [
+        42.0,
+        52.0
+      ],
+      "ratio": 0.162,
+      "status": "over",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 2.303
+        }
+      ]
+    },
+    {
+      "card_id": "defender_shield",
+      "class": "重装",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 3,
+        "max_damage": 6,
+        "atk_scale": 0.4,
+        "effects": [],
+        "cv": 6.48
+      },
+      "after": {
+        "min_damage": 7,
+        "max_damage": 13,
+        "atk_scale": 0.88,
+        "effects": [],
+        "cv": 20.1
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": -0.162,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 3.549
+        }
+      ]
+    },
+    {
+      "card_id": "defender_quake_elite",
+      "class": "重装",
+      "cost": 3,
+      "tier": "elite",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 6,
+        "max_damage": 12,
+        "atk_scale": 0.7,
+        "effects": [],
+        "cv": 24.24
+      },
+      "after": {
+        "min_damage": 13,
+        "max_damage": 26,
+        "atk_scale": 1.5,
+        "effects": [],
+        "cv": 60.59
+      },
+      "budget": 72.0,
+      "band": [
+        64.0,
+        78.0
+      ],
+      "ratio": -0.158,
+      "status": "under",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 2.929
+        }
+      ]
+    },
+    {
+      "card_id": "spec_evade",
+      "class": "特种",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 2,
+        "max_damage": 5,
+        "atk_scale": 0.3,
+        "effects": [
+          {
+            "type": "evade",
+            "duration": 2,
+            "self": true
+          }
+        ],
+        "cv": 16.96
+      },
+      "after": {
+        "min_damage": 3,
+        "max_damage": 7,
+        "atk_scale": 0.41,
+        "effects": [
+          {
+            "type": "evade",
+            "duration": 2,
+            "self": true
+          }
+        ],
+        "cv": 20.27
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": -0.155,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 1.356
+        }
+      ]
+    },
+    {
+      "card_id": "supp_control",
+      "class": "辅助",
+      "cost": 3,
+      "tier": "elite",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 8,
+        "max_damage": 12,
+        "atk_scale": 0.7,
+        "effects": [],
+        "cv": 24.5
+      },
+      "after": {
+        "min_damage": 18,
+        "max_damage": 26,
+        "atk_scale": 1.5,
+        "effects": [],
+        "cv": 61.26
+      },
+      "budget": 72.0,
+      "band": [
+        64.0,
+        78.0
+      ],
+      "ratio": -0.149,
+      "status": "under",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 2.898
+        }
+      ]
+    },
+    {
+      "card_id": "guard_true_silver",
+      "class": "近卫",
+      "cost": 3,
+      "tier": "elite",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 12,
+        "max_damage": 20,
+        "atk_scale": 1.2,
+        "effects": [],
+        "cv": 58.04
+      },
+      "after": {
+        "min_damage": 14,
+        "max_damage": 20,
+        "atk_scale": 1.25,
+        "effects": [],
+        "cv": 61.34
+      },
+      "budget": 72.0,
+      "band": [
+        64.0,
+        78.0
+      ],
+      "ratio": -0.148,
+      "status": "under",
+      "exception": null,
+      "history": [
+        {
+          "step": "explicit_recommendation",
+          "fields": [
+            "min_damage",
+            "max_damage",
+            "atk_scale"
+          ]
+        }
+      ]
+    },
+    {
+      "card_id": "vang_dash",
+      "class": "先锋",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 3,
+        "max_damage": 6,
+        "atk_scale": 0.3,
+        "effects": [],
+        "cv": 7.9
+      },
+      "after": {
+        "min_damage": 7,
+        "max_damage": 13,
+        "atk_scale": 0.66,
+        "effects": [],
+        "cv": 27.5
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": 0.146,
+      "status": "over",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 2.911
+        }
+      ]
+    },
+    {
+      "card_id": "guard_will",
+      "class": "近卫",
+      "cost": 1,
+      "tier": "elite",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 10,
+        "max_damage": 18,
+        "atk_scale": 0.6,
+        "effects": [],
+        "cv": 20.52
+      },
+      "after": {
+        "min_damage": 10,
+        "max_damage": 18,
+        "atk_scale": 0.6,
+        "effects": [],
+        "cv": 20.52
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": -0.145,
+      "status": "in_band",
+      "exception": null,
+      "history": []
+    },
+    {
+      "card_id": "spec_execute",
+      "class": "特种",
+      "cost": 2,
+      "tier": "elite",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 10,
+        "max_damage": 18,
+        "atk_scale": 1.0,
+        "effects": [],
+        "cv": 21.76
+      },
+      "after": {
+        "min_damage": 22,
+        "max_damage": 39,
+        "atk_scale": 1.5,
+        "effects": [],
+        "cv": 41.14
+      },
+      "budget": 48.0,
+      "band": [
+        42.0,
+        52.0
+      ],
+      "ratio": -0.143,
+      "status": "under",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 2.16
+        }
+      ]
+    },
+    {
+      "card_id": "guard_pierce",
+      "class": "近卫",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 6,
+        "max_damage": 10,
+        "atk_scale": 0.6,
+        "effects": [],
+        "cv": 15.52
+      },
+      "after": {
+        "min_damage": 10,
+        "max_damage": 14,
+        "atk_scale": 0.7,
+        "effects": [],
+        "cv": 20.64
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": -0.14,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "explicit_recommendation",
+          "fields": [
+            "min_damage",
+            "max_damage",
+            "atk_scale",
+            "ignore_def"
+          ]
+        }
+      ]
+    },
+    {
+      "card_id": "vang_blitz",
+      "class": "先锋",
+      "cost": 2,
+      "tier": "elite",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 8,
+        "max_damage": 12,
+        "atk_scale": 0.8,
+        "effects": [],
+        "cv": 16.56
+      },
+      "after": {
+        "min_damage": 23,
+        "max_damage": 33,
+        "atk_scale": 1.5,
+        "effects": [],
+        "cv": 41.41
+      },
+      "budget": 48.0,
+      "band": [
+        42.0,
+        52.0
+      ],
+      "ratio": -0.137,
+      "status": "under",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 2.838
+        },
+        {
+          "step": "scale_up",
+          "factor": 1.266
+        }
+      ]
+    },
+    {
+      "card_id": "guard_slash",
+      "class": "近卫",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 5,
+        "max_damage": 9,
+        "atk_scale": 0.5,
+        "effects": [],
+        "cv": 10.4
+      },
+      "after": {
+        "min_damage": 12,
+        "max_damage": 16,
+        "atk_scale": 0.75,
+        "effects": [],
+        "cv": 20.8
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": -0.133,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "explicit_recommendation",
+          "fields": [
+            "min_damage",
+            "max_damage",
+            "atk_scale"
+          ]
+        }
+      ]
+    },
+    {
+      "card_id": "supp_nullify",
+      "class": "辅助",
+      "cost": 3,
+      "tier": "elite",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 6,
+        "max_damage": 10,
+        "atk_scale": 0.6,
+        "effects": [
+          {
+            "type": "silence",
+            "duration": 2
+          }
+        ],
+        "cv": 52.89
+      },
+      "after": {
+        "min_damage": 8,
+        "max_damage": 13,
+        "atk_scale": 0.81,
+        "effects": [
+          {
+            "type": "silence",
+            "duration": 2
+          }
+        ],
+        "cv": 62.58
+      },
+      "budget": 72.0,
+      "band": [
+        64.0,
+        78.0
+      ],
+      "ratio": -0.131,
+      "status": "under",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 1.342
+        }
+      ]
+    },
+    {
+      "card_id": "vang_decimate",
+      "class": "先锋",
+      "cost": 3,
+      "tier": "elite",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 6,
+        "max_damage": 10,
+        "atk_scale": 0.7,
+        "effects": [],
+        "cv": 18.54
+      },
+      "after": {
+        "min_damage": 25,
+        "max_damage": 42,
+        "atk_scale": 1.5,
+        "effects": [],
+        "cv": 62.61
+      },
+      "budget": 72.0,
+      "band": [
+        64.0,
+        78.0
+      ],
+      "ratio": -0.13,
+      "status": "under",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 3.83
+        },
+        {
+          "step": "scale_up",
+          "factor": 1.516
+        },
+        {
+          "step": "scale_up",
+          "factor": 1.274
+        }
+      ]
+    },
+    {
+      "card_id": "medic_regen",
+      "class": "医疗",
+      "cost": 2,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 3,
+        "max_damage": 6,
+        "atk_scale": 0.2,
+        "effects": [],
+        "cv": 8.7
+      },
+      "after": {
+        "min_damage": 15,
+        "max_damage": 29,
+        "atk_scale": 0.97,
+        "effects": [],
+        "cv": 42.34
+      },
+      "budget": 48.0,
+      "band": [
+        42.0,
+        52.0
+      ],
+      "ratio": -0.118,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 5.402
+        },
+        {
+          "step": "scale_up",
+          "factor": 2.445
+        }
+      ]
+    },
+    {
+      "card_id": "supp_slow",
+      "class": "辅助",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 2,
+        "max_damage": 5,
+        "atk_scale": 0.2,
+        "effects": [
+          {
+            "type": "slow",
+            "duration": 2
+          }
+        ],
+        "cv": 15.79
+      },
+      "after": {
+        "min_damage": 4,
+        "max_damage": 9,
+        "atk_scale": 0.35,
+        "effects": [
+          {
+            "type": "slow",
+            "duration": 2
+          }
+        ],
+        "cv": 21.34
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": -0.111,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 1.457
+        },
+        {
+          "step": "scale_up",
+          "factor": 1.219
+        }
+      ]
+    },
+    {
+      "card_id": "spec_ambush",
+      "class": "特种",
+      "cost": 3,
+      "tier": "elite",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 8,
+        "max_damage": 14,
+        "atk_scale": 0.9,
+        "effects": [],
+        "cv": 18.99
+      },
+      "after": {
+        "min_damage": 44,
+        "max_damage": 76,
+        "atk_scale": 1.5,
+        "effects": [],
+        "cv": 64.26
+      },
+      "budget": 72.0,
+      "band": [
+        64.0,
+        78.0
+      ],
+      "ratio": -0.107,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 3.739
+        },
+        {
+          "step": "scale_up",
+          "factor": 1.825
+        },
+        {
+          "step": "scale_up",
+          "factor": 1.326
+        }
+      ]
+    },
+    {
+      "card_id": "caster_missile",
+      "class": "术师",
+      "cost": 2,
+      "tier": "elite",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 10,
+        "max_damage": 18,
+        "atk_scale": 1.0,
+        "effects": [],
+        "cv": 23.94
+      },
+      "after": {
+        "min_damage": 20,
+        "max_damage": 35,
+        "atk_scale": 1.5,
+        "effects": [],
+        "cv": 43.01
+      },
+      "budget": 48.0,
+      "band": [
+        42.0,
+        52.0
+      ],
+      "ratio": -0.104,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 1.963
+        }
+      ]
+    },
+    {
+      "card_id": "medic_shield",
+      "class": "医疗",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 5,
+        "max_damage": 10,
+        "atk_scale": 0.4,
+        "effects": [
+          {
+            "type": "shield",
+            "value": 8
+          }
+        ],
+        "cv": 21.56
+      },
+      "after": {
+        "min_damage": 5,
+        "max_damage": 10,
+        "atk_scale": 0.4,
+        "effects": [
+          {
+            "type": "shield",
+            "value": 8
+          }
+        ],
+        "cv": 21.56
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": -0.102,
+      "status": "in_band",
+      "exception": null,
+      "history": []
+    },
+    {
+      "card_id": "guard_cleave",
+      "class": "近卫",
+      "cost": 2,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 3,
+        "max_damage": 6,
+        "atk_scale": 0.3,
+        "effects": [],
+        "cv": 8.21
+      },
+      "after": {
+        "min_damage": 12,
+        "max_damage": 21,
+        "atk_scale": 1.09,
+        "effects": [],
+        "cv": 52.79
+      },
+      "budget": 48.0,
+      "band": [
+        42.0,
+        52.0
+      ],
+      "ratio": 0.1,
+      "status": "over",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 5.725
+        },
+        {
+          "step": "scale_up",
+          "factor": 1.645
+        }
+      ]
+    },
+    {
+      "card_id": "defender_quake",
+      "class": "重装",
+      "cost": 2,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 3,
+        "max_damage": 6,
+        "atk_scale": 0.3,
+        "effects": [],
+        "cv": 8.21
+      },
+      "after": {
+        "min_damage": 12,
+        "max_damage": 21,
+        "atk_scale": 1.09,
+        "effects": [],
+        "cv": 52.79
+      },
+      "budget": 48.0,
+      "band": [
+        42.0,
+        52.0
+      ],
+      "ratio": 0.1,
+      "status": "over",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 5.725
+        },
+        {
+          "step": "scale_up",
+          "factor": 1.645
+        }
+      ]
+    },
+    {
+      "card_id": "vang_stab",
+      "class": "先锋",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 4,
+        "max_damage": 7,
+        "atk_scale": 0.4,
+        "effects": [],
+        "cv": 7.28
+      },
+      "after": {
+        "min_damage": 9,
+        "max_damage": 15,
+        "atk_scale": 0.88,
+        "effects": [],
+        "cv": 21.7
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": -0.096,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 3.159
+        }
+      ]
+    },
+    {
+      "card_id": "spec_smoke",
+      "class": "特种",
+      "cost": 2,
+      "tier": "elite",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 5,
+        "max_damage": 9,
+        "atk_scale": 0.5,
+        "effects": [
+          {
+            "type": "blind",
+            "duration": 2
+          }
+        ],
+        "cv": 37.91
+      },
+      "after": {
+        "min_damage": 6,
+        "max_damage": 11,
+        "atk_scale": 0.62,
+        "effects": [
+          {
+            "type": "blind",
+            "duration": 2
+          }
+        ],
+        "cv": 43.54
+      },
+      "budget": 48.0,
+      "band": [
+        42.0,
+        52.0
+      ],
+      "ratio": -0.093,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 1.24
+        }
+      ]
+    },
+    {
+      "card_id": "guard_heavy",
+      "class": "近卫",
+      "cost": 2,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 8,
+        "max_damage": 14,
+        "atk_scale": 0.8,
+        "effects": [],
+        "cv": 19.36
+      },
+      "after": {
+        "min_damage": 18,
+        "max_damage": 31,
+        "atk_scale": 1.5,
+        "effects": [],
+        "cv": 43.6
+      },
+      "budget": 48.0,
+      "band": [
+        42.0,
+        52.0
+      ],
+      "ratio": -0.092,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 2.428
+        }
+      ]
+    },
+    {
+      "card_id": "sniper_explosive",
+      "class": "狙击",
+      "cost": 2,
+      "tier": "elite",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 8,
+        "max_damage": 12,
+        "atk_scale": 0.8,
+        "effects": [],
+        "cv": 25.16
+      },
+      "after": {
+        "min_damage": 15,
+        "max_damage": 22,
+        "atk_scale": 1.49,
+        "effects": [],
+        "cv": 52.34
+      },
+      "budget": 48.0,
+      "band": [
+        42.0,
+        52.0
+      ],
+      "ratio": 0.09,
+      "status": "over",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 1.868
+        }
+      ]
+    },
+    {
+      "card_id": "sniper_ap_round",
+      "class": "狙击",
+      "cost": 2,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 4,
+        "max_damage": 7,
+        "atk_scale": 0.4,
+        "effects": [],
+        "cv": 17.57
+      },
+      "after": {
+        "min_damage": 9,
+        "max_damage": 15,
+        "atk_scale": 0.88,
+        "effects": [],
+        "cv": 43.73
+      },
+      "budget": 48.0,
+      "band": [
+        42.0,
+        52.0
+      ],
+      "ratio": -0.089,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 2.675
+        }
+      ]
+    },
+    {
+      "card_id": "cmd_trap",
+      "class": "战术指挥",
+      "cost": 3,
+      "tier": "elite",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 10,
+        "max_damage": 16,
+        "atk_scale": 0.9,
+        "effects": [],
+        "cv": 21.39
+      },
+      "after": {
+        "min_damage": 45,
+        "max_damage": 71,
+        "atk_scale": 1.5,
+        "effects": [],
+        "cv": 65.82
+      },
+      "budget": 72.0,
+      "band": [
+        64.0,
+        78.0
+      ],
+      "ratio": -0.086,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 3.319
+        },
+        {
+          "step": "scale_up",
+          "factor": 1.622
+        },
+        {
+          "step": "scale_up",
+          "factor": 1.241
+        }
+      ]
+    },
+    {
+      "card_id": "vang_recon",
+      "class": "先锋",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 2,
+        "max_damage": 4,
+        "atk_scale": 0.2,
+        "effects": [
+          {
+            "type": "weaken",
+            "duration": 2
+          }
+        ],
+        "cv": 26.01
+      },
+      "after": {
+        "min_damage": 2,
+        "max_damage": 4,
+        "atk_scale": 0.2,
+        "effects": [
+          {
+            "type": "weaken",
+            "duration": 2
+          }
+        ],
+        "cv": 26.01
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": 0.084,
+      "status": "over",
+      "exception": null,
+      "history": []
+    },
+    {
+      "card_id": "supp_bind",
+      "class": "辅助",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 3,
+        "max_damage": 6,
+        "atk_scale": 0.3,
+        "effects": [
+          {
+            "type": "bind",
+            "duration": 2
+          }
+        ],
+        "cv": 22.11
+      },
+      "after": {
+        "min_damage": 3,
+        "max_damage": 6,
+        "atk_scale": 0.3,
+        "effects": [
+          {
+            "type": "bind",
+            "duration": 2
+          }
+        ],
+        "cv": 22.11
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": -0.079,
+      "status": "in_band",
+      "exception": null,
+      "history": []
+    },
+    {
+      "card_id": "defender_bash",
+      "class": "重装",
+      "cost": 2,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 5,
+        "max_damage": 9,
+        "atk_scale": 0.5,
+        "effects": [],
+        "cv": 10.4
+      },
+      "after": {
+        "min_damage": 18,
+        "max_damage": 33,
+        "atk_scale": 1.5,
+        "effects": [],
+        "cv": 44.4
+      },
+      "budget": 48.0,
+      "band": [
+        42.0,
+        52.0
+      ],
+      "ratio": -0.075,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 4.519
+        },
+        {
+          "step": "scale_up",
+          "factor": 1.636
+        }
+      ]
+    },
+    {
+      "card_id": "vang_flurry",
+      "class": "先锋",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 3,
+        "max_damage": 5,
+        "atk_scale": 0.3,
+        "effects": [],
+        "cv": 4.16
+      },
+      "after": {
+        "min_damage": 11,
+        "max_damage": 17,
+        "atk_scale": 1.01,
+        "effects": [],
+        "cv": 25.79
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": 0.075,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 5.529
+        },
+        {
+          "step": "scale_up",
+          "factor": 1.526
+        }
+      ]
+    },
+    {
+      "card_id": "cmd_orbital",
+      "class": "战术指挥",
+      "cost": 3,
+      "tier": "elite",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 8,
+        "max_damage": 14,
+        "atk_scale": 0.8,
+        "effects": [],
+        "cv": 29.62
+      },
+      "after": {
+        "min_damage": 18,
+        "max_damage": 31,
+        "atk_scale": 1.5,
+        "effects": [],
+        "cv": 66.71
+      },
+      "budget": 72.0,
+      "band": [
+        64.0,
+        78.0
+      ],
+      "ratio": -0.073,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 2.397
+        }
+      ]
+    },
+    {
+      "card_id": "sniper_rain",
+      "class": "狙击",
+      "cost": 2,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 3,
+        "max_damage": 6,
+        "atk_scale": 0.3,
+        "effects": [],
+        "cv": 9.03
+      },
+      "after": {
+        "min_damage": 10,
+        "max_damage": 19,
+        "atk_scale": 0.99,
+        "effects": [],
+        "cv": 51.1
+      },
+      "budget": 48.0,
+      "band": [
+        42.0,
+        52.0
+      ],
+      "ratio": 0.065,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 5.205
+        },
+        {
+          "step": "scale_up",
+          "factor": 1.495
+        }
+      ]
+    },
+    {
+      "card_id": "spec_shadow",
+      "class": "特种",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 3,
+        "max_damage": 5,
+        "atk_scale": 0.3,
+        "effects": [],
+        "cv": 4.37
+      },
+      "after": {
+        "min_damage": 10,
+        "max_damage": 16,
+        "atk_scale": 0.96,
+        "effects": [],
+        "cv": 25.23
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": 0.051,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 5.263
+        },
+        {
+          "step": "scale_up",
+          "factor": 1.453
+        }
+      ]
+    },
+    {
+      "card_id": "cmd_strike",
+      "class": "战术指挥",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 4,
+        "max_damage": 8,
+        "atk_scale": 0.4,
+        "effects": [],
+        "cv": 8.45
+      },
+      "after": {
+        "min_damage": 9,
+        "max_damage": 18,
+        "atk_scale": 0.88,
+        "effects": [],
+        "cv": 25.19
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": 0.05,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 2.722
+        }
+      ]
+    },
+    {
+      "card_id": "spec_shift",
+      "class": "特种",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 3,
+        "max_damage": 6,
+        "atk_scale": 0.3,
+        "effects": [],
+        "cv": 4.79
+      },
+      "after": {
+        "min_damage": 10,
+        "max_damage": 18,
+        "atk_scale": 0.91,
+        "effects": [],
+        "cv": 25.07
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": 0.045,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 4.802
+        },
+        {
+          "step": "scale_up",
+          "factor": 1.38
+        }
+      ]
+    },
+    {
+      "card_id": "cmd_shell",
+      "class": "战术指挥",
+      "cost": 2,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 3,
+        "max_damage": 7,
+        "atk_scale": 0.4,
+        "effects": [],
+        "cv": 10.97
+      },
+      "after": {
+        "min_damage": 10,
+        "max_damage": 21,
+        "atk_scale": 1.24,
+        "effects": [],
+        "cv": 50.1
+      },
+      "budget": 48.0,
+      "band": [
+        42.0,
+        52.0
+      ],
+      "ratio": 0.044,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 4.284
+        },
+        {
+          "step": "scale_up",
+          "factor": 1.41
+        }
+      ]
+    },
+    {
+      "card_id": "caster_nova",
+      "class": "术师",
+      "cost": 2,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 4,
+        "max_damage": 7,
+        "atk_scale": 0.4,
+        "effects": [],
+        "cv": 11.08
+      },
+      "after": {
+        "min_damage": 13,
+        "max_damage": 21,
+        "atk_scale": 1.25,
+        "effects": [],
+        "cv": 49.94
+      },
+      "budget": 48.0,
+      "band": [
+        42.0,
+        52.0
+      ],
+      "ratio": 0.04,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 4.242
+        },
+        {
+          "step": "scale_up",
+          "factor": 1.423
+        }
+      ]
+    },
+    {
+      "card_id": "caster_burn",
+      "class": "术师",
+      "cost": 3,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 3,
+        "max_damage": 6,
+        "atk_scale": 0.3,
+        "effects": [
+          {
+            "type": "burn",
+            "value": 13,
+            "duration": 2
+          }
+        ],
+        "cv": 39.43
+      },
+      "after": {
+        "min_damage": 10,
+        "max_damage": 19,
+        "atk_scale": 0.95,
+        "effects": [
+          {
+            "type": "burn",
+            "value": 13,
+            "duration": 2
+          }
+        ],
+        "cv": 74.91
+      },
+      "budget": 72.0,
+      "band": [
+        64.0,
+        78.0
+      ],
+      "ratio": 0.04,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 4.034
+        },
+        {
+          "step": "scale_up",
+          "factor": 1.439
+        }
+      ]
+    },
+    {
+      "card_id": "guard_wide",
+      "class": "近卫",
+      "cost": 2,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 4,
+        "max_damage": 7,
+        "atk_scale": 0.4,
+        "effects": [],
+        "cv": 10.56
+      },
+      "after": {
+        "min_damage": 13,
+        "max_damage": 22,
+        "atk_scale": 1.31,
+        "effects": [],
+        "cv": 49.81
+      },
+      "budget": 48.0,
+      "band": [
+        42.0,
+        52.0
+      ],
+      "ratio": 0.038,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 4.451
+        },
+        {
+          "step": "scale_up",
+          "factor": 1.494
+        }
+      ]
+    },
+    {
+      "card_id": "sniper_extreme",
+      "class": "狙击",
+      "cost": 3,
+      "tier": "elite",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 10,
+        "max_damage": 15,
+        "atk_scale": 1.0,
+        "effects": [],
+        "cv": 45.63
+      },
+      "after": {
+        "min_damage": 16,
+        "max_damage": 23,
+        "atk_scale": 1.5,
+        "effects": [],
+        "cv": 74.05
+      },
+      "budget": 72.0,
+      "band": [
+        64.0,
+        78.0
+      ],
+      "ratio": 0.028,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 1.556
+        }
+      ]
+    },
+    {
+      "card_id": "caster_void",
+      "class": "术师",
+      "cost": 3,
+      "tier": "elite",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 8,
+        "max_damage": 14,
+        "atk_scale": 0.8,
+        "effects": [],
+        "cv": 31.1
+      },
+      "after": {
+        "min_damage": 18,
+        "max_damage": 31,
+        "atk_scale": 1.5,
+        "effects": [],
+        "cv": 70.04
+      },
+      "budget": 72.0,
+      "band": [
+        64.0,
+        78.0
+      ],
+      "ratio": -0.027,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 2.283
+        }
+      ]
+    },
+    {
+      "card_id": "cmd_rally",
+      "class": "战术指挥",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 4,
+        "max_damage": 8,
+        "atk_scale": 0.3,
+        "effects": [],
+        "cv": 11.78
+      },
+      "after": {
+        "min_damage": 8,
+        "max_damage": 16,
+        "atk_scale": 0.59,
+        "effects": [],
+        "cv": 23.35
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": -0.027,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 1.952
+        }
+      ]
+    },
+    {
+      "card_id": "sniper_rapid",
+      "class": "狙击",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 3,
+        "max_damage": 6,
+        "atk_scale": 0.3,
+        "effects": [],
+        "cv": 5.02
+      },
+      "after": {
+        "min_damage": 9,
+        "max_damage": 17,
+        "atk_scale": 0.87,
+        "effects": [],
+        "cv": 24.53
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": 0.022,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 4.582
+        },
+        {
+          "step": "scale_up",
+          "factor": 1.317
+        }
+      ]
+    },
+    {
+      "card_id": "cmd_order",
+      "class": "战术指挥",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 3,
+        "max_damage": 6,
+        "atk_scale": 0.3,
+        "effects": [],
+        "cv": 5.02
+      },
+      "after": {
+        "min_damage": 9,
+        "max_damage": 17,
+        "atk_scale": 0.87,
+        "effects": [],
+        "cv": 24.53
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": 0.022,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 4.582
+        },
+        {
+          "step": "scale_up",
+          "factor": 1.317
+        }
+      ]
+    },
+    {
+      "card_id": "vang_formation",
+      "class": "先锋",
+      "cost": 2,
+      "tier": "elite",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 5,
+        "max_damage": 10,
+        "atk_scale": 0.4,
+        "effects": [],
+        "cv": 29.65
+      },
+      "after": {
+        "min_damage": 8,
+        "max_damage": 16,
+        "atk_scale": 0.63,
+        "effects": [],
+        "cv": 47.03
+      },
+      "budget": 48.0,
+      "band": [
+        42.0,
+        52.0
+      ],
+      "ratio": -0.02,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 1.585
+        }
+      ]
+    },
+    {
+      "card_id": "sniper_weakpoint",
+      "class": "狙击",
+      "cost": 2,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 8,
+        "max_damage": 13,
+        "atk_scale": 0.7,
+        "effects": [],
+        "cv": 18.74
+      },
+      "after": {
+        "min_damage": 18,
+        "max_damage": 29,
+        "atk_scale": 1.5,
+        "effects": [],
+        "cv": 47.08
+      },
+      "budget": 48.0,
+      "band": [
+        42.0,
+        52.0
+      ],
+      "ratio": -0.019,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 2.508
+        }
+      ]
+    },
+    {
+      "card_id": "caster_inferno",
+      "class": "术师",
+      "cost": 3,
+      "tier": "elite",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 6,
+        "max_damage": 10,
+        "atk_scale": 0.7,
+        "effects": [],
+        "cv": 28.12
+      },
+      "after": {
+        "min_damage": 13,
+        "max_damage": 22,
+        "atk_scale": 1.5,
+        "effects": [],
+        "cv": 71.06
+      },
+      "budget": 72.0,
+      "band": [
+        64.0,
+        78.0
+      ],
+      "ratio": -0.013,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 2.525
+        }
+      ]
+    },
+    {
+      "card_id": "caster_bolt",
+      "class": "术师",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 4,
+        "max_damage": 8,
+        "atk_scale": 0.4,
+        "effects": [],
+        "cv": 8.06
+      },
+      "after": {
+        "min_damage": 9,
+        "max_damage": 18,
+        "atk_scale": 0.88,
+        "effects": [],
+        "cv": 24.04
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": 0.002,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 2.854
+        }
+      ]
+    },
+    {
+      "card_id": "spec_trap",
+      "class": "特种",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 4,
+        "max_damage": 8,
+        "atk_scale": 0.4,
+        "effects": [],
+        "cv": 8.06
+      },
+      "after": {
+        "min_damage": 9,
+        "max_damage": 18,
+        "atk_scale": 0.88,
+        "effects": [],
+        "cv": 24.04
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": 0.002,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 2.854
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "total": 72,
+    "in_band": 63,
+    "exceptions": 9,
+    "remaining": 0
+  }
+}
