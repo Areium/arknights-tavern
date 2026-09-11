@@ -3,6 +3,8 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import ErrorBoundary from "./components/ErrorBoundary";
 import "./style.css";
+import "./styles/skin-prts.css";
+import "./styles/skin-tavern.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

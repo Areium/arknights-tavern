@@ -37,6 +37,9 @@ _DEFAULT_CONFIG = {
     "ollama_url": "http://localhost:11434",
     "ollama_model": ModelConfig.model,
     "theme": "dark",
+    # UI 皮肤：default（默认）/ prts（PRTS 全息终端）/ tavern（酒馆手札）。
+    # 皮肤是自带完整色板的独立主题，激活时前端禁用明暗切换。
+    "skin": "default",
     "provider": "auto",
     "enable_thinking": False,
     "reasoning_effort": "medium",
@@ -452,6 +455,7 @@ class LLMBackendManager:
             "ollama_url": merged.get("ollama_url", ""),
             "ollama_model": merged.get("ollama_model", ""),
             "theme": merged.get("theme", "dark"),
+            "skin": merged.get("skin", "default"),
             "provider": merged.get("provider", "auto"),
             "enable_thinking": merged.get("enable_thinking", False),
             "reasoning_effort": merged.get("reasoning_effort", "medium"),
@@ -486,6 +490,9 @@ class LLMBackendManager:
             merged["ollama_model"] = data["ollama_model"]
         if "theme" in data:
             merged["theme"] = data["theme"]
+        if "skin" in data:
+            skin = str(data["skin"]).strip().lower()
+            merged["skin"] = skin if skin in ("default", "prts", "tavern") else "default"
         if "auto_generate_choices" in data:
             merged["auto_generate_choices"] = bool(data["auto_generate_choices"])
         if "choice_count" in data:

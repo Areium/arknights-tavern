@@ -1,0 +1,588 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   skin-tavern.css — 酒馆手札皮肤
+   ───────────────────────────────────────────────────────────────────────────
+   激活方式：<html class="skin-tavern">（由 App.tsx 依据 appStore.skin 切换）
+
+   设计要点
+   · 覆盖层策略：沿用 style.css 中 html.light 的既有模式，只做「选择器 → 色值」
+     的覆盖，不重构 Tailwind 变量、不改动组件结构。
+   · 作用域：@scope (html.skin-tavern) to (.bg-combat-bg)
+     战斗页（CombatView 根节点带 .bg-combat-bg）不在作用域内 —— 战斗页不换肤，
+     因此它复用的大量 bg-gray-* / text-gray-* / amber-* 工具类不会被本皮肤污染。
+   · 氛围：纯静态（羊皮纸颗粒 + 静态烛光径向渐变），无动画；预览稿 ui-styles/03
+     里的 JS 特效（滚动显现、蜡烛闪烁、暖尘漂浮）不移植。
+   · 色板直接取自 ui-styles/03-tavern-journal.html
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+html.skin-tavern {
+  --t-parch: #ece1c9;              /* 羊皮纸底 */
+  --t-page: #f7f0dd;               /* 书页 */
+  --t-card: #fbf6e9;               /* 卡片 */
+  --t-ink: #40342a;                /* 墨水棕 */
+  --t-ink-2: #6d5c4b;
+  --t-ink-3: #9c8b74;
+  --t-line: #d8c9a8;
+  --t-seal: #a03d2d;               /* 火漆红 */
+  --t-brass: #a87b2f;              /* 黄铜 */
+  --t-candle: #e8a33d;             /* 烛火 */
+  --t-forest: #5b7350;
+  --t-sky: #6b8299;
+  --t-serif: "Noto Serif SC", serif;
+}
+
+/* ── 氛围层：羊皮纸颗粒（body 背景）+ 静态烛光（::before，无动画） ──────── */
+/* body 规则必须放在 @scope 之外：body 元素自带 bg-surface-dark/text-gray-100
+   工具类（特异度 0,1,0），裸 body(0,0,1) 会被盖掉；提升为 html.skin-x body
+   (0,2,1) 才能稳定生效。 */
+html.skin-tavern body {
+    --tw-bg-opacity: 1;
+    background-color: rgb(236 225 201 / var(--tw-bg-opacity));
+    background-image:
+      radial-gradient(rgba(64, 52, 42, 0.05) 1px, transparent 1px) 0 0 / 22px 22px;
+    --tw-text-opacity: 1;
+    color: rgb(64 52 42 / var(--tw-text-opacity));
+}
+
+@scope (html.skin-tavern) to (.bg-combat-bg) {
+  body::before {
+    content: "";
+    position: fixed;
+    top: -200px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 960px;
+    height: 460px;
+    pointer-events: none;
+    z-index: 0;
+    background: radial-gradient(ellipse at center, rgba(232, 163, 61, 0.16), transparent 65%);
+  }
+
+  /* ── 基底 ─────────────────────────────────────────────────────────────── */
+
+  ::-webkit-scrollbar-track { background-color: #e2d5b8; }
+  ::-webkit-scrollbar-thumb { background-color: #bda98a; }
+  ::selection { background: rgba(232, 163, 61, 0.40); }
+  :focus-visible { outline: 2.5px solid var(--t-seal); outline-offset: 2px; }
+
+  /* ── 组件基元 ─────────────────────────────────────────────────────────── */
+  .card {
+    --tw-bg-opacity: 1;
+    background-color: rgb(251 246 233 / var(--tw-bg-opacity));
+    border-color: var(--t-line);
+    box-shadow: 0 3px 0 rgba(64, 52, 42, 0.06), 0 12px 28px -14px rgba(64, 52, 42, 0.22);
+  }
+
+  .input {
+    background-color: var(--t-page);
+    border-color: #cbb894;
+    --tw-text-opacity: 1;
+    color: rgb(64 52 42 / var(--tw-text-opacity));
+  }
+  .input::placeholder { color: #9c8b74; }
+  .input:focus { border-color: var(--t-seal); box-shadow: 0 0 0 1px rgba(160, 61, 45, 0.25); }
+
+  .btn-ghost { color: #6d5c4b; }
+  .btn-ghost:hover { background-color: rgba(160, 61, 45, 0.08); color: #40342a; }
+
+  .panel-title { color: #8a7862; font-family: var(--t-serif); letter-spacing: 0.08em; }
+
+  /* ═══ 工具类覆盖（自动生成，勿手改） ═══ */
+  /* ── 灰阶（底色 / 文字 / 边框） ── */
+  .bg-gray-300 { background-color: #5b4c3e; }
+  .hover\:bg-gray-500:hover { background-color: #8a7862; }
+  .bg-gray-600 { background-color: #a89880; }
+  .hover\:bg-gray-600:hover { background-color: #a89880; }
+  .bg-gray-600\/20 { background-color: rgba(168, 152, 128, 0.2); }
+  .bg-gray-600\/50 { background-color: rgba(168, 152, 128, 0.5); }
+  .hover\:bg-gray-600\/60:hover { background-color: rgba(168, 152, 128, 0.6); }
+  .hover\:bg-gray-700:hover { background-color: #f3ead7; }
+  .bg-gray-700 { background-color: #f3ead7; }
+  .bg-gray-700\/30 { background-color: rgba(243, 234, 215, 0.3); }
+  .bg-gray-700\/40 { background-color: rgba(243, 234, 215, 0.4); }
+  .hover\:bg-gray-700\/40:hover { background-color: rgba(243, 234, 215, 0.4); }
+  .hover\:bg-gray-700\/50:hover { background-color: rgba(243, 234, 215, 0.5); }
+  .bg-gray-700\/50 { background-color: rgba(243, 234, 215, 0.5); }
+  .bg-gray-700\/60 { background-color: rgba(243, 234, 215, 0.6); }
+  .bg-gray-700\/70 { background-color: rgba(243, 234, 215, 0.7); }
+  .bg-gray-800 { background-color: #fbf6e9; }
+  .hover\:bg-gray-800:hover { background-color: #fbf6e9; }
+  .bg-gray-800\/30 { background-color: rgba(251, 246, 233, 0.3); }
+  .bg-gray-800\/40 { background-color: rgba(251, 246, 233, 0.4); }
+  .bg-gray-800\/50 { background-color: rgba(251, 246, 233, 0.5); }
+  .bg-gray-800\/60 { background-color: rgba(251, 246, 233, 0.6); }
+  .hover\:bg-gray-800\/60:hover { background-color: rgba(251, 246, 233, 0.6); }
+  .bg-gray-800\/80 { background-color: rgba(251, 246, 233, 0.8); }
+  .bg-gray-800\/95 { background-color: rgba(251, 246, 233, 0.95); }
+  .bg-gray-850 { background-color: #f7f0dd; }
+  .bg-gray-850\/30 { background-color: rgba(247, 240, 221, 0.3); }
+  .bg-gray-900 { background-color: #ece1c9; }
+  .bg-gray-900\/30 { background-color: rgba(236, 225, 201, 0.3); }
+  .bg-gray-900\/50 { background-color: rgba(236, 225, 201, 0.5); }
+  .bg-gray-900\/60 { background-color: rgba(236, 225, 201, 0.6); }
+  .bg-gray-900\/95 { background-color: rgba(236, 225, 201, 0.95); }
+  .bg-gray-900\/98 { background-color: rgba(236, 225, 201, 0.98); }
+  .bg-gray-950 { background-color: #e0d3b5; }
+  .border-gray-400 { border-color: #cbb894; }
+  .border-gray-600 { border-color: #b8a37c; }
+  .hover\:border-gray-600:hover { border-color: #b8a37c; }
+  .border-gray-600\/50 { border-color: rgba(184, 163, 124, 0.5); }
+  .border-gray-700 { border-color: #d8c9a8; }
+  .border-gray-700\/30 { border-color: rgba(216, 201, 168, 0.3); }
+  .border-gray-700\/50 { border-color: rgba(216, 201, 168, 0.5); }
+  .border-gray-700\/60 { border-color: rgba(216, 201, 168, 0.6); }
+  .border-gray-700\/70 { border-color: rgba(216, 201, 168, 0.7); }
+  .border-gray-800 { border-color: #e0d3b5; }
+  .border-gray-900 { border-color: #cbb894; }
+  .placeholder-gray-500 { color: #8a7862; }
+  .text-gray-100 { color: #40342a; }
+  .hover\:text-gray-200:hover { color: #4a3d31; }
+  .text-gray-200 { color: #4a3d31; }
+  .hover\:text-gray-300:hover { color: #5b4c3e; }
+  .text-gray-300 { color: #5b4c3e; }
+  .text-gray-400 { color: #6d5c4b; }
+  .hover\:text-gray-400:hover { color: #6d5c4b; }
+  .text-gray-500 { color: #8a7862; }
+  .text-gray-600 { color: #a89880; }
+  .placeholder\:text-gray-600::placeholder { color: #a89880; }
+  .text-gray-700 { color: #f3ead7; }
+
+  /* ── 自定义 surface 色板 ── */
+  .bg-surface-dark { background-color: #ece1c9; }
+
+  /* ── amber → 金 / 烛火 ── */
+  .accent-amber-500 { accent-color: #8a6420; }
+  .bg-amber-400 { background-color: #a87b2f; }
+  .bg-amber-400\/60 { background-color: rgba(168, 123, 47, 0.6); }
+  .bg-amber-400\/70 { background-color: rgba(168, 123, 47, 0.7); }
+  .hover\:bg-amber-500:hover { background-color: #8a6420; }
+  .bg-amber-500 { background-color: #8a6420; }
+  .bg-amber-500\/5 { background-color: rgba(138, 100, 32, 0.05); }
+  .hover\:bg-amber-500\/10:hover { background-color: rgba(138, 100, 32, 0.1); }
+  .bg-amber-500\/20 { background-color: rgba(138, 100, 32, 0.2); }
+  .hover\:bg-amber-500\/80:hover { background-color: rgba(138, 100, 32, 0.8); }
+  .bg-amber-600 { background-color: #7a5718; }
+  .bg-amber-600\/5 { background-color: rgba(122, 87, 24, 0.05); }
+  .bg-amber-600\/15 { background-color: rgba(122, 87, 24, 0.15); }
+  .bg-amber-600\/20 { background-color: rgba(122, 87, 24, 0.2); }
+  .hover\:bg-amber-600\/20:hover { background-color: rgba(122, 87, 24, 0.2); }
+  .bg-amber-600\/30 { background-color: rgba(122, 87, 24, 0.3); }
+  .hover\:bg-amber-600\/30:hover { background-color: rgba(122, 87, 24, 0.3); }
+  .hover\:bg-amber-600\/40:hover { background-color: rgba(122, 87, 24, 0.4); }
+  .bg-amber-600\/80 { background-color: rgba(122, 87, 24, 0.8); }
+  .bg-amber-700\/30 { background-color: rgba(122, 87, 24, 0.3); }
+  .hover\:bg-amber-700\/50:hover { background-color: rgba(122, 87, 24, 0.5); }
+  .bg-amber-700\/50 { background-color: rgba(122, 87, 24, 0.5); }
+  .bg-amber-900\/30 { background-color: rgba(122, 87, 24, 0.3); }
+  .border-amber-400\/80 { border-color: rgba(168, 123, 47, 0.8); }
+  .border-amber-500 { border-color: #8a6420; }
+  .border-amber-500\/30 { border-color: rgba(138, 100, 32, 0.3); }
+  .border-amber-500\/40 { border-color: rgba(138, 100, 32, 0.4); }
+  .focus\:border-amber-500\/50:focus { border-color: rgba(138, 100, 32, 0.5); }
+  .border-amber-500\/50 { border-color: rgba(138, 100, 32, 0.5); }
+  .border-amber-600\/30 { border-color: rgba(122, 87, 24, 0.3); }
+  .border-amber-600\/40 { border-color: rgba(122, 87, 24, 0.4); }
+  .border-amber-600\/60 { border-color: rgba(122, 87, 24, 0.6); }
+  .border-amber-700\/20 { border-color: rgba(122, 87, 24, 0.2); }
+  .border-amber-700\/30 { border-color: rgba(122, 87, 24, 0.3); }
+  .text-amber-100 { color: #6b4a16; }
+  .text-amber-100\/90 { color: rgba(107, 74, 22, 0.9); }
+  .text-amber-200 { color: #7d5618; }
+  .hover\:text-amber-200:hover { color: #7d5618; }
+  .text-amber-200\/70 { color: rgba(125, 86, 24, 0.7); }
+  .text-amber-300 { color: #8f6220; }
+  .hover\:text-amber-300:hover { color: #8f6220; }
+  .text-amber-300\/80 { color: rgba(143, 98, 32, 0.8); }
+  .text-amber-300\/90 { color: rgba(143, 98, 32, 0.9); }
+  .text-amber-400 { color: #a87b2f; }
+  .text-amber-400\/70 { color: rgba(168, 123, 47, 0.7); }
+  .text-amber-400\/80 { color: rgba(168, 123, 47, 0.8); }
+  .text-amber-500 { color: #8a6420; }
+  .text-amber-500\/60 { color: rgba(138, 100, 32, 0.6); }
+  .text-amber-500\/70 { color: rgba(138, 100, 32, 0.7); }
+  .text-amber-500\/80 { color: rgba(138, 100, 32, 0.8); }
+  .text-amber-600 { color: #7a5718; }
+
+  /* ── yellow ── */
+  .border-yellow-500\/60 { border-color: rgba(168, 123, 47, 0.6); }
+  .text-yellow-400 { color: #a87b2f; }
+
+  /* ── orange ── */
+  .bg-orange-700\/30 { background-color: rgba(138, 100, 32, 0.3); }
+  .hover\:bg-orange-700\/50:hover { background-color: rgba(138, 100, 32, 0.5); }
+  .text-orange-300 { color: #a87b2f; }
+  .text-orange-400 { color: #a87b2f; }
+  .text-orange-400\/70 { color: rgba(168, 123, 47, 0.7); }
+
+  /* ── red ── */
+  .bg-red-400 { background-color: #8c3a2c; }
+  .hover\:bg-red-500:hover { background-color: #b04a38; }
+  .bg-red-500\/10 { background-color: rgba(176, 74, 56, 0.1); }
+  .bg-red-500\/20 { background-color: rgba(176, 74, 56, 0.2); }
+  .bg-red-600 { background-color: #a03d2d; }
+  .hover\:bg-red-600:hover { background-color: #a03d2d; }
+  .bg-red-600\/15 { background-color: rgba(160, 61, 45, 0.15); }
+  .bg-red-600\/20 { background-color: rgba(160, 61, 45, 0.2); }
+  .hover\:bg-red-600\/20:hover { background-color: rgba(160, 61, 45, 0.2); }
+  .hover\:bg-red-600\/40:hover { background-color: rgba(160, 61, 45, 0.4); }
+  .bg-red-600\/80 { background-color: rgba(160, 61, 45, 0.8); }
+  .hover\:bg-red-700:hover { background-color: #8c3a2c; }
+  .bg-red-700\/20 { background-color: rgba(140, 58, 44, 0.2); }
+  .hover\:bg-red-700\/20:hover { background-color: rgba(140, 58, 44, 0.2); }
+  .bg-red-700\/30 { background-color: rgba(140, 58, 44, 0.3); }
+  .hover\:bg-red-700\/40:hover { background-color: rgba(140, 58, 44, 0.4); }
+  .hover\:bg-red-700\/50:hover { background-color: rgba(140, 58, 44, 0.5); }
+  .bg-red-700\/80 { background-color: rgba(140, 58, 44, 0.8); }
+  .bg-red-700\/90 { background-color: rgba(140, 58, 44, 0.9); }
+  .bg-red-800\/30 { background-color: rgba(124, 45, 32, 0.3); }
+  .hover\:bg-red-800\/50:hover { background-color: rgba(124, 45, 32, 0.5); }
+  .bg-red-800\/50 { background-color: rgba(124, 45, 32, 0.5); }
+  .bg-red-900\/20 { background-color: rgba(107, 38, 24, 0.2); }
+  .bg-red-900\/30 { background-color: rgba(107, 38, 24, 0.3); }
+  .border-red-500\/40 { border-color: rgba(176, 74, 56, 0.4); }
+  .border-red-700\/30 { border-color: rgba(140, 58, 44, 0.3); }
+  .border-red-700\/40 { border-color: rgba(140, 58, 44, 0.4); }
+  .border-red-800\/40 { border-color: rgba(124, 45, 32, 0.4); }
+  .border-red-900\/40 { border-color: rgba(107, 38, 24, 0.4); }
+  .text-red-300 { color: #a03d2d; }
+  .hover\:text-red-300:hover { color: #a03d2d; }
+  .text-red-400 { color: #8c3a2c; }
+  .hover\:text-red-400:hover { color: #8c3a2c; }
+  .text-red-500 { color: #b04a38; }
+
+  /* ── blue ── */
+  .accent-blue-500 { accent-color: #557089; }
+  .hover\:bg-blue-500:hover { background-color: #557089; }
+  .bg-blue-500\/3 { background-color: rgba(85, 112, 137, 0.03); }
+  .bg-blue-500\/20 { background-color: rgba(85, 112, 137, 0.2); }
+  .bg-blue-600 { background-color: #3f6a83; }
+  .bg-blue-600\/10 { background-color: rgba(63, 106, 131, 0.1); }
+  .bg-blue-600\/20 { background-color: rgba(63, 106, 131, 0.2); }
+  .bg-blue-600\/25 { background-color: rgba(63, 106, 131, 0.25); }
+  .bg-blue-600\/30 { background-color: rgba(63, 106, 131, 0.3); }
+  .hover\:bg-blue-600\/30:hover { background-color: rgba(63, 106, 131, 0.3); }
+  .hover\:bg-blue-600\/40:hover { background-color: rgba(63, 106, 131, 0.4); }
+  .hover\:bg-blue-600\/50:hover { background-color: rgba(63, 106, 131, 0.5); }
+  .hover\:bg-blue-700:hover { background-color: #35566b; }
+  .bg-blue-700\/30 { background-color: rgba(53, 86, 107, 0.3); }
+  .bg-blue-700\/40 { background-color: rgba(53, 86, 107, 0.4); }
+  .bg-blue-700\/50 { background-color: rgba(53, 86, 107, 0.5); }
+  .hover\:bg-blue-700\/50:hover { background-color: rgba(53, 86, 107, 0.5); }
+  .hover\:bg-blue-700\/60:hover { background-color: rgba(53, 86, 107, 0.6); }
+  .border-blue-400 { border-color: #6b8299; }
+  .border-blue-500\/30 { border-color: rgba(85, 112, 137, 0.3); }
+  .border-blue-500\/40 { border-color: rgba(85, 112, 137, 0.4); }
+  .hover\:border-blue-500\/50:hover { border-color: rgba(85, 112, 137, 0.5); }
+  .border-blue-600\/20 { border-color: rgba(63, 106, 131, 0.2); }
+  .border-blue-600\/30 { border-color: rgba(63, 106, 131, 0.3); }
+  .border-blue-600\/40 { border-color: rgba(63, 106, 131, 0.4); }
+  .border-blue-600\/60 { border-color: rgba(63, 106, 131, 0.6); }
+  .border-blue-700\/30 { border-color: rgba(53, 86, 107, 0.3); }
+  .text-blue-200 { color: #35566b; }
+  .text-blue-300 { color: #3f6a83; }
+  .hover\:text-blue-300:hover { color: #3f6a83; }
+  .text-blue-400 { color: #6b8299; }
+  .text-blue-400\/70 { color: rgba(107, 130, 153, 0.7); }
+  .text-blue-500 { color: #557089; }
+
+  /* ── cyan ── */
+  .bg-cyan-600\/20 { background-color: rgba(63, 106, 131, 0.2); }
+  .bg-cyan-700\/40 { background-color: rgba(53, 86, 107, 0.4); }
+  .hover\:bg-cyan-700\/60:hover { background-color: rgba(53, 86, 107, 0.6); }
+  .border-cyan-500\/30 { border-color: rgba(85, 112, 137, 0.3); }
+  .text-cyan-200 { color: #35566b; }
+  .text-cyan-300 { color: #3f6a83; }
+  .hover\:text-cyan-300:hover { color: #3f6a83; }
+
+  /* ── green ── */
+  .bg-green-400 { background-color: #5b7350; }
+  .bg-green-600\/20 { background-color: rgba(74, 96, 64, 0.2); }
+  .hover\:bg-green-600\/40:hover { background-color: rgba(74, 96, 64, 0.4); }
+  .bg-green-700 { background-color: #3f5237; }
+  .bg-green-700\/30 { background-color: rgba(63, 82, 55, 0.3); }
+  .bg-green-700\/40 { background-color: rgba(63, 82, 55, 0.4); }
+  .hover\:bg-green-700\/50:hover { background-color: rgba(63, 82, 55, 0.5); }
+  .bg-green-700\/50 { background-color: rgba(63, 82, 55, 0.5); }
+  .bg-green-700\/90 { background-color: rgba(63, 82, 55, 0.9); }
+  .bg-green-800\/50 { background-color: rgba(63, 82, 55, 0.5); }
+  .hover\:border-green-700\/50:hover { border-color: rgba(63, 82, 55, 0.5); }
+  .text-green-200 { color: #4a6040; }
+  .text-green-300 { color: #4f6545; }
+  .text-green-400 { color: #5b7350; }
+  .hover\:text-green-400:hover { color: #5b7350; }
+
+  /* ── emerald ── */
+  .bg-emerald-500\/20 { background-color: rgba(91, 115, 80, 0.2); }
+  .bg-emerald-600\/10 { background-color: rgba(74, 96, 64, 0.1); }
+  .bg-emerald-600\/20 { background-color: rgba(74, 96, 64, 0.2); }
+  .hover\:bg-emerald-600\/40:hover { background-color: rgba(74, 96, 64, 0.4); }
+  .border-emerald-500\/50 { border-color: rgba(91, 115, 80, 0.5); }
+  .text-emerald-300 { color: #4f6545; }
+  .text-emerald-400 { color: #5b7350; }
+
+  /* ── violet ── */
+  .bg-violet-600\/20 { background-color: rgba(92, 74, 107, 0.2); }
+  .bg-violet-700\/30 { background-color: rgba(77, 62, 89, 0.3); }
+  .bg-violet-700\/50 { background-color: rgba(77, 62, 89, 0.5); }
+  .hover\:bg-violet-700\/50:hover { background-color: rgba(77, 62, 89, 0.5); }
+  .hover\:bg-violet-700\/60:hover { background-color: rgba(77, 62, 89, 0.6); }
+  .border-violet-500\/30 { border-color: rgba(107, 85, 128, 0.3); }
+  .focus\:border-violet-500\/50:focus { border-color: rgba(107, 85, 128, 0.5); }
+  .text-violet-200 { color: #5c4a6b; }
+  .text-violet-300 { color: #6b5580; }
+
+  /* ── purple ── */
+  .bg-purple-600\/20 { background-color: rgba(92, 74, 107, 0.2); }
+  .bg-purple-600\/30 { background-color: rgba(92, 74, 107, 0.3); }
+  .hover\:bg-purple-600\/40:hover { background-color: rgba(92, 74, 107, 0.4); }
+  .bg-purple-600\/80 { background-color: rgba(92, 74, 107, 0.8); }
+  .bg-purple-700\/40 { background-color: rgba(77, 62, 89, 0.4); }
+  .bg-purple-700\/50 { background-color: rgba(77, 62, 89, 0.5); }
+  .bg-purple-800\/50 { background-color: rgba(77, 62, 89, 0.5); }
+  .border-purple-500\/40 { border-color: rgba(107, 85, 128, 0.4); }
+  .border-purple-700\/30 { border-color: rgba(77, 62, 89, 0.3); }
+  .text-purple-200 { color: #5c4a6b; }
+  .text-purple-300 { color: #6b5580; }
+  .text-purple-400 { color: #7d6394; }
+  .text-purple-500 { color: #6b5580; }
+
+  /* ── white / black ── */
+  .bg-white { background-color: #fbf6e9; }
+  .text-white { color: #fbf6e9; }
+  .hover\:text-white:hover { color: #fbf6e9; }
+  .text-white\/90 { color: rgba(251, 246, 233, 0.9); }
+
+  /* ── white / black ── */
+  .bg-black\/50 { background-color: rgba(216, 201, 168, 0.5); }
+  .bg-black\/60 { background-color: rgba(216, 201, 168, 0.6); }
+  .bg-black\/70 { background-color: rgba(216, 201, 168, 0.7); }
+  .bg-black\/85 { background-color: rgba(216, 201, 168, 0.85); }
+  .text-black { color: #d8c9a8; }
+  /* ═══ 工具类覆盖结束 ═══ */
+
+  /* ── Markdown 渲染 ────────────────────────────────────────────────────── */
+  .md-code-inline {
+    background-color: #f0e6d0;
+    color: var(--t-seal);
+  }
+  .md-pre-block {
+    background-color: #f5eddb;
+    color: #4a3d31;
+    border-color: #d8c9a8;
+  }
+
+  /* ── 徽章 ─────────────────────────────────────────────────────────────── */
+  .badge-story { background: rgba(232, 163, 61, 0.22); color: #7d5618; border-color: rgba(168, 123, 47, 0.40); }
+  .badge-free { background: rgba(125, 99, 148, 0.16); color: #5c4a6b; border-color: rgba(125, 99, 148, 0.35); }
+  .badge-tactical { background: rgba(160, 61, 45, 0.14); color: #8c3a2c; border-color: rgba(160, 61, 45, 0.35); }
+  .badge-narrative { background: rgba(107, 130, 153, 0.16); color: #35566b; border-color: rgba(107, 130, 153, 0.35); }
+  .badge-wb { background: rgba(91, 115, 80, 0.16); color: #4a6040; border-color: rgba(91, 115, 80, 0.35); }
+  .badge-plot { background: rgba(232, 163, 61, 0.14); color: #8a6420; border-color: rgba(168, 123, 47, 0.30); }
+
+  /* ── 角色头像 / 详情区块 / 数值格 ─────────────────────────────────────── */
+  .char-avatar {
+    border-color: #cbb894;
+    background: linear-gradient(135deg, #f5eddb, #e8dcc2);
+  }
+  .detail-section {
+    background: rgba(251, 246, 233, 0.7);
+    border-color: var(--t-line);
+  }
+  .stat-cell {
+    background: rgba(247, 240, 221, 0.85);
+    border-color: var(--t-line);
+  }
+
+  /* ── 新建向导 ─────────────────────────────────────────────────────────── */
+  .wizard-overlay { background: rgba(64, 52, 42, 0.55); }
+  .wizard-panel {
+    background: linear-gradient(165deg, var(--t-card) 0%, var(--t-page) 100%);
+    border-color: rgba(160, 61, 45, 0.28);
+    box-shadow: 0 3px 0 rgba(64, 52, 42, 0.10), 0 24px 60px -20px rgba(64, 52, 42, 0.45);
+  }
+  .step-dot {
+    background: var(--t-page);
+    color: #8a7862;
+    border-color: #cbb894;
+  }
+  .step-dot.active { color: var(--t-seal); border-color: rgba(160, 61, 45, 0.60); box-shadow: 0 0 12px -2px rgba(160, 61, 45, 0.35); }
+  .step-dot.done { color: #4a6040; border-color: rgba(91, 115, 80, 0.50); background: rgba(91, 115, 80, 0.14); }
+  .step-label { color: #8a7862; }
+  .step-label.active { color: var(--t-seal); }
+  .step-label.done { color: #4a6040; }
+
+  /* ── 选择卡片（手札风：更圆润 + 软阴影） ─────────────────────────────── */
+  .pick-card {
+    background: rgba(251, 246, 233, 0.85);
+    border-color: var(--t-line);
+    border-radius: 0.875rem;
+  }
+  .pick-card:hover { border-color: rgba(160, 61, 45, 0.40); }
+  .pick-card.selected {
+    background: rgba(232, 163, 61, 0.18);
+    border-color: rgba(160, 61, 45, 0.55);
+    box-shadow: 0 0 0 1px rgba(160, 61, 45, 0.20), 0 4px 18px -8px rgba(64, 52, 42, 0.30);
+  }
+  .char-tile {
+    background: var(--t-card);
+    border-color: var(--t-line);
+    border-radius: 0.75rem;
+  }
+  .char-tile:hover { border-color: rgba(160, 61, 45, 0.45); }
+  .char-tile.selected {
+    background: rgba(232, 163, 61, 0.16);
+    border-color: rgba(160, 61, 45, 0.55);
+    box-shadow: 0 0 0 1px rgba(160, 61, 45, 0.20), 0 4px 16px -8px rgba(64, 52, 42, 0.30);
+  }
+  .lobby-empty {
+    background: rgba(251, 246, 233, 0.5);
+    border-color: #cbb894;
+  }
+  .lobby-scroll::-webkit-scrollbar-thumb { background: rgba(168, 123, 47, 0.40); }
+
+  /* ── 会话大厅 ─────────────────────────────────────────────────────────── */
+  .session-hero {
+    background:
+      var(--session-hero-wallpaper),
+      radial-gradient(1100px 380px at 18% -40%, rgba(232, 163, 61, 0.22), transparent 60%),
+      radial-gradient(900px 340px at 82% -30%, rgba(160, 61, 45, 0.14), transparent 60%),
+      linear-gradient(160deg, #f7f0dd 0%, #ece1c9 55%, #e0d3b5 100%);
+    border-bottom-color: rgba(168, 123, 47, 0.35);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 10px 30px -18px rgba(64, 52, 42, 0.45);
+  }
+  .session-hero-title {
+    font-family: var(--t-serif);
+    background: linear-gradient(120deg, #a87b2f 0%, #a03d2d 50%, #a87b2f 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    text-shadow: 0 2px 18px rgba(232, 163, 61, 0.28);
+  }
+  .session-hero-sub { color: rgba(109, 92, 75, 0.9); }
+
+  .btn-hero {
+    background: linear-gradient(135deg, #b04a38 0%, var(--t-seal) 60%, #7c2d20 100%);
+    color: #f9efdd;
+    border-radius: 999px;
+    box-shadow: 0 3px 0 rgba(124, 45, 32, 0.28), 0 8px 22px -10px rgba(160, 61, 45, 0.55);
+  }
+  .btn-hero:hover {
+    filter: brightness(1.06);
+    box-shadow: 0 3px 0 rgba(124, 45, 32, 0.32), 0 10px 28px -10px rgba(160, 61, 45, 0.65);
+  }
+
+  .session-card {
+    background: linear-gradient(150deg, var(--t-card), var(--t-page));
+    border-color: var(--t-line);
+    box-shadow: 0 2px 0 rgba(64, 52, 42, 0.05), 0 8px 20px -14px rgba(64, 52, 42, 0.30);
+  }
+  .session-card:hover {
+    border-color: rgba(160, 61, 45, 0.40);
+    box-shadow: 0 2px 0 rgba(64, 52, 42, 0.06), 0 10px 26px -14px rgba(160, 61, 45, 0.35);
+  }
+  .session-card.selected {
+    border-color: rgba(160, 61, 45, 0.60);
+    background: linear-gradient(150deg, #fffdf5, #fdf4e0);
+    box-shadow: 0 0 0 1px rgba(160, 61, 45, 0.25), 0 8px 26px -12px rgba(160, 61, 45, 0.40);
+  }
+  .session-card.active-session { border-color: rgba(107, 130, 153, 0.60); }
+
+  /* ── 主页主菜单 ───────────────────────────────────────────────────────── */
+  .home-menu-root { background-color: var(--t-parch); }
+  .home-menu-vignette {
+    background:
+      radial-gradient(120% 90% at 50% 30%, rgba(236, 225, 201, 0) 0%, rgba(236, 225, 201, 0.45) 62%, rgba(224, 211, 181, 0.85) 100%),
+      linear-gradient(to bottom, rgba(236, 225, 201, 0.45) 0%, rgba(236, 225, 201, 0.10) 30%, rgba(236, 225, 201, 0.15) 60%, rgba(224, 211, 181, 0.80) 100%);
+  }
+  .home-menu-column {
+    border-color: var(--t-line);
+    background: linear-gradient(170deg, rgba(251, 246, 233, 0.92), rgba(247, 240, 221, 0.96));
+    box-shadow: 0 3px 0 rgba(64, 52, 42, 0.08), 0 24px 70px -24px rgba(64, 52, 42, 0.45);
+  }
+  /* 衬线标题：Noto Serif SC 的拉丁字形比默认无衬线宽，必须收紧字距/字号，
+     否则「ARKNIGHTS TAVERN」会折成两行（实测 23.2px + 0.3em 字距 = 416px > 容器 358px）。 */
+  .home-menu-title {
+    font-family: var(--t-serif);
+    font-size: 1.28rem;
+    letter-spacing: 0.14em;
+    text-indent: 0.14em;
+    background: linear-gradient(120deg, #a87b2f 0%, #a03d2d 45%, #a87b2f 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    text-shadow: 0 2px 24px rgba(232, 163, 61, 0.25);
+  }
+  .home-splash-title {
+    font-family: var(--t-serif);
+    font-size: 1.22rem;
+    letter-spacing: 0.16em;
+    text-indent: 0.16em;
+  }
+  .home-menu-sub { color: rgba(109, 92, 75, 0.85); }
+  .home-menu-divider::before { background: linear-gradient(to right, transparent, rgba(168, 123, 47, 0.55)); }
+  .home-menu-divider::after { background: linear-gradient(to left, transparent, rgba(168, 123, 47, 0.55)); }
+  .home-menu-divider span {
+    background: linear-gradient(135deg, #e8a33d, #a03d2d);
+    box-shadow: 0 0 10px rgba(232, 163, 61, 0.55);
+  }
+  .home-menu-item {
+    border-color: rgba(216, 201, 168, 0.9);
+    background: rgba(255, 253, 246, 0.6);
+  }
+  .home-menu-item:hover {
+    border-color: rgba(160, 61, 45, 0.40);
+    background: rgba(232, 163, 61, 0.14);
+    box-shadow: 0 4px 22px -10px rgba(160, 61, 45, 0.35);
+  }
+  .home-menu-item-label { color: #40342a; font-family: var(--t-serif); letter-spacing: 0.08em; }
+  .home-menu-item-desc { color: rgba(109, 92, 75, 0.80); }
+  .home-menu-item-badge {
+    color: #7d5618;
+    background: rgba(232, 163, 61, 0.22);
+    border-color: rgba(168, 123, 47, 0.40);
+  }
+  .home-menu-item-arrow { color: var(--t-seal); }
+  .home-menu-item.primary {
+    border-color: rgba(160, 61, 45, 0.45);
+    background: linear-gradient(135deg, rgba(232, 163, 61, 0.26), rgba(160, 61, 45, 0.12));
+    box-shadow: 0 3px 0 rgba(124, 45, 32, 0.14), 0 8px 26px -12px rgba(160, 61, 45, 0.40);
+  }
+  .home-menu-item.primary .home-menu-item-label { color: #7c2d20; }
+  .home-menu-item.primary:hover {
+    border-color: rgba(160, 61, 45, 0.65);
+    background: linear-gradient(135deg, rgba(232, 163, 61, 0.34), rgba(160, 61, 45, 0.18));
+    box-shadow: 0 3px 0 rgba(124, 45, 32, 0.18), 0 10px 32px -12px rgba(160, 61, 45, 0.50);
+  }
+  .home-menu-footer { color: rgba(109, 92, 75, 0.85); }
+  .home-menu-version { color: rgba(156, 139, 116, 0.9); }
+  .home-audio-btn { border-color: rgba(216, 201, 168, 0.9); background: rgba(255, 253, 246, 0.6); }
+  .home-audio-btn:hover { background: rgba(232, 163, 61, 0.16); }
+  .home-vol-slider { accent-color: var(--t-seal); }
+  .home-splash { background: rgba(236, 225, 201, 0.88); }
+  .home-splash-press { color: rgba(109, 92, 75, 0.85); }
+
+  /* ── 对话气泡（chat 页）：手札信笺 ────────────────────────────────────
+     注意：DialogueBubble 的气泡底色/描边、说话人姓名色都是「按角色色号计算的
+     行内样式」（inline style），优先级高于任何类选择器。因此这里刻意只覆盖
+     行内样式未涉及的属性（圆角 / 阴影 / 字体 / 光环），保留每位说话人的色彩
+     标识 —— 行内的 0.18/0.35 透明度会自然与羊皮纸底色叠合成柔和淡彩。
+     ──────────────────────────────────────────────────────────────────── */
+  .dlg-bubble {
+    /* 保留 tl 小圆角的「气泡指向」形状 */
+    border-radius: 4px 14px 14px 14px;
+    box-shadow: 0 2px 0 rgba(64, 52, 42, 0.06), 0 6px 16px -12px rgba(64, 52, 42, 0.35);
+  }
+  .dlg-name {
+    font-family: var(--t-serif);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+  .dlg-ava { box-shadow: 0 0 0 1px rgba(168, 123, 47, 0.45); }
+}
+
+/* ── 无障碍兜底：本皮肤全部氛围为静态，若系统偏好减弱动效则进一步压平 ────── */
+@media (prefers-reduced-motion: reduce) {
+  html.skin-tavern body::before {
+    animation: none !important;
+    transition: none !important;
+  }
+}

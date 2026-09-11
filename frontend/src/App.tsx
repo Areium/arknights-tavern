@@ -23,7 +23,7 @@ const IMMERSIVE_VIEWS = new Set(["chat", "combat"]);
 const MENU_BGM_VIEWS = new Set(["home", "sessions", "content", "docs", "settings"]);
 
 export default function App() {
-  const { currentView, setBackendStatus, setLLMStatus, setSessions, theme, setTheme, setEditBeforeSend, setDialogueBubbleMode } =
+  const { currentView, setBackendStatus, setLLMStatus, setSessions, theme, setTheme, skin, setSkin, setEditBeforeSend, setDialogueBubbleMode } =
     useAppStore();
   const api = useApi();
 
@@ -34,6 +34,9 @@ export default function App() {
         const config = await api.getLLMConfig();
         if (config.theme === "light" || config.theme === "dark") {
           setTheme(config.theme);
+        }
+        if (config.skin === "prts" || config.skin === "tavern" || config.skin === "default") {
+          setSkin(config.skin);
         }
         if (typeof config.edit_before_send === "boolean") {
           setEditBeforeSend(config.edit_before_send);
@@ -48,15 +51,13 @@ export default function App() {
     initConfig();
   }, []); // 仅启动时执行一次
 
-  // 应用主题 class 到 <html>
+  // 应用皮肤/主题 class 到 <html>：皮肤（skin-prts / skin-tavern）与明暗（light）互斥——皮肤激活时自带色板，抑制 light
   useEffect(() => {
     const root = document.documentElement;
-    if (theme === "light") {
-      root.classList.add("light");
-    } else {
-      root.classList.remove("light");
-    }
-  }, [theme]);
+    root.classList.toggle("skin-prts", skin === "prts");
+    root.classList.toggle("skin-tavern", skin === "tavern");
+    root.classList.toggle("light", skin === "default" && theme === "light");
+  }, [theme, skin]);
 
   // BGM 编排：菜单类页面播主菜单 BGM；进入对话（沉浸故事）时静默；战斗 BGM 由 CombatView 接管
   useEffect(() => {

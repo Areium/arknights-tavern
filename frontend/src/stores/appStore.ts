@@ -6,6 +6,9 @@ import type { BackendStatus, Session, LLMStatus, CombatStateDTO, ChatMessage, Co
 
 type Theme = "dark" | "light";
 
+/** UI 皮肤：default = 现有主题（受明暗切换控制）；prts/tavern = 独立色板皮肤（接管明暗） */
+export type SkinId = "default" | "prts" | "tavern";
+
 export interface CombatContext {
   state: CombatStateDTO | null;
   uiMode: "VIEWING" | "TARGETING";
@@ -47,6 +50,10 @@ interface AppState {
   theme: Theme;
   setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
+
+  // 皮肤（独立色板主题；非 default 时接管明暗切换）
+  skin: SkinId;
+  setSkin: (skin: SkinId) => void;
 
   // 后端连接
   backend: BackendStatus;
@@ -159,6 +166,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   theme: "dark",
   setTheme: (theme) => set({ theme }),
   toggleTheme: () => set((state) => ({ theme: state.theme === "dark" ? "light" : "dark" })),
+
+  // 皮肤
+  skin: "default",
+  setSkin: (skin) => set({ skin }),
 
   // 后端
   backend: { status: "connecting", url: "" },
