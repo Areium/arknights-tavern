@@ -348,6 +348,8 @@ def main():
     ap.add_argument("--teams", default="standard,command,low")
     ap.add_argument("--json", default=RESULTS_JSON)
     ap.add_argument("--seed-base", type=int, default=20260912)
+    ap.add_argument("--store-runs", action="store_true",
+                    help="同时保存逐场明细（默认只存汇总，避免大文件入库）")
     args = ap.parse_args()
 
     loader = CombatDataLoader()
@@ -378,10 +380,13 @@ def main():
                 "encounter_id": encounter_id,
                 "encounter_type": etype,
                 "power_tier": encounter.get("recommended_power_tier", ""),
+                "target_rounds": encounter.get("target_rounds"),
+                "threat_budget": encounter.get("threat_budget"),
                 "team": team,
                 "summary": summary,
-                "runs": rows,
             }
+            if args.store_runs:
+                results[f"{encounter_id}|{team}"]["runs"] = rows
 
     with open(args.json, "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
