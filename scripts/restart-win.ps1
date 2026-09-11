@@ -198,6 +198,64 @@ function Stop-ProjectLeftovers {
     return $killed
 }
 
+# ── Electron 二进制自愈 ──
+# 背景：electron 42 的 install.js 依赖 extract-zip@2 + yauzl@2（2015 年的流式解压栈），
+# 在 Node 26 上解压 electron zip 时 promise 永不落定：写完第 1 个文件就静默挂起，
+# 事件循环一空 node 以退出码 0 结束 —— 不报错、不写 path.txt。于是 vite 一加载
+# electron 包就抛 ENOENT（path.txt 缺失），游戏窗口起不来（实测 2026-09-12）。
+# 兜底：dist 缺失时用系统自带 bsdtar（Win10 1803+）从 @electron/get 的下载缓存
+# 解压补齐；连缓存都没有时只能留给官方下载路径（vite 启动时触发）。
+function Repair-ElectronDist {
+    $ej   = Join-Path $Frontend 'node_modules\electron'
+    $dist = Join-Path $ej 'dist'
+    if (Test-Path (Join-Path $dist 'electron.exe')) { return $true }
+    if (-not (Test-Path $ej)) { return $false }
+
+    Write-Step 'Electron 二进制缺失，尝试从下载缓存自愈...'
+
+    # 优先取与已安装 electron 包同版本的 zip，否则取最新下载的那份
+    $zips = @(Get-ChildItem -Path (Join-Path $env:LOCALAPPDATA 'electron\Cache') `
+                -Filter 'electron-v*-win32-x64.zip' -Recurse -File -ErrorAction SilentlyContinue)
+    if ($zips.Count -eq 0) {
+        Write-Warn '缓存中没有 electron zip，跳过自愈（将走官方下载路径）'
+        return $false
+    }
+    $ver = $null
+    try { $ver = (Get-Content (Join-Path $ej 'package.json') -Raw | ConvertFrom-Json).version } catch { }
+    $zip = if ($ver) { $zips | Where-Object { $_.Name -eq "electron-v$ver-win32-x64.zip" } | Select-Object -First 1 }
+    if (-not $zip) { $zip = $zips | Sort-Object LastWriteTime -Descending | Select-Object -First 1 }
+
+    # zip 内条目没有 dist/ 前缀（官方 install.js 也是解压进 dist），先解到临时目录再整体搬入
+    $stage = Join-Path $env:TEMP ("arktv-electron-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
+    New-Item -ItemType Directory -Path $stage -Force | Out-Null
+    $tar = Join-Path $env:SystemRoot 'System32\tar.exe'
+    $ok  = $false
+    if (Test-Path $tar) {
+        & $tar -xf $zip.FullName -C $stage 2>$null
+        $ok = ($LASTEXITCODE -eq 0) -and (Test-Path (Join-Path $stage 'electron.exe'))
+    }
+    if (-not $ok) {
+        try {
+            Expand-Archive -Path $zip.FullName -DestinationPath $stage -Force
+            $ok = Test-Path (Join-Path $stage 'electron.exe')
+        }
+        catch { $ok = $false }
+    }
+    if (-not $ok) {
+        Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Warn "缓存 zip 解压失败：$($zip.FullName)"
+        return $false
+    }
+
+    New-Item -ItemType Directory -Path $dist -Force | Out-Null
+    # TEMP(C:) 与项目(D:) 可能跨卷，Move-Item 搬目录在 PS 5.1 上不可靠，用复制+清理
+    Get-ChildItem -Path $stage -Force | Copy-Item -Destination $dist -Recurse -Force
+    Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
+    Set-Content -Path (Join-Path $ej 'path.txt') -Value 'electron.exe' -NoNewline -Encoding Ascii
+    Write-Ok "Electron 已自愈（来自缓存 $($zip.Name)）"
+    return $true
+}
+
 # ══════════════════════════════════════════════════════════
 Write-Host ''
 Write-Head '  ═══════════════════════════════════════'
@@ -226,6 +284,8 @@ if (-not (Test-Path (Join-Path $Frontend 'node_modules'))) {
     Write-Fail "缺少 frontend\node_modules，请先执行: cd frontend && npm install"
     exit 1
 }
+# Electron 二进制自愈：失败不阻断启动，让 vite 自己暴露后续错误
+Repair-ElectronDist | Out-Null
 Write-Ok "Python : $pythonExe"
 Write-Ok "前端   : $Frontend"
 Write-Host ''
@@ -266,9 +326,14 @@ try {
                 break
             }
             try {
-                $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$BackendPort/api/status" `
-                                          -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop
-                if ($resp.StatusCode -eq 200) { $ready = $true; break }
+                # 不用 Invoke-WebRequest：它会走系统代理（挂代理的机器上连 127.0.0.1
+                # 都可能被代理拦截，表现为 forever 超时），HttpWebRequest 直连回环可靠
+                $req = [System.Net.HttpWebRequest]::Create("http://127.0.0.1:$BackendPort/api/status")
+                $req.Proxy = $null
+                $req.Timeout = 2000
+                $resp = $req.GetResponse()
+                $resp.Close()
+                $ready = $true; break
             }
             catch {
                 Start-Sleep -Milliseconds 500

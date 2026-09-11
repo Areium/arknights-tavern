@@ -1,7 +1,7 @@
 # 系统更新设计与维护文档
 
 > 记录战斗系统的架构演进、关键修改与未来规划方向
-> 最后更新：2026-08-06
+> 最后更新：2026-09-12
 
 ---
 
@@ -15,6 +15,13 @@
 ---
 
 ## 更新记录
+### 2026-09-12 — Windows 一键重启修复：Electron 二进制自愈 + bat 编码修复
+
+- **Electron 起不来的根因（关键）**：electron 42 的 `install.js` 依赖 `extract-zip@2 + yauzl@2`（2015 年的流式解压栈），在 Node 26 上解压 electron zip 时解压 promise 永不落定——写完第 1 个文件（`dxil.dll`）即静默挂起，事件循环清空后 node 以退出码 0 结束：不报错、不写 `path.txt`。于是 `npm run dev` 时 vite-plugin-electron 一加载 electron 包就抛 `ENOENT ... path.txt`，游戏窗口起不来。修复：用系统自带 bsdtar 从 `@electron/get` 下载缓存（`%LOCALAPPDATA%\electron\Cache`，zip 已在且校验可用）解压补齐 `dist/` 并写 `path.txt`。
+- **restart-win.ps1 自愈预检**：启动前检测到 `node_modules/electron/dist/electron.exe` 缺失时，自动从下载缓存解压补齐（优先选与已装 electron 包同版本的 zip；tar 不可用时回退 `Expand-Archive`），防未来重跑 `npm install` 后复发。
+- **restart-win.bat 编码修复**：`chcp 65001` 与 bat 内多字节中文注释组合会让 cmd.exe 在码页切换后按错误字节偏移重解析脚本，把注释片段（"一个窗口"、"待前端进程……"）当命令执行（`'...' is not recognized as an internal or external command`）。bat 改为纯 ASCII（逻辑与中文输出全部在 ps1 侧），`chcp 65001` 保留——对纯 ASCII 的 bat 是安全的。
+- **后端就绪探测加固**：ps1 原用 `Invoke-WebRequest` 探测 `/api/status`，它会走系统代理——挂代理的机器上连 127.0.0.1 都可能被拦截（表现为等待 60s 超时，Electron 的 PythonProcessManager 健康检查同样失败，误判后端缺失再拉起第二个 Flask 抢占 5000）。改用 `HttpWebRequest` + `Proxy=$null` 直连回环。
+
 ### 2026-08-21 — 对话延迟优化：真流式 + 分调用思考档位
 
 - **修复伪流式（关键）**：`load_llm.py` 流式路径由 `httpx client.post()`（先下载完整响应体再 `iter_lines`，导致 SSE 所有 chunk 一次性到达、首字可见≈总时长）改为 `client.stream()` 真流式；ApiLLM 与 LocalLLM（Ollama）同步修复，保留连接错误/429/5xx 重试与 400/422 stream_options 降级。实测叙述首字 20.5s → ~0.4-0.8s。

@@ -1,21 +1,30 @@
 @echo off
+rem Keep the console at UTF-8 so the PowerShell banner and the CJK output of
+rem child processes render correctly. This is safe ONLY because this file is
+rem pure ASCII: cmd.exe mis-parses batch files when `chcp 65001` is combined
+rem with multi-byte characters in the same file (comment fragments get
+rem executed as commands).
 chcp 65001 >nul
 rem ============================================================
-rem  Arknights Tavern — Windows 一键重启（单窗口）
+rem  Arknights Tavern - one-window restart launcher
 rem
-rem  这里只做「同窗口启动 PowerShell」这一件事：
-rem    · 不再用 start + cmd /k 为 Flask / Vite 各开一个窗口
-rem    · PowerShell 脚本在前台等待前端进程，游戏窗口关闭 / Ctrl-C /
-rem      异常退出时都会清理子进程并让本窗口自动关闭
+rem  KEEP THIS FILE ASCII-ONLY (English comments and messages).
 rem
-rem  可传参给 restart-win.ps1，例如：
+rem  Why: a batch file that mixes `chcp 65001` with multi-byte
+rem  (CJK) text makes cmd.exe re-seek the script at a wrong byte
+rem  offset after the codepage change; it then executes fragments
+rem  of comment lines as commands, e.g.
+rem      '...' is not recognized as an internal or external command
+rem  All logic and all CJK output live in restart-win.ps1.
+rem
+rem  Arguments are forwarded to restart-win.ps1, e.g.
 rem      restart-win.bat -BackendPort 5001
 rem ============================================================
 setlocal
 set "PS1=%~dp0restart-win.ps1"
 
 if not exist "%PS1%" (
-    echo [错误] 找不到 "%PS1%"
+    echo [ERROR] restart-win.ps1 not found: "%PS1%"
     pause
     exit /b 1
 )
