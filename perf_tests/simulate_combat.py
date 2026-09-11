@@ -350,7 +350,15 @@ def main():
     ap.add_argument("--seed-base", type=int, default=20260912)
     ap.add_argument("--store-runs", action="store_true",
                     help="同时保存逐场明细（默认只存汇总，避免大文件入库）")
+    ap.add_argument("--force", action="store_true",
+                    help="允许局部跑（--encounters/--teams 受限）覆盖标准报告文件")
     args = ap.parse_args()
+
+    # 防呆：局部跑默认不得覆盖标准报告，避免冒烟测试盖掉完整验收数据
+    partial = bool(args.encounters) or args.teams != "standard,command,low" or args.runs < 30
+    if partial and not args.force and os.path.abspath(args.json) == os.path.abspath(RESULTS_JSON):
+        print("检测到局部跑，拒绝覆盖标准报告；如需覆盖请加 --force 或指定 --json <其它路径>")
+        return
 
     loader = CombatDataLoader()
     wanted = [e for e in args.encounters.split(",") if e]
