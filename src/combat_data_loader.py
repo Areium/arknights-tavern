@@ -20,6 +20,7 @@ class CombatDataLoader:
 
     def __init__(self, data_dir: str = ""):
         self._root = Path(data_dir) if data_dir else _DATA_DIR
+        self._encounter_index_cache: dict | None = None
 
     # ── Enemy loading ──
 
@@ -46,6 +47,15 @@ class CombatDataLoader:
             logger.warning("Enemy %s has no combat_stats", meta.get("name", path))
             return None
 
+        # ── 敌人分层（design §8.1）：行动槽 / 功率带 / 角色 / 威胁点 ──
+        role = str(meta.get("role", "") or "")
+        declared_slots = meta.get("action_slots")
+        if declared_slots is None:
+            # elite/boss 类敌人默认每轮 2 槽，其余 1 槽（不再依赖 max_ap 假参数）
+            action_slots = 2 if role in ("elite", "boss", "精英", "首领", "队长") else 1
+        else:
+            action_slots = int(declared_slots)
+
         return CombatUnit.create_enemy(
             name=meta.get("name", "未知"),
             char_class=meta.get("class", ""),
@@ -60,6 +70,10 @@ class CombatDataLoader:
             max_ap=stats.get("max_ap", 3),
             ai_behavior=meta.get("ai_behavior", "aggressive"),
             ai_skills=meta.get("ai_skills"),
+            action_slots=action_slots,
+            power_tier=str(meta.get("power_tier", "") or ""),
+            role=role,
+            threat_points=int(meta.get("threat_points", 0) or 0),
         )
 
     def load_enemy_meta(self, name: str) -> dict | None:
@@ -97,19 +111,58 @@ class CombatDataLoader:
 
     # ── Encounter loading ──
 
+    def _encounter_index(self) -> dict:
+        """encounter_id / 文件名 / 中文名 → 文件路径（首次调用构建并缓存）。
+
+        历史上存在「文件名（中文）与 encounter_id 不一致」的遭遇文件，
+        例如 初遇整合运动.md 声明 encounter_id: enc_first_reunion。
+        叙事层给出的两种引用都必须能加载，否则会静默找不到遭遇。
+        """
+        if self._encounter_index_cache is not None:
+            return self._encounter_index_cache
+
+        index: dict = {}
+        enc_dir = self._root / "encounters"
+        if enc_dir.is_dir():
+            for path in sorted(enc_dir.glob("*.md")):
+                index.setdefault(path.stem, path)
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        meta = frontmatter.load(f).metadata
+                except (OSError, ValueError):
+                    continue
+                for key in ("encounter_id", "name", "alias"):
+                    value = str(meta.get(key) or "").strip()
+                    if value:
+                        index.setdefault(value, path)
+        self._encounter_index_cache = index
+        return index
+
+    def resolve_encounter_path(self, encounter_id: str):
+        """解析遭遇引用（id / 文件名 / 中文名）到文件路径。"""
+        if not encounter_id:
+            return None
+        direct = self._root / "encounters" / f"{encounter_id}.md"
+        if direct.exists():
+            return direct
+        return self._encounter_index().get(str(encounter_id).strip())
+
     def load_encounter(self, encounter_id: str) -> dict | None:
-        """Load an encounter by ID from data/combat/encounters/<id>.md."""
-        path = self._root / "encounters" / f"{encounter_id}.md"
-        if not path.exists():
-            logger.warning("Encounter file not found: %s", path)
+        """Load an encounter by ID (id / 文件名 / 中文名均可) from data/combat/encounters/."""
+        path = self.resolve_encounter_path(encounter_id)
+        if path is None:
+            logger.warning("Encounter file not found: %s", encounter_id)
             return None
 
         try:
             with open(path, "r", encoding="utf-8") as f:
-                return dict(frontmatter.load(f).metadata)
+                meta = dict(frontmatter.load(f).metadata)
         except (OSError, ValueError) as e:
             logger.error("Failed to load encounter %s: %s", encounter_id, e)
             return None
+        if not meta.get("encounter_id"):
+            meta["encounter_id"] = path.stem
+        return meta
 
     # ── Background loading ──
 

@@ -35,6 +35,19 @@ class Card:
     effects: list = field(default_factory=list)  # 状态效果：[{"type":"shield","value":8}] / [{"type":"slow","duration":2}]
     ignore_def: float = 0.0  # 破甲：物理攻击无视防御的比例 (0.0—1.0)
     cleanse: bool = False    # 净化：命中后驱散目标的负面状态
+    # ── 成长方案 v1 扩展字段（design 方案 §10.1）──
+    rank: int = 0                    # 卡牌阶位 R0–R3（0 = 基线）
+    upgrade_branch: str = ""         # 分支："stable" | "burst" | "synergy" | "tactical" | ""
+    exhaust: bool | None = None      # 显式耗竭覆盖；None = 按 tier 决定（elite 用后进 exhaust）
+    power_tier: str = ""             # 五阶段功率带 T0–T4
+    cv_budget: float = 0.0           # 设计预算 CV（24 × AP × 品质系数）
+    cv_estimated: float = 0.0        # 参考功率带下的估算 CV（由审计脚本回填）
+    balance_version: int = 1         # 数值版本（与 CombatEngine.BALANCE_VERSION 对齐）
+
+    @property
+    def is_exhausted_on_play(self) -> bool:
+        """本卡用后是否进入耗竭区。"""
+        return bool(self.exhaust) if self.exhaust is not None else (self.tier == "elite")
 
     def to_dict(self) -> dict:
         return {
@@ -54,6 +67,13 @@ class Card:
             "effects": list(self.effects),
             "ignore_def": self.ignore_def,
             "cleanse": self.cleanse,
+            "rank": self.rank,
+            "upgrade_branch": self.upgrade_branch,
+            "exhaust": self.exhaust,
+            "power_tier": self.power_tier,
+            "cv_budget": self.cv_budget,
+            "cv_estimated": self.cv_estimated,
+            "balance_version": self.balance_version,
         }
 
     @classmethod
@@ -96,11 +116,11 @@ class CardPool:
         self.exhaust = []
 
     def play_card(self, card: Card):
-        """Remove card from hand. Elite → exhaust; basic → discard."""
+        """Remove card from hand. Elite (or explicit exhaust) → exhaust; basic → discard."""
         if card not in self.hand:
             return
         self.hand.remove(card)
-        if card.tier == "elite":
+        if card.is_exhausted_on_play:
             self.exhaust.append(card)
         else:
             self.discard.append(card)
@@ -122,4 +142,15 @@ class CardPool:
             "hand": [c.to_dict() for c in self.hand],
             "discard": [c.to_dict() for c in self.discard],
             "exhaust": [c.to_dict() for c in self.exhaust],
+            "hand_size": self.hand_size,
         }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "CardPool":
+        """从存档重建牌堆（缺失键回退默认，容忍 schema 演进）。"""
+        pool = cls(hand_size=int(d.get("hand_size", 7)))
+        pool.deck = [Card.from_dict(c) for c in d.get("deck", [])]
+        pool.hand = [Card.from_dict(c) for c in d.get("hand", [])]
+        pool.discard = [Card.from_dict(c) for c in d.get("discard", [])]
+        pool.exhaust = [Card.from_dict(c) for c in d.get("exhaust", [])]
+        return pool
