@@ -1,6 +1,60 @@
 import hashlib
+import logging
 import os
 import re
+
+logger = logging.getLogger(__name__)
+
+# 本地 ONNX 嵌入单例（chromadb DefaultEmbeddingFunction）：
+# 模型冷启动 ~1s，进程内共享；探测失败（如 onnxruntime 缺失）后不再重试。
+_LOCAL_EMBED_FN = None
+_LOCAL_EMBED_RESOLVED = False
+
+
+def get_local_embed_fn():
+    """返回本地 ONNX 嵌入函数（chromadb DefaultEmbeddingFunction），不可用时返回 None。
+
+    单例缓存：首次调用触发模型加载并探测可用性；失败后进程内不再重试。
+    """
+    global _LOCAL_EMBED_FN, _LOCAL_EMBED_RESOLVED
+    if not _LOCAL_EMBED_RESOLVED:
+        _LOCAL_EMBED_RESOLVED = True
+        try:
+            from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
+
+            fn = DefaultEmbeddingFunction()
+            fn(["探测"])  # 触发 ONNX 模型加载，验证可用性
+            _LOCAL_EMBED_FN = fn
+            logger.info("本地 ONNX 嵌入可用，语义记忆可离线运行")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "本地 ONNX 嵌入不可用（%s: %s），语义记忆依赖远端嵌入或降级为滑动窗口",
+                type(e).__name__, e,
+            )
+    return _LOCAL_EMBED_FN
+
+
+def resolve_embed_fn(llm=None):
+    """解析语义记忆使用的嵌入函数。
+
+    优先使用 LLM 后端提供的远端 embedding（构造时探测一次；DeepSeek 等
+    无 /embeddings 端点的服务会在首次失败后短路返回 None）；远端不可用
+    时回退本地 ONNX 嵌入；两者都不可用返回 None（纯滑动窗口）。
+
+    同一 collection 的向量必须来自同一嵌入源（维度一致），因此在构造
+    VectorMemory 前一次性定源，避免运行中混用不同维度的向量。
+    """
+    if llm is not None and hasattr(llm, "embed"):
+        probe_ok = False
+        try:
+            probe_ok = llm.embed(["探测"]) is not None
+        except Exception as e:  # noqa: BLE001
+            logger.warning("远端 embedding 探测异常（%s: %s）", type(e).__name__, e)
+        if probe_ok:
+            logger.debug("语义记忆使用远端 embedding")
+            return llm.embed
+        logger.info("远端 embedding 不可用，语义记忆回退本地 ONNX 嵌入")
+    return get_local_embed_fn()
 
 
 class VectorMemory:
@@ -11,6 +65,8 @@ class VectorMemory:
     - 远期对话存入 ChromaDB，按语义检索 Top-K 条
     - 数据持久化到磁盘，重启不丢失
     - embedding 不可用时自动降级为纯滑动窗口
+    - 嵌入源在构造时经 resolve_embed_fn 一次性确定：
+      远端可用用远端，否则本地 ONNX，均不可用则纯滑窗
     """
 
     def __init__(
@@ -60,16 +116,23 @@ class VectorMemory:
         """存储一轮对话。"""
         doc = f"用户: {user_input}\n{self.character_name}: {character_response}"
 
-        # 存入向量库
+        # 存入向量库（失败时降级：本轮仅进入滑动窗口，不阻断对话）
         if self.embed_fn is not None:
-            embedding = self.embed_fn([doc])
+            embedding = None
+            try:
+                embedding = self.embed_fn([doc])
+            except Exception as e:  # noqa: BLE001
+                logger.warning("嵌入计算失败，本轮对话仅保留在滑动窗口: %s", e)
             if embedding is not None:
-                self.collection.add(
-                    documents=[doc],
-                    embeddings=embedding,
-                    ids=[str(self._turn_counter)],
-                )
-                self._turn_counter += 1
+                try:
+                    self.collection.add(
+                        documents=[doc],
+                        embeddings=embedding,
+                        ids=[str(self._turn_counter)],
+                    )
+                    self._turn_counter += 1
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("向量写入失败，本轮对话仅保留在滑动窗口: %s", e)
 
         # 更新滑动窗口
         self.recent_buffer.append({"role": "user", "content": user_input})
@@ -84,14 +147,19 @@ class VectorMemory:
         if self.embed_fn is None or self.collection.count() == 0:
             return []
 
-        query_embedding = self.embed_fn([query])
-        if query_embedding is None:
+        try:
+            query_embedding = self.embed_fn([query])
+            if query_embedding is None:
+                return []
+            results = self.collection.query(
+                query_embeddings=query_embedding,
+                n_results=min(top_k, self.collection.count()),
+            )
+        except Exception as e:  # noqa: BLE001
+            # 嵌入源切换导致维度不匹配、存储异常等：降级为滑窗而不是让对话链路崩溃
+            logger.warning("语义检索失败，本轮降级为滑动窗口: %s", e)
             return []
 
-        results = self.collection.query(
-            query_embeddings=query_embedding,
-            n_results=min(top_k, self.collection.count()),
-        )
         docs = results.get("documents", [[]])[0]
 
         recent_set = self._recent_as_docs()
