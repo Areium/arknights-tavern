@@ -757,28 +757,31 @@ speaker 必须从场景角色列表选择，无法判断时用 null
                 "请详细描述战斗局势。战斗触发将由系统自动处理。"
             )
 
-        # ── 参考层：剧情结构、预加载资料、文档目录（稳定，放前面利用缓存）──
+        # ── 稳定参考层：预加载资料、文档目录、常驻世界书 ──
+        # 逐轮变化的剧情进度与按需 Wiki 结果必须留到动态层，否则会让其后的
+        # 常驻世界书内容失去 API 前缀缓存命中。
         ref_parts = []
+        dynamic_ref_parts = []
         if self._overlay and self._overlay.has_plot_context():
             opening = self._overlay.get_plot_context()
             if opening:
-                ref_parts.append(opening)
+                dynamic_ref_parts.append(opening)
                 logger.info("已注入开场上下文到首次叙述")
             self._overlay.clear_plot_context()
         if self._overlay:
             plot_state = self._overlay.read_session_doc("plot_state.md")
             if plot_state:
-                ref_parts.append("剧情结构参考（导航用，非脚本）：\n" + plot_state)
+                dynamic_ref_parts.append("剧情结构参考（导航用，非脚本）：\n" + plot_state)
             plot_log = self._overlay.read_session_doc("plot_log.md")
             if plot_log:
-                ref_parts.append("剧情进度日志（已发生的事件，请勿重复）：\n" + plot_log)
+                dynamic_ref_parts.append("剧情进度日志（已发生的事件，请勿重复）：\n" + plot_log)
         if self._session_context:
             preloaded_text = self._session_context.format_preloaded()
             if preloaded_text:
                 ref_parts.append(preloaded_text)
             retrieved_text = self._session_context.format_wiki_retrieved()
             if retrieved_text:
-                ref_parts.append(retrieved_text)
+                dynamic_ref_parts.append(retrieved_text)
         if self._wiki_manager:
             catalog = self._wiki_manager.format_catalog_summary(
                 self._wiki_manager.NARRATIVE_CATALOG_CATS
@@ -796,7 +799,7 @@ speaker 必须从场景角色列表选择，无法判断时用 null
         if wb_before:
             ref_parts.append(wb_before)
 
-        # 开场设定（首轮：让开场白与场景对应）
+        # 开场设定仅首轮出现，属于动态内容；放到稳定前缀之后。
         # 角色卡导入时把 scenario/first_mes 写入角色 frontmatter，首轮叙述
         # 注入为参考，LLM 开篇即呈现卡片定义的开场场景与角色台词。
         if is_first_turn:
@@ -816,7 +819,7 @@ speaker 必须从场景角色列表选择，无法判断时用 null
                     block.append(f"角色开场白（开篇应自然呈现这段台词/场景）：{first_mes}")
                 opening_parts.append("\n".join(block))
             if opening_parts:
-                ref_parts.append(
+                dynamic_ref_parts.append(
                     "<opening_setup>\n" + "\n\n".join(opening_parts) + "\n</opening_setup>")
 
         # 玩家身份角色设定（用户自身，稳定层）
@@ -840,7 +843,12 @@ speaker 必须从场景角色列表选择，无法判断时用 null
                 f"</encounters>"
             )
 
-        # ── 动态层：场景状态、历史、玩家动作（易变，放后面）──
+        # ── 动态层：剧情进度、场景状态、历史、玩家动作（易变，放后面）──
+        if dynamic_ref_parts:
+            context_parts.append(
+                "<story_context>\n" + "\n\n".join(dynamic_ref_parts) + "\n</story_context>"
+            )
+
         # 场景状态
         if is_first_turn:
             context_parts.append(f"<scene_state>\n{env_context or '当前场景'}\n</scene_state>")
