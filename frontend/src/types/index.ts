@@ -275,7 +275,23 @@ export interface PlayerPoolDTO {
   exhaust: CardDTO[];
 }
 
-/** 敌人意图（ROUND_START 计算，供玩家读取敌方计划） */
+/** 敌人意图的单段动作（v1：精英/Boss 每轮可有多个动作） */
+export interface EnemyIntentActionDTO {
+  type: "attack" | "heavy" | "aoe" | "move" | "defend";
+  label: string;
+  card_id: string;
+  card_name: string;
+  target_id: string;
+  target_name: string;
+  damage_min: number | null;
+  damage_max: number | null;
+}
+
+/** 敌人意图（ROUND_START 计算，供玩家读取敌方计划）
+ *
+ * v1（balance_version 1）起包含行动槽与多段动作计划：首段动作同时平铺在
+ * 顶层字段（向后兼容旧组件），完整计划见 `actions`。
+ */
 export interface EnemyIntentDTO {
   type: "attack" | "heavy" | "aoe" | "move" | "defend";
   label: string;
@@ -285,6 +301,12 @@ export interface EnemyIntentDTO {
   card_name: string;
   damage_min: number | null;
   damage_max: number | null;
+  /** 该敌人每轮行动槽数（普通 1，精英/Boss 2） */
+  action_slots?: number;
+  /** 每轮计划：预告与执行使用同一计划 */
+  actions?: EnemyIntentActionDTO[];
+  /** 计划生成时的剩余 AP */
+  ap?: number;
 }
 
 /** 战前打法（Approach）选项 */

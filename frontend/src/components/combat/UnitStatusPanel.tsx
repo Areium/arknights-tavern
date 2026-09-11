@@ -155,6 +155,8 @@ export default function UnitStatusPanel({
                 {!isPlayer && u.is_alive && intents && (() => {
                   const it = intents[u.unit_id];
                   if (!it) return null;
+                  // v1：精英/Boss 每轮多段动作；逐段列出，避免 UI 只表达首段造成误判
+                  const plan: any[] = Array.isArray(it.actions) ? it.actions : [];
                   return (
                     <div className="mt-1 text-[9px] leading-tight font-display">
                       <span className={INTENT_COLOR[it.type] || "text-gray-400"}>
@@ -165,6 +167,17 @@ export default function UnitStatusPanel({
                       )}
                       {it.damage_min != null && it.damage_max != null && (
                         <span className="text-gray-600"> ({it.damage_min}-{it.damage_max})</span>
+                      )}
+                      {plan.length > 1 && (
+                        <div className="text-gray-500 mt-0.5">
+                          {plan.map((a, i) => (
+                            <span key={i}>
+                              {i > 0 ? " → " : ""}
+                              {a.label}
+                              {a.target_name ? `→${a.target_name}` : ""}
+                            </span>
+                          ))}
+                        </div>
                       )}
                     </div>
                   );

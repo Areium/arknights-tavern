@@ -1504,6 +1504,12 @@ export default function CombatView() {
               const badge = INTENT_BADGE[it.type] || INTENT_BADGE.attack;
               const anchor = getIntentAnchor(enemy);
               if (!anchor) return null;
+              // v1：敌人每轮可有多段动作（action_slots）；徽标显示首段 + 总段数，
+              // 完整序列放进 title，保证「UI 与数据表达同一事实」。
+              const plan: any[] = Array.isArray(it.actions) ? it.actions : [];
+              const planText = plan
+                .map((a) => (a.target_name ? `${a.label}→${a.target_name}` : a.label))
+                .join(" → ");
               return (
                 <span
                   key={uid}
@@ -1515,8 +1521,10 @@ export default function CombatView() {
                     zIndex: 90,
                     pointerEvents: "none",
                   }}
+                  title={planText || it.label}
                 >
                   {badge.icon} {it.label}
+                  {plan.length > 1 ? ` ×${plan.length}` : ""}
                 </span>
               );
             })}
