@@ -4,6 +4,11 @@ name: "快速测试·第三波"
 summary: "战斗测试——第三波：士兵与术师混编，检验法术应对。"
 category: "test"
 difficulty: 2
+encounter_type: "teaching"
+recommended_power_tier: "T1"
+target_rounds: 2
+threat_budget: 2.6
+balance_version: 1
 grid_size: 7
 deploy_zones:
   player: [[3, 0], [5, 1]]
@@ -18,10 +23,10 @@ waves:
         count: 1
         positions: [[5, 5]]
 conditions:
-  max_rounds: 12
+  max_rounds: 6
   escape_enabled: false
 rewards:
-  xp: 120
+  xp: 27
   items: []
   unlock: []
 trigger_plot: ""

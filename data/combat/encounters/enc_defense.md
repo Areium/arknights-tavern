@@ -4,6 +4,11 @@ name: "坚守阵地"
 summary: "战斗中的坚守阵地，强调防御与不屈意志。"
 category: "test"
 difficulty: 4
+encounter_type: "normal"
+recommended_power_tier: "T2"
+target_rounds: 7
+threat_budget: 5.8
+balance_version: 1
 grid_size: 7
 deploy_zones:
   player: [[2, 0], [3, 1], [4, 0], [5, 1]]
@@ -12,23 +17,23 @@ deploy_zones:
 waves:
   - enemies:
       - enemy: "整合运动盾卫"
-        count: 2
-        positions: [[1, 5], [5, 5]]
+        count: 1
+        positions: [[1, 5]]
       - enemy: "整合运动士兵"
-        count: 2
-        positions: [[0, 4], [6, 4]]
+        count: 1
+        positions: [[0, 4]]
   - enemies:
       - enemy: "整合运动术师"
-        count: 2
-        positions: [[2, 6], [4, 6]]
+        count: 1
+        positions: [[2, 6]]
       - enemy: "整合运动狙击手"
         count: 1
         positions: [[3, 5]]
 conditions:
-  max_rounds: 30
+  max_rounds: 10
   escape_enabled: false
 rewards:
-  xp: 400
+  xp: 62
   items: ["坚守勋章", "重装凭证"]
   unlock: []
 trigger_plot: ""

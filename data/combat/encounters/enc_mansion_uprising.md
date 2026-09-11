@@ -4,6 +4,11 @@ name: "希瓦艾什家宴事变"
 summary: "希瓦艾什庄园家宴上爆发冲突，冰原战士与冰原术师破门而入，山雪鬼趁乱突袭。"
 category: "story"
 difficulty: 3
+encounter_type: "normal"
+recommended_power_tier: "T1"
+target_rounds: 3
+threat_budget: 5.8
+balance_version: 1
 grid_size: 7
 background: "snow_mountain"
 deploy_zones:
@@ -13,19 +18,19 @@ deploy_zones:
 waves:
   - enemies:
       - enemy: "冰原战士"
-        count: 2
-        positions: [[4, 4], [5, 4]]
+        count: 1
+        positions: [[4, 4]]
       - enemy: "冰原术师"
-        count: 2
-        positions: [[3, 6], [6, 6]]
+        count: 1
+        positions: [[3, 6]]
       - enemy: "山雪鬼"
         count: 2
         positions: [[3, 3], [6, 3]]
 conditions:
-  max_rounds: 30
+  max_rounds: 8
   escape_enabled: true
 rewards:
-  xp: 200
+  xp: 40
   items: ["源石碎片"]
   unlock: []
 trigger_plot: ""

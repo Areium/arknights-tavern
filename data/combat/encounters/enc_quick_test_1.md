@@ -4,6 +4,11 @@ name: "快速测试·第一波"
 summary: "战斗测试——第一波：单个整合运动士兵，简单快速。"
 category: "test"
 difficulty: 1
+encounter_type: "teaching"
+recommended_power_tier: "T0"
+target_rounds: 2
+threat_budget: 1.6
+balance_version: 1
 grid_size: 7
 deploy_zones:
   player: [[3, 0], [5, 1]]
@@ -15,10 +20,10 @@ waves:
         count: 1
         positions: [[4, 5]]
 conditions:
-  max_rounds: 10
+  max_rounds: 6
   escape_enabled: false
 rewards:
-  xp: 50
+  xp: 20
   items: []
   unlock: []
 trigger_plot: ""

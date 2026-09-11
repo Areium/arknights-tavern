@@ -39,8 +39,31 @@ CHARISMA_ATTR = "魅力"
 # 属性满值上限（与 combat_engine.entity / wiki_manager 的 1-10 标度一致）
 ATTR_CAP = 10
 
-# 升级阈值系数：升到下一级所需经验 = level × XP_PER_LEVEL
-XP_PER_LEVEL = 100
+# 升级阈值（v1，design §9.1）：见 xp_needed()；旧规则 level × 100 已废弃。
+
+# 升级阈值（design §9.1）：升到下一级所需经验 = 180 + 40 × (level - 1)
+XP_BASE = 180
+XP_STEP = 40
+
+# 经验分配（design §9.3）：参与且存活 100%、阵亡 70%、未部署 30% 追赶
+XP_SHARE_ALIVE = 1.00
+XP_SHARE_DEAD = 0.70
+XP_SHARE_RESERVE = 0.30
+
+# 追赶系数：低于队伍最高等级 2 级以上时启用，直到差距缩小
+CATCHUP_LEVEL_GAP = 2
+CATCHUP_MULT = 1.25
+
+# 打法倍率区间（design §9.2）：普通区间 0.75–1.20；撤退（≤0.25）保留低倍率
+REWARD_MULT_MIN = 0.75
+REWARD_MULT_MAX = 1.20
+REWARD_RETREAT_CEIL = 0.25
+
+# 敌人 XP 与遭遇基础 XP 的叠加权重（design §9.2 兼容方案）
+ENEMY_XP_WEIGHT = 0.35
+
+# 职业节点解锁间隔（design §9.3：每 3 级解锁一个职业节点）
+NODE_UNLOCK_EVERY = 3
 
 # 属性缺省值（与 combat_engine.entity._DEFAULT_ATTR 一致）
 DEFAULT_ATTR = 5
@@ -63,14 +86,45 @@ UNWIRED_REWARD_KEYS = ("unlock",)
 # ── 纯计算：等级 / 经验 / 属性 ──
 
 def xp_needed(level: int) -> int:
-    """升到下一级所需经验：level × 100（现有规则）。"""
-    return max(1, int(level or 1)) * XP_PER_LEVEL
+    """升到下一级所需经验：180 + 40 × (level - 1)（design §9.1）。
+
+    1→2 需要 180、5→6 需要 340、10→11 需要 540。
+    """
+    return XP_BASE + XP_STEP * (max(1, int(level or 1)) - 1)
+
+
+def xp_share(*, in_battle: bool = True, alive: bool = True) -> float:
+    """本次战斗的经验分配比例（design §9.3）。"""
+    if not in_battle:
+        return XP_SHARE_RESERVE
+    return XP_SHARE_ALIVE if alive else XP_SHARE_DEAD
+
+
+def catchup_multiplier(level: int, team_max_level: int | None) -> float:
+    """追赶系数：低于队伍最高等级 2 级以上（即差距 ≥3 级）时 1.25 倍。"""
+    if not team_max_level:
+        return 1.0
+    if int(team_max_level) - int(level or 1) > CATCHUP_LEVEL_GAP:
+        return CATCHUP_MULT
+    return 1.0
+
+
+def clamp_reward_mult(mult: float) -> float:
+    """打法倍率限制（design §9.2）：常规区间钳到 0.75–1.20；撤退保留 ≤0.25。"""
+    try:
+        value = float(mult or 0.0)
+    except (TypeError, ValueError):
+        value = 0.0
+    if value <= REWARD_RETREAT_CEIL:
+        return max(0.0, value)
+    return max(REWARD_MULT_MIN, min(REWARD_MULT_MAX, value))
 
 
 def pick_growth_attribute(attrs: dict) -> str | None:
     """选本次升级提升的属性：最低且未满值的战斗属性；全满时尝试「魅力」。
 
-    返回 None 表示所有属性均已满值（成长封顶）。
+    ⚠️ v1 起等级不再自动提升属性（design §2.3 / §9.3）：本函数仅保留给
+    剧情里程碑等显式成长场景调用，升级流程不再使用。
     """
     candidates = [(k, int(attrs.get(k, DEFAULT_ATTR) or DEFAULT_ATTR))
                   for k in BATTLE_ATTRS
@@ -83,30 +137,43 @@ def pick_growth_attribute(attrs: dict) -> str | None:
 
 
 def compute_character_growth(name: str, attrs: dict, progress: dict, xp_gain: int,
-                             *, in_battle: bool = True, alive: bool = True) -> dict:
+                             *, in_battle: bool = True, alive: bool = True,
+                             team_max_level: int | None = None) -> dict:
     """纯函数：计算单个角色的结算结果（不写任何存档）。
+
+    v1 规则（design §9.3）：
+    - 经验分配按参与度：存活 100% / 阵亡 70% / 未部署 30%；
+    - 低于队伍最高等级 2 级以上时启用 1.25 倍追赶系数；
+    - 升级不再自动提升最低属性，改为发放专精点，每 3 级解锁一个职业节点。
 
     Args:
         name: 角色名
         attrs: 角色当前属性（模板 + 会话覆盖合并后的结果）
-        progress: 角色当前成长进度 {"level": int, "xp": int}
-        xp_gain: 本次获得的经验
+        progress: 角色当前成长进度 {"level", "xp", "specialization_points", "nodes_unlocked"}
+        xp_gain: 本次基础经验（未乘参与度系数）
         in_battle: 是否出阵
         alive: 战斗结束时是否存活
+        team_max_level: 队伍最高等级（追赶判定用）
 
     Returns:
-        结算条目 DTO（见模块 docstring），含 level_before/after、属性变化、封顶标记。
+        结算条目 DTO，含等级变化、专精点/节点收益与经验分配明细。
     """
     level_before = max(1, int(progress.get("level", 1) or 1))
     xp_before = max(0, int(progress.get("xp", 0) or 0))
-    gain = int(xp_gain or 0)
+    spec_before = max(0, int(progress.get("specialization_points", 0) or 0))
+    nodes_before = max(0, int(progress.get("nodes_unlocked", 0) or 0))
+
+    share = xp_share(in_battle=in_battle, alive=alive)
+    catchup = catchup_multiplier(level_before, team_max_level)
+    gain = int(round(int(xp_gain or 0) * share * catchup))
 
     current = {k: int(v or 0) for k, v in (attrs or {}).items()}
     level_after = level_before
     xp_after = xp_before + gain
 
     level_ups: list[dict] = []
-    raised: dict[str, int] = {}
+    spec_gained = 0
+    nodes_gained = 0
     capped = False
     cap_reason = ""
 
@@ -118,41 +185,30 @@ def compute_character_growth(name: str, attrs: dict, progress: dict, xp_gain: in
             capped = True
             cap_reason = f"已达等级上限 Lv.{MAX_LEVEL}"
             break
-        attr_name = pick_growth_attribute(current)
-        if attr_name is None:
-            capped = True
-            cap_reason = "所有属性均已满值（10），无法继续成长"
-            break
         xp_after -= need
         level_after += 1
-        current[attr_name] = min(ATTR_CAP, int(current.get(attr_name, DEFAULT_ATTR) or DEFAULT_ATTR) + 1)
-        raised[attr_name] = current[attr_name]
+        spec_gained += 1
+        node_unlocked = (level_after % NODE_UNLOCK_EVERY == 0)
+        if node_unlocked:
+            nodes_gained += 1
         level_ups.append({
             "level": level_after,
-            "attribute": attr_name,
-            "value": current[attr_name],
-            "delta": 1,
+            "specialization_point": 1,
+            "node_unlocked": node_unlocked,
         })
 
     # 封顶时经验不再无意义累积：停在当前等级的满条位置
     if capped:
         xp_after = min(xp_after, xp_needed(level_after))
 
-    attribute_changes = [
-        {
-            "name": attr,
-            "before": int((attrs or {}).get(attr, DEFAULT_ATTR) or DEFAULT_ATTR),
-            "after": value,
-            "delta": value - int((attrs or {}).get(attr, DEFAULT_ATTR) or DEFAULT_ATTR),
-        }
-        for attr, value in raised.items()
-    ]
-
     return {
         "name": name,
         "in_battle": bool(in_battle),
         "alive": bool(alive),
         "xp_gained": gain,
+        "xp_base": int(xp_gain or 0),
+        "xp_share": share,
+        "catchup_mult": catchup,
         "level_before": level_before,
         "level_after": level_after,
         "level_delta": level_after - level_before,
@@ -161,7 +217,13 @@ def compute_character_growth(name: str, attrs: dict, progress: dict, xp_gain: in
         "xp_needed_before": xp_needed(level_before),
         "xp_needed": xp_needed(level_after),
         "level_ups": level_ups,
-        "attribute_changes": attribute_changes,
+        "attribute_changes": [],  # v1：等级不再自动提升属性
+        "specialization_points_before": spec_before,
+        "specialization_points_after": spec_before + spec_gained,
+        "specialization_points_gained": spec_gained,
+        "nodes_unlocked_before": nodes_before,
+        "nodes_unlocked_after": nodes_before + nodes_gained,
+        "nodes_unlocked_gained": nodes_gained,
         "capped": capped,
         "cap_reason": cap_reason,
     }
@@ -173,6 +235,9 @@ def build_writeback_payload(character: dict) -> dict:
         "progress": {
             "level": int(character.get("level_after", 1)),
             "xp": int(character.get("xp_after", 0)),
+            "specialization_points": int(
+                character.get("specialization_points_after", 0) or 0),
+            "nodes_unlocked": int(character.get("nodes_unlocked_after", 0) or 0),
         }
     }
     changes = character.get("attribute_changes") or []
@@ -212,8 +277,12 @@ def roll_rewards(encounter: dict, enemy_units: list[dict], reward_mult: float = 
         if random.random() < float(meta.get("drop_rate", 0) or 0):
             items.extend(meta.get("drop_items", []) or [])
 
-    xp = int((xp + enemy_xp) * float(reward_mult or 0.0))
-    return {"xp": xp, "items": items, "enemy_xp": enemy_xp}
+    # design §9.2：敌人 XP 不再与遭遇基础 XP 完整叠加（兼容方案取 0.35 权重），
+    # 且打法倍率限制在 0.75–1.20（撤退保留 ≤0.25）。
+    mult = clamp_reward_mult(reward_mult)
+    xp = int((xp + ENEMY_XP_WEIGHT * enemy_xp) * mult)
+    return {"xp": xp, "items": items, "enemy_xp": enemy_xp,
+            "reward_mult_applied": mult}
 
 
 def aggregate_items(items: list[str]) -> list[dict]:
@@ -286,12 +355,23 @@ def build_settlement(session, combat_data: dict, reward_mult: float = 1.0,
 
     character_metas = combat_data.get("character_metas", []) or []
     characters: list[dict] = []
+
+    # 追赶判定基准：队伍当前最高等级（design §9.3）
+    team_max_level = 1
+    progress_by_name: dict[str, dict] = {}
+    for meta in character_metas:
+        if not meta.get("name"):
+            continue
+        progress = (session.overlay.get_character_overrides(meta["name"]) or {}).get("progress", {}) or {}
+        progress_by_name[meta["name"]] = progress
+        team_max_level = max(team_max_level, int(progress.get("level", 1) or 1))
+
     for meta in character_metas:
         name = meta.get("name", "")
         if not name:
             continue
         overrides = session.overlay.get_character_overrides(name) or {}
-        progress = overrides.get("progress", {}) or {}
+        progress = progress_by_name.get(name) or (overrides.get("progress", {}) or {})
 
         # 当前属性 = 模板 attributes + 已存档覆盖（与 build_character_metas 同源）
         attrs = dict(meta.get("attributes", {}) or {})
@@ -305,7 +385,8 @@ def build_settlement(session, combat_data: dict, reward_mult: float = 1.0,
             xp_gain = 0
 
         characters.append(compute_character_growth(
-            name, attrs, progress, xp_gain, in_battle=True, alive=alive))
+            name, attrs, progress, xp_gain, in_battle=True, alive=alive,
+            team_max_level=team_max_level))
 
     cards = generate_card_choices(session, character_metas) if victory else []
 
@@ -335,9 +416,9 @@ def build_settlement(session, combat_data: dict, reward_mult: float = 1.0,
             "cards": cards,
             "unwired": [k for k in UNWIRED_REWARD_KEYS if (encounter.get("rewards", {}) or {}).get(k)],
             "xp_formula": (f"XP = (遭遇 {int((encounter.get('rewards', {}) or {}).get('xp', 0) or 0)}"
-                           f" + 敌人 {int(rolled.get('enemy_xp', 0) or 0)})"
-                           f" × 打法倍率 {float(reward_mult or 0.0):g}"
-                           f" = {xp_total}；升级阈值 = 等级 × {XP_PER_LEVEL}"),
+                           f" + 0.35 × 敌人 {int(rolled.get('enemy_xp', 0) or 0)})"
+                           f" × 打法倍率 {float(rolled.get('reward_mult_applied', reward_mult) or 0.0):g}"
+                           f" = {xp_total}；升级阈值 = 180 + 40 × (等级 - 1)"),
         },
         "has_reward": has_reward,
         "empty_message": empty_message,
@@ -435,7 +516,10 @@ def append_history(session, *, encounter_id: str, winner: str, rounds: int,
             "xp": int((settlement.get("rewards", {}) or {}).get("xp_total", 0) or 0),
             "items": [i.get("name", "") for i in (settlement.get("rewards", {}) or {}).get("items", [])],
             "level_ups": [
-                {"name": c["name"], "level": lu["level"], "attribute": lu["attribute"]}
+                {"name": c["name"], "level": lu["level"],
+                 "attribute": lu.get("attribute", ""),
+                 "specialization_point": lu.get("specialization_point", 1),
+                 "node_unlocked": lu.get("node_unlocked", False)}
                 for c in settlement.get("characters", [])
                 for lu in c.get("level_ups", [])
             ],
@@ -458,7 +542,10 @@ def legacy_rewards_view(settlement: dict) -> dict:
         "xp": int(rewards.get("xp_total", 0) or 0),
         "items": [i.get("name", "") for i in rewards.get("items", [])],
         "level_ups": [
-            {"name": c["name"], "level": lu["level"], "attribute": lu["attribute"]}
+            {"name": c["name"], "level": lu["level"],
+             "attribute": lu.get("attribute", ""),
+             "specialization_point": lu.get("specialization_point", 1),
+             "node_unlocked": lu.get("node_unlocked", False)}
             for c in settlement.get("characters", [])
             for lu in c.get("level_ups", [])
         ],
