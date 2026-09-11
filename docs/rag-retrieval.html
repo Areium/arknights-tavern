@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RAG 检索机制 — Arknights Tavern</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+        rel="stylesheet" media="print" onload="this.media='all'">
+  <noscript>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  </noscript>
+  <style>
+    :root,
+    [data-theme="dark"] {
+      --bg: #020617;
+      --grid: #1e293b;
+      --text: #ffffff;
+      --text-muted: #94a3b8;
+      --text-dim: #475569;
+      --panel: rgba(15, 23, 42, 0.5);
+      --panel-border: #1e293b;
+      --lane-fill: rgba(15, 23, 42, 0.22);
+      --lane-stroke: #334155;
+      --arrow: #64748b;
+      --arrow-emphasis: #34d399;
+
+      --frontend-fill:    rgba(8, 51, 68, 0.4);
+      --frontend-stroke:  #22d3ee;
+      --backend-fill:     rgba(6, 78, 59, 0.4);
+      --backend-stroke:   #34d399;
+      --database-fill:    rgba(76, 29, 149, 0.4);
+      --database-stroke:  #a78bfa;
+      --cloud-fill:       rgba(120, 53, 15, 0.3);
+      --cloud-stroke:     #fbbf24;
+      --security-fill:    rgba(136, 19, 55, 0.4);
+      --security-stroke:  #fb7185;
+      --messagebus-fill:  rgba(251, 146, 60, 0.3);
+      --messagebus-stroke:#fb923c;
+      --external-fill:    rgba(30, 41, 59, 0.5);
+      --external-stroke:  #94a3b8;
+    }
+    [data-theme="light"] {
+      --bg: #f8fafc;
+      --grid: #e2e8f0;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --text-dim: #94a3b8;
+      --panel: #ffffff;
+      --panel-border: #e2e8f0;
+      --lane-fill: rgba(248, 250, 252, 0.65);
+      --lane-stroke: #cbd5e1;
+      --arrow: #94a3b8;
+      --arrow-emphasis: #059669;
+
+      --frontend-fill:    rgba(34, 211, 238, 0.15);
+      --frontend-stroke:  #0891b2;
+      --backend-fill:     rgba(52, 211, 153, 0.18);
+      --backend-stroke:   #059669;
+      --database-fill:    rgba(167, 139, 250, 0.2);
+      --database-stroke:  #7c3aed;
+      --cloud-fill:       rgba(251, 191, 36, 0.18);
+      --cloud-stroke:     #d97706;
+      --security-fill:    rgba(251, 113, 133, 0.15);
+      --security-stroke:  #e11d48;
+      --messagebus-fill:  rgba(251, 146, 60, 0.15);
+      --messagebus-stroke:#ea580c;
+      --external-fill:    rgba(148, 163, 184, 0.18);
+      --external-stroke:  #64748b;
+    }
+
+    html, body {
+      margin: 0;
+      background: var(--bg);
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas,
+                   'Noto Sans Mono CJK SC', 'PingFang SC', 'Microsoft YaHei', monospace;
+    }
+    .wrap { max-width: 1680px; margin: 0 auto; padding: 8px 12px 24px; }
+    svg { display: block; width: 100%; height: auto; }
+
+    .t-primary { fill: var(--text); }
+    .t-muted   { fill: var(--text-muted); }
+    .t-dim     { fill: var(--text-dim); }
+    .t-frontend   { fill: var(--frontend-stroke); }
+    .t-backend    { fill: var(--backend-stroke); }
+    .t-database   { fill: var(--database-stroke); }
+    .t-cloud      { fill: var(--cloud-stroke); }
+    .t-security   { fill: var(--security-stroke); }
+    .t-messagebus { fill: var(--messagebus-stroke); }
+
+    .lane { fill: var(--lane-fill); stroke: var(--lane-stroke); stroke-width: 1; }
+    .panel-box { fill: var(--panel); stroke: var(--panel-border); stroke-width: 1; }
+
+    .c-frontend   { fill: var(--frontend-fill);   stroke: var(--frontend-stroke); }
+    .c-backend    { fill: var(--backend-fill);    stroke: var(--backend-stroke); }
+    .c-database   { fill: var(--database-fill);   stroke: var(--database-stroke); }
+    .c-cloud      { fill: var(--cloud-fill);      stroke: var(--cloud-stroke); }
+    .c-security   { fill: var(--security-fill);   stroke: var(--security-stroke); }
+    .c-messagebus { fill: var(--messagebus-fill); stroke: var(--messagebus-stroke); }
+    .c-external   { fill: var(--external-fill);   stroke: var(--external-stroke); }
+
+    g.node rect.body { transition: filter .15s ease; }
+    g.node:hover rect.body { filter: brightness(1.3); }
+
+    .a-default  { fill: none; stroke: var(--arrow); }
+    .a-emphasis { fill: none; stroke: var(--arrow-emphasis); }
+    .a-dashed   { fill: none; stroke: var(--arrow); stroke-dasharray: 5 4; }
+
+    #theme-toggle {
+      position: fixed; top: 10px; right: 14px; z-index: 10;
+      background: var(--panel); color: var(--text-muted);
+      border: 1px solid var(--lane-stroke); border-radius: 6px;
+      font: inherit; font-size: 11px; padding: 4px 10px; cursor: pointer;
+    }
+    #theme-toggle:hover { color: var(--text); }
+  </style>
+</head>
+<body>
+  <button id="theme-toggle" type="button">切换主题</button>
+  <div class="wrap">
+  <svg viewBox="0 0 1680 980" role="img" aria-label="RAG 检索机制节点图">
+    <defs>
+      <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
+        <path d="M 24 0 L 0 0 0 24" fill="none" stroke="var(--grid)" stroke-width="0.5" opacity="0.35"/>
+      </pattern>
+      <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+        <polygon points="0 0, 10 3.5, 0 7" fill="var(--arrow)"/>
+      </marker>
+      <marker id="arrowhead-emphasis" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+        <polygon points="0 0, 10 3.5, 0 7" fill="var(--arrow-emphasis)"/>
+      </marker>
+      <marker id="arrowhead-dashed" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+        <polygon points="0 0, 10 3.5, 0 7" fill="var(--arrow)"/>
+      </marker>
+    </defs>
+
+    <rect x="0" y="0" width="1680" height="980" fill="url(#grid)"/>
+
+    <!-- ===== Header ===== -->
+    <text x="48" y="54" class="t-primary" font-size="22" font-weight="700">RAG 检索：按知识的确定性分通道召回</text>
+    <text x="48" y="78" class="t-muted" font-size="11">核心决策：世界观知识是异构的 —— 不同确定性的知识走不同的召回通道，而不是一律上向量检索</text>
+
+    <!-- Problem box -->
+    <g class="node">
+      <rect x="48" y="100" width="740" height="68" rx="6" class="c-security body" stroke-width="1.2"/>
+      <text x="64" y="123" class="t-security" font-size="10" font-weight="700">为什么不一律向量检索？</text>
+      <text x="64" y="141" class="t-muted" font-size="9">全量注入：所有设定塞进上下文，大型世界观下 token 撑不住 —— 同知识集合全量 ≈ 39.8k tokens</text>
+      <text x="64" y="157" class="t-muted" font-size="9">纯向量 RAG：按语义相似度召回不可控 —— 角色在 A 章节的事迹可能在讲 B 章节时被提前召回 = 剧透</text>
+    </g>
+
+    <!-- Legend -->
+    <rect x="1020" y="24" width="620" height="100" rx="6" class="panel-box"/>
+    <rect x="1036" y="40" width="10" height="10" rx="2" class="c-database"/>
+    <text x="1052" y="49" class="t-muted" font-size="8">数据源</text>
+    <rect x="1106" y="40" width="10" height="10" rx="2" class="c-backend"/>
+    <text x="1122" y="49" class="t-muted" font-size="8">确定性注入</text>
+    <rect x="1186" y="40" width="10" height="10" rx="2" class="c-messagebus"/>
+    <text x="1202" y="49" class="t-muted" font-size="8">世界书</text>
+    <rect x="1256" y="40" width="10" height="10" rx="2" class="c-frontend"/>
+    <text x="1272" y="49" class="t-muted" font-size="8">预取 Hook</text>
+    <rect x="1341" y="40" width="10" height="10" rx="2" class="c-cloud"/>
+    <text x="1357" y="49" class="t-muted" font-size="8">LLM / 按需</text>
+    <rect x="1431" y="40" width="10" height="10" rx="2" class="c-security"/>
+    <text x="1447" y="49" class="t-muted" font-size="8">记忆 / 问题</text>
+
+    <path d="M 1036 68 L 1066 68" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+    <text x="1072" y="71" class="t-muted" font-size="8">运行时数据流</text>
+    <path d="M 1160 68 L 1190 68" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+    <text x="1196" y="71" class="t-muted" font-size="8">知识注入主流程</text>
+    <path d="M 1310 68 L 1340 68" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+    <text x="1346" y="71" class="t-muted" font-size="8">构建期 / 离线</text>
+    <text x="1036" y="96" class="t-dim" font-size="8">通道 ① → ④：召回确定性递减 · 按需程度递增（高频可预测走预取，长尾走按需查询）</text>
+
+    <!-- ===== Lanes ===== -->
+    <rect x="40" y="190" width="288" height="645" rx="10" class="lane"/>
+    <text x="56" y="214" class="t-dim" font-size="10" font-weight="600">知识源</text>
+
+    <rect x="368" y="190" width="556" height="645" rx="10" class="lane"/>
+    <text x="384" y="214" class="t-dim" font-size="10" font-weight="600">召回通道 — 按知识的确定性分层</text>
+
+    <rect x="964" y="190" width="676" height="645" rx="10" class="lane"/>
+    <text x="980" y="214" class="t-dim" font-size="10" font-weight="600">分层注入与生成</text>
+
+    <!-- ===== Edges (drawn under nodes) ===== -->
+    <!-- sources -> channels -->
+    <path d="M 300 282 L 400 284" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+    <text x="350" y="273" class="t-muted" font-size="8" text-anchor="middle">imports · BFS</text>
+
+    <path d="M 300 305 L 356 305 Q 364 305 364 313 L 364 660 Q 364 668 372 668 L 400 668" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+    <text x="357" y="480" class="t-muted" font-size="8" text-anchor="middle" transform="rotate(-90 357 480)">启动时扫描 frontmatter 构建目录</text>
+
+    <path d="M 300 422 L 400 404" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+    <text x="350" y="402" class="t-muted" font-size="8" text-anchor="middle">条目 + 关键词</text>
+
+    <path d="M 300 562 L 400 524" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+    <text x="352" y="556" class="t-muted" font-size="8" text-anchor="middle">实体名扫描</text>
+
+    <path d="M 300 540 L 336 540 Q 344 540 344 532 L 344 436 Q 344 428 352 428 L 400 428" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+    <text x="318" y="532" class="t-muted" font-size="8" text-anchor="middle">触发文本</text>
+
+    <path d="M 300 702 L 400 764" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+    <text x="350" y="722" class="t-muted" font-size="8" text-anchor="middle">消息历史</text>
+
+    <!-- channels -> assembly (injection main flow) -->
+    <path d="M 892 284 L 944 284 Q 952 284 952 292 L 952 392 Q 952 400 960 400 L 1010 400" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+    <text x="918" y="277" class="t-muted" font-size="8" text-anchor="middle">三级深度</text>
+
+    <path d="M 892 404 L 950 404 Q 958 404 958 412 L 958 417 Q 958 425 966 425 L 1010 425" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+    <text x="920" y="397" class="t-muted" font-size="8" text-anchor="middle">触发条目</text>
+
+    <path d="M 892 524 L 956 524 Q 964 524 964 516 L 964 468 Q 964 460 972 460 L 1010 460" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+    <text x="924" y="517" class="t-muted" font-size="8" text-anchor="middle">core 预载</text>
+
+    <path d="M 892 644 L 962 644 Q 970 644 970 636 L 970 498 Q 970 490 978 490 L 1010 490" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+    <text x="926" y="637" class="t-muted" font-size="8" text-anchor="middle">查询结果</text>
+
+    <path d="M 892 764 L 968 764 Q 976 764 976 756 L 976 523 Q 976 515 984 515 L 1010 515" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+    <text x="930" y="757" class="t-muted" font-size="8" text-anchor="middle">记忆 + 摘要</text>
+
+    <!-- assembly -> LLM -->
+    <path d="M 1300 455 L 1390 455" class="a-emphasis" stroke-width="2" marker-end="url(#arrowhead-emphasis)"/>
+    <text x="1345" y="447" class="t-muted" font-size="8.5" text-anchor="middle">组装后的请求</text>
+
+    <!-- LLM runtime self-query loop -->
+    <path d="M 1450 520 L 1450 652 Q 1450 660 1442 660 L 892 660" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+    <text x="1160" y="652" class="t-muted" font-size="8" text-anchor="middle">长尾专名 → 模型自主调用 wiki_query（工具循环 ≤3 轮）</text>
+
+    <!-- ===== Source nodes ===== -->
+    <g class="node">
+      <rect x="68" y="240" width="232" height="85" rx="6" class="c-database body" stroke-width="1.5"/>
+      <text x="184" y="270" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">设定文档库</text>
+      <text x="184" y="288" class="t-muted" font-size="8" text-anchor="middle">Markdown + YAML frontmatter</text>
+      <text x="184" y="306" class="t-database" font-size="7.5" text-anchor="middle">imports 声明文档依赖 · data/</text>
+    </g>
+
+    <g class="node">
+      <rect x="68" y="380" width="232" height="85" rx="6" class="c-database body" stroke-width="1.5"/>
+      <text x="184" y="410" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">世界书</text>
+      <text x="184" y="428" class="t-muted" font-size="8" text-anchor="middle">Lorebook v1/v2 · 卡内嵌 · jsonl</text>
+      <text x="184" y="446" class="t-database" font-size="7.5" text-anchor="middle">data/worldbooks/</text>
+    </g>
+
+    <g class="node">
+      <rect x="68" y="520" width="232" height="85" rx="6" class="c-external body" stroke-width="1.5"/>
+      <text x="184" y="550" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">叙述流</text>
+      <text x="184" y="568" class="t-muted" font-size="8" text-anchor="middle">上一轮叙述 + 当前剧情节拍</text>
+    </g>
+
+    <g class="node">
+      <rect x="68" y="660" width="232" height="85" rx="6" class="c-database body" stroke-width="1.5"/>
+      <text x="184" y="690" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">消息历史</text>
+      <text x="184" y="708" class="t-muted" font-size="8" text-anchor="middle">会话轮次记录</text>
+      <text x="184" y="726" class="t-database" font-size="7.5" text-anchor="middle">data/memory/ · ChromaDB</text>
+    </g>
+
+    <!-- ===== Channel nodes ===== -->
+    <g class="node">
+      <rect x="400" y="240" width="492" height="88" rx="6" class="c-backend body" stroke-width="1.5"/>
+      <circle cx="426" cy="284" r="14" fill="var(--backend-fill)" stroke="var(--backend-stroke)" stroke-width="1.2"/>
+      <text x="426" y="288.5" class="t-backend" font-size="12" font-weight="700" text-anchor="middle">1</text>
+      <text x="452" y="260" class="t-primary" font-size="11.5" font-weight="600">声明式依赖预加载</text>
+      <text x="452" y="281" class="t-muted" font-size="8">角色卡 frontmatter 用 imports 声明依赖（思路来自 Python import）</text>
+      <text x="452" y="298" class="t-muted" font-size="8">会话启动沿依赖链 BFS：入口全文 · 直接依赖关键章节 · 二度依赖一句话摘要</text>
+      <text x="452" y="315" class="t-backend" font-size="7.5">必然需要的知识 → 确定性注入，深度衰减控制成本</text>
+    </g>
+
+    <g class="node">
+      <rect x="400" y="360" width="492" height="88" rx="6" class="c-messagebus body" stroke-width="1.5"/>
+      <circle cx="426" cy="404" r="14" fill="var(--messagebus-fill)" stroke="var(--messagebus-stroke)" stroke-width="1.2"/>
+      <text x="426" y="408.5" class="t-messagebus" font-size="12" font-weight="700" text-anchor="middle">2</text>
+      <text x="452" y="380" class="t-primary" font-size="11.5" font-weight="600">关键词触发式世界书</text>
+      <text x="452" y="401" class="t-muted" font-size="8">兼容 SillyTavern Lorebook · 四种来源解析 · 无损导出回灌</text>
+      <text x="452" y="418" class="t-muted" font-size="8">主/副关键词正则触发 —— 事迹只在作者指定的触发词出现时注入</text>
+      <text x="452" y="435" class="t-messagebus" font-size="7.5">作者完全可控的召回 · 从根上杜绝语义漂移与剧情剧透</text>
+    </g>
+
+    <g class="node">
+      <rect x="400" y="480" width="492" height="88" rx="6" class="c-frontend body" stroke-width="1.5"/>
+      <circle cx="426" cy="524" r="14" fill="var(--frontend-fill)" stroke="var(--frontend-stroke)" stroke-width="1.2"/>
+      <text x="426" y="528.5" class="t-frontend" font-size="12" font-weight="700" text-anchor="middle">3</text>
+      <text x="452" y="500" class="t-primary" font-size="11.5" font-weight="600">毫秒级预取 Hook</text>
+      <text x="452" y="521" class="t-muted" font-size="8">每轮叙述前纯字符串匹配：扫描上一轮叙述 + 当前节拍中出现的实体名</text>
+      <text x="452" y="538" class="t-muted" font-size="8">大概率会提到的文档按 core 深度提前载入</text>
+      <text x="452" y="555" class="t-frontend" font-size="7.5">0 次 LLM 调用 · 高频可预测走预取，与 Function Calling 互补</text>
+    </g>
+
+    <g class="node">
+      <rect x="400" y="600" width="492" height="88" rx="6" class="c-cloud body" stroke-width="1.5"/>
+      <circle cx="426" cy="644" r="14" fill="var(--cloud-fill)" stroke="var(--cloud-stroke)" stroke-width="1.2"/>
+      <text x="426" y="648.5" class="t-cloud" font-size="12" font-weight="700" text-anchor="middle">4</text>
+      <text x="452" y="620" class="t-primary" font-size="11.5" font-weight="600">wiki_query · Function Calling 按需查询</text>
+      <text x="452" y="641" class="t-muted" font-size="8">「名称 + 一句话摘要」轻量目录常驻 system prompt —— 给模型一本图书馆索引</text>
+      <text x="452" y="658" class="t-muted" font-size="8">打分匹配 · 命中多候选时返回列表让模型二次收敛，不灌模糊全文</text>
+      <text x="452" y="675" class="t-cloud" font-size="7.5">工具循环 ≤3 轮 · 查询结果会话内缓存 · 长尾知识按需查</text>
+    </g>
+
+    <g class="node">
+      <rect x="400" y="720" width="492" height="88" rx="6" class="c-security body" stroke-width="1.5"/>
+      <circle cx="426" cy="764" r="14" fill="var(--security-fill)" stroke="var(--security-stroke)" stroke-width="1.2"/>
+      <text x="426" y="768.5" class="t-security" font-size="11" font-weight="700" text-anchor="middle">M</text>
+      <text x="452" y="740" class="t-primary" font-size="11.5" font-weight="600">记忆系统</text>
+      <text x="452" y="761" class="t-muted" font-size="8">角色级：滑动窗口保最近 10 轮 + ChromaDB 语义检索远期（embedding 不可用降级纯窗口）</text>
+      <text x="452" y="778" class="t-muted" font-size="8">会话级：每 N 轮 LLM 压缩新剧情为 ≤300 字章节摘要 · 原始历史保留，支持换间隔重算</text>
+      <text x="452" y="795" class="t-security" font-size="7.5">双层级 · 降级不硬失败</text>
+    </g>
+
+    <!-- ===== Injection lane nodes ===== -->
+    <g class="node">
+      <rect x="1010" y="370" width="290" height="170" rx="6" class="c-backend body" stroke-width="1.5"/>
+      <text x="1155" y="402" class="t-primary" font-size="12" font-weight="600" text-anchor="middle">分层注入组装</text>
+      <text x="1030" y="428" class="t-muted" font-size="8.5">稳定层：常驻条目 · 会话内字节不变</text>
+      <text x="1030" y="446" class="t-muted" font-size="8.5">动态层：触发型条目 · 避免打穿缓存</text>
+      <text x="1030" y="464" class="t-muted" font-size="8.5">注入顺序按计费模型反向设计</text>
+      <text x="1030" y="482" class="t-muted" font-size="8.5">深度衰减：全文 → 关键章节 → 摘要</text>
+      <text x="1155" y="516" class="t-backend" font-size="7.5" text-anchor="middle">wiki_manager · world_book · memory</text>
+    </g>
+
+    <g class="node">
+      <rect x="1390" y="390" width="220" height="130" rx="6" class="c-cloud body" stroke-width="1.5"/>
+      <text x="1500" y="432" class="t-primary" font-size="12" font-weight="600" text-anchor="middle">LLM Provider</text>
+      <text x="1500" y="452" class="t-muted" font-size="9" text-anchor="middle">Ollama · OpenAI 兼容</text>
+      <text x="1500" y="474" class="t-cloud" font-size="7.5" text-anchor="middle">主备自动降级 · 指数退避重试</text>
+      <text x="1500" y="490" class="t-cloud" font-size="7.5" text-anchor="middle">稳定层命中前缀缓存折扣</text>
+    </g>
+
+    <rect x="1390" y="545" width="220" height="76" rx="6" fill="none" stroke="var(--cloud-stroke)" stroke-width="1" stroke-dasharray="4 3" opacity="0.8"/>
+    <text x="1402" y="566" class="t-cloud" font-size="8">前缀缓存友好</text>
+    <text x="1402" y="582" class="t-muted" font-size="8">常驻 position-0 条目 → 稳定层</text>
+    <text x="1402" y="598" class="t-muted" font-size="8">触发型条目 → 一律动态层</text>
+
+    <!-- ===== Benchmark banner ===== -->
+    <rect x="40" y="858" width="1600" height="92" rx="8" class="panel-box" stroke="var(--arrow-emphasis)" stroke-width="1.2"/>
+    <text x="68" y="890" class="t-primary" font-size="11" font-weight="700">效果基准 · 同知识集合</text>
+    <text x="68" y="917" class="t-muted" font-size="8.5">全量注入</text>
+    <rect x="140" y="906" width="560" height="15" rx="3" fill="var(--security-stroke)" opacity="0.75"/>
+    <text x="712" y="918" class="t-muted" font-size="9">≈ 39.8k tokens</text>
+    <text x="68" y="943" class="t-muted" font-size="8.5">分层方案</text>
+    <rect x="140" y="932" width="143" height="15" rx="3" fill="var(--arrow-emphasis)"/>
+    <text x="295" y="944" class="t-muted" font-size="9">≈ 10.2k tokens</text>
+    <text x="1560" y="904" class="t-dim" font-size="8.5" text-anchor="end">注入规模降低</text>
+    <text x="1560" y="938" class="t-backend" font-size="30" font-weight="700" text-anchor="end">−74.4%</text>
+  </svg>
+  </div>
+
+  <script>
+    (function () {
+      var btn = document.getElementById('theme-toggle');
+      try {
+        var saved = localStorage.getItem('rag-diagram-theme');
+        if (saved === 'light' || saved === 'dark') {
+          document.documentElement.setAttribute('data-theme', saved);
+        }
+      } catch (_) {}
+      btn.addEventListener('click', function () {
+        var cur = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', cur);
+        try { localStorage.setItem('rag-diagram-theme', cur); } catch (_) {}
+      });
+    })();
+  </script>
+</body>
+</html>

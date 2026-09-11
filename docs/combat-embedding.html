@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>战斗系统嵌入 — Arknights Tavern</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+        rel="stylesheet" media="print" onload="this.media='all'">
+  <noscript>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  </noscript>
+  <style>
+    :root,
+    [data-theme="dark"] {
+      --bg: #020617;
+      --grid: #1e293b;
+      --text: #ffffff;
+      --text-muted: #94a3b8;
+      --text-dim: #475569;
+      --panel: rgba(15, 23, 42, 0.5);
+      --panel-border: #1e293b;
+      --lane-fill: rgba(15, 23, 42, 0.22);
+      --lane-stroke: #334155;
+      --arrow: #64748b;
+      --arrow-emphasis: #34d399;
+
+      --frontend-fill:    rgba(8, 51, 68, 0.4);
+      --frontend-stroke:  #22d3ee;
+      --backend-fill:     rgba(6, 78, 59, 0.4);
+      --backend-stroke:   #34d399;
+      --database-fill:    rgba(76, 29, 149, 0.4);
+      --database-stroke:  #a78bfa;
+      --cloud-fill:       rgba(120, 53, 15, 0.3);
+      --cloud-stroke:     #fbbf24;
+      --security-fill:    rgba(136, 19, 55, 0.4);
+      --security-stroke:  #fb7185;
+      --messagebus-fill:  rgba(251, 146, 60, 0.3);
+      --messagebus-stroke:#fb923c;
+      --external-fill:    rgba(30, 41, 59, 0.5);
+      --external-stroke:  #94a3b8;
+    }
+    [data-theme="light"] {
+      --bg: #f8fafc;
+      --grid: #e2e8f0;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --text-dim: #94a3b8;
+      --panel: #ffffff;
+      --panel-border: #e2e8f0;
+      --lane-fill: rgba(248, 250, 252, 0.65);
+      --lane-stroke: #cbd5e1;
+      --arrow: #94a3b8;
+      --arrow-emphasis: #059669;
+
+      --frontend-fill:    rgba(34, 211, 238, 0.15);
+      --frontend-stroke:  #0891b2;
+      --backend-fill:     rgba(52, 211, 153, 0.18);
+      --backend-stroke:   #059669;
+      --database-fill:    rgba(167, 139, 250, 0.2);
+      --database-stroke:  #7c3aed;
+      --cloud-fill:       rgba(251, 191, 36, 0.18);
+      --cloud-stroke:     #d97706;
+      --security-fill:    rgba(251, 113, 133, 0.15);
+      --security-stroke:  #e11d48;
+      --messagebus-fill:  rgba(251, 146, 60, 0.15);
+      --messagebus-stroke:#ea580c;
+      --external-fill:    rgba(148, 163, 184, 0.18);
+      --external-stroke:  #64748b;
+    }
+
+    html, body {
+      margin: 0;
+      background: var(--bg);
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas,
+                   'Noto Sans Mono CJK SC', 'PingFang SC', 'Microsoft YaHei', monospace;
+    }
+    .wrap { max-width: 1680px; margin: 0 auto; padding: 8px 12px 24px; }
+    svg { display: block; width: 100%; height: auto; }
+
+    .t-primary { fill: var(--text); }
+    .t-muted   { fill: var(--text-muted); }
+    .t-dim     { fill: var(--text-dim); }
+    .t-frontend   { fill: var(--frontend-stroke); }
+    .t-backend    { fill: var(--backend-stroke); }
+    .t-database   { fill: var(--database-stroke); }
+    .t-cloud      { fill: var(--cloud-stroke); }
+    .t-security   { fill: var(--security-stroke); }
+    .t-messagebus { fill: var(--messagebus-stroke); }
+
+    .lane { fill: var(--lane-fill); stroke: var(--lane-stroke); stroke-width: 1; }
+    .panel-box { fill: var(--panel); stroke: var(--panel-border); stroke-width: 1; }
+
+    .c-frontend   { fill: var(--frontend-fill);   stroke: var(--frontend-stroke); }
+    .c-backend    { fill: var(--backend-fill);    stroke: var(--backend-stroke); }
+    .c-database   { fill: var(--database-fill);   stroke: var(--database-stroke); }
+    .c-cloud      { fill: var(--cloud-fill);      stroke: var(--cloud-stroke); }
+    .c-security   { fill: var(--security-fill);   stroke: var(--security-stroke); }
+    .c-messagebus { fill: var(--messagebus-fill); stroke: var(--messagebus-stroke); }
+    .c-external   { fill: var(--external-fill);   stroke: var(--external-stroke); }
+
+    g.node rect.body { transition: filter .15s ease; }
+    g.node:hover rect.body { filter: brightness(1.3); }
+
+    .a-default  { fill: none; stroke: var(--arrow); }
+    .a-emphasis { fill: none; stroke: var(--arrow-emphasis); }
+    .a-dashed   { fill: none; stroke: var(--arrow); stroke-dasharray: 5 4; }
+
+    #theme-toggle {
+      position: fixed; top: 10px; right: 14px; z-index: 10;
+      background: var(--panel); color: var(--text-muted);
+      border: 1px solid var(--lane-stroke); border-radius: 6px;
+      font: inherit; font-size: 11px; padding: 4px 10px; cursor: pointer;
+    }
+    #theme-toggle:hover { color: var(--text); }
+  </style>
+</head>
+<body>
+  <button id="theme-toggle" type="button">切换主题</button>
+  <div class="wrap">
+  <svg viewBox="0 0 1680 1000" role="img" aria-label="战斗系统嵌入节点图">
+    <defs>
+      <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
+        <path d="M 24 0 L 0 0 0 24" fill="none" stroke="var(--grid)" stroke-width="0.5" opacity="0.35"/>
+      </pattern>
+      <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+        <polygon points="0 0, 10 3.5, 0 7" fill="var(--arrow)"/>
+      </marker>
+      <marker id="arrowhead-emphasis" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+        <polygon points="0 0, 10 3.5, 0 7" fill="var(--arrow-emphasis)"/>
+      </marker>
+      <marker id="arrowhead-dashed" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+        <polygon points="0 0, 10 3.5, 0 7" fill="var(--arrow)"/>
+      </marker>
+    </defs>
+
+    <rect x="0" y="0" width="1680" height="1000" fill="url(#grid)"/>
+
+    <!-- ===== Header ===== -->
+    <text x="48" y="54" class="t-primary" font-size="22" font-weight="700">战斗系统嵌入：剧情 ↔ 战斗的 JSON 契约与数值权威分离</text>
+    <text x="48" y="78" class="t-muted" font-size="11">核心原则：模型只做语义决策，不碰数值 —— 不是孤立的战斗玩法模块，而是「剧情 + 战斗」互相嵌入的机制</text>
+
+    <!-- Problem box -->
+    <g class="node">
+      <rect x="48" y="100" width="740" height="68" rx="6" class="c-security body" stroke-width="1.2"/>
+      <text x="64" y="123" class="t-security" font-size="10" font-weight="700">传统酒馆的数值不稳定</text>
+      <text x="64" y="141" class="t-muted" font-size="9">MVU 等方案用提示词约定变量更新格式 —— 状态完全活在对话上下文里，依赖上下文控制与模型能力</text>
+      <text x="64" y="157" class="t-muted" font-size="9">模型稍弱就数值记录错误、掉格式，且误差逐轮累积、无法回滚</text>
+    </g>
+
+    <!-- Legend -->
+    <rect x="1020" y="24" width="620" height="100" rx="6" class="panel-box"/>
+    <rect x="1036" y="40" width="10" height="10" rx="2" class="c-backend"/>
+    <text x="1052" y="49" class="t-muted" font-size="8">剧情 / 语义</text>
+    <rect x="1126" y="40" width="10" height="10" rx="2" class="c-frontend"/>
+    <text x="1142" y="49" class="t-muted" font-size="8">战斗引擎</text>
+    <rect x="1216" y="40" width="10" height="10" rx="2" class="c-messagebus"/>
+    <text x="1232" y="49" class="t-muted" font-size="8">JSON 契约</text>
+    <rect x="1306" y="40" width="10" height="10" rx="2" class="c-database"/>
+    <text x="1322" y="49" class="t-muted" font-size="8">状态持久化</text>
+    <rect x="1396" y="40" width="10" height="10" rx="2" class="c-security"/>
+    <text x="1412" y="49" class="t-muted" font-size="8">问题 / 风险</text>
+
+    <path d="M 1036 68 L 1066 68" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+    <text x="1072" y="71" class="t-muted" font-size="8">运行时数据流</text>
+    <path d="M 1160 68 L 1190 68" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+    <text x="1196" y="71" class="t-muted" font-size="8">触发主链路</text>
+    <path d="M 1310 68 L 1340 68" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+    <text x="1346" y="71" class="t-muted" font-size="8">写回 / 状态注入</text>
+    <text x="1036" y="96" class="t-dim" font-size="8">① 触发 → ② 判定 → ③ 状态：数值权威逐环节从模型手中剥离，模型只保留叙述权</text>
+
+    <!-- ===== Lanes ===== -->
+    <rect x="40" y="190" width="480" height="420" rx="10" class="lane"/>
+    <text x="56" y="214" class="t-dim" font-size="10" font-weight="600">剧情系统 · LLM 叙事</text>
+
+    <rect x="560" y="190" width="120" height="420" rx="10" class="lane"/>
+    <text x="620" y="400" class="t-messagebus" font-size="9" font-weight="600" text-anchor="middle" transform="rotate(-90 620 400)">JSON 交互契约 · Schema</text>
+
+    <rect x="720" y="190" width="920" height="420" rx="10" class="lane"/>
+    <text x="736" y="214" class="t-dim" font-size="10" font-weight="600">战斗系统 · 引擎与硬数值</text>
+
+    <rect x="40" y="650" width="1600" height="210" rx="10" class="lane"/>
+    <text x="56" y="674" class="t-dim" font-size="10" font-weight="600">三环节 agent 链路 —— 模型只做语义决策，不碰数值</text>
+
+    <!-- ===== Edges ===== -->
+    <path d="M 280 310 L 280 340" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+
+    <path d="M 490 375 L 552 375 Q 560 375 560 367 L 560 276 Q 560 268 568 268 L 750 268" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+    <text x="500" y="368" class="t-muted" font-size="8">是</text>
+    <text x="655" y="260" class="t-muted" font-size="8" text-anchor="middle">[COMBAT] 战斗触发标记</text>
+
+    <path d="M 950 310 L 950 340" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+
+    <path d="M 1150 382 L 1172 382 Q 1180 382 1180 374 L 1180 308 Q 1180 300 1188 300 L 1200 300" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+    <text x="1158" y="374" class="t-muted" font-size="8" text-anchor="end">schema 加载</text>
+
+    <path d="M 1405 325 L 1405 370" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+    <text x="1422" y="352" class="t-muted" font-size="8">结算</text>
+
+    <path d="M 1200 435 L 612 435 Q 604 435 604 443 L 604 487 Q 604 495 596 495 L 490 495" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+    <text x="900" y="427" class="t-muted" font-size="8" text-anchor="middle">结算写回：XP / 掉落 / 卡牌 / 伤势惩罚</text>
+
+    <path d="M 70 495 L 54 495 Q 46 495 46 487 L 46 276 Q 46 268 54 268 L 70 268" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+    <text x="38" y="382" class="t-muted" font-size="8" text-anchor="middle" transform="rotate(-90 38 382)">状态注入</text>
+
+    <!-- ===== Story lane nodes ===== -->
+    <g class="node">
+      <rect x="70" y="225" width="420" height="85" rx="6" class="c-backend body" stroke-width="1.5"/>
+      <text x="280" y="255" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">LLM 两阶段叙述</text>
+      <text x="280" y="273" class="t-muted" font-size="8" text-anchor="middle">叙述文本流式生成 → 结构化标记提取</text>
+      <text x="280" y="291" class="t-backend" font-size="7.5" text-anchor="middle">[COMBAT] [CHOICES] [SUMMARY] [BEAT_COMPLETE]</text>
+    </g>
+
+    <g class="node">
+      <rect x="70" y="340" width="420" height="70" rx="6" class="c-backend body" stroke-width="1.5"/>
+      <text x="280" y="368" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">敌对冲突判断</text>
+      <text x="280" y="386" class="t-muted" font-size="8" text-anchor="middle">这段叙述里是否出现明确的敌对冲突？否则继续叙述</text>
+    </g>
+
+    <g class="node">
+      <rect x="70" y="450" width="420" height="90" rx="6" class="c-database body" stroke-width="1.5"/>
+      <text x="280" y="478" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">剧情侧状态（持久化）</text>
+      <text x="280" y="496" class="t-muted" font-size="8" text-anchor="middle">血量 / 负面状态 / 背包 / 成长</text>
+      <text x="280" y="514" class="t-database" font-size="7.5" text-anchor="middle">③ 权威在引擎 + 磁盘 JSON，可回滚</text>
+    </g>
+
+    <rect x="70" y="552" width="420" height="46" rx="6" fill="none" stroke="var(--backend-stroke)" stroke-width="1" stroke-dasharray="4 3" opacity="0.9"/>
+    <text x="84" y="572" class="t-backend" font-size="8.5">模型能力弱 → 只影响叙述质量，不影响数值正确性</text>
+    <text x="84" y="588" class="t-muted" font-size="8.5">故障模式：「数据损坏」降级为「文笔变差」</text>
+
+    <!-- ===== Combat lane nodes ===== -->
+    <g class="node">
+      <rect x="750" y="225" width="400" height="85" rx="6" class="c-messagebus body" stroke-width="1.5"/>
+      <text x="950" y="255" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">① 触发：遭遇选择</text>
+      <text x="950" y="273" class="t-muted" font-size="8" text-anchor="middle">从固定遭遇列表里选一个 encounter ID</text>
+      <text x="950" y="291" class="t-messagebus" font-size="7.5" text-anchor="middle">输出经 schema 校验 · 数值零授权 · 失败有界</text>
+    </g>
+
+    <g class="node">
+      <rect x="750" y="340" width="400" height="85" rx="6" class="c-frontend body" stroke-width="1.5"/>
+      <text x="950" y="368" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">战斗数据文件</text>
+      <text x="950" y="386" class="t-muted" font-size="8" text-anchor="middle">敌人构成 / 波次 / 奖励配置 —— 全部由数据定义</text>
+      <text x="950" y="404" class="t-frontend" font-size="7.5" text-anchor="middle">data/combat/ · 引擎按 schema 加载</text>
+    </g>
+
+    <g class="node">
+      <rect x="1200" y="225" width="410" height="100" rx="6" class="c-frontend body" stroke-width="1.5"/>
+      <text x="1405" y="257" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">② CombatEngine · 战旗 + 卡牌 demo</text>
+      <text x="1405" y="277" class="t-muted" font-size="8" text-anchor="middle">7×7 等距网格 · AP / 士气 · 卡牌出牌</text>
+      <text x="1405" y="293" class="t-muted" font-size="8" text-anchor="middle">命中 / 伤害：function call 骰子 + 硬数值公式</text>
+      <text x="1405" y="313" class="t-frontend" font-size="7.5" text-anchor="middle">以完整 demo 验证「剧情 ↔ 战斗」链路</text>
+    </g>
+
+    <g class="node">
+      <rect x="1200" y="370" width="410" height="85" rx="6" class="c-database body" stroke-width="1.5"/>
+      <text x="1405" y="400" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">战斗结算</text>
+      <text x="1405" y="418" class="t-muted" font-size="8" text-anchor="middle">XP / 掉落 / 卡牌奖励 → 结构化数据</text>
+      <text x="1405" y="436" class="t-database" font-size="7.5" text-anchor="middle">③ 写回剧情侧</text>
+    </g>
+
+    <text x="1180" y="578" class="t-dim" font-size="8.5" text-anchor="middle">玩家闭环：剧情推进获取卡牌 / 道具 → 带进战斗使用 → 战后成长与掉落写回剧情</text>
+    <text x="1180" y="596" class="t-dim" font-size="8" text-anchor="middle">交互收敛为契约 → 战斗形式可做得更丰富，只要剧情侧数值状态与战斗系统保持一致</text>
+
+    <!-- ===== Three-stage chain ===== -->
+    <path d="M 570 767 L 585 767" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+    <path d="M 1085 767 L 1100 767" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+
+    <g class="node">
+      <rect x="70" y="695" width="500" height="145" rx="6" class="c-backend body" stroke-width="1.5"/>
+      <circle cx="98" cy="722" r="13" fill="var(--backend-fill)" stroke="var(--backend-stroke)" stroke-width="1.2"/>
+      <text x="98" y="726.5" class="t-backend" font-size="12" font-weight="700" text-anchor="middle">1</text>
+      <text x="120" y="727" class="t-primary" font-size="11.5" font-weight="600">触发环节 —— 把模型降级为分类器</text>
+      <text x="90" y="752" class="t-muted" font-size="8.5">模型任务：从固定遭遇列表里选一个 ID（分类题）</text>
+      <text x="90" y="770" class="t-muted" font-size="8.5">输出经 schema 校验，模型对数值零授权</text>
+      <text x="90" y="812" class="t-backend" font-size="7.5">失败有界：最坏情况只是选错或漏选，不会损坏数值</text>
+    </g>
+
+    <g class="node">
+      <rect x="585" y="695" width="500" height="145" rx="6" class="c-frontend body" stroke-width="1.5"/>
+      <circle cx="613" cy="722" r="13" fill="var(--frontend-fill)" stroke="var(--frontend-stroke)" stroke-width="1.2"/>
+      <text x="613" y="726.5" class="t-frontend" font-size="12" font-weight="700" text-anchor="middle">2</text>
+      <text x="635" y="727" class="t-primary" font-size="11.5" font-weight="600">判定环节 —— 骰子 + 硬数值公式</text>
+      <text x="605" y="752" class="t-muted" font-size="8.5">属性检定 / 命中 / 伤害由 function call 挂钩的骰子系统完成</text>
+      <text x="605" y="770" class="t-muted" font-size="8.5">d20 掷骰 · 修正来自角色属性与状态 · DC 由动作难度与环境决定</text>
+      <text x="605" y="788" class="t-muted" font-size="8.5">检定结果注入回提示词，模型只按既定结果把故事讲下去</text>
+      <text x="605" y="812" class="t-frontend" font-size="7.5">判定权在引擎 · 模型不碰结果</text>
+    </g>
+
+    <g class="node">
+      <rect x="1100" y="695" width="500" height="145" rx="6" class="c-database body" stroke-width="1.5"/>
+      <circle cx="1128" cy="722" r="13" fill="var(--database-fill)" stroke="var(--database-stroke)" stroke-width="1.2"/>
+      <text x="1128" y="726.5" class="t-database" font-size="12" font-weight="700" text-anchor="middle">3</text>
+      <text x="1150" y="727" class="t-primary" font-size="11.5" font-weight="600">状态环节 —— 持久化是唯一权威</text>
+      <text x="1120" y="752" class="t-muted" font-size="8.5">血量 / 负面状态 / 背包 / 成长：持久化在引擎与磁盘 JSON</text>
+      <text x="1120" y="770" class="t-muted" font-size="8.5">剧情里受的伤 → 以数值惩罚带进战斗</text>
+      <text x="1120" y="788" class="t-muted" font-size="8.5">战斗结算 XP / 掉落 / 卡牌 → 结构化数据写回剧情</text>
+      <text x="1120" y="812" class="t-database" font-size="7.5">模型拿到的永远是结算完的事实，它的工作只是叙述</text>
+    </g>
+
+    <!-- ===== Benchmark banner ===== -->
+    <rect x="40" y="890" width="1600" height="80" rx="8" class="panel-box" stroke="var(--arrow-emphasis)" stroke-width="1.2"/>
+    <text x="68" y="918" class="t-primary" font-size="11" font-weight="700">可靠性基准 · 战斗触发回归套件</text>
+    <text x="68" y="942" class="t-muted" font-size="8.5">14 用例：12 个战斗场景 + 2 个「不该触发」负例 · 提示词迭代 3 轮</text>
+    <text x="420" y="918" class="t-muted" font-size="8.5">迭代前</text>
+    <rect x="500" y="908" width="300" height="14" rx="3" fill="var(--security-stroke)" opacity="0.75"/>
+    <text x="812" y="919" class="t-muted" font-size="9">召回 75%</text>
+    <text x="420" y="944" class="t-muted" font-size="8.5">3 轮迭代后</text>
+    <rect x="500" y="934" width="400" height="14" rx="3" fill="var(--arrow-emphasis)"/>
+    <text x="912" y="945" class="t-muted" font-size="9">召回 100%</text>
+    <text x="1560" y="916" class="t-dim" font-size="8.5" text-anchor="end">误触发</text>
+    <text x="1560" y="950" class="t-backend" font-size="26" font-weight="700" text-anchor="end">0 次</text>
+  </svg>
+  </div>
+
+  <script>
+    (function () {
+      var btn = document.getElementById('theme-toggle');
+      try {
+        var saved = localStorage.getItem('rag-diagram-theme');
+        if (saved === 'light' || saved === 'dark') {
+          document.documentElement.setAttribute('data-theme', saved);
+        }
+      } catch (_) {}
+      btn.addEventListener('click', function () {
+        var cur = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', cur);
+        try { localStorage.setItem('rag-diagram-theme', cur); } catch (_) {}
+      });
+    })();
+  </script>
+</body>
+</html>
