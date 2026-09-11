@@ -1,0 +1,204 @@
+{
+  "summary": {
+    "total_calls": 52,
+    "overall_success_rate": 1.0,
+    "overall_quality_rate": 0.769
+  },
+  "results": [
+    {
+      "label": "剧情模式（38 条，choices=3）",
+      "total": 38,
+      "parse_ok": 38,
+      "field_ok": 38,
+      "quality_ok": 38,
+      "success_rate": 1.0,
+      "quality_rate": 1.0,
+      "latency_mean_ms": 3989.3,
+      "latency_p90_ms": 5610.0,
+      "combat_expected": 0,
+      "combat_triggered": 0,
+      "combat_recall": null,
+      "combat_false_positive": 0,
+      "usage_in_avg": 705.3,
+      "usage_out_avg": 371.8,
+      "errors": [],
+      "quality_fail": []
+    },
+    {
+      "label": "战术模式（14 条，含战斗触发标注）",
+      "total": 14,
+      "parse_ok": 14,
+      "field_ok": 14,
+      "quality_ok": 2,
+      "success_rate": 1.0,
+      "quality_rate": 0.143,
+      "latency_mean_ms": 4959.9,
+      "latency_p90_ms": 5719.0,
+      "combat_expected": 12,
+      "combat_triggered": 1,
+      "combat_recall": 0.083,
+      "combat_false_positive": 0,
+      "usage_in_avg": 842.2,
+      "usage_out_avg": 467.9,
+      "errors": [],
+      "quality_fail": [
+        {
+          "text": "训练场的警报骤然响起。三名整合运动士兵从侧门涌入，其中一个举起了燃烧瓶。",
+          "detail": {
+            "beat_is_bool": true,
+            "choices_is_list": true,
+            "choices_count_ok": true,
+            "choices_len_ok": true,
+            "summary_ok": true,
+            "env_ok": true,
+            "combat_ok": false,
+            "encounter_valid": true
+          }
+        },
+        {
+          "text": "车队在山道遭遇伏击。雪坡上十几支弩箭同时射出，两名护卫当场倒下。灵知的数",
+          "detail": {
+            "beat_is_bool": true,
+            "choices_is_list": true,
+            "choices_count_ok": true,
+            "choices_len_ok": true,
+            "summary_ok": true,
+            "env_ok": true,
+            "combat_ok": false,
+            "encounter_valid": true
+          }
+        },
+        {
+          "text": "竞技场通道里，三名无胄盟刺客从阴影中现身，匕首的寒光一闪而逝。砾早已挡在",
+          "detail": {
+            "beat_is_bool": true,
+            "choices_is_list": true,
+            "choices_count_ok": true,
+            "choices_len_ok": true,
+            "summary_ok": true,
+            "env_ok": true,
+            "combat_ok": false,
+            "encounter_valid": true
+          }
+        },
+        {
+          "text": "博士推开会议室的门，两名戴兜帽的整合运动感染者正站在档案柜前。他们看见博",
+          "detail": {
+            "beat_is_bool": true,
+            "choices_is_list": true,
+            "choices_count_ok": true,
+            "choices_len_ok": true,
+            "summary_ok": true,
+            "env_ok": true,
+            "combat_ok": false,
+            "encounter_valid": true
+          }
+        },
+        {
+          "text": "雨夜，罗德岛车队在峡谷地段遭遇伏击，三名整合运动术师从两侧岩壁同时施法，",
+          "detail": {
+            "beat_is_bool": true,
+            "choices_is_list": true,
+            "choices_count_ok": true,
+            "choices_len_ok": true,
+            "summary_ok": true,
+            "env_ok": true,
+            "combat_ok": false,
+            "encounter_valid": true
+          }
+        },
+        {
+          "text": "竞技场地牢的铁门被撞开，数十名被囚的感染者骑士冲了出来，领头的血骑士举起",
+          "detail": {
+            "beat_is_bool": true,
+            "choices_is_list": true,
+            "choices_count_ok": true,
+            "choices_len_ok": true,
+            "summary_ok": true,
+            "env_ok": true,
+            "combat_ok": false,
+            "encounter_valid": true
+          }
+        },
+        {
+          "text": "喀兰贸易大楼的会客室突然传来爆炸声，浓烟从走廊尽头涌出。数名持刀的雇佣兵",
+          "detail": {
+            "beat_is_bool": true,
+            "choices_is_list": true,
+            "choices_count_ok": true,
+            "choices_len_ok": true,
+            "summary_ok": true,
+            "env_ok": true,
+            "combat_ok": false,
+            "encounter_valid": true
+          }
+        },
+        {
+          "text": "训练场的模拟战进入第二场：血骑士单枪匹马站在场地中央，向博士挑战：「罗德",
+          "detail": {
+            "beat_is_bool": true,
+            "choices_is_list": true,
+            "choices_count_ok": false,
+            "choices_len_ok": true,
+            "summary_ok": true,
+            "env_ok": true,
+            "combat_ok": true,
+            "encounter_valid": true
+          }
+        },
+        {
+          "text": "码头集装箱区，一道寒光贴着阴影掠过——无胄盟的狙击手已经占好了位置。砾拉",
+          "detail": {
+            "beat_is_bool": true,
+            "choices_is_list": true,
+            "choices_count_ok": true,
+            "choices_len_ok": true,
+            "summary_ok": true,
+            "env_ok": true,
+            "combat_ok": false,
+            "encounter_valid": true
+          }
+        },
+        {
+          "text": "圣山山路的岔口，一队山雪鬼巡逻兵拦住了博士一行的去路，为首的队长按着刀柄",
+          "detail": {
+            "beat_is_bool": true,
+            "choices_is_list": true,
+            "choices_count_ok": true,
+            "choices_len_ok": true,
+            "summary_ok": true,
+            "env_ok": true,
+            "combat_ok": false,
+            "encounter_valid": true
+          }
+        },
+        {
+          "text": "庆典广场的人群忽然骚动，一名感染者引爆了随身携带的源石炸弹，冲击波掀翻了",
+          "detail": {
+            "beat_is_bool": true,
+            "choices_is_list": true,
+            "choices_count_ok": true,
+            "choices_len_ok": true,
+            "summary_ok": true,
+            "env_ok": true,
+            "combat_ok": false,
+            "encounter_valid": true
+          }
+        },
+        {
+          "text": "罗德岛走廊的通风口突然被顶开，两只猎犬型的源石生物扑出，獠牙上滴着涎液。",
+          "detail": {
+            "beat_is_bool": true,
+            "choices_is_list": true,
+            "choices_count_ok": true,
+            "choices_len_ok": true,
+            "summary_ok": true,
+            "env_ok": true,
+            "combat_ok": false,
+            "encounter_valid": true
+          }
+        }
+      ]
+    }
+  ]
+}
