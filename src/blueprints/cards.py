@@ -25,6 +25,15 @@ from flask import Blueprint, jsonify, request
 
 logger = logging.getLogger(__name__)
 
+
+def _invalidate_card_cache() -> None:
+    """类卡 JSON 写盘后刷新运行时卡表缓存（单一真相源）。"""
+    try:
+        from combat_engine.card_json_loader import clear_cache
+        clear_cache()
+    except Exception:  # 模块未加载时忽略（引擎未初始化）
+        pass
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 CHAR_DIR = PROJECT_ROOT / "data" / "characters"
 CLASS_DIR = PROJECT_ROOT / "data" / "classes"
@@ -98,6 +107,7 @@ def register(app, managers):
             path.parent.mkdir(parents=True, exist_ok=True)
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
+            _invalidate_card_cache()
             return jsonify({"_hash": data["_hash"], "path": str(path)})
         except Exception as e:
             logger.error("Failed to save class cards %s: %s", class_name, e)
@@ -255,6 +265,7 @@ def register(app, managers):
         data["_hash"] = _compute_hash(data)
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+        _invalidate_card_cache()
 
         return jsonify({"status": "deleted", "card_id": card_id, "_hash": data["_hash"]})
 
@@ -279,6 +290,7 @@ def register(app, managers):
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+        _invalidate_card_cache()
 
         return jsonify({"status": "created", "card_id": new_card["card_id"], "_hash": data["_hash"]})
 
