@@ -101,7 +101,7 @@ html.skin-prts body {
 
   .panel-title { color: #6f849a; }
 
-  /* ═══ 工具类覆盖（自动生成，勿手改） ═══ */
+  /* ═══ 工具类覆盖（由 scripts/gen_skin_utils.py 生成，勿手改） ═══ */
   /* ── 灰阶（底色 / 文字 / 边框） ── */
   .bg-gray-300 { background-color: #a8bdd1; }
   .hover\:bg-gray-500:hover { background-color: #6f849a; }

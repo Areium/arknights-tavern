@@ -86,7 +86,7 @@ html.skin-tavern body {
 
   .panel-title { color: #8a7862; font-family: var(--t-serif); letter-spacing: 0.08em; }
 
-  /* ═══ 工具类覆盖（自动生成，勿手改） ═══ */
+  /* ═══ 工具类覆盖（由 scripts/gen_skin_utils.py 生成，勿手改） ═══ */
   /* ── 灰阶（底色 / 文字 / 边框） ── */
   .bg-gray-300 { background-color: #5b4c3e; }
   .hover\:bg-gray-500:hover { background-color: #8a7862; }
