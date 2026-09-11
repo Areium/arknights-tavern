@@ -79,6 +79,7 @@ API 层（`src/blueprints/`）：Flask Blueprint — `chat.py`（对话/叙述/S
 
 - `combat-design.md` — 战斗引擎架构与机制设计
 - `combat-numerical-design.md` — 战斗数值公式与平衡参数
+- `combat-value-curve-redesign.md` — 卡牌数值成长曲线重构提案（未实现，目标态：CV 预算 / 行动经济 / 五阶段功率带），现状以 combat-numerical-design.md 与代码为准
 - `combat-ui-design.md` — 战斗界面交互与布局设计
 - `combat-core-design.md` — 章节战斗化**重构提案（未实现，目标态）**，现状以代码与 combat-design.md 为准
 - `combat-background-prompts.md` — 战斗背景图生成提示词规范
