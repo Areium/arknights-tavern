@@ -35,6 +35,38 @@ export interface ViewState { x: number; y: number; zoom: number }
 
 export const clampZoom = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
 
+/**
+ * 坐标换算的唯一实现（拖拽/平移/缩放/落点全部走这里，避免各处各算一套）。
+ * 约定：screen 为「相对视口左上角」的像素坐标（clientX - viewportRect.left）。
+ *   screen = world * zoom + view.{x,y}；world = (screen - view.{x,y}) / zoom。
+ */
+export function screenToWorld(sx: number, sy: number, view: ViewState): { x: number; y: number } {
+  return { x: (sx - view.x) / view.zoom, y: (sy - view.y) / view.zoom };
+}
+
+export function worldToScreen(wx: number, wy: number, view: ViewState): { x: number; y: number } {
+  return { x: wx * view.zoom + view.x, y: wy * view.zoom + view.y };
+}
+
+/**
+ * 节点拖拽的两个纯函数（唯一实现，供画布与回归脚本共用）：
+ *  - dragGrabOffset：按下瞬间指针相对节点左上角的**屏幕**偏移，整个拖拽过程恒定；
+ *  - dragWorldPos：由当前指针屏幕坐标 + 该恒定偏移反推节点图内坐标。
+ * 这样位移只在屏幕空间取一次差，图内坐标不会逐帧累加，也不会受缩放/平移影响。
+ */
+export function dragGrabOffset(
+  screenX: number, screenY: number, node: { x: number; y: number }, view: ViewState,
+): { x: number; y: number } {
+  const p = worldToScreen(node.x, node.y, view);
+  return { x: screenX - p.x, y: screenY - p.y };
+}
+
+export function dragWorldPos(
+  screenX: number, screenY: number, grab: { x: number; y: number }, view: ViewState,
+): { x: number; y: number } {
+  return screenToWorld(screenX - grab.x, screenY - grab.y, view);
+}
+
 // ── ID 生成（图内唯一：前缀 + base36 时间戳 + 随机尾） ──
 
 export function genId(prefix: "n" | "e", doc: PlotGraphDocDTO): string {
@@ -157,6 +189,10 @@ export function rewireEdge(doc: PlotGraphDocDTO, edgeId: string, end: "from" | "
 
 // ── 从剧情结构生成初始布局（图文档为空时的引导） ──
 
+/** 默认布局的排布间距（初始布局与「重置节点位置」共用同一套基准） */
+export const LAYOUT_H_GAP = 64;
+export const LAYOUT_V_GAP = 36;
+
 /**
  * 依 plot_flows 结构（剧情 → 章节 → 节拍 → 战斗引用）生成左→右主干、
  * 战斗节点下垂挂的初始布局。只做"一次导入"，之后画布完全自由编辑。
@@ -167,7 +203,7 @@ export function importLayoutFromFlow(
 ): PlotGraphDocDTO {
   const nodes: PlotGraphNodeDTO[] = [];
   const edges: PlotGraphEdgeDTO[] = [];
-  const H_GAP = 64, V_GAP = 36;
+  const H_GAP = LAYOUT_H_GAP, V_GAP = LAYOUT_V_GAP;
   let cursorX = 40;
 
   const add = (n: Omit<PlotGraphNodeDTO, "id">): PlotGraphNodeDTO => {
@@ -258,6 +294,74 @@ export function importLayoutFromFlow(
 /** 空白图文档 */
 export function emptyGraphDoc(plotId: string, title: string, bookId: string): PlotGraphDocDTO {
   return { schema_version: 1, plot_id: plotId, title, worldbook_id: bookId, nodes: [], edges: [] };
+}
+
+// ── 重置节点位置（基准 = 剧情结构算出的默认布局） ──
+
+/**
+ * 节点身份键：引用型节点按「类型 + ref」对齐（图的 id 会随导入/重建变化，不能作为身份），
+ * 自由节点没有底层引用，不参与默认布局对齐。
+ */
+export function nodeIdentity(node: PlotGraphNodeDTO): string {
+  const r = node.ref ?? {};
+  switch (node.type) {
+    case "plot": return "plot";
+    case "chapter": return `chapter:${r.chapter_idx ?? "?"}`;
+    case "beat": return `beat:${r.chapter_idx ?? "?"}:${r.beat_id ?? "?"}`;
+    case "combat": return `combat:${r.node_id ?? "?"}`;
+    default: return `note:${node.id}`;
+  }
+}
+
+export interface ResetPositionsResult {
+  doc: PlotGraphDocDTO;
+  /** 命中默认布局、位置被重置的节点数 */
+  matched: number;
+  /** 默认布局里没有对应项（自由节点 / 重复引用）而排到布局右侧空位的节点数 */
+  placed: number;
+  /** 默认布局里有、当前图上没有的节点数（只统计不新增，保持节点集合不变） */
+  missing: number;
+}
+
+/**
+ * 重置节点位置：用默认布局（importLayoutFromFlow 的产物）的坐标覆盖现有节点的 x/y。
+ * 只改坐标——节点集合、节点内容与连线关系全部保留；自由节点/重复引用排到布局右侧一列。
+ */
+export function resetNodePositions(doc: PlotGraphDocDTO, layout: PlotGraphDocDTO): ResetPositionsResult {
+  const pos = new Map<string, { x: number; y: number }>();
+  for (const n of layout.nodes) {
+    const key = nodeIdentity(n);
+    if (!pos.has(key)) pos.set(key, { x: n.x, y: n.y });
+  }
+
+  // 落位区：默认布局包围盒右侧一列（既有的自由节点不至于压在主干上）
+  let maxX = 40, minY = 0;
+  for (const n of layout.nodes) {
+    maxX = Math.max(maxX, n.x + NODE_W);
+    minY = Math.min(minY, n.y);
+  }
+  const overflowX = Math.round(maxX + LAYOUT_H_GAP * 2);
+  let overflowY = minY;
+
+  const used = new Set<string>();
+  let matched = 0, placed = 0;
+
+  const nodes = doc.nodes.map((n) => {
+    const key = nodeIdentity(n);
+    const p = pos.get(key);
+    if (p && !used.has(key)) {
+      used.add(key);
+      matched += 1;
+      return { ...n, x: Math.round(p.x), y: Math.round(p.y) };
+    }
+    const y = overflowY;
+    overflowY += estimateNodeH(n) + LAYOUT_V_GAP;
+    placed += 1;
+    return { ...n, x: overflowX, y: Math.round(y) };
+  });
+
+  const missing = [...pos.keys()].filter((k) => !used.has(k)).length;
+  return { doc: { ...doc, nodes }, matched, placed, missing };
 }
 
 // ── 视图状态（每剧情独立，localStorage 持久化） ──

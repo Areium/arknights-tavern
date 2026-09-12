@@ -24,11 +24,16 @@ import StoryBeatEditor from "./StoryBeatEditor";
 import GraphCanvas, { type AvailableBeat, type AvailableCombat, type GraphCanvasApi, type GraphNodeDisplay } from "./GraphCanvas";
 import {
   emptyGraphDoc, importLayoutFromFlow, lastPlotKey, LAST_BOOK_KEY,
-  GraphHistory, loadViewState, removeNodes, saveViewState, withNode,
+  GraphHistory, loadViewState, removeNodes, resetNodePositions, saveViewState,
   type ViewState,
 } from "./graphModel";
+import { createNodes } from "./nodeFactory";
 
 interface Props { sessionId?: string | null }
+
+/** 节点生成失败/操作反馈文案（NodeGenError 自带可读 message） */
+const errText = (e: unknown, fallback: string) =>
+  e instanceof Error && e.message ? e.message : fallback;
 
 type Drawer =
   | { kind: "battle"; nodeId: string }
@@ -62,11 +67,20 @@ export default function PlotGraphPage({ sessionId }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<{ status: "idle" | "saving" | "saved" | "error"; text: string }>({ status: "idle", text: "" });
+  const [notice, setNotice] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [version, setVersion] = useState(0); // 缓存可变对象 → 用版本号驱动重渲染
 
   const caches = useRef(new Map<string, PlotCache>());
   const canvasApi = useRef<GraphCanvasApi | null>(null);
   const viewPersist = useRef<number | undefined>(undefined);
+  const noticeTimer = useRef<number | undefined>(undefined);
+
+  const showNotice = useCallback((kind: "ok" | "err", text: string) => {
+    setNotice({ kind, text });
+    window.clearTimeout(noticeTimer.current);
+    noticeTimer.current = window.setTimeout(() => setNotice(null), 4000);
+  }, []);
+  useEffect(() => () => window.clearTimeout(noticeTimer.current), []);
   const dirty = useMemo(() => {
     void version;
     return plotId ? (caches.current.get(plotId)?.dirty ?? false) : false;
@@ -324,27 +338,56 @@ export default function PlotGraphPage({ sessionId }: Props) {
       .map((n) => ({ nodeId: n.node_id, label: n.name }));
   }, [overview, doc]);
 
-  // ── 节点动作 ──
-  const addBeatNode = useCallback((beat: AvailableBeat, wx: number, wy: number) => {
+  // ── 节点动作（全部经节点工厂：手动与 LLM 生成共用同一入口） ──
+  const addBeatNode = useCallback(async (beat: AvailableBeat, wx: number, wy: number) => {
     if (!doc) return;
-    commit(withNode(doc, {
-      id: `n_${Date.now().toString(36)}${Math.floor(Math.random() * 1296).toString(36).padStart(2, "0")}`,
-      type: "beat", title: beat.beatId, content: "",
-      x: Math.round(wx - 96), y: Math.round(wy - 32),
-      ref: { chapter_idx: beat.chapterIdx, beat_id: beat.beatId },
-    }));
-  }, [doc, commit]);
+    try {
+      const res = await createNodes({
+        source: "manual",
+        position: { x: wx - 96, y: wy - 32 },
+        nodes: [{
+          type: "beat", title: beat.beatId,
+          ref: { chapter_idx: beat.chapterIdx, beat_id: beat.beatId },
+        }],
+      }, doc);
+      commit(res.doc);
+    } catch (e) {
+      showNotice("err", errText(e, "添加节拍节点失败"));
+    }
+  }, [doc, commit, showNotice]);
 
-  const addCombatGraphNode = useCallback((item: AvailableCombat, wx: number, wy: number) => {
+  const addCombatGraphNode = useCallback(async (item: AvailableCombat, wx: number, wy: number) => {
     if (!doc) return;
     const row = overview?.nodes.find((n) => n.node_id === item.nodeId);
-    commit(withNode(doc, {
-      id: `n_${Date.now().toString(36)}${Math.floor(Math.random() * 1296).toString(36).padStart(2, "0")}`,
-      type: "combat", title: row?.name || item.nodeId, content: "",
-      x: Math.round(wx - 96), y: Math.round(wy - 32),
-      ref: { node_id: item.nodeId },
-    }));
-  }, [doc, commit, overview]);
+    try {
+      const res = await createNodes({
+        source: "manual",
+        position: { x: wx - 96, y: wy - 32 },
+        nodes: [{ type: "combat", title: row?.name || item.nodeId, ref: { node_id: item.nodeId } }],
+      }, doc);
+      commit(res.doc);
+    } catch (e) {
+      showNotice("err", errText(e, "添加战斗节点失败"));
+    }
+  }, [doc, commit, overview, showNotice]);
+
+  /** 在视口中心新建自由节点（顶栏入口） */
+  const addNoteAtCenter = useCallback(async () => {
+    if (!doc) return;
+    const c = canvasApi.current?.centerWorld();
+    if (!c) return;
+    try {
+      const res = await createNodes({
+        source: "manual",
+        position: { x: c.x, y: c.y },
+        nodes: [{ type: "note", title: "新节点", content: "" }],
+      }, doc);
+      commit(res.doc);
+      setSelected({ kind: "node", id: res.nodes[0].id });
+    } catch (e) {
+      showNotice("err", errText(e, "新建自由节点失败"));
+    }
+  }, [doc, commit, showNotice]);
 
   const createCombatNode = useCallback(async () => {
     if (!combatModal || !doc || !bookId) return;
@@ -352,17 +395,17 @@ export default function PlotGraphPage({ sessionId }: Props) {
     if (!id) return;
     try {
       await api.createCombatNode(id, combatModal.name.trim() || id, bookId);
-      commit(withNode(doc, {
-        id: `n_${Date.now().toString(36)}${Math.floor(Math.random() * 1296).toString(36).padStart(2, "0")}`,
-        type: "combat", title: combatModal.name.trim() || id, content: "",
-        x: Math.round(combatModal.wx - 96), y: Math.round(combatModal.wy - 32),
-        ref: { node_id: id },
-      }));
+      const res = await createNodes({
+        source: "manual",
+        position: { x: combatModal.wx - 96, y: combatModal.wy - 32 },
+        nodes: [{ type: "combat", title: combatModal.name.trim() || id, ref: { node_id: id } }],
+      }, doc);
+      commit(res.doc);
       setCombatModal(null);
       setDrawer({ kind: "battle", nodeId: id }); // 立即完善敌人编成等配置
       loadOverview(bookId);
     } catch (e: any) {
-      setCombatModal((m) => (m ? { ...m, error: e.message || "创建失败" } : m));
+      setCombatModal((m) => (m ? { ...m, error: errText(e, "创建失败") } : m));
     }
   }, [combatModal, doc, bookId, api, commit, loadOverview]);
 
@@ -372,6 +415,33 @@ export default function PlotGraphPage({ sessionId }: Props) {
     commit(importLayoutFromFlow(currentPlot, names));
     window.setTimeout(() => canvasApi.current?.fit(), 60);
   }, [doc, currentPlot, overview, commit]);
+
+  /**
+   * 重置节点位置：基准 = 剧情结构算出的默认布局（与「从剧情结构生成布局」同一函数）。
+   * 只覆盖 x/y —— 节点集合、内容与连线关系全部保留，且入撤销栈（Ctrl+Z 可回退）；
+   * 结束后 fit view，把同步后的视图立即持久化，保证视图与内部状态一致。
+   */
+  const resetPositions = useCallback(() => {
+    if (!doc || !currentPlot) return;
+    if (doc.nodes.length === 0) {
+      showNotice("ok", "图上还没有节点，无需重置");
+      return;
+    }
+    const names = new Map(overview?.nodes.map((n) => [n.node_id, { name: n.name, missing: n.missing }]));
+    const layout = importLayoutFromFlow(currentPlot, names);
+    const { doc: next, matched, placed, missing } = resetNodePositions(doc, layout);
+    if (matched === 0) {
+      showNotice("err", "图上没有可对齐的默认布局节点（只有自由节点，位置保持不变）；可先用「从剧情结构生成布局」建立基准");
+      return;
+    }
+    commit(next);
+    const extra = [
+      placed > 0 ? `${placed} 个自由节点排到布局右侧` : "",
+      missing > 0 ? `${missing} 个剧情项未上图（未新增节点）` : "",
+    ].filter(Boolean).join("；");
+    showNotice("ok", `已重置 ${matched} 个节点位置${extra ? `（${extra}）` : ""}`);
+    window.setTimeout(() => canvasApi.current?.fit(), 60);
+  }, [doc, currentPlot, overview, commit, showNotice]);
 
   const openNode = useCallback((node: PlotGraphNodeDTO) => {
     if (node.type === "combat" && node.ref?.node_id) setDrawer({ kind: "battle", nodeId: node.ref.node_id });
@@ -424,6 +494,11 @@ export default function PlotGraphPage({ sessionId }: Props) {
           </span>
         )}
         <div className="flex-1" />
+        {notice && (
+          <span className={"text-[11px] shrink-0 " + (notice.kind === "err" ? "text-red-300" : "text-emerald-300")}>
+            {notice.text}
+          </span>
+        )}
         <button
           className="text-xs px-2 py-1 rounded border border-gray-700 hover:border-amber-500/60 disabled:opacity-30"
           onClick={undo} disabled={!dirty}
@@ -438,12 +513,7 @@ export default function PlotGraphPage({ sessionId }: Props) {
         <button
           className="text-[11px] px-2 py-1 rounded border border-gray-700 hover:border-amber-500/60 disabled:opacity-30"
           disabled={!doc}
-          onClick={() => { const c = canvasApi.current?.centerWorld(); if (c && doc) {
-            commit(withNode(doc, {
-              id: `n_${Date.now().toString(36)}${Math.floor(Math.random() * 1296).toString(36).padStart(2, "0")}`,
-              type: "note", title: "新节点", content: "", x: Math.round(c.x), y: Math.round(c.y), ref: null,
-            }));
-          } }}
+          onClick={addNoteAtCenter}
           title="在视口中心新建自由节点"
         >✎ 自由节点</button>
         <button
@@ -452,6 +522,12 @@ export default function PlotGraphPage({ sessionId }: Props) {
           onClick={() => { const c = canvasApi.current?.centerWorld(); if (c) setCombatModal({ wx: c.x, wy: c.y, id: "", name: "", error: "" }); }}
           title="新建战斗节点（写入 data/combat/nodes 并上图）"
         >＋ 战斗节点</button>
+        <button
+          className="text-[11px] px-2 py-1 rounded border border-gray-700 hover:border-amber-500/60 disabled:opacity-30"
+          disabled={!doc || doc.nodes.length === 0}
+          onClick={resetPositions}
+          title="重置节点位置：把全部节点坐标恢复为剧情结构的默认布局（保留节点与连线，可 Ctrl+Z 撤销）"
+        >⟲ 重置节点位置</button>
         <span className="w-px h-4 bg-gray-700" />
         <span className={
           "text-[11px] shrink-0 " +
@@ -547,6 +623,7 @@ export default function PlotGraphPage({ sessionId }: Props) {
             availableBeats={availableBeats}
             availableCombats={availableCombats}
             onImportLayout={importLayout}
+            onResetPositions={resetPositions}
             canvasApiRef={canvasApi}
           />
         )}

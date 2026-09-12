@@ -9,8 +9,11 @@
  * 缩放：滚轮（deltaY 主导）与触控板捏合（ctrl+wheel）均以**指针位置为锚点**；
  *       工具栏 ±、1:1、适应视图（fit view）以视口中心为锚点。区间 25%–200%，
  *       越界给出提示。
- * 节点：拖拽移动（抬起才入撤销栈）、双击/菜单编辑、锚点拖出连线；
- *       连线可选中、端点拖拽重连、右键删除。一个节点允许分出多条路线。
+ * 节点：拖拽移动（**屏幕位移恒定，与缩放/平移无关**，抬起才入撤销栈）、
+ *       双击进入该节点的编辑态（自由节点内联编辑，其余打开既有抽屉编辑器）、
+ *       锚点拖出连线；连线可选中、端点拖拽重连、右键删除。一个节点允许分出多条路线。
+ * 新建：只走右键菜单（画布空白双击不再新建节点）。
+ * 生成：统一走 nodeFactory.createNodes（来源可为 manual / llm，调用方不区分）。
  * 渲染：节点卡片 memo 化；节点尺寸经 ResizeObserver 实测（连线锚点用）；
  *       视口外节点/连线跳过渲染（视口裁剪）。
  */
@@ -21,8 +24,9 @@ import type {
 import {
   edgeGeometry, estimateNodeH, fitView, MAX_ZOOM, MIN_ZOOM, NODE_META,
   NODE_W, WHEEL_ZOOM_SENS, withEdge, withNode, ZOOM_STEP,
-  clampZoom, rewireEdge, type NodeRect, type ViewState,
+  clampZoom, rewireEdge, dragGrabOffset, dragWorldPos, screenToWorld, type NodeRect, type ViewState,
 } from "./graphModel";
+import { createNodes } from "./nodeFactory";
 
 export interface GraphNodeDisplay {
   title: string;
@@ -59,9 +63,12 @@ interface Props {
   availableBeats: AvailableBeat[];
   availableCombats: AvailableCombat[];
   onImportLayout: () => void;
+  /** 重置所有节点位置到默认布局（页面负责入撤销栈与视图回归） */
+  onResetPositions: () => void;
   canvasApiRef?: { current: GraphCanvasApi | null };
 }
 
+/** 右键菜单状态（视口内屏幕坐标 + 对应的图内坐标） */
 type Menu =
   | { kind: "blank"; sx: number; sy: number; wx: number; wy: number }
   | { kind: "node"; sx: number; sy: number; nodeId: string }
@@ -70,10 +77,22 @@ type Menu =
 
 type Interaction =
   | { kind: "pan"; lastX: number; lastY: number; moved: boolean }
-  | { kind: "drag"; id: string; startWX: number; startWY: number; nodeX: number; nodeY: number; moved: boolean }
+  | {
+      kind: "drag"; id: string;
+      /** 按下瞬间指针相对节点左上角的**屏幕**位移：整个拖拽过程恒定不变 */
+      offsetSX: number; offsetSY: number;
+      /** 按下时的屏幕坐标（拖动判定用屏幕阈值，与缩放无关） */
+      downSX: number; downSY: number;
+      /** 当前节点图内坐标（浮点，抬起时才取整写回文档） */
+      curX: number; curY: number;
+      moved: boolean;
+    }
   | { kind: "link"; from: string; side: "top" | "right" | "bottom" | "left"; wx: number; wy: number }
   | { kind: "rewire"; edgeId: string; end: "from" | "to"; wx: number; wy: number }
   | null;
+
+/** 节点生成/编辑失败时的提示文案（NodeGenError 自带可读 message） */
+const errText = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
 
 const SIDES: { side: "top" | "right" | "bottom" | "left"; fx: (r: NodeRect) => number; fy: (r: NodeRect) => number }[] = [
   { side: "right", fx: (r) => r.x + r.w, fy: (r) => r.y + r.h / 2 },
@@ -105,12 +124,16 @@ export default function GraphCanvas(props: Props) {
   const [sizesTick, setSizesTick] = useState(0);
   const ro = useRef<ResizeObserver | null>(null);
 
-  // ── 坐标换算 ──
-  const toWorld = useCallback((clientX: number, clientY: number) => {
-    const v = viewRef.current;
+  // ── 坐标换算（唯一入口：client → 视口内屏幕坐标 → 图内坐标）──
+  const toScreen = useCallback((clientX: number, clientY: number) => {
     const rect = viewportRef.current!.getBoundingClientRect();
-    return { x: (clientX - rect.left - v.x) / v.zoom, y: (clientY - rect.top - v.y) / v.zoom };
+    return { x: clientX - rect.left, y: clientY - rect.top };
   }, []);
+
+  const toWorld = useCallback((clientX: number, clientY: number) => {
+    const s = toScreen(clientX, clientY);
+    return screenToWorld(s.x, s.y, viewRef.current);
+  }, [toScreen]);
 
   const showHint = useCallback((text: string) => {
     setHint(text);
@@ -121,8 +144,7 @@ export default function GraphCanvas(props: Props) {
   // ── 缩放（锚点：指针或视口中心）──
   const zoomAt = useCallback((clientX: number, clientY: number, factor: number) => {
     const v = viewRef.current;
-    const rect = viewportRef.current!.getBoundingClientRect();
-    const px = clientX - rect.left, py = clientY - rect.top;
+    const p = toScreen(clientX, clientY);
     const target = clampZoom(v.zoom * factor);
     if (target === v.zoom) {
       showHint(target <= MIN_ZOOM ? `已达最小缩放 ${MIN_ZOOM * 100}%` : `已达最大缩放 ${MAX_ZOOM * 100}%`);
@@ -130,8 +152,8 @@ export default function GraphCanvas(props: Props) {
     }
     const k = target / v.zoom;
     // 以指针为锚：指针下的图内点在缩放前后保持在同一屏幕位置
-    onViewChange({ zoom: target, x: px - (px - v.x) * k, y: py - (py - v.y) * k });
-  }, [onViewChange, showHint]);
+    onViewChange({ zoom: target, x: p.x - (p.x - v.x) * k, y: p.y - (p.y - v.y) * k });
+  }, [onViewChange, showHint, toScreen]);
 
   const zoomCenter = useCallback((factor: number) => {
     const rect = viewportRef.current!.getBoundingClientRect();
@@ -251,12 +273,13 @@ export default function GraphCanvas(props: Props) {
       it.lastX = e.clientX; it.lastY = e.clientY;
       onViewChange({ ...viewRef.current, x: viewRef.current.x + dx, y: viewRef.current.y + dy });
     } else if (it.kind === "drag") {
-      const w = toWorld(e.clientX, e.clientY);
-      const nx = Math.round(it.nodeX + (w.x - it.startWX));
-      const ny = Math.round(it.nodeY + (w.y - it.startWY));
-      if (!it.moved && (Math.abs(nx - it.nodeX) > 1 || Math.abs(ny - it.nodeY) > 1)) it.moved = true;
-      it.nodeX = nx; it.nodeY = ny;
-      setDragPos({ id: it.id, x: nx, y: ny });
+      // 关键：位移以「按下瞬间的屏幕偏移」为参考系（offsetSX/offsetSY 全程不变）。
+      // 旧实现把「指针相对起点的总位移」每帧加到已被上一帧改写过的坐标上，位移被重复累加 → 节点乱飞。
+      const s = toScreen(e.clientX, e.clientY);
+      const p = dragWorldPos(s.x, s.y, { x: it.offsetSX, y: it.offsetSY }, viewRef.current);
+      if (!it.moved && Math.abs(s.x - it.downSX) + Math.abs(s.y - it.downSY) > 2) it.moved = true;
+      it.curX = p.x; it.curY = p.y;
+      setDragPos({ id: it.id, x: p.x, y: p.y });
     } else if (it.kind === "link") {
       const w = toWorld(e.clientX, e.clientY);
       it.wx = w.x; it.wy = w.y;
@@ -279,15 +302,16 @@ export default function GraphCanvas(props: Props) {
       return;
     }
     if (it.kind === "drag") {
-      const pos = dragPos;
       setDragPos(null);
-      if (it.moved && pos) {
-        const node = docRef.current.nodes.find((n) => n.id === it.id);
-        if (node && (node.x !== pos.x || node.y !== pos.y)) {
-          onDocChange(withNode(docRef.current, { ...node, x: pos.x, y: pos.y }));
-        }
-      } else if (!it.moved) {
+      if (!it.moved) {
         onSelect({ kind: "node", id: it.id });
+        return;
+      }
+      // 位置取自交互引用（最后一次 move 的最新值），不依赖 dragPos 渲染闭包，避免丢帧漏写
+      const x = Math.round(it.curX), y = Math.round(it.curY);
+      const node = docRef.current.nodes.find((n) => n.id === it.id);
+      if (node && (node.x !== x || node.y !== y)) {
+        onDocChange(withNode(docRef.current, { ...node, x, y }));
       }
       return;
     }
@@ -300,10 +324,7 @@ export default function GraphCanvas(props: Props) {
         const dup = docRef.current.edges.some((ed) => ed.from === it.from && ed.to === targetId);
         if (!dup) onDocChange(withEdge(docRef.current, it.from, targetId).doc);
       } else if (!hit) {
-        const node = makeNoteNode(docRef.current, it.wx - NODE_W / 2, it.wy - 24);
-        const withNodeDoc = { ...docRef.current, nodes: [...docRef.current.nodes, node] };
-        onDocChange(withEdge(withNodeDoc, it.from, node.id).doc);
-        setEditingId(node.id); // 新分支立即可编辑
+        createNoteAt(it.wx - NODE_W / 2, it.wy - 24, { attachFrom: it.from }); // 新分支立即可编辑
       }
       return;
     }
@@ -330,8 +351,16 @@ export default function GraphCanvas(props: Props) {
     e.stopPropagation();
     closeMenu();
     capture(e);
-    const w = toWorld(e.clientX, e.clientY);
-    interaction.current = { kind: "drag", id: node.id, startWX: w.x, startWY: w.y, nodeX: node.x, nodeY: node.y, moved: false };
+    // 记录「指针相对节点左上角的屏幕位移」：整个拖拽期间恒定，节点严格跟手，
+    // 且中途滚轮缩放/平移画布也不会产生偏移跳变。
+    const s = toScreen(e.clientX, e.clientY);
+    const grab = dragGrabOffset(s.x, s.y, node, viewRef.current);
+    interaction.current = {
+      kind: "drag", id: node.id,
+      offsetSX: grab.x, offsetSY: grab.y,
+      downSX: s.x, downSY: s.y,
+      curX: node.x, curY: node.y, moved: false,
+    };
   };
 
   const onAnchorPointerDown = (e: React.PointerEvent, node: PlotGraphNodeDTO, side: "top" | "right" | "bottom" | "left") => {
@@ -361,18 +390,46 @@ export default function GraphCanvas(props: Props) {
     setRewirePos({ x: w.x, y: w.y });
   };
 
-  const onNodeDoubleClick = (node: PlotGraphNodeDTO) => {
+  /**
+   * 进入节点的编辑态（双击节点 / 右键菜单「编辑节点」共用）：
+   * 自由节点内联编辑标题与备注，其余类型打开既有抽屉编辑器编辑其内容/属性。
+   */
+  const enterNodeEdit = (node: PlotGraphNodeDTO) => {
+    closeMenu();
+    setEditingId(null);
+    onSelect({ kind: "node", id: node.id });
     if (node.type === "note") setEditingId(node.id);
     else props.onOpenNode(node);
   };
 
-  /** 新建自由节点并立即进入编辑（双击空白 / 菜单 / 空态按钮共用） */
-  const createNoteAt = (wx: number, wy: number) => {
-    const node = makeNoteNode(docRef.current, wx, wy);
-    onDocChange(withNode(docRef.current, node));
-    onSelect({ kind: "node", id: node.id });
-    setEditingId(node.id);
+  /** 双击节点 = 进入该节点的编辑态（不再触发任何新建逻辑） */
+  const onNodeDoubleClick = (e: React.MouseEvent, node: PlotGraphNodeDTO) => {
+    e.stopPropagation();
+    enterNodeEdit(node);
   };
+
+  /**
+   * 新建自由节点并立即进入编辑（空态按钮 / 右键菜单 / 锚点拖到空白）。
+   * 统一走节点工厂：手动与 LLM 生成共用同一入口，页面只需要处理结果文档。
+   */
+  const createNoteAt = useCallback(async (wx: number, wy: number, opts?: { attachFrom?: string }) => {
+    try {
+      const res = await createNodes({
+        source: "manual",
+        position: { x: wx, y: wy },
+        nodes: [{ type: "note", title: "新节点", content: "" }],
+        options: opts?.attachFrom
+          ? { connect: "none", attach: { fromNodeId: opts.attachFrom } }
+          : { connect: "none" },
+      }, docRef.current);
+      const created = res.nodes[0];
+      onDocChange(res.doc);
+      onSelect({ kind: "node", id: created.id });
+      setEditingId(created.id);
+    } catch (err) {
+      showHint(errText(err, "新建节点失败"));
+    }
+  }, [onDocChange, onSelect, showHint]);
 
   // ── 右键菜单 ──
   const onContextMenu = (e: React.MouseEvent) => {
@@ -447,6 +504,7 @@ export default function GraphCanvas(props: Props) {
   const cursorClass = spaceHeld ? "ng-cursor-grab" : "";
 
   const menuNode = menu && menu.kind === "node" ? doc.nodes.find((n) => n.id === menu.nodeId) : null;
+  const hasNodes = doc.nodes.length > 0;
 
   return (
     <div
@@ -458,11 +516,6 @@ export default function GraphCanvas(props: Props) {
       onPointerUp={onViewportPointerUp}
       onPointerCancel={onViewportPointerUp}
       onContextMenu={onContextMenu}
-      onDoubleClick={(e) => {
-        if (e.target !== e.currentTarget && !(e.target as HTMLElement).dataset.ngBg) return;
-        const w = toWorld(e.clientX, e.clientY);
-        createNoteAt(w.x - NODE_W / 2, w.y - 24);
-      }}
       style={{
         backgroundPosition: `${view.x}px ${view.y}px`,
         backgroundSize: `${28 * view.zoom}px ${28 * view.zoom}px`,
@@ -581,7 +634,7 @@ export default function GraphCanvas(props: Props) {
         <div className="ng-empty">
           <div className="ng-empty-card">
             <p className="ng-empty-title">这张图还是空的</p>
-            <p className="ng-empty-sub">从剧情文档生成初始布局，或直接双击空白处新建自由节点。</p>
+            <p className="ng-empty-sub">从剧情文档生成初始布局，或右键空白处新建自由节点。</p>
             <div className="ng-empty-actions">
               <button className="ng-empty-btn primary" onClick={props.onImportLayout}>从剧情结构生成布局</button>
               <button className="ng-empty-btn" onClick={() => createNoteAt(0, 0)}>新建自由节点</button>
@@ -621,11 +674,21 @@ export default function GraphCanvas(props: Props) {
                   <button className="ng-menu-item" onClick={() => { props.onImportLayout(); closeMenu(); }}>⚙ 从剧情结构生成布局</button>
                 </>
               )}
+              {hasNodes && (
+                <>
+                  <div className="ng-menu-sep" />
+                  <button
+                    className="ng-menu-item"
+                    onClick={() => { props.onResetPositions(); closeMenu(); }}
+                    title="把所有节点坐标恢复为剧情结构的默认布局（保留节点与连线，可 Ctrl+Z 撤销）"
+                  >⟲ 重置节点位置（回到默认布局）</button>
+                </>
+              )}
             </>
           )}
           {menu.kind === "node" && menuNode && (
             <>
-              <button className="ng-menu-item" onClick={() => { onNodeDoubleClick(menuNode); closeMenu(); }}>
+              <button className="ng-menu-item" onClick={() => { enterNodeEdit(menuNode); closeMenu(); }}>
                 {menuNode.type === "note" ? "✎ 编辑节点" : "↗ 打开编辑器"}
               </button>
               <button className="ng-menu-item danger" onClick={() => { props.onRequestDeleteNode(menu.nodeId); closeMenu(); }}>🗑 从图中移除…</button>
@@ -644,13 +707,6 @@ export default function GraphCanvas(props: Props) {
   );
 }
 
-function makeNoteNode(doc: PlotGraphDocDTO, x: number, y: number): PlotGraphNodeDTO {
-  // 就地生成 id（不走 genId，避免重复渲染闭包取旧 doc）
-  let id = `n_${Date.now().toString(36)}${Math.floor(Math.random() * 1296).toString(36).padStart(2, "0")}`;
-  while (doc.nodes.some((n) => n.id === id)) id += "x";
-  return { id, type: "note", title: "新节点", content: "", x: Math.round(x), y: Math.round(y), ref: null };
-}
-
 // ── 节点卡片 ──
 
 interface CardProps {
@@ -662,7 +718,7 @@ interface CardProps {
   linkSource: boolean;
   onPointerDown: (e: React.PointerEvent, node: PlotGraphNodeDTO) => void;
   onAnchorDown: (e: React.PointerEvent, node: PlotGraphNodeDTO, side: "top" | "right" | "bottom" | "left") => void;
-  onDoubleClick: (node: PlotGraphNodeDTO) => void;
+  onDoubleClick: (e: React.MouseEvent, node: PlotGraphNodeDTO) => void;
   onEditCommit: (title: string, content: string) => void;
   onEditCancel: () => void;
 }
@@ -693,7 +749,7 @@ const GraphCard = memo(function GraphCard({
       }
       style={{ left: rect.x, top: rect.y, width: NODE_W }}
       onPointerDown={(e) => onPointerDown(e, node)}
-      onDoubleClick={() => onDoubleClick(node)}
+      onDoubleClick={(e) => onDoubleClick(e, node)}
       onBlur={(e) => { if (editing && !e.currentTarget.contains(e.relatedTarget as Node)) submit(); }}
       onKeyDown={(e) => {
         if (editing && e.key === "Escape") onEditCancel();
