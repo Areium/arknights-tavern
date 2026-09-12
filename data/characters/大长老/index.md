@@ -12,6 +12,7 @@ attributes:
 combat_stats:
   patk: 20
   matk: 68
+card_face: placeholder_skin.png
 class: 术师
 faction: 谢拉格
 imports:
@@ -31,6 +32,7 @@ tags:
 - 雪山大典
 - 传统
 theme_color: '#b8a88a'
+worldbook_id: arknights
 ---
 
 # 角色背景

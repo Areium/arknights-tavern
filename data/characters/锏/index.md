@@ -12,6 +12,7 @@ attributes:
 combat_stats:
   patk: 72
   matk: 44
+card_face: char_4116_blkkgt_2b.png
 class: 近卫
 faction: 喀兰贸易
 imports:
@@ -35,6 +36,7 @@ tags:
 - 近卫
 - 沉默
 theme_color: '#7a7a85'
+worldbook_id: arknights
 ---
 
 # 角色背景

@@ -36,6 +36,7 @@ tags:
 - 感染者
 - 魔王继承者
 theme_color: '#faead2'
+worldbook_id: arknights
 ---
 
 # 角色背景

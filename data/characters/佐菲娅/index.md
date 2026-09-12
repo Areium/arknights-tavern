@@ -12,6 +12,7 @@ attributes:
 combat_stats:
   patk: 44
   matk: 36
+card_face: char_265_sophia_2b.png
 class: 先锋
 faction: 临光家族
 imports:
@@ -34,6 +35,7 @@ tags:
 - 卡西米尔
 - 监护人
 theme_color: '#e9cca8'
+worldbook_id: arknights
 ---
 
 # 角色背景

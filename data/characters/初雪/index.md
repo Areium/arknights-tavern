@@ -12,6 +12,7 @@ attributes:
 combat_stats:
   patk: 32
   matk: 60
+card_face: char_174_slbell_2b.png
 class: 辅助
 faction: 喀兰贸易
 imports:
@@ -36,6 +37,7 @@ tags:
 - 喀兰贸易
 - 辅助
 theme_color: '#d8e6f0'
+worldbook_id: arknights
 ---
 
 # 角色背景

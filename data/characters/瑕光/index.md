@@ -12,6 +12,7 @@ attributes:
 combat_stats:
   patk: 36
   matk: 56
+card_face: char_423_blemsh_2b.png
 class: 重装
 faction: 临光家族
 imports:
@@ -36,6 +37,7 @@ tags:
 - 特锦赛
 - 卡西米尔
 theme_color: '#c49f83'
+worldbook_id: arknights
 ---
 
 # 角色背景

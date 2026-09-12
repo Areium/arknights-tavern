@@ -12,6 +12,7 @@ attributes:
 combat_stats:
   patk: 56
   matk: 40
+card_face: char_173_slchan_2b.png
 class: 近卫
 faction: 喀兰贸易
 imports:
@@ -36,6 +37,7 @@ tags:
 - 钩索
 - 开朗
 theme_color: '#c9d7c0'
+worldbook_id: arknights
 ---
 
 # 角色背景

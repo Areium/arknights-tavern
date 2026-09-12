@@ -37,6 +37,7 @@ tags:
 - 骑士精神
 - 临光家族
 theme_color: '#f8e8c0'
+worldbook_id: arknights
 ---
 
 # 角色背景

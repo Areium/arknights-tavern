@@ -12,6 +12,7 @@ attributes:
 combat_stats:
   patk: 52
   matk: 44
+card_face: char_237_gravel_2b.png
 class: 特种
 faction: 罗德岛
 imports:
@@ -32,6 +33,7 @@ tags:
 - 忠诚
 - 特种
 theme_color: '#f8d7c6'
+worldbook_id: arknights
 ---
 
 # 角色背景

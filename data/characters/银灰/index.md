@@ -36,6 +36,7 @@ tags:
 - 董事长
 - 策略家
 theme_color: '#cabcac'
+worldbook_id: arknights
 ---
 
 # 角色背景

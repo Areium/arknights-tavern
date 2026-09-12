@@ -12,6 +12,7 @@ attributes:
 combat_stats:
   patk: 36
   matk: 64
+card_face: char_206_gnosis_2b.png
 class: 辅助
 faction: 喀兰贸易
 imports:
@@ -35,6 +36,7 @@ tags:
 - 谋士
 - 凝滞师
 theme_color: '#9fb4c7'
+worldbook_id: arknights
 ---
 
 # 角色背景

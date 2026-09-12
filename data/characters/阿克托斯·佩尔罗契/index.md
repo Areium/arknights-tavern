@@ -12,6 +12,7 @@ attributes:
 combat_stats:
   patk: 72
   matk: 32
+card_face: placeholder_skin.png
 class: 近卫
 faction: 佩尔罗契家族
 imports:
@@ -31,6 +32,7 @@ tags:
 - 圣山武装
 - 谢拉格
 theme_color: '#6a6a7a'
+worldbook_id: arknights
 ---
 
 # 角色背景

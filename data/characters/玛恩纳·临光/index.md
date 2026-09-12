@@ -12,6 +12,7 @@ attributes:
 combat_stats:
   patk: 72
   matk: 56
+card_face: char_4064_mlynar_2b.png
 class: 近卫
 faction: 临光家族
 imports:
@@ -35,6 +36,7 @@ tags:
 - 守护者
 - 卡西米尔
 theme_color: '#fae3d7'
+worldbook_id: arknights
 ---
 # 角色背景
 

@@ -36,6 +36,7 @@ tags:
 - 赦罪师
 - 神秘
 theme_color: '#846c61'
+worldbook_id: arknights
 ---
 
 # 角色背景

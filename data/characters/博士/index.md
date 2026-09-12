@@ -36,6 +36,7 @@ tags:
 - 失忆者
 - 战略家
 theme_color: '#1a414e'
+worldbook_id: arknights
 ---
 
 # 角色背景

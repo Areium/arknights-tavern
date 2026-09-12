@@ -12,6 +12,7 @@ attributes:
 combat_stats:
   patk: 68
   matk: 52
+card_face: char_010_chen_2b.png
 class: 近卫
 faction: 龙门
 imports:
@@ -32,6 +33,7 @@ tags:
 - 龙门
 - 感染者
 theme_color: '#5c64a7'
+worldbook_id: arknights
 ---
 
 # 角色背景

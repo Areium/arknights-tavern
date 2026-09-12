@@ -12,6 +12,7 @@ attributes:
 combat_stats:
   patk: 56
   matk: 44
+card_face: char_102_texas_2b.png
 class: 先锋
 faction: 罗德岛
 imports:
@@ -31,6 +32,7 @@ tags:
 - 佣兵
 - 沉默寡言
 theme_color: '#fde9d5'
+worldbook_id: arknights
 ---
 
 # 角色背景

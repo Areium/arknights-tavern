@@ -12,6 +12,7 @@ attributes:
 combat_stats:
   patk: 40
   matk: 44
+card_face: placeholder_skin.png
 class: 重装
 faction: 布朗陶家族
 imports:
@@ -31,6 +32,7 @@ tags:
 - 旧贵族
 - 谢拉格
 theme_color: '#8a6a5a'
+worldbook_id: arknights
 ---
 
 # 角色背景
