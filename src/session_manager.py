@@ -672,7 +672,8 @@ class SessionManager:
                 session = Session(sid, self._llm_backend, name=name, mode=mode,
                                  combat_mode=combat_mode,
                                  player_identity=player_identity,
-                                 wiki_manager=self._wiki_manager)
+                                 wiki_manager=self._wiki_manager,
+                                 worldbook_manager=self._worldbook_manager)
                 session.created_at = created_at
                 self._sessions[sid] = session
 
@@ -759,7 +760,8 @@ class SessionManager:
             session = Session(_sid, self._llm_backend, name=name, mode=_mode,
                               combat_mode=combat_mode,
                               player_identity=player_identity,
-                              wiki_manager=self._wiki_manager)
+                              wiki_manager=self._wiki_manager,
+                              worldbook_manager=self._worldbook_manager)
         except Exception as e:
             logger.warning("导入会话构造失败 %s/%s: %s", mode, session_id, e)
             return None

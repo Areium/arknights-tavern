@@ -15,17 +15,19 @@ import type { WorldBookSearchHit } from "../types";
 import SourceBadge from "./SourceBadge";
 import DocumentManager from "./DocumentManager";
 import IndexManager from "./IndexManager";
+import BattleNodeEditor from "./combat/BattleNodeEditor";
 
 const TABS: { id: ContentHubTab; label: string; icon: string; hint: string }[] = [
   { id: "docs", label: "角色·剧情", icon: "📜", hint: "角色资料与剧情文档（内置开箱即用）" },
   { id: "index", label: "索引", icon: "🔗", hint: "文档依赖关系与会话白名单" },
   { id: "images", label: "资产", icon: "🖼️", hint: "图片资产上传 / 裁剪 / 默认图" },
   { id: "cards", label: "卡牌", icon: "🃏", hint: "角色与职业卡牌编辑" },
+  { id: "combat", label: "战斗节点", icon: "⚔", hint: "战场地图 / 敌人编成 / 血量与难度编辑" },
 ];
 
 export default function ContentHub() {
   const api = useApi();
-  const { contentHubTab, setContentHubTab, setCurrentView, worldbookJumpId, setWorldbookJumpId, setDocJumpTarget } = useAppStore();
+  const { contentHubTab, setContentHubTab, setCurrentView, worldbookJumpId, setWorldbookJumpId, setDocJumpTarget, activeSessionId, combatNodeJumpId, setCombatNodeJumpId } = useAppStore();
   const [query, setQuery] = useState("");
   const [wbHits, setWbHits] = useState<WorldBookSearchHit[]>([]);
   const [docHits, setDocHits] = useState<any[]>([]);
@@ -39,6 +41,11 @@ export default function ContentHub() {
       setCurrentView("worldbook");
     }
   }, [worldbookJumpId, setCurrentView]);
+
+  // 战斗节点跳转：编辑器挂载后清除标记（组件内部已用它定位节点）
+  useEffect(() => {
+    if (combatNodeJumpId) setCombatNodeJumpId(null);
+  }, [combatNodeJumpId, setCombatNodeJumpId]);
 
   // 统一检索：跨世界书条目 + 文档
   useEffect(() => {
@@ -184,6 +191,13 @@ export default function ContentHub() {
         {contentHubTab === "images" && <DocumentManager key="dm-images" initialTab="images" />}
         {contentHubTab === "cards" && <DocumentManager key="dm-cards" initialTab="cards" />}
         {contentHubTab === "index" && <IndexManager key="im" />}
+        {contentHubTab === "combat" && (
+          <BattleNodeEditor
+            key="bne"
+            sessionId={activeSessionId}
+            initialNodeId={combatNodeJumpId || undefined}
+          />
+        )}
       </div>
     </div>
   );

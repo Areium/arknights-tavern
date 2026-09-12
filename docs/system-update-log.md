@@ -15,6 +15,130 @@
 ---
 
 ## 更新记录
+### 2026-09-12 — 战斗系统重构批次 3：升级属性点 + 难度带生效 + LLM 生成铺垫
+
+> 承接批次 2（编辑器）。本批次补齐"成长曲线不好"与"为 AI 生成战斗铺垫"两件事，并把散落的
+> 威胁模型收敛成一份可复用实现。
+
+- **升级重新发放属性点**（`src/combat_rules.py` + `src/combat_settlement.py`）：
+  `data/combat/rules/growth.json` 可配「每级属性点」（默认 1）；默认
+  `auto_allocate_attribute_points=true` 时自动加到**最低未满属性**并写回
+  `attribute_changes` → 会话覆盖 → 下一次战斗的战斗数值（HP/攻/防/速…按公式派生）。
+  关掉自动分配则累积为 `progress.attribute_points` 待分配。结算界面新增
+  「属性点 +N（已自动分配/待分配）」与专精点行。
+  此前 `attribute_changes` 在 v1 恒为空（"属性只由剧情里程碑改变"），现按用户要求重做。
+- **难度带与威胁预算生效**（`src/combat_balance.py` + `data/combat/rules/difficulty.json`）：
+  - 威胁模型从 `scripts/migrate_balance_v1.py` 抽成共享实现（五类模板 / 威胁点 /
+    期望 DPR / 有效生命 / 阶段带推荐），校验器、编辑器、生成与审计工具共用；
+  - 校验器返回 `metrics.threat`（实际威胁 vs 声明预算、声明阶段带 vs 模型推荐），
+    容差 25%，**只警告不阻断**；逐单位 `stats` 覆盖会重新分类（hp 150 的"士兵"不再算 1.6 威胁）；
+  - 节点写 `difficulty.apply_band_scaling: true` 时，敌人数值按阶段带倍率缩放
+    （T0 ×0.8 … T4 ×1.75/×1.5），一套敌人覆盖多个难度档；默认关闭（数值即文件终值）。
+- **生成 → 校验 → 试跑 → 入库 闭环**（为 LLM 生成铺垫）：
+  - `docs/battle-spec.md`：节点 JSON 全字段、格子效果、威胁与阶段带锚点、硬错误/警告清单、
+    世界书分发格式 —— LLM 与设计者共用的规格说明书；
+  - `tools/validate_battle_spec.py`：候选规格结构+数值自洽校验（退出码门禁，支持批量/stdin）；
+  - `tools/simulate_battle.py`：**未入库候选**也能固定种子试跑，输出胜率/中位回合/P90/
+    首回合清场/治疗溢出/血损/每轮 AP，并支持 `--min-win-rate` 等阈值判定；
+  - `tools/generate_battle_spec.py`：按阶段带程序化生成合法战斗（保留中央通路避免软锁，
+    按威胁预算凑编排，生成后自校验），作为 LLM 的确定性基线与兜底；
+  - `.agents/skills/combat-designer/SKILL.md`：给代理/LLM 的流程规范（铁律：不改引擎、
+    先校验后试跑再入库、数值要有依据；含判定标准表与回报格式）。
+- **审计工具收敛**：新增 `tools/balance_audit.py`（敌人分层一致性 + §12「XP 与威胁点单调」
+  + 节点预算/阶段带），产出 `perf_tests/balance_audit_report.md`；删除已失效的
+  `scripts/migrate_balance_v1.py`、`scripts/tune_encounters_v1.py`
+  （输入格式 `data/combat/encounters|enemies/*.md` 已在批次 1 被 JSON 节点 + 统一敌人库替代）。
+  当前审计结论：敌人分层偏差 0、XP 单调性 0 问题、节点 1 处真实偏差
+  （`enc_elite_hunt` 实际威胁 11.0 vs 声明预算 7.0，待设计者决定是调预算还是削编排）。
+- **文档对齐**：`docs/combat-numerical-design.md` 升到 v1.2 —— 共享 AP 旧口径
+  （`2 + (INT-5)//3`、上限 3、AP=3 卡"不可行"）全部改为 v1 实际值（基础 4 / 最高 5），
+  网格与距离改为自由尺寸 + 统一曼哈顿。
+- **测试**：新增 `tests/test_combat_growth_balance.py`（24 项：属性点分配/满值封顶/写回载荷/
+  威胁分类/阶段带推荐/预算告警/带宽缩放生效/生成器与两个 CLI 闭环/可复现性/接口指标）；
+  更新 `perf_tests/test_settlement_v1.py` 的成长断言。全量 `bash scripts/run_tests.sh` =
+  153 + 58 + 4 个 legacy 脚本全绿；前端 `tsc --noEmit` 通过。
+
+### 2026-09-12 — 战斗系统重构批次 2：节点注册表 + 世界书携带 + 可视化编辑器
+
+> 承接批次 1（JSON 节点战场）。本批次把"手写 JSON 节点"变成"可编辑 + 可随世界书分发"，并让编辑器读到会话的剧情节拍进度。
+
+- **节点注册表**（`src/combat_nodes.py`）：JSON 读写 + `_hash` 冲突检测（与卡牌共用
+  `src/shared/json_hash.py`，同一套"带着旧 hash 保存 → 409"语义）+ 校验（敌人名称/数量上限/
+  站位越界与阻挡/回合上限/奖励/阶段带/度量）+ 剧情节拍绑定扫描 + 会话进度 + 世界书条目编解码。
+  校验规则与**开战前**一致：错误阻止保存与试打，警告仅提示。
+- **接口**（`src/blueprints/combat_nodes.py`）：`GET /api/combat/nodes?session_id=`（总览：
+  地图尺寸/单位数/节拍绑定/`progress` = done·current·locked/来源世界书/待创建标记）、
+  `POST`（新建，空波次可存但不可开战）、`GET|PUT|DELETE /api/combat/nodes/<id>`
+  （PUT 带 `_hash` → 409；DELETE 被剧情引用时 409，需 `force=1`）、
+  `POST /api/combat/nodes/validate`（只校验不落盘）、`GET …/worldbook`（条目预览）、
+  `POST /api/combat/nodes/import-worldbook`（按条目或书 id 导入）、
+  `GET /api/combat/nodes/progress?session_id=`。
+- **世界书携带**：节点可编码为一条世界书条目 —— `content` 内 ```json combat-node 围栏块
+  （酒馆格式唯一无损文本通道）+ `raw.extensions.arknights_tavern.entry_type=combat_node`。
+  导入世界书时**自动落地**为 `data/combat/nodes/*.json`（校验失败逐条返回错误、不落半成品）；
+  导出前从注册表**回灌**条目 content，节点侧编辑不丢。
+- **编辑器**（`frontend/src/components/combat/BattleNodeEditor.tsx` + `BattleMapCanvas.tsx`）：
+  左侧节点列表（搜索/新建/删除/剧情节拍绑定/进度徽章/待创建提示），右侧 — 基本信息（含
+  `plot/chapter/beat` 绑定）、**地图绘制**（行列调整、画格子笔刷、整图填充、玩家/敌方部署区
+  涂抹）、**敌人编成**（波次增删、从图鉴加敌人、数量、**逐单位血量覆盖**、📍点图指定站位）、
+  难度与奖励、服务端校验面板；顶部支持**保存（含 409 冲突重新加载）**与**⚔ 试打**。
+  入口：内容中心新增「战斗节点」Tab；战斗视图战前卡片的「⚙ 编辑此节点」直接跳到该节点。
+- **保底**：空节点（没有敌人）可保存但开战会被拒绝（`NodeError` → 400 与可读原因），
+  避免出现"零敌人战场"。
+- **测试**：新增 `tests/test_combat_nodes.py`（22 项：校验矩阵、CRUD 冲突、删除保护、
+  进度、世界书往返、坏条目拒绝、整书导入、空节点拦截）。全量 `bash scripts/run_tests.sh` =
+  151 + 58 + 4 个 legacy 脚本全绿；前端 `tsc --noEmit` 与 `vite build` 通过。
+
+### 2026-09-12 — 战斗系统重构批次 1：JSON 节点战场 + 统一曼哈顿度量 + 可扩展地形
+
+> 承接批次 0（去历史包袱）。本批次把"固定 7×7 网格 + 全局遭遇文件 + 切比雪夫距离"换成"自由尺寸战场 JSON + 统一曼哈顿 + 地形系统"，并完成敌人库合并。
+
+- **数据格式切换**：`data/combat/encounters/*.md`（16 个）→ `data/combat/nodes/<node_id>.json`，
+  **node_id 与原 encounter_id 一致**，所以剧情节拍里的 `[COMBAT:enc_*]` 零改动即可解析
+  （16 个节点中 8 个已自动回填 `bind.{plot_id,chapter_id,beat_id}`）。
+  两套敌人库（`data/enemies/` 叙事 11 个 + `data/combat/enemies/` 战斗 11 个，其中 2 个重名且内容不一致）
+  合并为 `data/enemies/` 单一库：叙事 `attributes` + 战斗 `combat_stats`；无 `combat_stats` 的敌人
+  由引擎按 `attributes` 派生数值（与玩家同一套公式）。
+- **地图即数据**：`map.{rows,cols,tiles,tile_defs,deploy}`；`tiles` 支持二维 `tile_id` 数组或
+  整图简写（`"ground"`）；部署区支持 `rect`/`cells` 两种写法并**真正生效**（此前 `grid_size`/
+  `deploy_zones` 字段写了但代码从不读取，玩家固定 4 坐标、敌人随机落点）。上限 40×40 / 1200 格，
+  校验精确到行列，软锁（出生点被墙封死）给警告不阻断。
+- **可扩展地形**：格子效果由 `data/combat/tiles/*.json` 与节点内联 `tile_defs` 定义 ——
+  `blocks_movement`/`blocks_los`/`move_cost`/`defense_bonus`/`evasion_bonus`/`damage_bonus`/
+  `on_enter`/`on_round_start`（伤害·治疗·状态）。内置 ground/wall/cover/high_ground/hazard_fire；
+  未知字段只警告（为 `on_attack`/`aura` 等留扩展位），**新增一种格子不需要改引擎代码**。
+- **统一曼哈顿度量**：移动与攻击范围都改成曼哈顿（8 向，**斜向步代价 ×2**，等价于曼哈顿距离）；
+  移动走 Dijkstra（含 `move_cost` 与占位），默认**禁止切角**（`rules.allow_corner_cut` 可开），
+  攻击需要视线（Bresenham + 拐角；起点/终点所在格不参与阻挡，"站在掩体里仍可被瞄准"）。
+  敌人 AI 的斜向贪心踏步改为**寻路下一步**（此前遇墙会卡死）。
+- **射程覆盖影响与补偿**：r≥2 覆盖约减半（`(2r+1)²` → `2r²+2r+1`），r=1 由 8 邻格降为 4 正交格。
+  据此对**单体近战卡**（玩家 11 张 + 敌方 `enemy_atk`/`enemy_heavy`）执行射程 1 → 2 迁移，
+  补回 4 个斜角邻格；CV 预算随之收紧这几张卡的伤害（`scripts/cv_audit.py --apply`，
+  新增 `melee_range_manhattan` 例外说明）。前后对照见 `perf_tests/metric_migration_report.md`
+  （中位回合平均 +0.07，胜率与血损率基本持平）。
+- **接口**：新增只读 `GET /api/combat/nodes`、`/api/combat/nodes/<id>`、`/api/combat/enemies`、
+  `/api/combat/tiles`；战斗状态 DTO 换成 `rows/cols/tiles/tile_defs/deploy/map_warnings/
+  range_metric/valid_moves_unit`（**移除 `grid_size`**），`valid_moves` 改由服务端权威计算
+  （此前恒为空数组、前端自己按切比雪夫推）；`GET …/state?selected_unit=` 支持按选中单位取可达格。
+  combat-test 改为节点直启（删除 `data/plots/combat-test` 的敌人池随机采样间接层）。
+- **前端**：`CombatGrid` 按行列渲染（非正方形）+ 地形着色与字形 + 部署区标识；`cellSize`
+  自适应（`clamp(min(availW/cols, availH/rows), 28, 72)`）；移动高亮改读服务端 `valid_moves`；
+  范围/AOE 高亮与后端同度量（`metricDistance`）；战前卡片改为战斗节点下拉（显示尺寸与敌数、
+  剧情节拍绑定）。
+- **回归网**：新增 `tests/test_combat_map.py`（33）、`tests/test_grid_terrain.py`（13）、
+  `tests/test_terrain_effects.py`（17）、`tests/test_combat_api.py`（8）；黄金基线按"有意变更项"
+  重录（`tests/golden/`），全量 `bash scripts/run_tests.sh` = 99 + 58 + 4 个 legacy 脚本全绿。
+
+### 2026-09-12 — 战斗系统去历史包袱（批次 0：回归网 + 删死代码 + 文档归档）
+
+> 背景：项目仍处早期，**不承担旧会话/旧数据兼容**。战斗重构分三批（0 去包袱 → 1 JSON 节点地图 + 统一曼哈顿度量 + 地形 → 2 节点注册表 + 世界书绑定 + 编辑器），本条目为批次 0。
+
+- **回归网入库**：`tests/` 解除 `.gitignore` 并纳入版本控制；新增 `tests/golden/combat_openings.json`（16 场战斗的开局结构快照）与 `tests/golden/combat_sim_metrics.json`（固定种子模拟指标），由 `tests/test_combat_golden.py`、`tests/test_combat_sim_golden.py` 守护（`GOLDEN_RECORD=1` 重录）。统一入口 `scripts/run_tests.sh`（pytest + `tests/legacy/` 脚本式检查 + 无外部依赖的 `perf_tests` 子集）。此前 AGENTS.md 写的 `python -m pytest tests/ -q` 是错的：`tests/test_*.py` 是 import 即执行并 `sys.exit()` 的脚本，会让 pytest 收集器直接 INTERNALERROR。
+- **删除死代码**：战斗态从不落盘（`session.combat` 仅内存），故删除 `CombatSession.from_dict`（约 100 行）与 `CombatEngine.to_dict/from_dict`（含 v0→v1 平衡迁移分支）、`CombatUnit.from_dict`、`CardPool.from_dict`；`CombatSession.to_dict()` 收敛为结算专用的 `snapshot()`（`blueprints/combat.py` 三处调用点同步）。若将来需要"战斗中恢复"，应以「节点 spec + 命令流重放」实现。
+- **修一处真 bug**：`CombatUnit.to_dict()` 缺 `is_alive`，导致结算侧 `player_alive` 恒为 True（阵亡干员按存活 100% 拿经验）。现已导出 `is_alive`。
+- **删除失效工具**：`tools/migrate_combat_md_to_json.py`、`tools/split_combat_cards.py`（源格式 `combat.md`/index.md 战斗段已不存在）。`scripts/sync_cards_json_from_code.py` **保留**——`scripts/cv_audit.py:226` 依赖它生成 cv 审计基线。
+- **文档口径**：`docs/combat-core-design.md` 归档至 `docs/archive/`（该文档自述"已实现"，而 AGENTS.md 仍称其"未实现的目标态"，两处口径矛盾已修正）；其 B1「7×7 网格明确不改」条款作废，后续以批次 1 的可变地图为准。
+- **并发核查**：入场两次 `git status` 快照一致（无并发写）；发现休眠 worktree `../arknights-tavern-ui-preview`（分支 `design/ui-preview-20260912`，11 小时前创建、近 2 小时无写入），未触碰。
 ### 2026-09-12 — Windows 一键重启修复：Electron 二进制自愈 + bat 编码修复
 
 - **Electron 起不来的根因（关键）**：electron 42 的 `install.js` 依赖 `extract-zip@2 + yauzl@2`（2015 年的流式解压栈），在 Node 26 上解压 electron zip 时解压 promise 永不落定——写完第 1 个文件（`dxil.dll`）即静默挂起，事件循环清空后 node 以退出码 0 结束：不报错、不写 `path.txt`。于是 `npm run dev` 时 vite-plugin-electron 一加载 electron 包就抛 `ENOENT ... path.txt`，游戏窗口起不来。修复：用系统自带 bsdtar 从 `@electron/get` 下载缓存（`%LOCALAPPDATA%\electron\Cache`，zip 已在且校验可用）解压补齐 `dist/` 并写 `path.txt`。

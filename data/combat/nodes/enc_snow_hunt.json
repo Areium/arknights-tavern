@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "node_id": "enc_snow_hunt",
+  "name": "圣山猎场",
+  "summary": "圣山圣猎途中，暴风雪中的雪原爪兽群疯狂扑来，冰原猎人在远处放冷箭。",
+  "bind": {
+    "plot_id": "fengxue_guojing",
+    "chapter_id": "holy_hunt",
+    "chapter_title": "立雪求道·猎场",
+    "beat_id": "beat_snow_hunt"
+  },
+  "rules": {
+    "range_metric": "manhattan",
+    "allow_corner_cut": false
+  },
+  "map": {
+    "rows": 7,
+    "cols": 7,
+    "tiles": "ground",
+    "deploy": {
+      "player": {
+        "rect": [0, 0, 2, 2]
+      },
+      "enemy": {
+        "rect": [3, 3, 6, 6]
+      },
+      "enemy_random_shift": false
+    }
+  },
+  "waves": [
+    {
+      "enemies": [
+        {
+          "enemy": "雪原爪兽",
+          "count": 3,
+          "positions": [
+            [3, 3],
+            [4, 3],
+            [5, 3]
+          ]
+        },
+        {
+          "enemy": "冰原猎人",
+          "count": 2,
+          "positions": [
+            [3, 6],
+            [6, 6]
+          ]
+        }
+      ]
+    }
+  ],
+  "conditions": {
+    "max_rounds": 8,
+    "escape_enabled": true
+  },
+  "rewards": {
+    "xp": 38,
+    "items": [
+      "源石碎片"
+    ],
+    "unlock": []
+  },
+  "difficulty": {
+    "category": "story",
+    "encounter_type": "normal",
+    "band": "T1",
+    "threat_budget": 6.2,
+    "target_rounds": 3,
+    "difficulty": 3
+  },
+  "balance_version": 1,
+  "background": "snow_mountain"
+}

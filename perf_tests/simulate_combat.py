@@ -32,7 +32,7 @@ from combat_data_loader import CombatDataLoader            # noqa: E402
 from combat_engine.card_data import get_starting_deck      # noqa: E402
 from combat_engine.engine import CombatEngine              # noqa: E402
 from combat_engine.entity import CombatUnit                # noqa: E402
-from combat_engine.grid import range_between               # noqa: E402
+from combat_engine.grid import metric_distance            # noqa: E402
 
 RESULTS_JSON = os.path.join(_HERE, "results_combat_progression.json")
 REPORT_MD = os.path.join(_HERE, "progression_report.md")
@@ -64,30 +64,22 @@ TEAM_NAMES = {
 }
 
 
-def deploy_positions(deploy_zone: list, count: int = 4) -> list:
-    """解析部署区为具体坐标列表。
+def deploy_positions(cells: list, count: int = 4) -> list:
+    """把部署区格列表展开为 count 个落点（不足时循环取用）。
 
-    数据里存在两种写法：
-    - 矩形对角：[[min_row, min_col], [max_row, max_col]]；
-    - 显式坐标表：[[r, c], [r, c], ...]（不足时循环取用）。
+    部署区已由 `combat_map.resolve_map` 归一为坐标列表（rect/cells 两种写法都处理过）。
     """
-    zone = list(deploy_zone or [])
-    if len(zone) == 2:
-        (min_row, min_col), (max_row, max_col) = zone
-        positions = [(r, c) for r in range(min_row, max_row + 1)
-                     for c in range(min_col, max_col + 1)]
-    else:
-        positions = [tuple(p) for p in zone]
+    positions = [tuple(p) for p in (cells or [])]
     if not positions:
         positions = [(0, 0)]
     return [positions[i % len(positions)] for i in range(count)]
 
 
-def build_team(kind: str, deploy_zone: list) -> list[CombatUnit]:
+def build_team(kind: str, cells: list) -> list[CombatUnit]:
     """按原型构建四人队并放置在玩家部署区内。"""
     attrs = TEAM_ATTRS[kind]
     classes = TEAM_CLASSES[kind]
-    slots = deploy_positions(deploy_zone, len(classes))
+    slots = deploy_positions(cells, len(classes))
     units: list[CombatUnit] = []
     for i, char_class in enumerate(classes):
         unit = CombatUnit.from_character_metadata(
@@ -107,25 +99,33 @@ def enemy_scale_of(encounter: dict, approach_id: str = "assault") -> float:
     return 1.0
 
 
-def build_engine(encounter: dict, team_kind: str, loader: CombatDataLoader) -> CombatEngine:
-    """从遭遇定义组装一场战斗（敌人走数据加载器，与线上一致）。"""
-    engine = CombatEngine()
-    deploy = encounter.get("deploy_zones", {}) or {}
-    players = build_team(team_kind, deploy.get("player", [[0, 0], [3, 1]]))
+def build_engine(node: dict, team_kind: str, loader: CombatDataLoader) -> CombatEngine:
+    """从战斗节点组装一场战斗（敌人走数据加载器，与线上一致）。"""
+    battle_map = loader.load_map(node)
+    engine = CombatEngine(battle_map=battle_map, rules=loader.rules_of(node))
+    # 部署区小于队伍时溢出到全图空格（与线上 CombatSession._player_slots 同策略）
+    player_cells = list(battle_map.deploy_zone("player"))
+    if len(player_cells) < len(TEAM_CLASSES[team_kind]):
+        zone = set(player_cells)
+        player_cells += [(r, c) for r in range(battle_map.rows)
+                         for c in range(battle_map.cols)
+                         if not battle_map.is_blocked((r, c)) and (r, c) not in zone]
+    players = build_team(team_kind, player_cells)
     for unit in players:
         engine.add_player_unit(unit, cards=get_starting_deck(unit.char_class, count=7),
                                pos=unit.pos)
 
-    scale = enemy_scale_of(encounter)
+    fallback_cells = list(battle_map.deploy_zone("enemy"))
+    scale = enemy_scale_of(node)
     waves = []
-    for wave in encounter.get("waves", []) or []:
+    for wave in node.get("waves", []) or []:
         built = []
         for entry in wave.get("enemies", []) or []:
             name = entry.get("enemy") or entry.get("name")
             count = int(entry.get("count", 1) or 1)
             positions = entry.get("positions") or []
             for i in range(count):
-                unit = loader.load_enemy(name)
+                unit = loader.load_enemy(name, stat_overrides=entry.get("stats"))
                 if unit is None:
                     continue
                 unit.unit_id = f"{name}#{len(built)}"
@@ -134,12 +134,19 @@ def build_engine(encounter: dict, team_kind: str, loader: CombatDataLoader) -> C
                     unit.hp = unit.max_hp
                     unit.PATK *= scale
                     unit.MATK *= scale
-                pos = tuple(positions[i]) if i < len(positions) else (3, 3)
+                if i < len(positions):
+                    pos = tuple(positions[i])
+                elif fallback_cells:
+                    pos = fallback_cells[len(built) % len(fallback_cells)]
+                else:
+                    pos = (0, 0)
+                if not engine.grid.can_place(pos) and fallback_cells:
+                    pos = next((c for c in fallback_cells if engine.grid.can_place(c)), pos)
                 built.append((unit, pos))
         if built:
             waves.append(built)
 
-    conditions = encounter.get("conditions", {}) or {}
+    conditions = node.get("conditions", {}) or {}
     engine.max_rounds = int(conditions.get("max_rounds", 0) or 0)
     engine.escape_enabled = bool(conditions.get("escape_enabled", False))
     engine.load_waves(waves)
@@ -213,17 +220,12 @@ def play_player_round(engine: CombatEngine) -> None:
         enemies = _living(engine, "enemy")
         if not enemies:
             return
-        nearest = min(enemies, key=lambda e: range_between(unit.pos, e.pos))
+        nearest = min(enemies, key=lambda e: engine.distance(unit.pos, e.pos))
         guard = 0
         while unit.AP > 0 and guard < 3:
             guard += 1
-            r, c = unit.pos
-            tr, tc = nearest.pos
-            dr = 0 if r == tr else (1 if tr > r else -1)
-            dc = 0 if c == tc else (1 if tc > c else -1)
-            if (dr, dc) == (0, 0):
-                break
-            if not engine.move_unit(unit.unit_id, (r + dr, c + dc)):
+            step = engine.step_toward(unit.pos, nearest.pos, mover_id=unit.unit_id)
+            if step == unit.pos or not engine.move_unit(unit.unit_id, step):
                 break
 
 
@@ -253,7 +255,7 @@ def simulate_battle(encounter: dict, team_kind: str, seed: int,
     # 纯治疗卡（无附带效果）的溢出率才算治疗效率指标
     pure_heal_total = totals["healing_effective"] + totals["healing_overflow_pure"]
     return {
-        "encounter_id": encounter.get("encounter_id", ""),
+        "encounter_id": encounter.get("node_id", ""),
         "team": team_kind,
         "seed": seed,
         "winner": engine.state.winner,
@@ -364,32 +366,27 @@ def main():
     wanted = [e for e in args.encounters.split(",") if e]
     teams = [t for t in args.teams.split(",") if t]
 
-    encounter_ids = []
-    enc_dir = os.path.join(_ROOT, "data", "combat", "encounters")
-    for fname in sorted(os.listdir(enc_dir)):
-        if fname.endswith(".md"):
-            meta = loader.load_encounter(fname[:-3])
-            if meta:
-                encounter_ids.append(meta["encounter_id"])
+    node_ids = [n["node_id"] for n in loader.list_nodes()]
     if wanted:
-        encounter_ids = [e for e in encounter_ids if e in wanted]
+        node_ids = [n for n in node_ids if n in wanted]
 
     results = {}
-    for encounter_id in encounter_ids:
-        encounter = loader.load_encounter(encounter_id)
-        etype = encounter.get("encounter_type", "normal")
+    for node_id in node_ids:
+        encounter = loader.load_node(node_id)
+        difficulty = (encounter or {}).get("difficulty") or {}
+        etype = difficulty.get("encounter_type", "normal")
         for team in teams:
             rows = []
             for i in range(args.runs):
                 rows.append(simulate_battle(encounter, team, args.seed_base + i, loader))
             summary = summarise(rows)
             summary["issues"] = target_check(etype, summary, encounter)
-            results[f"{encounter_id}|{team}"] = {
-                "encounter_id": encounter_id,
+            results[f"{node_id}|{team}"] = {
+                "encounter_id": node_id,
                 "encounter_type": etype,
-                "power_tier": encounter.get("recommended_power_tier", ""),
-                "target_rounds": encounter.get("target_rounds"),
-                "threat_budget": encounter.get("threat_budget"),
+                "power_tier": difficulty.get("band", ""),
+                "target_rounds": difficulty.get("target_rounds"),
+                "threat_budget": difficulty.get("threat_budget"),
                 "team": team,
                 "summary": summary,
             }
@@ -428,7 +425,7 @@ def main():
 
     # 跨队功率方差（design §11 P1-5：同阶段中位回合差 ≤2、胜率差 ≤20 个百分点）
     print("team spread:")
-    for encounter_id in encounter_ids:
+    for encounter_id in node_ids:
         rows = [results.get(f"{encounter_id}|{t}") for t in teams]
         rows = [r for r in rows if r]
         if len(rows) < 2:

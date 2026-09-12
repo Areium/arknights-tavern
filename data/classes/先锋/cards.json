@@ -11,7 +11,7 @@
       "max_damage": 15,
       "atk_scale": 0.88,
       "target": "SINGLE",
-      "range": 1,
+      "range": 2,
       "cost": 1,
       "tier": "basic",
       "class_required": "先锋",
@@ -24,7 +24,7 @@
       "exhaust": null,
       "power_tier": "T1",
       "cv_budget": 24.0,
-      "cv_estimated": 21.7,
+      "cv_estimated": 22.78,
       "balance_version": 1
     },
     {
@@ -57,11 +57,11 @@
       "name": "连续打击",
       "description": "快速连续攻击",
       "damage_type": "physical",
-      "min_damage": 11,
-      "max_damage": 17,
-      "atk_scale": 1.01,
+      "min_damage": 10,
+      "max_damage": 16,
+      "atk_scale": 0.96,
       "target": "SINGLE",
-      "range": 1,
+      "range": 2,
       "cost": 1,
       "tier": "basic",
       "class_required": "先锋",
@@ -74,7 +74,7 @@
       "exhaust": null,
       "power_tier": "T1",
       "cv_budget": 24.0,
-      "cv_estimated": 25.79,
+      "cv_estimated": 25.23,
       "balance_version": 1
     },
     {
@@ -82,11 +82,11 @@
       "name": "迅捷斩",
       "description": "利用速度优势攻击",
       "damage_type": "physical",
-      "min_damage": 11,
-      "max_damage": 18,
-      "atk_scale": 1.1,
+      "min_damage": 9,
+      "max_damage": 14,
+      "atk_scale": 0.86,
       "target": "SINGLE",
-      "range": 1,
+      "range": 2,
       "cost": 1,
       "tier": "basic",
       "class_required": "先锋",
@@ -99,7 +99,7 @@
       "exhaust": null,
       "power_tier": "T1",
       "cv_budget": 24.0,
-      "cv_estimated": 27.92,
+      "cv_estimated": 21.96,
       "balance_version": 1
     },
     {
@@ -208,5 +208,5 @@
       "balance_version": 1
     }
   ],
-  "_hash": "b5834d60a3bea333"
+  "_hash": "4396cfcf3fc63b9b"
 }

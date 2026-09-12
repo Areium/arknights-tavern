@@ -119,6 +119,52 @@ def _import_card_character(card_result: dict, managers: dict):
     return character
 
 
+def _import_combat_nodes(book) -> dict:
+    """把世界书里的战斗节点条目落地为 `data/combat/nodes/*.json`。
+
+    失败不影响世界书本身导入成功：错误逐条返回，编辑器可提示用户修正。
+    """
+    try:
+        from combat_data_loader import CombatDataLoader
+        from combat_nodes import import_worldbook_nodes
+        entries = [e.to_dict() for e in book.entries]
+        enemies = set(CombatDataLoader().list_enemy_names())
+        return import_worldbook_nodes(entries, book_id=book.id, enemy_names=enemies)
+    except Exception as exc:  # 节点导入是附加能力，绝不阻断世界书导入
+        logger.warning("世界书战斗节点导入失败 (%s): %s", getattr(book, "id", "?"), exc)
+        return {"imported": [], "skipped": [], "errors": [str(exc)]}
+
+
+def _refresh_combat_node_entries(book) -> int:
+    """导出前把战斗节点条目的 content 从注册表回灌（节点侧编辑不丢）。"""
+    from combat_nodes import (
+        NodeError, encode_node_for_worldbook, decode_worldbook_entry, load_node_file,
+    )
+
+    updated = 0
+    for entry in book.entries:
+        payload = entry.to_dict()
+        try:
+            # 以围栏块内容为准解析 node_id（raw.extensions 在部分导入路径会被规范化掉）
+            data = decode_worldbook_entry(payload)
+        except NodeError as exc:
+            logger.warning("战斗节点条目解析失败，导出时跳过: %s", exc)
+            continue
+        if not data:
+            continue
+        node_id = str(data.get("node_id") or "")
+        node = load_node_file(node_id) if node_id else None
+        if not node:
+            continue
+        fresh = encode_node_for_worldbook(node)
+        entry.content = fresh["content"]
+        entry.trigger_keys = fresh["trigger_keys"]
+        entry.name = fresh["name"]
+        entry.raw = {**(payload.get("raw") or {}), **fresh["raw"]}
+        updated += 1
+    return updated
+
+
 def register(app, managers):
     bp = Blueprint("worldbook", __name__)
     wb_mgr = managers["worldbook"]
@@ -229,10 +275,14 @@ def register(app, managers):
             except Exception as exc:
                 logger.warning("角色卡连带导入角色失败: %s", exc)
 
+        # 世界书里的战斗节点条目 → 落地为 data/combat/nodes/*.json
+        combat_nodes = _import_combat_nodes(book)
+
         resp = {
             "book": _book_detail(book, include_entries=False),
             "report": report.to_dict(),
             "character": character,
+            "combat_nodes": combat_nodes,
         }
         return jsonify(resp), 201
 
@@ -301,8 +351,13 @@ def register(app, managers):
         book, err = _get_book_or_404(book_id)
         if err:
             return err
+        # 战斗节点条目：从节点注册表回灌最新规格，保证"节点侧编辑"随书导出
+        refreshed = _refresh_combat_node_entries(book)
+        if refreshed:
+            wb_mgr.save(book)
         return jsonify({"name": book.name, "format": "sillytavern_v1",
-                        "data": book.export_st()})
+                        "data": book.export_st(),
+                        "combat_nodes_refreshed": refreshed})
 
     # ── 4. 条目 CRUD ──
 

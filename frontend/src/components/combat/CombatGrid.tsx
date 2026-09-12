@@ -1,5 +1,5 @@
 import React, { useRef, useCallback, useEffect } from "react";
-import type { CombatUnitDTO } from "../../types";
+import type { CombatUnitDTO, TileTypeDTO } from "../../types";
 import GridCell from "./GridCell";
 import { getCellCenter } from "./gridUtils";
 
@@ -7,14 +7,14 @@ import { getCellCenter } from "./gridUtils";
 function findClosestByCenters(
   clientX: number, clientY: number,
   centers: ({ x: number; y: number } | null)[][],
-  gridSize: number,
+  rows: number, cols: number,
 ): [number, number] | null {
   let best: [number, number] | null = null;
   let bestDist = Infinity;
-  for (let r = 0; r < gridSize; r++) {
+  for (let r = 0; r < rows; r++) {
     const row = centers[r];
     if (!row) continue;
-    for (let c = 0; c < gridSize; c++) {
+    for (let c = 0; c < cols; c++) {
       const pt = row[c];
       if (!pt) continue;
       const dx = clientX - pt.x;
@@ -30,7 +30,14 @@ function findClosestByCenters(
 }
 
 interface Props {
-  gridSize: number;
+  /** 战场行列（自由尺寸，非正方形） */
+  rows: number;
+  cols: number;
+  /** 每格 tile_id（tiles[row][col]）与格子定义 */
+  tiles?: string[][];
+  tileDefs?: Record<string, TileTypeDTO>;
+  /** 部署区（坐标列表），用于给格子上色 */
+  deploy?: { player: [number, number][]; enemy: [number, number][] };
   cellSize?: number;
   units: CombatUnitDTO[];
   moveHighlights: Set<string>;
@@ -51,7 +58,7 @@ interface Props {
 }
 
 export default function CombatGrid({
-  gridSize, cellSize = 64, units,
+  rows, cols, tiles, tileDefs, deploy, cellSize = 64, units,
   moveHighlights, rangeHighlights, aoeHighlights, selectedUnitId, uiMode, cursor,
   dragCell, onCellClick, onCellHover, onCellLeave, onCellHoverCell, onCellDrop, onGridDragMove, onGridMount,
   children,
@@ -71,15 +78,15 @@ export default function CombatGrid({
     const g = gridRef.current;
     if (!g) return;
     const centers: ({ x: number; y: number } | null)[][] = [];
-    for (let r = 0; r < gridSize; r++) {
+    for (let r = 0; r < rows; r++) {
       const rowCenters: ({ x: number; y: number } | null)[] = [];
-      for (let c = 0; c < gridSize; c++) {
+      for (let c = 0; c < cols; c++) {
         rowCenters.push(getCellCenter(g, r, c));
       }
       centers.push(rowCenters);
     }
     cellCentersRef.current = centers;
-  }, [gridSize]);
+  }, [rows, cols]);
 
   useEffect(() => {
     recomputeCenters();
@@ -98,14 +105,14 @@ export default function CombatGrid({
     e.preventDefault();
     e.stopPropagation();  // don't bubble to parent overlay handler
     e.dataTransfer.dropEffect = "move";
-    const cell = findClosestByCenters(e.clientX, e.clientY, cellCentersRef.current, gridSize);
+    const cell = findClosestByCenters(e.clientX, e.clientY, cellCentersRef.current, rows, cols);
     onGridDragMove(cell, e.clientX, e.clientY);
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();  // don't bubble to parent overlay handler
-    const cell = findClosestByCenters(e.clientX, e.clientY, cellCentersRef.current, gridSize);
+    const cell = findClosestByCenters(e.clientX, e.clientY, cellCentersRef.current, rows, cols);
     if (cell) onCellDrop(cell[0], cell[1]);
     onGridDragMove(null);
   };
@@ -114,10 +121,17 @@ export default function CombatGrid({
     onGridDragMove(null);
   };
 
-  const rows: React.ReactNode[] = [];
-  for (let r = 0; r < gridSize; r++) {
+  const deployTeamAt = (r: number, c: number): "player" | "enemy" | "" => {
+    if (!deploy) return "";
+    if (deploy.player?.some(([pr, pc]) => pr === r && pc === c)) return "player";
+    if (deploy.enemy?.some(([pr, pc]) => pr === r && pc === c)) return "enemy";
+    return "";
+  };
+
+  const rowNodes: React.ReactNode[] = [];
+  for (let r = 0; r < rows; r++) {
     const cells: React.ReactNode[] = [];
-    for (let c = 0; c < gridSize; c++) {
+    for (let c = 0; c < cols; c++) {
       const key = `${r},${c}`;
       const unit = posToUnit[key] || null;
       let highlight: "" | "cursor" | "target" | "move" | "selected" | "range" | "aoe" = "";
@@ -142,6 +156,8 @@ export default function CombatGrid({
           row={r}
           col={c}
           highlight={highlight}
+          tile={tileDefs?.[tiles?.[r]?.[c] ?? ""]}
+          deployTeam={deployTeamAt(r, c)}
           onClick={onCellClick}
           onMouseEnter={(e) => {
             if (unit && onCellHover) {
@@ -156,7 +172,7 @@ export default function CombatGrid({
         />
       );
     }
-    rows.push(
+    rowNodes.push(
       <div key={r} className="flex gap-0.5">
         {cells}
       </div>
@@ -176,7 +192,7 @@ export default function CombatGrid({
           {/* Column labels */}
           <div className="flex gap-0.5 mb-0.5">
             <div style={{ width: cellSize }} />
-            {Array.from({ length: gridSize }, (_, c) => (
+            {Array.from({ length: cols }, (_, c) => (
               <div
                 key={c}
                 className="text-center text-[9px] text-gray-600 font-mono"
@@ -186,7 +202,7 @@ export default function CombatGrid({
               </div>
             ))}
           </div>
-          {rows.map((row, i) => (
+          {rowNodes.map((row, i) => (
             <div key={i} className="flex gap-0.5 items-center">
               <div
                 className="text-center text-[9px] text-gray-600 font-mono"

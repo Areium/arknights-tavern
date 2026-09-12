@@ -16,7 +16,7 @@ Stat conversion: 1-10 roleplay attributes → combat numbers.
     Personal AP = 1 + floor((mobility - 3) / 3)
 """
 
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field
 import copy
 import math
 
@@ -318,6 +318,7 @@ class CombatUnit:
             "ai_behavior": self.ai_behavior,
             "ai_skills": list(self.ai_skills),
             "hp": self.hp, "max_hp": self.max_hp,
+            "is_alive": self.is_alive,
             "PATK": self.PATK, "MATK": self.MATK, "HEAL": self.HEAL,
             "attributes": copy.deepcopy(self.attributes),
             "action_slots": self.action_slots,
@@ -332,10 +333,3 @@ class CombatUnit:
             "skin_url": self.skin_url,
             "skin_crop": copy.deepcopy(self.skin_crop),
         }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "CombatUnit":
-        values = {f.name: copy.deepcopy(data[f.name]) for f in fields(cls)
-                  if f.name in data}
-        values["pos"] = tuple(data.get("pos", (-1, -1)))
-        return cls(**values)

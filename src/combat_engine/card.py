@@ -144,13 +144,3 @@ class CardPool:
             "exhaust": [c.to_dict() for c in self.exhaust],
             "hand_size": self.hand_size,
         }
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "CardPool":
-        """从存档重建牌堆（缺失键回退默认，容忍 schema 演进）。"""
-        pool = cls(hand_size=int(d.get("hand_size", 7)))
-        pool.deck = [Card.from_dict(c) for c in d.get("deck", [])]
-        pool.hand = [Card.from_dict(c) for c in d.get("hand", [])]
-        pool.discard = [Card.from_dict(c) for c in d.get("discard", [])]
-        pool.exhaust = [Card.from_dict(c) for c in d.get("exhaust", [])]
-        return pool

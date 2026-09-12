@@ -16,7 +16,7 @@
 | cmd_banner | 战术指挥 | 2 | elite | 6–12 / 0.5 | 6–12 / 0.5 | 36.41 | 48.0 | -24% | under | support_discount（纯治疗卡按稳定性溢价允许低于预算 ≤35%） |
 | medic_heal | 医疗 | 1 | basic | 6–12 / 0.5 | 6–12 / 0.5 | 18.74 | 24.0 | -22% | under | support_discount（方案 §5.2 明确保留治疗术数值） |
 | medic_group | 医疗 | 2 | basic | 4–8 / 0.3 | 9–18 / 0.66 | 37.97 | 48.0 | -21% | under | support_discount（纯治疗卡按稳定性溢价允许低于预算 ≤35%） |
-| spec_backstab | 特种 | 1 | basic | 5–9 / 0.5 | 11–20 / 1.1 | 28.72 | 24.0 | +20% | over | - |
+| spec_backstab | 特种 | 1 | basic | 5–9 / 0.5 | 11–19 / 1.05 | 28.73 | 24.0 | +20% | over | - |
 | medic_cleanse | 医疗 | 1 | basic | 3–7 / 0.3 | 3–7 / 0.3 | 19.29 | 24.0 | -20% | under | - |
 | caster_shock | 术师 | 2 | basic | 7–12 / 0.6 | 15–26 / 1.32 | 38.79 | 48.0 | -19% | under | - |
 | guard_iaido | 近卫 | 3 | elite | 8–12 / 0.8 | 18–26 / 1.5 | 58.34 | 72.0 | -19% | under | - |
@@ -28,21 +28,18 @@
 | supp_debuff | 辅助 | 1 | basic | 1–4 / 0.2 | 1–5 / 0.25 | 19.84 | 24.0 | -17% | under | - |
 | supp_zone | 辅助 | 2 | basic | 3–6 / 0.3 | 3–6 / 0.3 | 39.8 | 48.0 | -17% | under | - |
 | sniper_lethal | 狙击 | 3 | elite | 12–22 / 1.5 | 36–65 / 1.5 | 60.21 | 72.0 | -16% | under | - |
-| vang_quick | 先锋 | 1 | basic | 5–8 / 0.5 | 11–18 / 1.1 | 27.92 | 24.0 | +16% | over | - |
 | caster_storm | 术师 | 2 | basic | 5–10 / 0.5 | 11–22 / 1.1 | 55.79 | 48.0 | +16% | over | - |
-| defender_shield | 重装 | 1 | basic | 3–6 / 0.4 | 7–13 / 0.88 | 20.1 | 24.0 | -16% | in_band | - |
 | defender_quake_elite | 重装 | 3 | elite | 6–12 / 0.7 | 13–26 / 1.5 | 60.59 | 72.0 | -16% | under | - |
-| spec_evade | 特种 | 1 | basic | 2–5 / 0.3 | 3–7 / 0.41 | 20.27 | 24.0 | -16% | in_band | - |
 | supp_control | 辅助 | 3 | elite | 8–12 / 0.7 | 18–26 / 1.5 | 61.26 | 72.0 | -15% | under | - |
 | guard_true_silver | 近卫 | 3 | elite | 12–20 / 1.2 | 14–20 / 1.25 | 61.34 | 72.0 | -15% | under | - |
+| spec_evade | 特种 | 1 | basic | 2–5 / 0.3 | 3–6 / 0.39 | 20.46 | 24.0 | -15% | in_band | - |
 | vang_dash | 先锋 | 1 | basic | 3–6 / 0.3 | 7–13 / 0.66 | 27.5 | 24.0 | +15% | over | - |
 | guard_will | 近卫 | 1 | elite | 10–18 / 0.6 | 10–18 / 0.6 | 20.52 | 24.0 | -14% | in_band | - |
-| spec_execute | 特种 | 2 | elite | 10–18 / 1.0 | 22–39 / 1.5 | 41.14 | 48.0 | -14% | under | - |
-| guard_pierce | 近卫 | 1 | basic | 6–10 / 0.6 | 10–14 / 0.7 | 20.64 | 24.0 | -14% | in_band | - |
 | vang_blitz | 先锋 | 2 | elite | 8–12 / 0.8 | 23–33 / 1.5 | 41.41 | 48.0 | -14% | under | - |
-| guard_slash | 近卫 | 1 | basic | 5–9 / 0.5 | 12–16 / 0.75 | 20.8 | 24.0 | -13% | in_band | - |
 | supp_nullify | 辅助 | 3 | elite | 6–10 / 0.6 | 8–13 / 0.81 | 62.58 | 72.0 | -13% | under | - |
 | vang_decimate | 先锋 | 3 | elite | 6–10 / 0.7 | 25–42 / 1.5 | 62.61 | 72.0 | -13% | under | - |
+| spec_execute | 特种 | 2 | elite | 10–18 / 1.0 | 21–37 / 1.5 | 42.13 | 48.0 | -12% | in_band | - |
+| defender_shield | 重装 | 1 | basic | 3–6 / 0.4 | 7–13 / 0.88 | 21.1 | 24.0 | -12% | in_band | - |
 | medic_regen | 医疗 | 2 | basic | 3–6 / 0.2 | 15–29 / 0.97 | 42.34 | 48.0 | -12% | in_band | - |
 | supp_slow | 辅助 | 1 | basic | 2–5 / 0.2 | 4–9 / 0.35 | 21.34 | 24.0 | -11% | in_band | - |
 | spec_ambush | 特种 | 3 | elite | 8–14 / 0.9 | 44–76 / 1.5 | 64.26 | 72.0 | -11% | in_band | - |
@@ -50,20 +47,23 @@
 | medic_shield | 医疗 | 1 | basic | 5–10 / 0.4 | 5–10 / 0.4 | 21.56 | 24.0 | -10% | in_band | - |
 | guard_cleave | 近卫 | 2 | basic | 3–6 / 0.3 | 12–21 / 1.09 | 52.79 | 48.0 | +10% | over | - |
 | defender_quake | 重装 | 2 | basic | 3–6 / 0.3 | 12–21 / 1.09 | 52.79 | 48.0 | +10% | over | - |
-| vang_stab | 先锋 | 1 | basic | 4–7 / 0.4 | 9–15 / 0.88 | 21.7 | 24.0 | -10% | in_band | - |
+| guard_pierce | 近卫 | 1 | basic | 6–10 / 0.6 | 10–14 / 0.7 | 21.67 | 24.0 | -10% | in_band | - |
 | spec_smoke | 特种 | 2 | elite | 5–9 / 0.5 | 6–11 / 0.62 | 43.54 | 48.0 | -9% | in_band | - |
-| guard_heavy | 近卫 | 2 | basic | 8–14 / 0.8 | 18–31 / 1.5 | 43.6 | 48.0 | -9% | in_band | - |
+| guard_slash | 近卫 | 1 | basic | 5–9 / 0.5 | 12–16 / 0.75 | 21.84 | 24.0 | -9% | in_band | - |
 | sniper_explosive | 狙击 | 2 | elite | 8–12 / 0.8 | 15–22 / 1.49 | 52.34 | 48.0 | +9% | over | - |
 | sniper_ap_round | 狙击 | 2 | basic | 4–7 / 0.4 | 9–15 / 0.88 | 43.73 | 48.0 | -9% | in_band | - |
 | cmd_trap | 战术指挥 | 3 | elite | 10–16 / 0.9 | 45–71 / 1.5 | 65.82 | 72.0 | -9% | in_band | - |
+| vang_quick | 先锋 | 1 | basic | 5–8 / 0.5 | 9–14 / 0.86 | 21.96 | 24.0 | -8% | in_band | - |
 | vang_recon | 先锋 | 1 | basic | 2–4 / 0.2 | 2–4 / 0.2 | 26.01 | 24.0 | +8% | over | - |
 | supp_bind | 辅助 | 1 | basic | 3–6 / 0.3 | 3–6 / 0.3 | 22.11 | 24.0 | -8% | in_band | - |
-| defender_bash | 重装 | 2 | basic | 5–9 / 0.5 | 18–33 / 1.5 | 44.4 | 48.0 | -8% | in_band | - |
-| vang_flurry | 先锋 | 1 | basic | 3–5 / 0.3 | 11–17 / 1.01 | 25.79 | 24.0 | +8% | in_band | - |
 | cmd_orbital | 战术指挥 | 3 | elite | 8–14 / 0.8 | 18–31 / 1.5 | 66.71 | 72.0 | -7% | in_band | - |
 | sniper_rain | 狙击 | 2 | basic | 3–6 / 0.3 | 10–19 / 0.99 | 51.1 | 48.0 | +6% | in_band | - |
+| defender_bash | 重装 | 2 | basic | 5–9 / 0.5 | 17–31 / 1.5 | 45.36 | 48.0 | -6% | in_band | - |
+| vang_stab | 先锋 | 1 | basic | 4–7 / 0.4 | 9–15 / 0.88 | 22.78 | 24.0 | -5% | in_band | - |
+| vang_flurry | 先锋 | 1 | basic | 3–5 / 0.3 | 10–16 / 0.96 | 25.23 | 24.0 | +5% | in_band | - |
 | spec_shadow | 特种 | 1 | basic | 3–5 / 0.3 | 10–16 / 0.96 | 25.23 | 24.0 | +5% | in_band | - |
 | cmd_strike | 战术指挥 | 1 | basic | 4–8 / 0.4 | 9–18 / 0.88 | 25.19 | 24.0 | +5% | in_band | - |
+| guard_heavy | 近卫 | 2 | basic | 8–14 / 0.8 | 18–31 / 1.5 | 45.78 | 48.0 | -5% | in_band | - |
 | spec_shift | 特种 | 1 | basic | 3–6 / 0.3 | 10–18 / 0.91 | 25.07 | 24.0 | +4% | in_band | - |
 | cmd_shell | 战术指挥 | 2 | basic | 3–7 / 0.4 | 10–21 / 1.24 | 50.1 | 48.0 | +4% | in_band | - |
 | caster_nova | 术师 | 2 | basic | 4–7 / 0.4 | 13–21 / 1.25 | 49.94 | 48.0 | +4% | in_band | - |

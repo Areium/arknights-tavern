@@ -32,6 +32,7 @@
 | 索引 | 关系图、会话白名单、断裂验证修复 | IndexManager |
 | 资产 | 图片资产管理（上传/裁剪/默认图） | DocumentManager（images Tab） |
 | 卡牌 | 卡牌编辑 | DocumentManager（cards Tab） |
+| 战斗节点 | 战场地图/敌人编成/血量与难度编辑、剧情节拍进度 | BattleNodeEditor |
 
 依赖引用编辑**收敛到索引 Tab**（它是关系图的天然位置）；文档 Tab 移除重复的 imports 编辑区块，保留查看入口。
 

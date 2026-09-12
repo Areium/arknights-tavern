@@ -15,13 +15,14 @@ Endpoints:
   DELETE /api/cards/classes/<class_name>/cards/<card_id> — delete a card from class
 """
 
-import hashlib
 import json
 import logging
 import os
 from pathlib import Path
 
 from flask import Blueprint, jsonify, request
+
+from shared.json_hash import compute_json_hash
 
 logger = logging.getLogger(__name__)
 
@@ -40,10 +41,8 @@ CLASS_DIR = PROJECT_ROOT / "data" / "classes"
 
 
 def _compute_hash(data: dict) -> str:
-    """Compute a SHA-256 hash of card data (excluding _hash field)."""
-    payload = {k: v for k, v in data.items() if k != "_hash"}
-    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
-    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+    """卡牌 JSON 内容哈希（与战斗节点共用同一实现）。"""
+    return compute_json_hash(data)
 
 
 def json_error(message: str, status: int = 400):

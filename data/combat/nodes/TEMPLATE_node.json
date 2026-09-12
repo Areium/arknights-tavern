@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "node_id": "enc_new",
+  "name": "新战斗节点",
+  "summary": "一句话说明这场战斗的处境与目的。",
+  "description": "",
+  "bind": {
+    "plot_id": "",
+    "chapter_id": "",
+    "beat_id": ""
+  },
+  "rules": {
+    "range_metric": "manhattan",
+    "allow_corner_cut": false
+  },
+  "map": {
+    "rows": 7,
+    "cols": 7,
+    "tiles": "ground",
+    "tile_defs": {},
+    "deploy": {
+      "player": { "rect": [3, 0, 5, 1] },
+      "enemy": { "rect": [3, 5, 5, 6] },
+      "enemy_random_shift": false
+    }
+  },
+  "waves": [
+    {
+      "enemies": []
+    }
+  ],
+  "conditions": {
+    "max_rounds": 8,
+    "escape_enabled": true
+  },
+  "rewards": {
+    "xp": 0,
+    "items": [],
+    "unlock": []
+  },
+  "difficulty": {
+    "category": "test",
+    "encounter_type": "normal",
+    "band": "T1",
+    "threat_budget": 0,
+    "target_rounds": 4,
+    "difficulty": 1
+  },
+  "background": "default",
+  "balance_version": 1
+}

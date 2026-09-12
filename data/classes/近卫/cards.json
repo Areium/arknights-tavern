@@ -11,7 +11,7 @@
       "max_damage": 16,
       "atk_scale": 0.75,
       "target": "SINGLE",
-      "range": 1,
+      "range": 2,
       "cost": 1,
       "tier": "basic",
       "class_required": "近卫",
@@ -24,7 +24,7 @@
       "exhaust": null,
       "power_tier": "T1",
       "cv_budget": 24.0,
-      "cv_estimated": 20.8,
+      "cv_estimated": 21.84,
       "balance_version": 1
     },
     {
@@ -61,7 +61,7 @@
       "max_damage": 31,
       "atk_scale": 1.5,
       "target": "SINGLE",
-      "range": 1,
+      "range": 2,
       "cost": 2,
       "tier": "basic",
       "class_required": "近卫",
@@ -74,7 +74,7 @@
       "exhaust": null,
       "power_tier": "T1",
       "cv_budget": 48.0,
-      "cv_estimated": 43.6,
+      "cv_estimated": 45.78,
       "balance_version": 1
     },
     {
@@ -111,7 +111,7 @@
       "max_damage": 14,
       "atk_scale": 0.7,
       "target": "SINGLE",
-      "range": 1,
+      "range": 2,
       "cost": 1,
       "tier": "basic",
       "class_required": "近卫",
@@ -124,7 +124,7 @@
       "exhaust": null,
       "power_tier": "T1",
       "cv_budget": 24.0,
-      "cv_estimated": 20.64,
+      "cv_estimated": 21.67,
       "balance_version": 1
     },
     {
@@ -203,5 +203,5 @@
       "balance_version": 1
     }
   ],
-  "_hash": "0a5e32765a4f2c09"
+  "_hash": "91de20557b3bacd5"
 }

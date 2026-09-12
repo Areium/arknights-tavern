@@ -340,14 +340,14 @@
         "max_damage": 9,
         "atk_scale": 0.5,
         "effects": [],
-        "cv": 10.4
+        "cv": 10.92
       },
       "after": {
         "min_damage": 11,
-        "max_damage": 20,
-        "atk_scale": 1.1,
+        "max_damage": 19,
+        "atk_scale": 1.05,
         "effects": [],
-        "cv": 28.72
+        "cv": 28.73
       },
       "budget": 24.0,
       "band": [
@@ -360,7 +360,7 @@
       "history": [
         {
           "step": "scale_up",
-          "factor": 2.212
+          "factor": 2.106
         }
       ]
     },
@@ -776,41 +776,6 @@
       ]
     },
     {
-      "card_id": "vang_quick",
-      "class": "先锋",
-      "cost": 1,
-      "tier": "basic",
-      "pure_effect": false,
-      "before": {
-        "min_damage": 5,
-        "max_damage": 8,
-        "atk_scale": 0.5,
-        "effects": [],
-        "cv": 10.0
-      },
-      "after": {
-        "min_damage": 11,
-        "max_damage": 18,
-        "atk_scale": 1.1,
-        "effects": [],
-        "cv": 27.92
-      },
-      "budget": 24.0,
-      "band": [
-        20.0,
-        26.0
-      ],
-      "ratio": 0.163,
-      "status": "over",
-      "exception": null,
-      "history": [
-        {
-          "step": "scale_up",
-          "factor": 2.3
-        }
-      ]
-    },
-    {
       "card_id": "caster_storm",
       "class": "术师",
       "cost": 2,
@@ -846,41 +811,6 @@
       ]
     },
     {
-      "card_id": "defender_shield",
-      "class": "重装",
-      "cost": 1,
-      "tier": "basic",
-      "pure_effect": false,
-      "before": {
-        "min_damage": 3,
-        "max_damage": 6,
-        "atk_scale": 0.4,
-        "effects": [],
-        "cv": 6.48
-      },
-      "after": {
-        "min_damage": 7,
-        "max_damage": 13,
-        "atk_scale": 0.88,
-        "effects": [],
-        "cv": 20.1
-      },
-      "budget": 24.0,
-      "band": [
-        20.0,
-        26.0
-      ],
-      "ratio": -0.162,
-      "status": "in_band",
-      "exception": null,
-      "history": [
-        {
-          "step": "scale_up",
-          "factor": 3.549
-        }
-      ]
-    },
-    {
       "card_id": "defender_quake_elite",
       "class": "重装",
       "cost": 3,
@@ -912,53 +842,6 @@
         {
           "step": "scale_up",
           "factor": 2.929
-        }
-      ]
-    },
-    {
-      "card_id": "spec_evade",
-      "class": "特种",
-      "cost": 1,
-      "tier": "basic",
-      "pure_effect": false,
-      "before": {
-        "min_damage": 2,
-        "max_damage": 5,
-        "atk_scale": 0.3,
-        "effects": [
-          {
-            "type": "evade",
-            "duration": 2,
-            "self": true
-          }
-        ],
-        "cv": 16.96
-      },
-      "after": {
-        "min_damage": 3,
-        "max_damage": 7,
-        "atk_scale": 0.41,
-        "effects": [
-          {
-            "type": "evade",
-            "duration": 2,
-            "self": true
-          }
-        ],
-        "cv": 20.27
-      },
-      "budget": 24.0,
-      "band": [
-        20.0,
-        26.0
-      ],
-      "ratio": -0.155,
-      "status": "in_band",
-      "exception": null,
-      "history": [
-        {
-          "step": "scale_up",
-          "factor": 1.356
         }
       ]
     },
@@ -1037,6 +920,53 @@
       ]
     },
     {
+      "card_id": "spec_evade",
+      "class": "特种",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 2,
+        "max_damage": 5,
+        "atk_scale": 0.3,
+        "effects": [
+          {
+            "type": "evade",
+            "duration": 2,
+            "self": true
+          }
+        ],
+        "cv": 17.81
+      },
+      "after": {
+        "min_damage": 3,
+        "max_damage": 6,
+        "atk_scale": 0.39,
+        "effects": [
+          {
+            "type": "evade",
+            "duration": 2,
+            "self": true
+          }
+        ],
+        "cv": 20.46
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": -0.147,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 1.291
+        }
+      ]
+    },
+    {
       "card_id": "vang_dash",
       "class": "先锋",
       "cost": 1,
@@ -1102,81 +1032,6 @@
       "history": []
     },
     {
-      "card_id": "spec_execute",
-      "class": "特种",
-      "cost": 2,
-      "tier": "elite",
-      "pure_effect": false,
-      "before": {
-        "min_damage": 10,
-        "max_damage": 18,
-        "atk_scale": 1.0,
-        "effects": [],
-        "cv": 21.76
-      },
-      "after": {
-        "min_damage": 22,
-        "max_damage": 39,
-        "atk_scale": 1.5,
-        "effects": [],
-        "cv": 41.14
-      },
-      "budget": 48.0,
-      "band": [
-        42.0,
-        52.0
-      ],
-      "ratio": -0.143,
-      "status": "under",
-      "exception": null,
-      "history": [
-        {
-          "step": "scale_up",
-          "factor": 2.16
-        }
-      ]
-    },
-    {
-      "card_id": "guard_pierce",
-      "class": "近卫",
-      "cost": 1,
-      "tier": "basic",
-      "pure_effect": false,
-      "before": {
-        "min_damage": 6,
-        "max_damage": 10,
-        "atk_scale": 0.6,
-        "effects": [],
-        "cv": 15.52
-      },
-      "after": {
-        "min_damage": 10,
-        "max_damage": 14,
-        "atk_scale": 0.7,
-        "effects": [],
-        "cv": 20.64
-      },
-      "budget": 24.0,
-      "band": [
-        20.0,
-        26.0
-      ],
-      "ratio": -0.14,
-      "status": "in_band",
-      "exception": null,
-      "history": [
-        {
-          "step": "explicit_recommendation",
-          "fields": [
-            "min_damage",
-            "max_damage",
-            "atk_scale",
-            "ignore_def"
-          ]
-        }
-      ]
-    },
-    {
       "card_id": "vang_blitz",
       "class": "先锋",
       "cost": 2,
@@ -1212,45 +1067,6 @@
         {
           "step": "scale_up",
           "factor": 1.266
-        }
-      ]
-    },
-    {
-      "card_id": "guard_slash",
-      "class": "近卫",
-      "cost": 1,
-      "tier": "basic",
-      "pure_effect": false,
-      "before": {
-        "min_damage": 5,
-        "max_damage": 9,
-        "atk_scale": 0.5,
-        "effects": [],
-        "cv": 10.4
-      },
-      "after": {
-        "min_damage": 12,
-        "max_damage": 16,
-        "atk_scale": 0.75,
-        "effects": [],
-        "cv": 20.8
-      },
-      "budget": 24.0,
-      "band": [
-        20.0,
-        26.0
-      ],
-      "ratio": -0.133,
-      "status": "in_band",
-      "exception": null,
-      "history": [
-        {
-          "step": "explicit_recommendation",
-          "fields": [
-            "min_damage",
-            "max_damage",
-            "atk_scale"
-          ]
         }
       ]
     },
@@ -1339,6 +1155,76 @@
         {
           "step": "scale_up",
           "factor": 1.274
+        }
+      ]
+    },
+    {
+      "card_id": "spec_execute",
+      "class": "特种",
+      "cost": 2,
+      "tier": "elite",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 10,
+        "max_damage": 18,
+        "atk_scale": 1.0,
+        "effects": [],
+        "cv": 22.85
+      },
+      "after": {
+        "min_damage": 21,
+        "max_damage": 37,
+        "atk_scale": 1.5,
+        "effects": [],
+        "cv": 42.13
+      },
+      "budget": 48.0,
+      "band": [
+        42.0,
+        52.0
+      ],
+      "ratio": -0.122,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 2.057
+        }
+      ]
+    },
+    {
+      "card_id": "defender_shield",
+      "class": "重装",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 3,
+        "max_damage": 6,
+        "atk_scale": 0.4,
+        "effects": [],
+        "cv": 6.8
+      },
+      "after": {
+        "min_damage": 7,
+        "max_damage": 13,
+        "atk_scale": 0.88,
+        "effects": [],
+        "cv": 21.1
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": -0.121,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 3.382
         }
       ]
     },
@@ -1627,37 +1513,42 @@
       ]
     },
     {
-      "card_id": "vang_stab",
-      "class": "先锋",
+      "card_id": "guard_pierce",
+      "class": "近卫",
       "cost": 1,
       "tier": "basic",
       "pure_effect": false,
       "before": {
-        "min_damage": 4,
-        "max_damage": 7,
-        "atk_scale": 0.4,
+        "min_damage": 6,
+        "max_damage": 10,
+        "atk_scale": 0.6,
         "effects": [],
-        "cv": 7.28
+        "cv": 16.3
       },
       "after": {
-        "min_damage": 9,
-        "max_damage": 15,
-        "atk_scale": 0.88,
+        "min_damage": 10,
+        "max_damage": 14,
+        "atk_scale": 0.7,
         "effects": [],
-        "cv": 21.7
+        "cv": 21.67
       },
       "budget": 24.0,
       "band": [
         20.0,
         26.0
       ],
-      "ratio": -0.096,
+      "ratio": -0.097,
       "status": "in_band",
       "exception": null,
       "history": [
         {
-          "step": "scale_up",
-          "factor": 3.159
+          "step": "explicit_recommendation",
+          "fields": [
+            "min_damage",
+            "max_damage",
+            "atk_scale",
+            "ignore_def"
+          ]
         }
       ]
     },
@@ -1707,37 +1598,41 @@
       ]
     },
     {
-      "card_id": "guard_heavy",
+      "card_id": "guard_slash",
       "class": "近卫",
-      "cost": 2,
+      "cost": 1,
       "tier": "basic",
       "pure_effect": false,
       "before": {
-        "min_damage": 8,
-        "max_damage": 14,
-        "atk_scale": 0.8,
+        "min_damage": 5,
+        "max_damage": 9,
+        "atk_scale": 0.5,
         "effects": [],
-        "cv": 19.36
+        "cv": 10.92
       },
       "after": {
-        "min_damage": 18,
-        "max_damage": 31,
-        "atk_scale": 1.5,
+        "min_damage": 12,
+        "max_damage": 16,
+        "atk_scale": 0.75,
         "effects": [],
-        "cv": 43.6
+        "cv": 21.84
       },
-      "budget": 48.0,
+      "budget": 24.0,
       "band": [
-        42.0,
-        52.0
+        20.0,
+        26.0
       ],
-      "ratio": -0.092,
+      "ratio": -0.09,
       "status": "in_band",
       "exception": null,
       "history": [
         {
-          "step": "scale_up",
-          "factor": 2.428
+          "step": "explicit_recommendation",
+          "fields": [
+            "min_damage",
+            "max_damage",
+            "atk_scale"
+          ]
         }
       ]
     },
@@ -1855,6 +1750,45 @@
       ]
     },
     {
+      "card_id": "vang_quick",
+      "class": "先锋",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 5,
+        "max_damage": 8,
+        "atk_scale": 0.5,
+        "effects": [],
+        "cv": 10.5
+      },
+      "after": {
+        "min_damage": 9,
+        "max_damage": 14,
+        "atk_scale": 0.86,
+        "effects": [],
+        "cv": 21.96
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": -0.085,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 2.19
+        },
+        {
+          "step": "scale_down",
+          "factor": 0.784
+        }
+      ]
+    },
+    {
       "card_id": "vang_recon",
       "class": "先锋",
       "cost": 1,
@@ -1935,84 +1869,6 @@
       "history": []
     },
     {
-      "card_id": "defender_bash",
-      "class": "重装",
-      "cost": 2,
-      "tier": "basic",
-      "pure_effect": false,
-      "before": {
-        "min_damage": 5,
-        "max_damage": 9,
-        "atk_scale": 0.5,
-        "effects": [],
-        "cv": 10.4
-      },
-      "after": {
-        "min_damage": 18,
-        "max_damage": 33,
-        "atk_scale": 1.5,
-        "effects": [],
-        "cv": 44.4
-      },
-      "budget": 48.0,
-      "band": [
-        42.0,
-        52.0
-      ],
-      "ratio": -0.075,
-      "status": "in_band",
-      "exception": null,
-      "history": [
-        {
-          "step": "scale_up",
-          "factor": 4.519
-        },
-        {
-          "step": "scale_up",
-          "factor": 1.636
-        }
-      ]
-    },
-    {
-      "card_id": "vang_flurry",
-      "class": "先锋",
-      "cost": 1,
-      "tier": "basic",
-      "pure_effect": false,
-      "before": {
-        "min_damage": 3,
-        "max_damage": 5,
-        "atk_scale": 0.3,
-        "effects": [],
-        "cv": 4.16
-      },
-      "after": {
-        "min_damage": 11,
-        "max_damage": 17,
-        "atk_scale": 1.01,
-        "effects": [],
-        "cv": 25.79
-      },
-      "budget": 24.0,
-      "band": [
-        20.0,
-        26.0
-      ],
-      "ratio": 0.075,
-      "status": "in_band",
-      "exception": null,
-      "history": [
-        {
-          "step": "scale_up",
-          "factor": 5.529
-        },
-        {
-          "step": "scale_up",
-          "factor": 1.526
-        }
-      ]
-    },
-    {
       "card_id": "cmd_orbital",
       "class": "战术指挥",
       "cost": 3,
@@ -2087,6 +1943,119 @@
       ]
     },
     {
+      "card_id": "defender_bash",
+      "class": "重装",
+      "cost": 2,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 5,
+        "max_damage": 9,
+        "atk_scale": 0.5,
+        "effects": [],
+        "cv": 10.92
+      },
+      "after": {
+        "min_damage": 17,
+        "max_damage": 31,
+        "atk_scale": 1.5,
+        "effects": [],
+        "cv": 45.36
+      },
+      "budget": 48.0,
+      "band": [
+        42.0,
+        52.0
+      ],
+      "ratio": -0.055,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 4.304
+        },
+        {
+          "step": "scale_up",
+          "factor": 1.558
+        }
+      ]
+    },
+    {
+      "card_id": "vang_stab",
+      "class": "先锋",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 4,
+        "max_damage": 7,
+        "atk_scale": 0.4,
+        "effects": [],
+        "cv": 7.64
+      },
+      "after": {
+        "min_damage": 9,
+        "max_damage": 15,
+        "atk_scale": 0.88,
+        "effects": [],
+        "cv": 22.78
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": -0.051,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 3.01
+        }
+      ]
+    },
+    {
+      "card_id": "vang_flurry",
+      "class": "先锋",
+      "cost": 1,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 3,
+        "max_damage": 5,
+        "atk_scale": 0.3,
+        "effects": [],
+        "cv": 4.37
+      },
+      "after": {
+        "min_damage": 10,
+        "max_damage": 16,
+        "atk_scale": 0.96,
+        "effects": [],
+        "cv": 25.23
+      },
+      "budget": 24.0,
+      "band": [
+        20.0,
+        26.0
+      ],
+      "ratio": 0.051,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 5.263
+        },
+        {
+          "step": "scale_up",
+          "factor": 1.453
+        }
+      ]
+    },
+    {
       "card_id": "spec_shadow",
       "class": "特种",
       "cost": 1,
@@ -2157,6 +2126,41 @@
         {
           "step": "scale_up",
           "factor": 2.722
+        }
+      ]
+    },
+    {
+      "card_id": "guard_heavy",
+      "class": "近卫",
+      "cost": 2,
+      "tier": "basic",
+      "pure_effect": false,
+      "before": {
+        "min_damage": 8,
+        "max_damage": 14,
+        "atk_scale": 0.8,
+        "effects": [],
+        "cv": 20.33
+      },
+      "after": {
+        "min_damage": 18,
+        "max_damage": 31,
+        "atk_scale": 1.5,
+        "effects": [],
+        "cv": 45.78
+      },
+      "budget": 48.0,
+      "band": [
+        42.0,
+        52.0
+      ],
+      "ratio": -0.046,
+      "status": "in_band",
+      "exception": null,
+      "history": [
+        {
+          "step": "scale_up",
+          "factor": 2.312
         }
       ]
     },

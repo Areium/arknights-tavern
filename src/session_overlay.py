@@ -1140,6 +1140,14 @@ def _parse_narrative_beats(text: str) -> list[dict]:
     return chapters
 
 
+def parse_narrative_beats(text: str) -> list[dict]:
+    """公开包装：把剧情文档解析为章节/节拍结构。
+
+    编辑器（战斗节点进度）与预取 hook 复用同一实现，避免两套解析器漂移。
+    """
+    return _parse_narrative_beats(text)
+
+
 def _parse_deviation_stat_checks(body: str) -> dict:
     """从剧情 body 中解析偏离点（deviation points）的 stat_check。
 

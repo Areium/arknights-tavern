@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "node_id": "enc_ice_break",
+  "name": "破冰巷战",
+  "summary": "三族摊牌前的破冰之战，山雪鬼在街巷中层层堵截，冰原狂战士作为压阵杀器冲出。",
+  "bind": {
+    "plot_id": "fengxue_guojing",
+    "chapter_id": "icebreaker",
+    "chapter_title": "破冰·将军·封盘",
+    "beat_id": "beat_ice_break"
+  },
+  "rules": {
+    "range_metric": "manhattan",
+    "allow_corner_cut": false
+  },
+  "map": {
+    "rows": 7,
+    "cols": 7,
+    "tiles": "ground",
+    "deploy": {
+      "player": {
+        "rect": [0, 0, 2, 2]
+      },
+      "enemy": {
+        "rect": [3, 3, 6, 6]
+      },
+      "enemy_random_shift": false
+    }
+  },
+  "waves": [
+    {
+      "enemies": [
+        {
+          "enemy": "山雪鬼",
+          "count": 2,
+          "positions": [
+            [3, 3],
+            [4, 3]
+          ]
+        },
+        {
+          "enemy": "冰原狂战士",
+          "count": 1,
+          "positions": [
+            [4, 5]
+          ]
+        }
+      ]
+    }
+  ],
+  "conditions": {
+    "max_rounds": 8,
+    "escape_enabled": true
+  },
+  "rewards": {
+    "xp": 64,
+    "items": [
+      "源石碎片"
+    ],
+    "unlock": []
+  },
+  "difficulty": {
+    "category": "story",
+    "encounter_type": "normal",
+    "band": "T2",
+    "threat_budget": 5.4,
+    "target_rounds": 3,
+    "difficulty": 4
+  },
+  "balance_version": 1,
+  "background": "snow_mountain"
+}

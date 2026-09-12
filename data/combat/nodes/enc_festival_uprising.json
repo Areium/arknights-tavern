@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "node_id": "enc_festival_uprising",
+  "name": "大典事变",
+  "summary": "雪山大典骤然生变，冰原战士与冰原术师封锁会场，山雪鬼队长亲自带队镇压。",
+  "bind": {
+    "plot_id": "fengxue_guojing",
+    "chapter_id": "festival_storm",
+    "chapter_title": "一着不慎·歧路",
+    "beat_id": "beat_poison"
+  },
+  "rules": {
+    "range_metric": "manhattan",
+    "allow_corner_cut": false
+  },
+  "map": {
+    "rows": 7,
+    "cols": 7,
+    "tiles": "ground",
+    "deploy": {
+      "player": {
+        "rect": [0, 0, 2, 2]
+      },
+      "enemy": {
+        "rect": [3, 3, 6, 6]
+      },
+      "enemy_random_shift": false
+    }
+  },
+  "waves": [
+    {
+      "enemies": [
+        {
+          "enemy": "冰原战士",
+          "count": 3,
+          "positions": [
+            [3, 4],
+            [4, 4],
+            [5, 4]
+          ]
+        },
+        {
+          "enemy": "冰原术师",
+          "count": 2,
+          "positions": [
+            [3, 6],
+            [6, 6]
+          ]
+        },
+        {
+          "enemy": "山雪鬼队长",
+          "count": 1,
+          "positions": [
+            [4, 5]
+          ]
+        }
+      ]
+    }
+  ],
+  "conditions": {
+    "max_rounds": 10,
+    "escape_enabled": true
+  },
+  "rewards": {
+    "xp": 108,
+    "items": [
+      "源石碎片"
+    ],
+    "unlock": []
+  },
+  "difficulty": {
+    "category": "story",
+    "encounter_type": "elite",
+    "band": "T2",
+    "threat_budget": 10.0,
+    "target_rounds": 3,
+    "difficulty": 4
+  },
+  "balance_version": 1,
+  "background": "snow_mountain"
+}

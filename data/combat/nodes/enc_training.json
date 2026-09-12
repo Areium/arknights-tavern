@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "node_id": "enc_training",
+  "name": "基础训练",
+  "summary": "战斗遭遇的基础训练方法及要点。",
+  "bind": {
+    "plot_id": "",
+    "chapter_id": "",
+    "beat_id": ""
+  },
+  "rules": {
+    "range_metric": "manhattan",
+    "allow_corner_cut": false
+  },
+  "map": {
+    "rows": 7,
+    "cols": 7,
+    "tiles": "ground",
+    "deploy": {
+      "player": {
+        "rect": [3, 0, 5, 1]
+      },
+      "enemy": {
+        "rect": [3, 5, 5, 5]
+      },
+      "enemy_random_shift": false
+    }
+  },
+  "waves": [
+    {
+      "enemies": [
+        {
+          "enemy": "整合运动士兵",
+          "count": 2,
+          "positions": [
+            [3, 5],
+            [5, 5]
+          ]
+        }
+      ]
+    }
+  ],
+  "conditions": {
+    "max_rounds": 6,
+    "escape_enabled": true
+  },
+  "rewards": {
+    "xp": 14,
+    "items": [
+      "基础训练勋章"
+    ],
+    "unlock": []
+  },
+  "difficulty": {
+    "category": "test",
+    "encounter_type": "teaching",
+    "band": "T0",
+    "threat_budget": 3.2,
+    "target_rounds": 2,
+    "difficulty": 1
+  },
+  "balance_version": 1,
+  "approaches": [
+    {
+      "id": "assault",
+      "label": "正面演练",
+      "hint": "按标准流程正面演练，稳扎稳打。",
+      "combat": {
+        "enemy_scale": 1.0,
+        "first_strike": false,
+        "player_effects": {},
+        "reward_mult": 1.2
+      }
+    },
+    {
+      "id": "retreat",
+      "label": "结束演练",
+      "hint": "提前结束训练，不获取演练奖励。",
+      "avoid": true,
+      "reward_mult": 0.0
+    }
+  ]
+}

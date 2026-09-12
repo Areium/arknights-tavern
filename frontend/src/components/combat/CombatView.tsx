@@ -1,11 +1,11 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useAppStore } from "../../stores/appStore";
 import { useApi, createCombatSSE, createCombatTestSSE } from "../../hooks/useApi";
-import type { CombatEventDTO, CombatStateDTO, CombatUnitDTO, CardDTO, CombatSettlementDTO } from "../../types";
+import type { CombatEventDTO, CombatStateDTO, CombatUnitDTO, CardDTO, CombatSettlementDTO, BattleNodeOverviewDTO } from "../../types";
 import PixiCombatScene, { type PixiCombatSceneHandle } from "./PixiCombatScene";
 import { audioManager } from "../../audio/audioManager";
 import CombatGrid from "./CombatGrid";
-import { getCellCenter, resolveTargetPattern } from "./gridUtils";
+import { getCellCenter, metricDistance, resolveTargetPattern } from "./gridUtils";
 import CombatHand from "./CombatHand";
 import CombatEventLog from "./CombatEventLog";
 import CombatUnitTooltip from "./CombatUnitTooltip";
@@ -38,6 +38,8 @@ export default function CombatView() {
     setCombatContext,
     setCurrentView,
     setPendingAutoNarrate,
+    setContentHubTab,
+    setCombatNodeJumpId,
   } = useAppStore();
   const {
     state: combatState,
@@ -88,6 +90,25 @@ export default function CombatView() {
   const [sessionRoster, setSessionRoster] = useState<string[]>([]);
   const [rosterLoading, setRosterLoading] = useState(false);
   const [encounterId, setEncounterId] = useState(DEFAULT_ENCOUNTER);
+  // 战斗节点目录（含地图尺寸与剧情节拍绑定），供战前选择
+  const [combatNodes, setCombatNodes] = useState<BattleNodeOverviewDTO[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.listCombatNodes().then(
+      (res) => {
+        if (cancelled) return;
+        const nodes = res.nodes || [];
+        setCombatNodes(nodes);
+        setEncounterId((prev) =>
+          nodes.some((n) => n.node_id === prev) ? prev : (nodes[0]?.node_id ?? prev));
+      },
+      () => { /* 后端不可用时保留自由输入 */ },
+    );
+    return () => { cancelled = true; };
+  }, [api]);
+
+  const selectedNode = combatNodes.find((n) => n.node_id === encounterId);
   const [hoveredUnitId, setHoveredUnitId] = useState<string | null>(null);
   const [hoveredUnitRect, setHoveredUnitRect] = useState<DOMRect | null>(null);
   const [showDeckViewer, setShowDeckViewer] = useState(false);
@@ -98,6 +119,15 @@ export default function CombatView() {
   );
   const layoutMode: LayoutMode = isFullscreen ? "fullscreen" : "windowed";
   const cfg = getCombatConfig(layoutMode);
+  // 战场自适应：行列越多格子越小（下限 28px，上限沿用布局配置，保持既有格子比例）
+  const cellSize = useMemo(() => {
+    const totalRows = combatState?.rows ?? 7;
+    const totalCols = combatState?.cols ?? 7;
+    const availW = Math.max(320, window.innerWidth * (isFullscreen ? 0.62 : 0.55));
+    const availH = Math.max(240, window.innerHeight * (isFullscreen ? 0.52 : 0.45));
+    const fit = Math.floor(Math.min(availW / totalCols, availH / totalRows)) - 2;
+    return Math.max(28, Math.min(cfg.cellSize, fit));
+  }, [combatState?.rows, combatState?.cols, cfg.cellSize, isFullscreen, resizeTick]);
   const writingBackRef = useRef(false);
   const pixiRef = useRef<PixiCombatSceneHandle>(null);
   const [muted, setMuted] = useState(audioManager.getSettings().muted);
@@ -193,8 +223,8 @@ export default function CombatView() {
     if (!effectiveId) return;
     try {
       const state = combatTestId
-        ? await api.combatTestState(combatTestId)
-        : await api.combatState(sessionId!);
+        ? await api.combatTestState(combatTestId, selectedUnitId ?? undefined)
+        : await api.combatState(sessionId!, selectedUnitId ?? undefined);
       setCombatContext({ state: state as CombatStateDTO });
       if (state.battle_over && state.winner) {
         setResult(state.winner === "player" ? "胜利" : "失败");
@@ -345,12 +375,13 @@ export default function CombatView() {
     const grid = gridRef.current;
     const rel = relativeRef.current;
     if (!grid || !rel) return;
-    const size = combatState?.grid_size ?? 7;
+    const totalRows = combatState?.rows ?? 7;
+    const totalCols = combatState?.cols ?? 7;
     const relRect = rel.getBoundingClientRect();
     const centers: ({ x: number; y: number } | null)[][] = [];
-    for (let r = 0; r < size; r++) {
+    for (let r = 0; r < totalRows; r++) {
       const row: ({ x: number; y: number } | null)[] = [];
-      for (let c = 0; c < size; c++) {
+      for (let c = 0; c < totalCols; c++) {
         const sp = getCellCenter(grid, r, c);
         if (sp) {
           row.push({ x: sp.x - relRect.left, y: sp.y - relRect.top });
@@ -361,7 +392,7 @@ export default function CombatView() {
       centers.push(row);
     }
     overlayCentersRef.current = centers;
-  }, [combatState?.grid_size]);
+  }, [combatState?.rows, combatState?.cols]);
 
   useEffect(() => {
     recomputeOverlayCenters();
@@ -525,32 +556,21 @@ export default function CombatView() {
     ? combatState?.units.find((u) => u.unit_id === hoveredUnitId) ?? null
     : null;
 
-  // Move range from selected unit's mobility (Chebyshev distance, mobility//2)
+  // Move range: 服务端权威计算（曼哈顿代价 + 地形阻挡 + 占位），避免前端镜像规则漂移
   const moveHighlights = useMemo(() => {
     if (!selectedUnit || !selectedUnit.is_alive || selectedUnit.team !== "player") {
       return new Set<string>();
     }
-    const moveRange = Math.floor((selectedUnit.mobility || 1) / 2);
-    const [r0, c0] = selectedUnit.pos;
-    const gs = combatState?.grid_size ?? 7;
     const cells = new Set<string>();
-    for (let dr = -moveRange; dr <= moveRange; dr++) {
-      for (let dc = -moveRange; dc <= moveRange; dc++) {
-        if (dr === 0 && dc === 0) continue;
-        const r = r0 + dr;
-        const c = c0 + dc;
-        if (r >= 0 && r < gs && c >= 0 && c < gs) {
-          const key = `${r},${c}`;
-          if (!combatState?.grid?.[key]) {
-            cells.add(key);
-          }
-        }
-      }
+    if (combatState?.valid_moves_unit !== selectedUnit.unit_id) return cells;
+    for (const [r, c] of combatState?.valid_moves ?? []) {
+      const key = `${r},${c}`;
+      if (!combatState?.grid?.[key]) cells.add(key);
     }
     return cells;
   }, [selectedUnit, combatState]);
 
-  // Attack range from selected card + range origin
+  // Attack range from selected card + range origin（与后端同度量）
   const rangeHighlights = useMemo(() => {
     if (combatUIMode !== "TARGETING" || selectedCardIndex === null || !rangeOrigin) {
       return new Set<string>();
@@ -562,29 +582,29 @@ export default function CombatView() {
     const maxRange = card.range;
     const cells = new Set<string>();
 
-    const gs = combatState?.grid_size ?? 7;
+    const totalRows = combatState?.rows ?? 7;
+    const totalCols = combatState?.cols ?? 7;
+    const metric = combatState?.range_metric ?? "manhattan";
 
     if (maxRange < 0) {
-      for (let r = 0; r < gs; r++) {
-        for (let c = 0; c < gs; c++) {
+      for (let r = 0; r < totalRows; r++) {
+        for (let c = 0; c < totalCols; c++) {
           cells.add(`${r},${c}`);
         }
       }
       return cells;
     }
 
-    for (let dr = -maxRange; dr <= maxRange; dr++) {
-      for (let dc = -maxRange; dc <= maxRange; dc++) {
-        if (dr === 0 && dc === 0) continue;
-        const r = r0 + dr;
-        const c = c0 + dc;
-        if (r >= 0 && r < gs && c >= 0 && c < gs) {
+    for (let r = 0; r < totalRows; r++) {
+      for (let c = 0; c < totalCols; c++) {
+        if (r === r0 && c === c0) continue;
+        if (metricDistance([r0, c0], [r, c], metric) <= maxRange) {
           cells.add(`${r},${c}`);
         }
       }
     }
     return cells;
-  }, [combatUIMode, selectedCardIndex, displayedHand, rangeOrigin]);
+  }, [combatUIMode, selectedCardIndex, displayedHand, rangeOrigin, combatState?.rows, combatState?.cols, combatState?.range_metric]);
 
   // AOE pattern preview: cells affected by target pattern when hovering a valid range cell
   const aoeHighlights = useMemo(() => {
@@ -599,23 +619,22 @@ export default function CombatView() {
     }
     const card = displayedHand[selectedCardIndex];
     if (!card) return new Set<string>();
-    const gs = combatState?.grid_size ?? 7;
-    const patternCells = resolveTargetPattern(card.target, effectiveCell, gs);
+    const totalRows = combatState?.rows ?? 7;
+    const totalCols = combatState?.cols ?? 7;
+    const metric = combatState?.range_metric ?? "manhattan";
+    const patternCells = resolveTargetPattern(card.target, effectiveCell, totalRows, totalCols);
     // Filter by range from origin (mirrors backend engine.py range filter)
     const [r0, c0] = rangeOrigin.pos;
     const cells = new Set<string>();
     for (const [pr, pc] of patternCells) {
       if (card.range < 0) {
         cells.add(`${pr},${pc}`);
-      } else {
-        const dist = Math.max(Math.abs(pr - r0), Math.abs(pc - c0));
-        if (dist <= card.range) {
-          cells.add(`${pr},${pc}`);
-        }
+      } else if (metricDistance([r0, c0], [pr, pc], metric) <= card.range) {
+        cells.add(`${pr},${pc}`);
       }
     }
     return cells;
-  }, [combatUIMode, selectedCardIndex, hoverCell, dragCell, rangeOrigin, rangeHighlights, displayedHand, combatState?.grid_size]);
+  }, [combatUIMode, selectedCardIndex, hoverCell, dragCell, rangeOrigin, rangeHighlights, displayedHand, combatState?.range_metric]);
 
   const handleCellClick = useCallback(
     async (row: number, col: number) => {
@@ -961,13 +980,14 @@ export default function CombatView() {
         const rx = e.clientX - rect.left;
         const ry = e.clientY - rect.top;
         const centers = overlayCentersRef.current;
-        const gs = combatState.grid_size;
+        const totalRows = combatState.rows;
+        const totalCols = combatState.cols;
         let best: [number, number] | null = null;
         let bestDist = Infinity;
-        for (let r = 0; r < gs; r++) {
+        for (let r = 0; r < totalRows; r++) {
           const row = centers[r];
           if (!row) continue;
-          for (let c = 0; c < gs; c++) {
+          for (let c = 0; c < totalCols; c++) {
             const pt = row[c];
             if (!pt) continue;
             const dx = rx - pt.x;
@@ -1179,12 +1199,44 @@ export default function CombatView() {
             </div>
           )}
 
-          <label className="block text-xs text-gray-500 mb-1 font-display tracking-wider">遭遇战</label>
-          <input
-            className="w-full bg-surface-dark border border-combat-border rounded-lg px-3 py-2 text-sm text-gray-200 mb-4 focus:border-combat-player transition-colors"
-            value={encounterId}
-            onChange={(e) => setEncounterId(e.target.value)}
-          />
+          <label className="block text-xs text-gray-500 mb-1 font-display tracking-wider">战斗节点</label>
+          {combatNodes.length > 0 ? (
+            <select
+              className="w-full bg-surface-dark border border-combat-border rounded-lg px-3 py-2 text-sm text-gray-200 mb-2 focus:border-combat-player transition-colors"
+              value={encounterId}
+              onChange={(e) => setEncounterId(e.target.value)}
+            >
+              {combatNodes.map((n) => (
+                <option key={n.node_id} value={n.node_id}>
+                  {n.name}（{n.rows}×{n.cols}，{n.unit_total} 敌）
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              className="w-full bg-surface-dark border border-combat-border rounded-lg px-3 py-2 text-sm text-gray-200 mb-2 focus:border-combat-player transition-colors"
+              value={encounterId}
+              onChange={(e) => setEncounterId(e.target.value)}
+            />
+          )}
+          {selectedNode && (
+            <div className="mb-3">
+              <p className="text-[10px] text-gray-500">
+                {selectedNode.summary}
+                {selectedNode.bind?.beat_id
+                  ? ` · 剧情节点 ${selectedNode.bind.plot_id}/${selectedNode.bind.beat_id}`
+                  : " · 无剧情节拍绑定"}
+              </p>
+              <button
+                className="mt-1 text-[10px] text-amber-400/90 hover:text-amber-300 underline"
+                onClick={() => {
+                  setCombatNodeJumpId(selectedNode.node_id);
+                  setContentHubTab("combat");
+                  setCurrentView("content");
+                }}
+              >⚙ 编辑此节点（地图 / 敌人 / 血量）</button>
+            </div>
+          )}
 
           <label className="block text-xs text-gray-500 mb-1 font-display tracking-wider">参战角色（会话入队阵容）</label>
           {!sessionId ? (
@@ -1340,13 +1392,14 @@ export default function CombatView() {
               const rx = e.clientX - rect.left;
               const ry = e.clientY - rect.top;
               const centers = overlayCentersRef.current;
-              const gs = combatState.grid_size;
+              const totalRows = combatState.rows;
+              const totalCols = combatState.cols;
               let best: [number, number] | null = null;
               let bestDist = Infinity;
-              for (let r = 0; r < gs; r++) {
+              for (let r = 0; r < totalRows; r++) {
                 const row = centers[r];
                 if (!row) continue;
-                for (let c = 0; c < gs; c++) {
+                for (let c = 0; c < totalCols; c++) {
                   const pt = row[c];
                   if (!pt) continue;
                   const dx = rx - pt.x;
@@ -1389,13 +1442,14 @@ export default function CombatView() {
               e.preventDefault();
               e.dataTransfer.dropEffect = "move";
               const centers = overlayCentersRef.current;
-              const gs = combatState.grid_size;
+              const totalRows = combatState.rows;
+              const totalCols = combatState.cols;
               let best: [number, number] | null = null;
               let bestDist = Infinity;
-              for (let r = 0; r < gs; r++) {
+              for (let r = 0; r < totalRows; r++) {
                 const row = centers[r];
                 if (!row) continue;
-                for (let c = 0; c < gs; c++) {
+                for (let c = 0; c < totalCols; c++) {
                   const pt = row[c];
                   if (!pt) continue;
                   const relRect = relativeRef.current?.getBoundingClientRect();
@@ -1415,13 +1469,14 @@ export default function CombatView() {
             onDrop={(e) => {
               e.preventDefault();
               const centers = overlayCentersRef.current;
-              const gs = combatState.grid_size;
+              const totalRows = combatState.rows;
+              const totalCols = combatState.cols;
               let best: [number, number] | null = null;
               let bestDist = Infinity;
-              for (let r = 0; r < gs; r++) {
+              for (let r = 0; r < totalRows; r++) {
                 const row = centers[r];
                 if (!row) continue;
-                for (let c = 0; c < gs; c++) {
+                for (let c = 0; c < totalCols; c++) {
                   const pt = row[c];
                   if (!pt) continue;
                   const relRect = relativeRef.current?.getBoundingClientRect();
@@ -1441,8 +1496,12 @@ export default function CombatView() {
             }}
           >
             <CombatGrid
-              gridSize={combatState.grid_size}
-              cellSize={cfg.cellSize}
+              rows={combatState.rows}
+              cols={combatState.cols}
+              tiles={combatState.tiles}
+              tileDefs={combatState.tile_defs}
+              deploy={combatState.deploy}
+              cellSize={cellSize}
               units={combatState.units}
               moveHighlights={moveHighlights}
               rangeHighlights={rangeHighlights}

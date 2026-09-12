@@ -1,0 +1,17 @@
+{
+  "tile_id": "example_tile",
+  "name": "示例地形",
+  "glyph": "T",
+  "color": "#7c3aed",
+  "blocks_movement": false,
+  "blocks_los": false,
+  "move_cost": 1,
+  "defense_bonus": 0,
+  "evasion_bonus": 0,
+  "damage_bonus": 0,
+  "deployable_player": true,
+  "deployable_enemy": true,
+  "on_enter": { "damage": 0, "heal": 0, "status": "", "stacks": 0 },
+  "on_round_start": { "damage": 0, "heal": 0, "status": "", "stacks": 0 },
+  "tags": []
+}

@@ -4,7 +4,7 @@
 > 数值公式与平衡参数详见 [`combat-numerical-design.md`](combat-numerical-design.md)；
 > 界面交互与布局详见 [`combat-ui-design.md`](combat-ui-design.md)；
 > 背景图提示词规范见 [`combat-background-prompts.md`](combat-background-prompts.md)。
-> 未实现的重构方向（战前简报/Approach 打法/敌人意图等）见 [`combat-core-design.md`](combat-core-design.md)（提案状态）。
+> 章节战斗化改造方案（战前简报/Approach 打法/敌人意图等）见 [`archive/combat-core-design.md`](archive/combat-core-design.md)（**已实现并归档**；其"7×7 网格明确不改"条款已作废）。
 > 代码权威源：`src/combat_engine/`、`src/combat_session.py`、`src/combat_data_loader.py`、`src/blueprints/combat.py`。
 
 ---
@@ -16,7 +16,7 @@ combat_session.py（会话包装：生命周期/玩家操作/奖励回写/SSE �
         │
         ├── combat_engine/engine.py   —— 回合循环、状态机、AP/士气、敌人 AI
         │       ├── entity.py         —— CombatUnit（属性→战斗数值、个人 AP）
-        │       ├── grid.py           —— 7×7 网格、寻路与范围（切比雪夫距离）
+        │       ├── grid.py           —— 战场网格、Dijkstra 寻路、视线与目标形状（曼哈顿度量）
         │       ├── card.py           —— Card / CardPool（抽牌堆/手牌/弃牌/消耗）
         │       ├── card_data.py      —— 9 职业 × 8 张基础卡牌（5 basic + 3 elite）
         │       ├── card_loader.py    —— combat.json / cards.json → 卡牌实例
@@ -27,15 +27,31 @@ combat_session.py（会话包装：生命周期/玩家操作/奖励回写/SSE �
 
 数据源：
 - 敌人：`data/combat/enemies/*.md`（frontmatter `name/class/combat_stats/drop_items/drop_rate/xp_reward`）
-- 遭遇：`data/combat/encounters/*.md`（frontmatter `waves/background`）
+- 战斗节点：`data/combat/nodes/<node_id>.json`（地图/波次/条件/奖励/打法/剧情节拍绑定）
+- 格子类型：`data/combat/tiles/<tile_id>.json`（可扩展地形与格子效果；内置 ground/wall/cover/high_ground/hazard_fire）
 - 背景：`data/combat/backgrounds/<bg_id>/index.md` + 图片
 - 卡牌：`data/characters/<角色>/combat.json`（专属）+ `data/classes/<职业>/cards.json`（职业池）
 
-## 2. 网格与站位
+## 2. 战场（自由尺寸 + 地形）
 
-- **7×7 网格**（`grid.py`）；玩家部署列 0-2，敌方列 3-6。
-- 距离：**切比雪夫距离**（8 方向，含斜走）。
-- 遭遇战数据中的 `grid_size`/`deploy_zones` 字段当前**不被读取**。
+- **尺寸自由**：`map.rows/cols` 由节点声明（上限 40×40、1200 格）；`tiles` 可写
+  二维 `tile_id` 数组，或写字符串简写（如 `"ground"`）表示整张地图同一格类型。
+- **部署区**：`map.deploy.{player,enemy}` 支持 `{"rect": [r0,c0,r1,c1]}`（矩阵对角，含端点）
+  与 `{"cells": [[r,c], …]}`；缺省按左右三分之一推导。**部署区真正生效**——玩家/敌人
+  按部署区落位，声明站位不可落脚时顺延到最近空格。
+- **距离 = 统一曼哈顿**：8 向移动，直向步代价 = 目标格 `move_cost`，**斜向 ×2**；
+  预算 `mobility // 2`。攻击范围同样按曼哈顿判定（节点可写 `rules.range_metric:
+  "chebyshev"` 覆盖，仅作对照）。射程覆盖：曼哈顿 `r` 覆盖 `2r²+2r+1` 格，
+  约为切比雪夫 `(2r+1)²` 的一半；近战单体卡已按 1 → 2 迁移补回斜角邻格
+  （见 `perf_tests/metric_migration_report.md`）。
+- **地形语义**：`blocks_movement`（不可通行）、`move_cost`（通行代价，Dijkstra）、
+  `blocks_los`（阻挡视线，Bresenham + 拐角）、`defense_bonus`/`evasion_bonus`
+  （守方减伤/加闪避）、`damage_bonus`（攻方加伤）、`on_enter` / `on_round_start`
+  （伤害/治疗/状态）。未知字段只警告，便于向后兼容地扩展新效果。
+- **寻路与切角**：`Grid.reachable/path_to` 走 Dijkstra；默认**禁止切角**
+  （斜向要求两个正交邻格可通行），节点可写 `rules.allow_corner_cut: true` 放开。
+- **视线**：`range > 1` 的卡需要视线；起点与终点所在格不参与阻挡判定
+  （站在掩体里的单位仍可被瞄准，掩体阻挡的是"穿过它"的视线）。
 
 ## 3. 战斗流程（状态机）
 
@@ -53,10 +69,10 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
 - **个人 AP**：`1 + floor((mobility - 3) / 3)`，钳制 **[1, 4]**（`entity.py`）；**只用于移动**。
 - **共享 AP**：四人队基础 **4**；队伍中最高 `tactical_planning >= 8` 时 **5**（上限 5）（`engine.py:_recalc_shared_ap_max`）；**只用于出牌**。
   不允许共享 AP 补移动，也不允许个人 AP 补出牌。
-- 移动：**1 个人 AP 可移动最多 `mobility // 2` 格**（切比雪夫距离，可斜走）。
+- 移动：**1 个人 AP 可移动最多 `mobility // 2`（曼哈顿格）**；斜向一步记 2 格，绕地形按 Dijkstra 代价。
 - 出牌/移动都先经 `validate_card_play` / `validate_move` 预检（AP、回合、卡牌归属、职业限制、
   射程与合法目标）；拒绝时不消耗任何资源、不弃牌。
-- 旧存档（无 `balance_version`）载入按 v1 迁移：AP 只做钳制（`min(存量, 新上限)`），不凭空增加剩余 AP。
+- 战斗态不跨进程保存；升级收益与难度参数由 `data/combat/rules/{growth,difficulty}.json` 配置（按 mtime 热加载）。
 
 ## 5. 命中 / 伤害 / 治疗
 
@@ -169,14 +185,19 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
 
 ## 14. 路线图（现状）
 
-**已实现**：7×7 网格 + Spine 覆盖 + 拖卡/点选操作、共享手牌 6 张、双 AP 池、d20 判定、
+**已实现**：自由尺寸战场 + 地形（阻挡/掩体/高台/危险区，可扩展格子效果）+ 部署区生效 + Spine 覆盖 + 拖卡/点选操作、共享手牌 6 张、双 AP 池、d20 判定、
 消耗品、XP/物品奖励与升级、战斗结算画面（含奖励展示 + 战后自动叙述）、卡牌 JSON CRUD、
 战斗背景图（含会话级覆盖、AI 生成工作流）、音效、战前简报与打法选择（Approach）、
 敌人意图系统、SPD 行动顺序、max_rounds/逃跑条件、战斗内状态效果（护盾/减速/束缚/
 虚弱/增幅/沉默/灼烧/嘲讽/闪避/致盲 + 净化/破甲）、战后卡牌 1 选 1、剧情分支投点接入战斗、
 节拍 `[COMBAT:enc_id]` 代码级解析、波次逐波触发、敌人 `ai_skills` 数据驱动。
 
-**未实现**：部署区 `deploy_zones`/`grid_size` 字段（当前玩家/敌人用默认站位）、`trigger_plot` 结算联动。
+**已具备**（批次 2/3）：可视化节点编辑器（地图绘制/敌人编成/血量覆盖/节拍进度）、
+节点随世界书分发、升级属性点成长、节点难度带与威胁预算审计、
+LLM 生成闭环（`docs/battle-spec.md` + `tools/validate_battle_spec.py` +
+`tools/simulate_battle.py` + `tools/generate_battle_spec.py` + skill `combat-designer`）。
+
+**未实现**：`trigger_plot` 结算联动；肉鸽 run 结构（种子化节点图 + run 内成长，另立批次）。
 
 ## 15. 平衡版本（`balance_version = 1`）
 
@@ -191,11 +212,12 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
 | 保底抽牌 | 可从耗竭堆捞回精英卡 | **绝不取耗竭卡**，也不夺走他人唯一手牌 |
 | 卡表来源 | `card_data.py` 硬编码 + cards.json 双源 | **cards.json 单一真相源**（含 effects/ignore_def/cleanse 等全字段） |
 | 卡牌预算 | 无统一口径 | **24 CV/AP**（`combat_engine/cv.py`）；68/72 卡落带、4 卡带文档化例外 |
-| 升级收益 | +1 最低未满属性 | **专精点**（每级 1 点，每 3 级解锁职业节点），属性只由剧情里程碑改变 |
+| 升级收益 | +1 最低未满属性 | **专精点 + 属性点**（各每级 1 点；属性点默认自动加到最低未满属性并写回会话覆盖，可改配置为手动分配；每 3 级解锁职业节点） |
 | 升级阈值 | `level × 100` | `180 + 40 × (level - 1)` |
+| 升级属性成长 | 无 | **属性点**（每级 1，自动分配到最低未满属性 → 战斗数值随之提升） |
 | 敌人 XP | 与遭遇基础 XP 全额叠加 | `遭遇 XP + 0.35 × 敌人 XP`，倍率钳制 0.75–1.20 |
 | 遭遇难度 | `difficulty` 自由整数 | `encounter_type`/`recommended_power_tier`/`threat_budget`/`target_rounds` + 威胁带重排 |
-| 存档 | 字段级重建（无版本） | `CombatEngine.to_dict/from_dict` 全量快照 + v0→v1 迁移（AP 只钳制不增加） |
+| 战斗态持久化 | 字段级重建（无版本） | **不再持久化**：战斗态只在内存（`session.combat`），结算用 `CombatSession.snapshot()`；若将来要"战斗中恢复"，用「节点 spec + 命令流重放」 |
 
 机器生成的审计与模拟报告（每次数值变更后重跑）：
 

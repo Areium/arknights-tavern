@@ -25,6 +25,8 @@ import time
 import uuid
 import random
 
+from combat_rules import growth_rules
+
 logger = logging.getLogger(__name__)
 
 # ── 成长规则常量（沿用项目现有规则） ──
@@ -120,48 +122,61 @@ def clamp_reward_mult(mult: float) -> float:
     return max(REWARD_MULT_MIN, min(REWARD_MULT_MAX, value))
 
 
-def pick_growth_attribute(attrs: dict) -> str | None:
+def pick_growth_attribute(attrs: dict, cap: int = ATTR_CAP) -> str | None:
     """选本次升级提升的属性：最低且未满值的战斗属性；全满时尝试「魅力」。
 
-    ⚠️ v1 起等级不再自动提升属性（design §2.3 / §9.3）：本函数仅保留给
-    剧情里程碑等显式成长场景调用，升级流程不再使用。
+    v1（批次 3 起）升级重新发放**属性点**：默认自动分配到最低属性（本函数），
+    也可在 `data/combat/rules/growth.json` 关掉自动分配改由玩家/剧情手动加。
     """
     candidates = [(k, int(attrs.get(k, DEFAULT_ATTR) or DEFAULT_ATTR))
                   for k in BATTLE_ATTRS
-                  if int(attrs.get(k, DEFAULT_ATTR) or DEFAULT_ATTR) < ATTR_CAP]
+                  if int(attrs.get(k, DEFAULT_ATTR) or DEFAULT_ATTR) < cap]
     if not candidates:
         charisma = int(attrs.get(CHARISMA_ATTR, DEFAULT_ATTR) or DEFAULT_ATTR)
-        return CHARISMA_ATTR if charisma < ATTR_CAP else None
+        return CHARISMA_ATTR if charisma < cap else None
     candidates.sort(key=lambda x: x[1])
     return candidates[0][0]
 
 
 def compute_character_growth(name: str, attrs: dict, progress: dict, xp_gain: int,
                              *, in_battle: bool = True, alive: bool = True,
-                             team_max_level: int | None = None) -> dict:
+                             team_max_level: int | None = None,
+                             growth_rules_override: dict | None = None) -> dict:
     """纯函数：计算单个角色的结算结果（不写任何存档）。
 
-    v1 规则（design §9.3）：
+    v1 规则（design §9.3，批次 3 起升级同时发放属性点）：
     - 经验分配按参与度：存活 100% / 阵亡 70% / 未部署 30%；
     - 低于队伍最高等级 2 级以上时启用 1.25 倍追赶系数；
-    - 升级不再自动提升最低属性，改为发放专精点，每 3 级解锁一个职业节点。
+    - 每级发放**属性点**（默认 1 点，`data/combat/rules/growth.json` 可调）：
+      `auto_allocate_attribute_points=true` 时自动加到最低的未满属性（写回
+      `attribute_changes` → 会话覆盖 → 战斗数值派生），否则累积为待分配点数；
+    - 同时发放专精点，每 3 级解锁一个职业节点。
 
     Args:
         name: 角色名
         attrs: 角色当前属性（模板 + 会话覆盖合并后的结果）
-        progress: 角色当前成长进度 {"level", "xp", "specialization_points", "nodes_unlocked"}
+        progress: 角色当前成长进度 {"level", "xp", "specialization_points",
+                  "nodes_unlocked", "attribute_points"}
         xp_gain: 本次基础经验（未乘参与度系数）
         in_battle: 是否出阵
         alive: 战斗结束时是否存活
         team_max_level: 队伍最高等级（追赶判定用）
 
     Returns:
-        结算条目 DTO，含等级变化、专精点/节点收益与经验分配明细。
+        结算条目 DTO，含等级变化、属性点/专精点收益与经验分配明细。
     """
+    rules = {**growth_rules(), **(growth_rules_override or {})}
+    points_per_level = max(0, int(rules.get("attribute_points_per_level", 1) or 0))
+    auto_allocate = bool(rules.get("auto_allocate_attribute_points", True))
+    attr_cap = max(1, int(rules.get("attr_cap", ATTR_CAP) or ATTR_CAP))
+    spec_per_level = max(0, int(rules.get("specialization_points_per_level", 1) or 0))
+    node_unlock_every = max(1, int(rules.get("node_unlock_every", NODE_UNLOCK_EVERY) or 1))
+
     level_before = max(1, int(progress.get("level", 1) or 1))
     xp_before = max(0, int(progress.get("xp", 0) or 0))
     spec_before = max(0, int(progress.get("specialization_points", 0) or 0))
     nodes_before = max(0, int(progress.get("nodes_unlocked", 0) or 0))
+    pending_before = max(0, int(progress.get("attribute_points", 0) or 0))
 
     share = xp_share(in_battle=in_battle, alive=alive)
     catchup = catchup_multiplier(level_before, team_max_level)
@@ -174,6 +189,7 @@ def compute_character_growth(name: str, attrs: dict, progress: dict, xp_gain: in
     level_ups: list[dict] = []
     spec_gained = 0
     nodes_gained = 0
+    attribute_points_gained = 0
     capped = False
     cap_reason = ""
 
@@ -187,19 +203,41 @@ def compute_character_growth(name: str, attrs: dict, progress: dict, xp_gain: in
             break
         xp_after -= need
         level_after += 1
-        spec_gained += 1
-        node_unlocked = (level_after % NODE_UNLOCK_EVERY == 0)
+        spec_gained += spec_per_level
+        attribute_points_gained += points_per_level
+        node_unlocked = (level_after % node_unlock_every == 0)
         if node_unlocked:
             nodes_gained += 1
         level_ups.append({
             "level": level_after,
-            "specialization_point": 1,
+            "specialization_point": spec_per_level,
+            "attribute_point": points_per_level,
             "node_unlocked": node_unlocked,
         })
 
     # 封顶时经验不再无意义累积：停在当前等级的满条位置
     if capped:
         xp_after = min(xp_after, xp_needed(level_after))
+
+    # 属性点分配：默认自动加最低未满属性（写回会话覆盖 → 下一次战斗数值变强）
+    attribute_changes: list[dict] = []
+    if auto_allocate and attribute_points_gained:
+        working = {k: int(v or 0) for k, v in (attrs or {}).items()}
+        for _ in range(attribute_points_gained):
+            key = pick_growth_attribute(working, cap=attr_cap)
+            if not key:
+                break
+            before = int(working.get(key, DEFAULT_ATTR) or DEFAULT_ATTR)
+            working[key] = before + 1
+            attribute_changes.append({
+                "name": key, "before": before, "after": before + 1,
+                "reason": "level_up",
+            })
+        allocated = len(attribute_changes)
+    else:
+        allocated = 0
+    attribute_points_pending = (pending_before + attribute_points_gained - allocated
+                                if not auto_allocate else 0)
 
     return {
         "name": name,
@@ -217,7 +255,10 @@ def compute_character_growth(name: str, attrs: dict, progress: dict, xp_gain: in
         "xp_needed_before": xp_needed(level_before),
         "xp_needed": xp_needed(level_after),
         "level_ups": level_ups,
-        "attribute_changes": [],  # v1：等级不再自动提升属性
+        "attribute_changes": attribute_changes,
+        "attribute_points_gained": attribute_points_gained,
+        "attribute_points_allocated": allocated,
+        "attribute_points_pending": attribute_points_pending,
         "specialization_points_before": spec_before,
         "specialization_points_after": spec_before + spec_gained,
         "specialization_points_gained": spec_gained,
@@ -240,6 +281,9 @@ def build_writeback_payload(character: dict) -> dict:
             "nodes_unlocked": int(character.get("nodes_unlocked_after", 0) or 0),
         }
     }
+    pending = int(character.get("attribute_points_pending", 0) or 0)
+    if pending:
+        payload["progress"]["attribute_points"] = pending
     changes = character.get("attribute_changes") or []
     if changes:
         payload["metadata"] = {
@@ -335,7 +379,7 @@ def build_settlement(session, combat_data: dict, reward_mult: float = 1.0,
         loader = CombatDataLoader()
 
     encounter_id = combat_data.get("encounter_id", "") or ""
-    encounter = loader.load_encounter(encounter_id) or {}
+    encounter = loader.load_node(encounter_id) or {}
     engine_state = combat_data.get("engine_state", {}) or {}
     winner = engine_state.get("winner", "") or combat_data.get("winner", "") or ""
     rounds = int(engine_state.get("round_num", 0) or 0)
