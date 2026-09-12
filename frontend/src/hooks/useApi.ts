@@ -614,6 +614,25 @@ export function useApi() {
         { method: "POST", body: JSON.stringify(payload) },
       ),
 
+    /** ── 剧情节点图（自由画布布局，整图存为世界书条目） ── */
+    listPlotGraphs: (bookId: string) =>
+      request<{ book_id: string; graphs: string[] }>(
+        `/api/plot-graphs?book_id=${encodeURIComponent(bookId)}`),
+
+    getPlotGraph: (plotId: string, bookId: string) =>
+      request<{ plot_id: string; book_id: string; graph: import("../types").PlotGraphDocDTO | null }>(
+        `/api/plot-graphs/${encodeURIComponent(plotId)}?book_id=${encodeURIComponent(bookId)}`),
+
+    savePlotGraph: (plotId: string, bookId: string, doc: import("../types").PlotGraphDocDTO, displayName = "") =>
+      request<{ ok: boolean; saved_at: number; node_count: number; edge_count: number }>(
+        `/api/plot-graphs/${encodeURIComponent(plotId)}`,
+        { method: "PUT", body: JSON.stringify({ book_id: bookId, graph: doc, display_name: displayName }) }),
+
+    deletePlotGraph: (plotId: string, bookId: string) =>
+      request<{ ok: boolean; deleted: boolean }>(
+        `/api/plot-graphs/${encodeURIComponent(plotId)}?book_id=${encodeURIComponent(bookId)}`,
+        { method: "DELETE" }),
+
     /** 格子类型注册表（内置 + data/combat/tiles/*.json） */
     listCombatTiles: () =>
       request<{ tiles: any[]; warnings: string[] }>("/api/combat/tiles"),

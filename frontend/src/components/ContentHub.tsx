@@ -20,13 +20,13 @@ import SourceBadge from "./SourceBadge";
 import AssetManager from "./AssetManager";
 import CardManager from "./CardManager";
 import IndexManager from "./IndexManager";
-import NodeFlowEditor from "./combat/NodeFlowEditor";
+import PlotGraphPage from "./combat/PlotGraphPage";
 
 const TABS: { id: ContentHubTab; label: string; icon: string; hint: string }[] = [
   { id: "index", label: "索引", icon: "🔗", hint: "文档依赖关系与会话白名单" },
   { id: "images", label: "资产", icon: "🖼️", hint: "图片资产上传 / 裁剪 / 默认图 / 来源世界书" },
   { id: "cards", label: "卡牌", icon: "🃏", hint: "角色与职业卡牌编辑 / 所属世界书" },
-  { id: "combat", label: "节点图", icon: "⚔", hint: "按世界书编排剧情与战斗节点" },
+  { id: "combat", label: "节点图", icon: "⚔", hint: "按设定集选择剧情，整页画布编辑节点图" },
 ];
 
 export default function ContentHub() {
@@ -152,8 +152,8 @@ export default function ContentHub() {
         {contentHubTab === "images" && <AssetManager key="am" />}
         {contentHubTab === "cards" && <CardManager key="cm" />}
         {contentHubTab === "combat" && (
-          <NodeFlowEditor
-            key="nfe"
+          <PlotGraphPage
+            key="pgp"
             sessionId={activeSessionId}
           />
         )}

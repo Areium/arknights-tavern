@@ -733,6 +733,39 @@ export interface CombatNodeGraphDTO {
   meta: { plot: any; bindings: number; plot_count: number; node_count: number };
 }
 
+/** ── 剧情节点图（自由画布布局；保存为世界书条目 plot_graph_<plot_id>） ── */
+
+export type PlotGraphNodeType = "plot" | "chapter" | "beat" | "combat" | "note";
+
+/** 图节点：引用型节点（beat/combat）通过 ref 指向底层数据，note 承载自由文本 */
+export interface PlotGraphNodeDTO {
+  id: string;
+  type: PlotGraphNodeType;
+  title: string;
+  content?: string;
+  x: number;
+  y: number;
+  ref?: { chapter_idx?: number; beat_id?: string; node_id?: string } | null;
+}
+
+/** 有向连线（一个节点允许分出多条路线：from 可重复出现） */
+export interface PlotGraphEdgeDTO {
+  id: string;
+  from: string;
+  to: string;
+}
+
+/** 图文档（一剧情一张图，整图存入世界书条目） */
+export interface PlotGraphDocDTO {
+  schema_version: number;
+  plot_id: string;
+  title?: string;
+  worldbook_id?: string;
+  nodes: PlotGraphNodeDTO[];
+  edges: PlotGraphEdgeDTO[];
+  updated_at?: number;
+}
+
 /** 资产实体组（一个实体目录的图片集合；parent_dir = 上级目录，worldbook_id = 来源世界书） */
 export interface AssetEntityGroupDTO {
   category: string;

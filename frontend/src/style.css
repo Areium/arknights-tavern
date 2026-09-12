@@ -1428,3 +1428,431 @@ html.light .lobby-empty { background: rgba(249, 250, 251, 0.6); border-color: rg
   accent-color: #f59e0b;
   cursor: pointer;
 }
+
+/* ═══════════════════════════════════════
+   剧情节点图画布（PlotGraphPage / GraphCanvas）
+   配色原则：低饱和、协调、深浅主题均可读。
+   每类节点三个变量：accent（色条/锚点/选中描边）、
+   soft（标题栏 12% 底）、border（卡片描边 45%）。
+   ═══════════════════════════════════════  */
+
+:root {
+  /* plot 剧情入口：蓝灰 */
+  --ng-plot: #7f92bb;      --ng-plot-soft: rgba(127,146,187,.13);  --ng-plot-border: rgba(127,146,187,.5);
+  /* chapter 章节：灰紫 */
+  --ng-chapter: #9d8cba;   --ng-chapter-soft: rgba(157,140,186,.13); --ng-chapter-border: rgba(157,140,186,.5);
+  /* beat 剧情节拍：青灰 */
+  --ng-beat: #5fa3b5;      --ng-beat-soft: rgba(95,163,181,.13);   --ng-beat-border: rgba(95,163,181,.5);
+  /* combat 战斗节点：砖红 */
+  --ng-combat: #bd7f6a;    --ng-combat-soft: rgba(189,127,106,.14); --ng-combat-border: rgba(189,127,106,.55);
+  /* note 自由节点：暖沙 */
+  --ng-note: #ab9a76;      --ng-note-soft: rgba(171,154,118,.14);  --ng-note-border: rgba(171,154,118,.5);
+  /* 画布与卡片底色（深色主题） */
+  --ng-card-bg: rgba(17,20,26,.94);
+  --ng-card-border: rgba(255,255,255,.08);
+  --ng-title: #f3f4f6;
+  --ng-body: #c3c8d1;
+  --ng-muted: #8b93a1;
+  --ng-edge-color: #77839a;
+  --ng-edge-color-hl: #dfa945;
+  --ng-grid-dot: rgba(148,163,184,.16);
+  --ng-float-bg: rgba(15,18,24,.94);
+}
+
+html.light {
+  --ng-plot: #3b5cab;      --ng-plot-soft: rgba(59,92,171,.10);    --ng-plot-border: rgba(59,92,171,.45);
+  --ng-chapter: #7d55a5;   --ng-chapter-soft: rgba(125,85,165,.10); --ng-chapter-border: rgba(125,85,165,.45);
+  --ng-beat: #25768e;      --ng-beat-soft: rgba(37,118,142,.10);   --ng-beat-border: rgba(37,118,142,.45);
+  --ng-combat: #ab4c2e;    --ng-combat-soft: rgba(171,76,46,.10);  --ng-combat-border: rgba(171,76,46,.5);
+  --ng-note: #8a6a2c;      --ng-note-soft: rgba(138,106,44,.10);   --ng-note-border: rgba(138,106,44,.45);
+  --ng-card-bg: rgba(255,255,255,.96);
+  --ng-card-border: rgba(15,23,42,.10);
+  --ng-title: #111827;
+  --ng-body: #374151;
+  --ng-muted: #6b7280;
+  --ng-edge-color: #8b95a8;
+  --ng-edge-color-hl: #b4791b;
+  --ng-grid-dot: rgba(71,85,105,.22);
+  --ng-float-bg: rgba(255,255,255,.96);
+}
+
+/* ── 视口（平移/缩放的交互层） ── */
+.ng-viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;              /* 让指针手势不被浏览器手势抢占 */
+  background-image: radial-gradient(circle, var(--ng-grid-dot) 1px, transparent 1px);
+  background-position: 0 0;
+  user-select: none;
+}
+.ng-viewport.ng-panning { cursor: grabbing; }
+.ng-viewport.ng-cursor-grab { cursor: grab; }
+
+.ng-world {
+  position: absolute;
+  left: 0; top: 0;
+  width: 0; height: 0;             /* 自身不接事件，子元素按图内坐标绝对定位 */
+  overflow: visible;
+  will-change: transform;
+  transform-origin: 0 0;
+}
+
+/* ── 连线（SVG 层） ── */
+.ng-edges {
+  position: absolute;
+  left: 0; top: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.ng-edge-line {
+  fill: none;
+  stroke: var(--ng-edge-color);
+  stroke-width: 2;
+  pointer-events: none;
+}
+.ng-edge-selected .ng-edge-line {
+  stroke: var(--ng-edge-color-hl);
+  stroke-width: 2.6;
+}
+.ng-edge-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 16;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+.ng-edge-temp {
+  fill: none;
+  stroke: var(--ng-edge-color-hl);
+  stroke-width: 2;
+  stroke-dasharray: 7 5;
+  pointer-events: none;
+}
+
+/* 重连端点手柄（选中连线时出现） */
+.ng-handle {
+  position: absolute;
+  width: 11px; height: 11px;
+  border-radius: 50%;
+  background: var(--ng-edge-color-hl);
+  border: 2px solid var(--ng-card-bg);
+  transform: translate(-50%, -50%);
+  cursor: grab;
+  z-index: 6;
+  box-shadow: 0 1px 4px rgba(0,0,0,.4);
+}
+
+/* ── 节点卡片 ── */
+.ng-node {
+  position: absolute;
+  background: var(--ng-card-bg);
+  border: 1px solid var(--ng-card-border);
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.25);
+  cursor: grab;
+  overflow: visible;
+}
+.ng-node:active { cursor: grabbing; }
+
+/* 类型配色：左侧色条 + 标题栏底 + 描边 */
+.ng-node-plot    { border-color: var(--ng-plot-border); }
+.ng-node-chapter { border-color: var(--ng-chapter-border); }
+.ng-node-beat    { border-color: var(--ng-beat-border); }
+.ng-node-combat  { border-color: var(--ng-combat-border); }
+.ng-node-note    { border-color: var(--ng-note-border); }
+.ng-node-plot    > .ng-node-bar { background: var(--ng-plot); }
+.ng-node-chapter > .ng-node-bar { background: var(--ng-chapter); }
+.ng-node-beat    > .ng-node-bar { background: var(--ng-beat); }
+.ng-node-combat  > .ng-node-bar { background: var(--ng-combat); }
+.ng-node-note    > .ng-node-bar { background: var(--ng-note); }
+.ng-node-plot    > .ng-node-head { background: var(--ng-plot-soft); }
+.ng-node-chapter > .ng-node-head { background: var(--ng-chapter-soft); }
+.ng-node-beat    > .ng-node-head { background: var(--ng-beat-soft); }
+.ng-node-combat  > .ng-node-head { background: var(--ng-combat-soft); }
+.ng-node-note    > .ng-node-head { background: var(--ng-note-soft); }
+.ng-node-plot    .ng-node-icon { color: var(--ng-plot); }
+.ng-node-chapter .ng-node-icon { color: var(--ng-chapter); }
+.ng-node-beat    .ng-node-icon { color: var(--ng-beat); }
+.ng-node-combat  .ng-node-icon { color: var(--ng-combat); }
+.ng-node-note    .ng-node-icon { color: var(--ng-note); }
+
+.ng-node-bar {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  border-radius: 10px 0 0 10px;
+  pointer-events: none;
+}
+.ng-node-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px 5px 12px;
+  border-radius: 9px 9px 0 0;
+}
+.ng-node-icon { font-size: 11px; line-height: 1; }
+.ng-node-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ng-title);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ng-node-sub {
+  padding: 1px 10px 0 12px;
+  font-size: 9px;
+  font-family: ui-monospace, monospace;
+  color: var(--ng-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ng-node-body {
+  padding: 4px 10px 8px 12px;
+  font-size: 10px;
+  line-height: 1.45;
+  color: var(--ng-body);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ng-node-progress {
+  display: inline-block;
+  margin: 0 10px 8px 12px;
+  font-size: 9px;
+  border-radius: 4px;
+  padding: 0 5px;
+  border: 1px solid transparent;
+}
+.ng-progress-done    { color: #6ee7b7; border-color: rgba(16,185,129,.4); }
+.ng-progress-current { color: #fcd34d; border-color: rgba(217,169,69,.45); }
+.ng-progress-locked  { color: #9ca3af; border-color: rgba(156,163,175,.35); }
+html.light .ng-progress-done    { color: #047857; }
+html.light .ng-progress-current { color: #92600a; }
+html.light .ng-progress-locked  { color: #4b5563; }
+
+.ng-node.ng-selected {
+  outline: 2px solid var(--ng-edge-color-hl);
+  outline-offset: 2px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.35);
+}
+.ng-node.ng-missing {
+  border-style: dashed;
+  filter: saturate(.6);
+}
+
+/* 边缘锚点（悬停浮现，拖出连线） */
+.ng-anchor {
+  position: absolute;
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: var(--ng-card-bg);
+  border: 2px solid var(--ng-accent, #9aa5b8);
+  opacity: 0;
+  transition: opacity .12s;
+  cursor: crosshair;
+  z-index: 5;
+}
+.ng-node:hover .ng-anchor { opacity: 1; }
+.ng-anchor-right  { right: -6px;  top: 50%; transform: translateY(-50%); }
+.ng-anchor-left   { left: -6px;   top: 50%; transform: translateY(-50%); }
+.ng-anchor-top    { top: -6px;    left: 50%; transform: translateX(-50%); }
+.ng-anchor-bottom { bottom: -6px; left: 50%; transform: translateX(-50%); }
+.ng-node-plot:hover    .ng-anchor { border-color: var(--ng-plot); }
+.ng-node-chapter:hover .ng-anchor { border-color: var(--ng-chapter); }
+.ng-node-beat:hover    .ng-anchor { border-color: var(--ng-beat); }
+.ng-node-combat:hover  .ng-anchor { border-color: var(--ng-combat); }
+.ng-node-note:hover    .ng-anchor { border-color: var(--ng-note); }
+
+/* 节点内联编辑 */
+.ng-node-edit { padding: 2px 0 4px; }
+.ng-edit-title {
+  width: calc(100% - 18px);
+  margin: 4px 9px 4px 12px;
+  background: transparent;
+  border: 1px solid var(--ng-card-border);
+  border-radius: 6px;
+  padding: 3px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ng-title);
+}
+.ng-edit-body {
+  width: calc(100% - 18px);
+  margin: 0 9px 2px 12px;
+  background: transparent;
+  border: 1px solid var(--ng-card-border);
+  border-radius: 6px;
+  padding: 3px 6px;
+  font-size: 10px;
+  color: var(--ng-body);
+  resize: none;
+}
+.ng-edit-tip {
+  padding: 0 12px;
+  font-size: 8.5px;
+  color: var(--ng-muted);
+}
+
+/* ── 浮层：缩放工具栏 ── */
+.ng-toolbar {
+  position: absolute;
+  right: 14px; bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  background: var(--ng-float-bg);
+  border: 1px solid var(--ng-card-border);
+  border-radius: 10px;
+  box-shadow: 0 4px 14px rgba(0,0,0,.3);
+  z-index: 20;
+}
+.ng-tool-btn {
+  padding: 3px 9px;
+  font-size: 12px;
+  color: var(--ng-body);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.ng-tool-btn:hover { background: rgba(148,163,184,.18); }
+.ng-tool-zoom {
+  min-width: 52px;
+  text-align: center;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ng-title);
+  cursor: pointer;
+  padding: 3px 4px;
+  border-radius: 6px;
+}
+.ng-tool-zoom:hover { background: rgba(148,163,184,.18); }
+.ng-tool-sep { width: 1px; height: 16px; background: var(--ng-card-border); margin: 0 3px; }
+.ng-tool-hint { font-size: 10px; color: var(--ng-edge-color-hl); padding: 0 8px; white-space: nowrap; }
+
+/* ── 浮层：图例 ── */
+.ng-legend {
+  position: absolute;
+  left: 14px; bottom: 14px;
+  background: var(--ng-float-bg);
+  border: 1px solid var(--ng-card-border);
+  border-radius: 10px;
+  box-shadow: 0 4px 14px rgba(0,0,0,.3);
+  z-index: 20;
+  max-width: 230px;
+}
+.ng-legend-toggle {
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--ng-body);
+  cursor: pointer;
+  border-radius: 10px;
+}
+.ng-legend-body { padding: 2px 10px 8px; display: flex; flex-direction: column; gap: 3px; }
+.ng-legend-item { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--ng-body); }
+.ng-legend-dot {
+  width: 10px; height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.ng-legend-dot[data-ng-type="plot"]    { background: var(--ng-plot); }
+.ng-legend-dot[data-ng-type="chapter"] { background: var(--ng-chapter); }
+.ng-legend-dot[data-ng-type="beat"]    { background: var(--ng-beat); }
+.ng-legend-dot[data-ng-type="combat"]  { background: var(--ng-combat); }
+.ng-legend-dot[data-ng-type="note"]    { background: var(--ng-note); }
+.ng-legend-line {
+  width: 18px; height: 0;
+  border-top: 2px solid var(--ng-edge-color);
+  position: relative;
+  flex-shrink: 0;
+}
+.ng-legend-line::after {
+  content: "";
+  position: absolute;
+  right: -1px; top: -3px;
+  border-left: 5px solid var(--ng-edge-color);
+  border-top: 3px solid transparent;
+  border-bottom: 3px solid transparent;
+}
+
+/* ── 右键菜单 ── */
+.ng-menu {
+  position: absolute;
+  z-index: 50;
+  min-width: 210px;
+  max-width: 250px;
+  background: var(--ng-float-bg);
+  border: 1px solid var(--ng-card-border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.4);
+  padding: 4px;
+  backdrop-filter: blur(6px);
+}
+.ng-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 5px 10px;
+  font-size: 11.5px;
+  color: var(--ng-title);
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ng-menu-item:hover { background: rgba(148,163,184,.18); }
+.ng-menu-item.danger { color: #f87171; }
+html.light .ng-menu-item.danger { color: #b91c1c; }
+.ng-menu-head {
+  padding: 5px 10px 2px;
+  font-size: 9.5px;
+  color: var(--ng-muted);
+}
+.ng-menu-list { max-height: 132px; overflow-y: auto; }
+.ng-menu-empty { display: block; padding: 2px 10px 4px; font-size: 10px; color: var(--ng-muted); }
+.ng-menu-sep { height: 1px; background: var(--ng-card-border); margin: 4px 2px; }
+
+/* ── 空图引导 ── */
+.ng-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 10;
+}
+.ng-empty-card {
+  pointer-events: auto;
+  text-align: center;
+  background: var(--ng-float-bg);
+  border: 1px solid var(--ng-card-border);
+  border-radius: 14px;
+  padding: 22px 28px;
+  box-shadow: 0 8px 28px rgba(0,0,0,.35);
+}
+.ng-empty-title { font-size: 15px; font-weight: 600; color: var(--ng-title); margin-bottom: 4px; }
+.ng-empty-sub { font-size: 11px; color: var(--ng-muted); margin-bottom: 14px; }
+.ng-empty-actions { display: flex; gap: 8px; justify-content: center; }
+.ng-empty-btn {
+  font-size: 12px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--ng-card-border);
+  color: var(--ng-title);
+  cursor: pointer;
+}
+.ng-empty-btn:hover { background: rgba(148,163,184,.15); }
+.ng-empty-btn.primary {
+  background: rgba(95,163,181,.18);
+  border-color: rgba(95,163,181,.5);
+  color: var(--ng-beat);
+}
