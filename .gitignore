@@ -21,3 +21,5 @@ temp_*.png
 .pi-subagents/
 src/data/
 .tmp/
+.workbuddy-ai/
+.pytest_cache/
