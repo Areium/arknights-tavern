@@ -21,7 +21,7 @@ export default function StatusBar() {
   const llmOnline = llmStatus?.available ?? false;
 
   return (
-    <footer className="h-7 bg-gray-850 border-t border-gray-700 flex items-center px-4 text-xs text-gray-500 shrink-0">
+    <footer className="app-status-bar h-7 bg-gray-850 border-t border-gray-700 flex items-center px-4 text-xs text-gray-500 shrink-0">
       <div className="flex items-center gap-4">
         {/* Backend status */}
         <span className="flex items-center gap-1.5">

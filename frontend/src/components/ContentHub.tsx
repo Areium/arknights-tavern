@@ -81,7 +81,7 @@ export default function ContentHub() {
   };
 
   return (
-    <div className="content-hub flex flex-col h-full">
+    <div className="flex flex-col h-full">
       {/* ── 统一顶栏：Tab 切换 + 统一检索（返回主菜单走全局顶栏） ── */}
       <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-700/70 bg-gray-900/60 shrink-0">
         <nav className="flex items-center gap-1 overflow-x-auto">

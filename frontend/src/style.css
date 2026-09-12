@@ -69,6 +69,16 @@
 }
 
 /* ═══════════════════════════════════════
+   深色主题（基准）的文字层次修正
+   gray-500/600 在本项目里当「最暗的提示文字」用，但压在深底上对比度不足：
+   实测 #6b7280 on #0b0e14 = 3.99:1、#4b5563 on #0a0c12 = 2.56:1（均低于 4.5）。
+   提亮到 6.2 / 5.2:1，同时保持 400(#9ca3af) > 500 > 600 的明度顺序。
+   注：皮肤（@scope (html.skin-*)）与浅色主题都有更高优先级的规则，不受影响。
+   ═══════════════════════════════════════ */
+.text-gray-500 { color: #8b93a1; }
+.text-gray-600 { color: #7d8593; }
+
+/* ═══════════════════════════════════════
    浅色主题覆盖（全部原生 CSS，不用 @apply）
    ═══════════════════════════════════════  */
 
@@ -102,10 +112,12 @@ html.light .btn-ghost { color: rgb(75 85 99); }
 
 html.light .panel-title { color: rgb(107 114 128); }
 
-/* ── 文字颜色 ── */
+/* ── 文字颜色 ──
+   注：500 原映射 #9ca3af 在白底上只有 2.54:1（读不清），压深到 #6b7280(4.8:1)；
+   400 同步压深到 #4b5563 以保持「400 比 500 深」的层次。 */
 html.light .text-gray-600 { color: rgb(75 85 99); }
-html.light .text-gray-500 { color: rgb(156 163 175); }
-html.light .text-gray-400 { color: rgb(107 114 128); }
+html.light .text-gray-500 { color: rgb(107 114 128); }
+html.light .text-gray-400 { color: rgb(75 85 99); }
 html.light .text-gray-300 { color: rgb(75 85 99); }
 html.light .text-gray-200 { color: rgb(55 65 81); }
 html.light .text-gray-100 { color: rgb(31 41 55); }
@@ -735,13 +747,38 @@ html.light .text-sky-200 { color: #0369a1; }
 html.light .bg-sky-700\/25 { background-color: rgba(2,132,199,0.10); }
 html.light .border-sky-500\/40 { border-color: rgba(2,132,199,0.4); }
 
-/* ── 内容中心（含节点图页 / 编辑抽屉）浅色下的次要文字 ──
-   全局 `html.light .text-gray-500` 映射到 #9ca3af，在白底上只有 2.54:1（读不清）。
-   底色转浅后这些提示文字必须压深，但**不改全局映射**（会影响其它页面观感），
-   故用 .content-hub 作用域：500 → #6b7280(5.07:1)、400 → #4b5563(7.6:1)，
-   同时保持「400 比 500 深」的相对层次。 */
-html.light .content-hub .text-gray-500 { color: #6b7280; }
-html.light .content-hub .text-gray-400 { color: #4b5563; }
+/* ── 应用外壳：全局顶栏 / 状态栏 ──
+   顶栏 bg-gray-900/95 此前没有浅色映射，浅色主题下仍是深色条
+   （导航文字 #6b7280 on #1d1f23 = 3.43:1，激活项 2.55:1），影响所有管理页。 */
+html.light .bg-gray-900\/95 { background-color: rgba(249,250,251,0.95); }
+html.light .bg-gray-700\/70 { background-color: rgba(229,231,235,0.7); }
+/* 状态栏底色偏深（gray-850 → #e5e7eb），提示文字与「已连接」在它上面不达标，
+   故把外壳状态栏单独提亮、文字压深（只作用于 .app-status-bar，不影响其它用 gray-850 的面板）。 */
+html.light .app-status-bar { background-color: rgb(249 250 251); }
+html.light .app-status-bar .text-gray-500 { color: #5b6472; }
+html.light .app-status-bar .text-green-400 { color: #15803d; }
+
+/* ── 实心彩色按钮上的 text-white 必须保持白字 ──
+   html.light .text-white 会把它们压成 #1f2937，在饱和底色上变成「深底深字」
+   （例：bg-red-800 的「移除」按钮只有 1.4:1）。这些底色在浅色主题下不做反转，
+   白字对比度 4.9~8.3:1 足够。 */
+html.light .text-white.bg-blue-500,
+html.light .text-white.bg-blue-600,
+html.light .text-white.bg-blue-700,
+html.light .text-white.bg-red-600,
+html.light .text-white.bg-red-700,
+html.light .text-white.bg-red-800,
+html.light .text-white.bg-amber-500,
+html.light .text-white.bg-amber-600,
+html.light .text-white.bg-amber-700,
+html.light .text-white.bg-green-700,
+html.light .text-white.bg-purple-600,
+html.light .text-white[class*="bg-red-600\/"],
+html.light .text-white[class*="bg-red-700\/"],
+html.light .text-white[class*="bg-green-700\/"],
+html.light .text-white[class*="bg-amber-500\/"],
+html.light .text-white[class*="bg-amber-600\/"],
+html.light .text-white[class*="bg-purple-600\/"] { color: #ffffff; }
 
 /* ── 格子 ── */
 html.light .combat-cell {
