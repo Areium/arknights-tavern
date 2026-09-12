@@ -15,9 +15,9 @@ effects:
   - 菈塔托丝·布朗陶
   - 阿克托斯·佩尔罗契
   faction_change:
+    佩尔罗契家族: 敌对或警惕
     喀兰贸易: 友好
     布朗陶家族: 敌对或警惕
-    佩尔罗契家族: 敌对或警惕
   unlock_locations:
   - 喀兰贸易会客厅
   - 谢拉格小镇
@@ -49,11 +49,11 @@ opening_scene: '通往谢拉格的山道在暴风雪后的清晨里亮得刺眼�
 
 
   雪山在头顶沉默。钟声从远处的大典广场传来。博士知道，银灰的邀请从来不是单纯的叙旧——等待自己的，是一场即将撕裂这个国家的风暴。'
-priority: 8
 prerequisites:
   faction_known:
   - 罗德岛
   - 喀兰贸易
+priority: 8
 repeatable: false
 summary: 博士受喀兰贸易之邀赴雪山小国谢拉格，卷入三大家族雪山大典之争，见证一场变革。
 tension_clock:
@@ -76,6 +76,7 @@ trigger:
   - 圣山
   location:
   - 喀兰贸易会客厅
+worldbook_id: arknights
 ---
 
 # 可检索条目

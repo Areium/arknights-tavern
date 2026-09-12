@@ -1,14 +1,15 @@
-"""Combat nodes blueprint —— 战斗节点注册表 CRUD、校验与世界书携带。
+"""Combat nodes blueprint —— 战斗节点注册表 CRUD、校验、世界书归属与节点图。
 
 端点：
-  GET    /api/combat/nodes?session_id=   — 节点总览（含剧情节拍绑定与会话进度）
-  POST   /api/combat/nodes               — 新建节点（按模板）
+  GET    /api/combat/nodes?book_id=&session_id= — 节点总览（可选按世界书过滤）
+  POST   /api/combat/nodes               — 新建节点（按模板，可指定归属世界书）
   GET    /api/combat/nodes/<node_id>     — 节点完整 JSON（编辑器读取）
   PUT    /api/combat/nodes/<node_id>     — 保存（`_hash` 冲突 → 409）
   DELETE /api/combat/nodes/<node_id>     — 删除（被剧情引用时需 `force=1`）
   POST   /api/combat/nodes/validate      — 只校验不落盘（编辑器实时提示）
   GET    /api/combat/nodes/<node_id>/worldbook — 世界书条目预览
   POST   /api/combat/nodes/import-worldbook    — 从世界书条目/书 id 导入节点
+  GET    /api/combat/nodes/graph?book_id=&session_id= — 节点图（剧情流程 + 战斗节点）
 """
 
 import logging
@@ -27,6 +28,7 @@ from combat_nodes import (
     list_node_files,
     load_node_file,
     node_bindings,
+    node_graph,
     node_overview,
     node_progress,
     validate_node,
@@ -53,10 +55,21 @@ def register(app, managers):
 
     @bp.route("/api/combat/nodes", methods=["GET"])
     def list_nodes():
-        """节点总览：注册表 + 剧情节拍绑定 + 会话进度 + 待创建（剧情引用但无配置）。"""
+        """节点总览：注册表 + 剧情节拍绑定 + 会话进度 + 待创建。
+
+        `book_id` 传参时只返回归属于该世界书的节点；不传返回全部。
+        """
         session = _session(request.args.get("session_id", ""))
-        rows, meta = node_overview(session)
+        book_id = request.args.get("book_id")
+        rows, meta = node_overview(session, book_id=book_id)
         return jsonify({"nodes": rows, "meta": meta})
+
+    @bp.route("/api/combat/nodes/graph", methods=["GET"])
+    def graph():
+        """节点图数据：剧情流程（章节/节拍/引用）+ 战斗节点，按世界书过滤。"""
+        book_id = request.args.get("book_id", "")
+        session = _session(request.args.get("session_id", ""))
+        return jsonify(node_graph(book_id, session))
 
     @bp.route("/api/combat/nodes/<path:node_id>", methods=["GET"])
     def get_node(node_id: str):
@@ -78,7 +91,8 @@ def register(app, managers):
     def create():
         data = request.json or {}
         try:
-            node = create_node(str(data.get("node_id") or ""), str(data.get("name") or ""))
+            node = create_node(str(data.get("node_id") or ""), str(data.get("name") or ""),
+                               worldbook_id=str(data.get("worldbook_id") or ""))
         except NodeError as e:
             return json_error("；".join(e.errors), 400)
         return jsonify({"ok": True, "node": node}), 201

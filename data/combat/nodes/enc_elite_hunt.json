@@ -19,16 +19,34 @@
     "deploy": {
       "player": {
         "cells": [
-          [2, 0],
-          [3, 1],
-          [4, 0]
+          [
+            2,
+            0
+          ],
+          [
+            3,
+            1
+          ],
+          [
+            4,
+            0
+          ]
         ]
       },
       "enemy": {
         "cells": [
-          [1, 6],
-          [3, 5],
-          [5, 6]
+          [
+            1,
+            6
+          ],
+          [
+            3,
+            5
+          ],
+          [
+            5,
+            6
+          ]
         ]
       },
       "enemy_random_shift": false
@@ -41,14 +59,20 @@
           "enemy": "整合运动盾卫",
           "count": 1,
           "positions": [
-            [1, 5]
+            [
+              1,
+              5
+            ]
           ]
         },
         {
           "enemy": "整合运动狙击手",
           "count": 1,
           "positions": [
-            [0, 4]
+            [
+              0,
+              4
+            ]
           ]
         }
       ]
@@ -59,15 +83,24 @@
           "enemy": "整合运动术师",
           "count": 2,
           "positions": [
-            [2, 6],
-            [4, 6]
+            [
+              2,
+              6
+            ],
+            [
+              4,
+              6
+            ]
           ]
         },
         {
           "enemy": "整合运动士兵",
           "count": 1,
           "positions": [
-            [1, 4]
+            [
+              1,
+              4
+            ]
           ]
         }
       ]
@@ -78,21 +111,30 @@
           "enemy": "整合运动盾卫",
           "count": 1,
           "positions": [
-            [3, 6]
+            [
+              3,
+              6
+            ]
           ]
         },
         {
           "enemy": "整合运动术师",
           "count": 1,
           "positions": [
-            [6, 5]
+            [
+              6,
+              5
+            ]
           ]
         },
         {
           "enemy": "整合运动狙击手",
           "count": 1,
           "positions": [
-            [3, 4]
+            [
+              3,
+              4
+            ]
           ]
         }
       ]
@@ -118,5 +160,7 @@
     "target_rounds": 11,
     "difficulty": 5
   },
-  "balance_version": 1
+  "balance_version": 1,
+  "worldbook_id": "arknights",
+  "_hash": "935e0d68ad8ab33f"
 }

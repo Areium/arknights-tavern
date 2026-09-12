@@ -18,10 +18,20 @@
     "tiles": "ground",
     "deploy": {
       "player": {
-        "rect": [3, 0, 5, 1]
+        "rect": [
+          3,
+          0,
+          5,
+          1
+        ]
       },
       "enemy": {
-        "rect": [3, 5, 5, 5]
+        "rect": [
+          3,
+          5,
+          5,
+          5
+        ]
       },
       "enemy_random_shift": false
     }
@@ -33,8 +43,14 @@
           "enemy": "整合运动士兵",
           "count": 2,
           "positions": [
-            [3, 5],
-            [5, 5]
+            [
+              3,
+              5
+            ],
+            [
+              5,
+              5
+            ]
           ]
         }
       ]
@@ -79,5 +95,7 @@
       "avoid": true,
       "reward_mult": 0.0
     }
-  ]
+  ],
+  "worldbook_id": "arknights",
+  "_hash": "9568ec8f6ccd871d"
 }

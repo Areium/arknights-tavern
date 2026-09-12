@@ -5,9 +5,15 @@
 - **地图**：`map.{rows,cols,tiles,tile_defs,deploy}`（校验见 `combat_map.resolve_map`）
 - **敌人**：`waves[].enemies[]`（`enemy`/`count`/`positions`/可选 `stats` 数值覆盖），
   或 `enemies_def` 内联定义（节点自包含，随世界书一起搬家）
+- **归属**：`worldbook_id` —— 节点归属于某本世界书（编辑器按书筛选，世界书
+  导入的节点自动带上归属）
 - **绑定**：`bind.{plot_id,chapter_id,beat_id}` —— 剧情节拍里用 `[COMBAT:<node_id>]` 引用
 - **世界书**：节点可编码为一条世界书条目（```json combat-node 围栏块），
   导入世界书即落地为节点文件，导出时从注册表回灌
+
+剧情流程（`plot_flows`）：解析 `data/plots/<plot_id>/index.md` 的章节/节拍结构与
+`[COMBAT:<node_id>]` 引用，作为节点图里"剧情节点"的数据源；剧情文件 frontmatter
+可选 `worldbook_id` 标注归属。
 
 写盘走 `compute_json_hash` 冲突检测（409），与卡牌编辑一致。
 """
@@ -283,7 +289,8 @@ def save_node(data: dict, expected_hash: str = "",
     return data
 
 
-def create_node(node_id: str, name: str = "", *, from_template: bool = True) -> dict:
+def create_node(node_id: str, name: str = "", *, from_template: bool = True,
+                worldbook_id: str = "") -> dict:
     """按模板新建节点（已存在则报错）。
 
     刻意**不做完整校验**：新建时波次通常是空的，编辑器随后填充；但开战前
@@ -297,7 +304,8 @@ def create_node(node_id: str, name: str = "", *, from_template: bool = True) -> 
     if node_exists(node_id):
         raise NodeError(f"节点已存在: {node_id}")
     data = template_data() if from_template else {}
-    data.update({"node_id": node_id, "name": name or node_id})
+    data.update({"node_id": node_id, "name": name or node_id,
+                 "worldbook_id": str(worldbook_id or "")})
     data.setdefault("waves", [{"enemies": []}])
 
     data.pop("_hash", None)
@@ -410,13 +418,28 @@ def node_progress(session) -> tuple[dict[str, dict], dict]:
     return progress, {"plot_id": plot_id, "chapter_idx": ci + 1, "beat_idx": bi + 1}
 
 
-def node_overview(session=None) -> tuple[list[dict], dict]:
-    """编辑器用的节点总览：注册表 + 剧情节拍绑定 + 会话进度 + 是否有配置。"""
+def node_overview(session=None, *, book_id: str | None = None) -> tuple[list[dict], dict]:
+    """编辑器用的节点总览：注册表 + 剧情节拍绑定 + 会话进度 + 是否有配置。
+
+    `book_id` 非 None 时只返回归属于该世界书的节点（含其剧情引用的"待创建"
+    节点）；None 表示不过滤（全部节点）。
+    """
     from combat_data_loader import CombatDataLoader
 
     loader = CombatDataLoader()
     bindings = node_bindings()
     progress, plot_ctx = node_progress(session) if session is not None else ({}, {})
+    plot_book = {p["plot_id"]: p.get("worldbook_id", "") for p in plot_flows()}
+
+    def _in_book(row: dict) -> bool:
+        if book_id is None:
+            return True
+        if row.get("worldbook_id"):
+            return row["worldbook_id"] == book_id
+        # 未标注归属的节点：跟随其剧情引用的剧情归属（无剧情引用时归入"未标注"书）
+        plots = {m.get("plot_id", "") for m in row.get("markers", [])}
+        return any(plot_book.get(pid, "") == book_id for pid in plots) or \
+            (not plots and book_id == "")
 
     rows: list[dict] = []
     seen: set[str] = set()
@@ -425,7 +448,7 @@ def node_overview(session=None) -> tuple[list[dict], dict]:
         node_id = node.get("node_id", path.stem)
         seen.add(node_id)
         summary = next((n for n in loader.list_nodes() if n["node_id"] == node_id), {})
-        rows.append({
+        row = {
             "node_id": node_id,
             "name": node.get("name", node_id),
             "summary": node.get("summary", ""),
@@ -437,14 +460,17 @@ def node_overview(session=None) -> tuple[list[dict], dict]:
             "markers": bindings.get(node_id, []),
             "progress": progress.get(node_id),
             "source_worldbook": (node.get("source") or {}).get("book_id", ""),
+            "worldbook_id": str(node.get("worldbook_id", "") or ""),
             "hash": node.get("_hash", ""),
-        })
+        }
+        if _in_book(row):
+            rows.append(row)
 
     # 剧情里引用但还没有配置的节点（编辑器应能提示"待创建"）
     for node_id, markers in bindings.items():
         if node_id in seen:
             continue
-        rows.append({
+        row = {
             "node_id": node_id,
             "name": node_id,
             "summary": "",
@@ -456,12 +482,140 @@ def node_overview(session=None) -> tuple[list[dict], dict]:
             "markers": markers,
             "progress": progress.get(node_id),
             "source_worldbook": "",
+            "worldbook_id": "",
             "hash": "",
             "missing": True,
-        })
+        }
+        if _in_book(row):
+            rows.append(row)
 
     rows.sort(key=lambda r: (r.get("missing", False), r["node_id"]))
     return rows, {"plot": plot_ctx, "bindings": len(bindings)}
+
+
+# ── 剧情流程（节点图的剧情节点数据源） ──
+
+_CHAPTER_RE = re.compile(r"^##\s*章节\s*(\d+)\s*[：:]\s*(.+)$")
+_BEAT_RE = re.compile(r"^####\s+(beat_\w+)(（.*）)?\s*$")
+_COMBAT_REF_RE = re.compile(r"\[COMBAT:([\w-]+)\]")
+
+
+def plot_flows() -> list[dict]:
+    """解析 data/plots/*/index.md，返回剧情流程（章节 → 节拍 → 战斗引用）。
+
+    每个 plot：`{plot_id, name, summary, worldbook_id, combat_nodes, chapters}`；
+    chapter：`{idx, title, combat_nodes, beats}`；beat：`{id, keep_on_deviate,
+    summary, combat_nodes}`。不在任何 beat 下的 `[COMBAT:]` 引用向上挂到
+    chapter / plot 级（如 combat-test 这类没有标准节拍结构的测试剧情）。
+
+    `plot_id` 用目录名（与 `node_bindings`、会话剧情一致）；只收集**剧情叙述区**
+    的章节——遇到第一个非章节的 h2 标题（如「关键对话参考」「开场设置」）即停，
+    忽略其后的配置区里可能重复出现的章节标题（如 near-light 的场景流程图）。
+    """
+    import frontmatter
+
+    flows: list[dict] = []
+    if not PLOT_DIR.is_dir():
+        return flows
+    for path in sorted(PLOT_DIR.glob("*/index.md")):
+        plot_id = path.parent.name
+        try:
+            md = frontmatter.load(path)
+        except Exception as exc:
+            logger.warning("剧情文件解析失败 %s: %s", path, exc)
+            continue
+        meta = md.metadata or {}
+        plot: dict = {
+            "plot_id": plot_id,
+            "name": str(meta.get("name") or meta.get("id") or plot_id),
+            "summary": str(meta.get("summary") or "")[:120],
+            "worldbook_id": str(meta.get("worldbook_id") or ""),
+            "combat_nodes": [],
+            "chapters": [],
+        }
+
+        chapter: dict | None = None
+        beat: dict | None = None
+        narrative_done = False
+        seen_refs: set[tuple[int, str]] = set()
+
+        def _bucket() -> list:
+            if beat is not None:
+                return beat["combat_nodes"]
+            if chapter is not None:
+                return chapter["combat_nodes"]
+            return plot["combat_nodes"]
+
+        def _add_ref(node_id: str) -> None:
+            if node_id == "ID":
+                return
+            bucket = _bucket()
+            key = (id(bucket), node_id)
+            if key in seen_refs:
+                return
+            seen_refs.add(key)
+            bucket.append(node_id)
+
+        for raw_line in (md.content or "").splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            ch = _CHAPTER_RE.match(line)
+            if ch:
+                chapter = {"idx": int(ch.group(1)), "title": ch.group(2).strip(),
+                           "combat_nodes": [], "beats": []}
+                plot["chapters"].append(chapter)
+                beat = None
+                continue
+            if line.startswith("## "):
+                # 非章节的 h2：若已进入章节区则剧情叙述区结束；前置区仅重置收集位置
+                if plot["chapters"]:
+                    narrative_done = True
+                chapter = None
+                beat = None
+                continue
+            if narrative_done:
+                break
+            bt = _BEAT_RE.match(line)
+            if bt and chapter is not None:
+                beat = {"id": bt.group(1),
+                        "keep_on_deviate": not (bt.group(2) and "false" in bt.group(2)),
+                        "summary": "", "combat_nodes": []}
+                chapter["beats"].append(beat)
+                continue
+            if line.startswith("#"):
+                continue  # h1 / beat 正文内的其它层级标题不打断收集
+            for node_id in _COMBAT_REF_RE.findall(line):
+                _add_ref(node_id)
+            if beat is not None and not beat["summary"]:
+                text = _COMBAT_REF_RE.sub("", line).strip()
+                if text:
+                    beat["summary"] = text[:80]
+
+        flows.append(plot)
+    return flows
+
+
+def node_graph(book_id: str, session=None) -> dict:
+    """节点图数据：某本世界书的剧情流程 + 战斗节点总览。
+
+    收录的剧情 = frontmatter 归属该书的剧情 ∪ 被该书节点引用的剧情
+    （跨书引用也画出连线，保证图完整）。
+    """
+    rows, meta = node_overview(session, book_id=book_id)
+    flows = plot_flows()
+    referenced_plots = {m.get("plot_id", "") for r in rows for m in r.get("markers", [])}
+    referenced_plots |= {str((r.get("bind") or {}).get("plot_id") or "") for r in rows}
+    referenced_plots.discard("")
+
+    plots = [f for f in flows
+             if f["worldbook_id"] == book_id or f["plot_id"] in referenced_plots]
+    return {
+        "book_id": book_id,
+        "plots": plots,
+        "nodes": rows,
+        "meta": {**meta, "plot_count": len(plots), "node_count": len(rows)},
+    }
 
 
 # ── 世界书编解码 ──
@@ -553,6 +707,8 @@ def import_worldbook_nodes(entries: list[dict], *, book_id: str = "",
             continue
         data["source"] = {"type": "worldbook", "book_id": book_id,
                           "entry_uid": entry.get("uid", "")}
+        if book_id:
+            data["worldbook_id"] = book_id  # 归属随导入世界书自动标注
         try:
             save_node(data, enemy_names=enemy_names)
         except NodeError as e:

@@ -19,10 +19,20 @@
     "tiles": "ground",
     "deploy": {
       "player": {
-        "rect": [0, 0, 2, 2]
+        "rect": [
+          0,
+          0,
+          2,
+          2
+        ]
       },
       "enemy": {
-        "rect": [3, 3, 6, 6]
+        "rect": [
+          3,
+          3,
+          6,
+          6
+        ]
       },
       "enemy_random_shift": false
     }
@@ -34,16 +44,28 @@
           "enemy": "山雪鬼",
           "count": 2,
           "positions": [
-            [3, 3],
-            [4, 3]
+            [
+              3,
+              3
+            ],
+            [
+              4,
+              3
+            ]
           ]
         },
         {
           "enemy": "冰原战士",
           "count": 2,
           "positions": [
-            [4, 5],
-            [5, 5]
+            [
+              4,
+              5
+            ],
+            [
+              5,
+              5
+            ]
           ]
         }
       ]
@@ -69,5 +91,7 @@
     "difficulty": 3
   },
   "balance_version": 1,
-  "background": "snow_mountain"
+  "background": "snow_mountain",
+  "worldbook_id": "arknights",
+  "_hash": "6b240deb789bf746"
 }

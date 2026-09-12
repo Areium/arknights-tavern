@@ -1,8 +1,5 @@
 ---
 category: test
-# 战斗演练（/api/combat/test/start）的默认出战阵容，仅演练入口读取。
-# 本剧情会话的参战阵容一律来自玩家创建会话时选择的入队角色（写入场景），
-# 因此这里不再声明 initial_characters——否则演练阵容会混入测试会话的战斗。
 characters:
 - 阿米娅
 - 银灰
@@ -36,6 +33,7 @@ trigger:
   - 战斗测试
   - 测试
   - 快速测试
+worldbook_id: arknights
 ---
 
 # 战斗功能测试 — 剧情叙述

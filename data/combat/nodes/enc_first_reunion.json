@@ -18,10 +18,20 @@
     "tiles": "ground",
     "deploy": {
       "player": {
-        "rect": [4, 0, 6, 2]
+        "rect": [
+          4,
+          0,
+          6,
+          2
+        ]
       },
       "enemy": {
-        "rect": [4, 3, 6, 6]
+        "rect": [
+          4,
+          3,
+          6,
+          6
+        ]
       },
       "enemy_random_shift": false
     }
@@ -33,22 +43,34 @@
           "enemy": "整合运动士兵",
           "count": 2,
           "positions": [
-            [4, 3],
-            [6, 3]
+            [
+              4,
+              3
+            ],
+            [
+              6,
+              3
+            ]
           ]
         },
         {
           "enemy": "整合运动术师",
           "count": 1,
           "positions": [
-            [5, 4]
+            [
+              5,
+              4
+            ]
           ]
         },
         {
           "enemy": "整合运动狙击手",
           "count": 1,
           "positions": [
-            [5, 5]
+            [
+              5,
+              5
+            ]
           ]
         }
       ]
@@ -106,5 +128,7 @@
       "reward_mult": 0.0
     }
   ],
-  "background": "wasteland_ruins"
+  "background": "wasteland_ruins",
+  "worldbook_id": "arknights",
+  "_hash": "cec6a834d0065ce6"
 }

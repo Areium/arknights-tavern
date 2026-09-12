@@ -19,16 +19,34 @@
     "deploy": {
       "player": {
         "cells": [
-          [2, 0],
-          [4, 1],
-          [6, 0]
+          [
+            2,
+            0
+          ],
+          [
+            4,
+            1
+          ],
+          [
+            6,
+            0
+          ]
         ]
       },
       "enemy": {
         "cells": [
-          [1, 4],
-          [3, 5],
-          [5, 4]
+          [
+            1,
+            4
+          ],
+          [
+            3,
+            5
+          ],
+          [
+            5,
+            4
+          ]
         ]
       },
       "enemy_random_shift": true
@@ -41,14 +59,20 @@
           "enemy": "整合运动士兵",
           "count": 1,
           "positions": [
-            [1, 4]
+            [
+              1,
+              4
+            ]
           ]
         },
         {
           "enemy": "整合运动狙击手",
           "count": 1,
           "positions": [
-            [5, 4]
+            [
+              5,
+              4
+            ]
           ]
         }
       ]
@@ -59,14 +83,20 @@
           "enemy": "整合运动术师",
           "count": 1,
           "positions": [
-            [2, 5]
+            [
+              2,
+              5
+            ]
           ]
         },
         {
           "enemy": "整合运动士兵",
           "count": 1,
           "positions": [
-            [6, 4]
+            [
+              6,
+              4
+            ]
           ]
         }
       ]
@@ -91,5 +121,7 @@
     "target_rounds": 7,
     "difficulty": 3
   },
-  "balance_version": 1
+  "balance_version": 1,
+  "worldbook_id": "arknights",
+  "_hash": "bdaae8be0486787f"
 }

@@ -1,13 +1,16 @@
 """
-生成方舟整合包：data/packs/arknights.json
+生成「世界书整合包」：data/packs/arknights.json
 
-从 data/characters/<名>/index.md（角色设定）与 data/plots/<剧情>/index.md（剧情概述）
-生成酒馆兼容世界书条目：
-- 角色条目：触发词 = 角色名 + 别名（tags 中的称号），内容 = 设定摘要 + 属性/关系
-- 剧情条目：触发词 = 剧情 id / 名称，内容 = 剧情概述（开篇氛围 + 可用角色）
+把 data/ 下的世界观文档语料（角色/剧情/势力/物品/地点/种族/职业/属性/规则/
+敌人/世界观）整理为**单一统一格式**的酒馆兼容世界书打包文件——每个文档
+对应一条条目，条目 content 承载完整 Markdown 正文（不只是摘要）。
 
-整合包随程序分发（git 跟踪），程序首次启动自动安装到 data/worldbooks/（source=preinstalled），
-与用户导入内容统一管理（可停用/编辑/删除/一键重装）。
+整合包随程序分发（git 跟踪），程序首次启动自动安装到 data/worldbooks/
+（source=preinstalled），也可通过世界书导入功能手动导入同一份文件。
+「角色·剧情」文档管理界面移除后，本整合包即文档内容的迁移出口：
+浏览与编辑经由世界书模块进行。
+
+条目触发词 = 文档名/frontmatter name（+剧情 id、角色称号等别名）。
 运行：python scripts/generate_builtin_worldbook.py
 """
 
@@ -21,132 +24,113 @@ import frontmatter
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OUT = REPO_ROOT / "data" / "packs" / "arknights.json"
 
+# 类别 →（数据目录，条目 group，条目权重）
+CATEGORIES = [
+    ("world", "世界观", 95),
+    ("rules", "规则", 95),
+    ("attributes", "属性", 60),
+    ("races", "种族", 70),
+    ("classes", "职业", 70),
+    ("weather", "天气", 40),
+    ("environment/Location", "地点", 75),
+    ("items", "物品", 70),
+    ("enemies", "敌人", 60),
+    ("characters", "角色", 100),
+    ("plots", "剧情", 90),
+]
 
-def load_frontmatter(path: Path) -> dict:
-    try:
-        fm = frontmatter.load(path)
-        return fm.metadata or {}
-    except Exception:
-        return {}
+
+def _entry(uid: str, name: str, content: str, keys: list[str], group: str,
+           weight: int) -> dict:
+    return {
+        "uid": uid,
+        "name": name,
+        "content": content,
+        "trigger_keys": keys,
+        "secondary_keys": [],
+        "always_active": False,
+        "selective": True,
+        "enabled": True,
+        "position": 1,
+        "depth": 4,
+        "scan_depth": 4,
+        "probability": 100,
+        "group": group,
+        "group_weight": weight,
+        "case_sensitive": False,
+        "match_whole_words": False,
+        "raw": {},
+    }
 
 
-def char_entries():
-    """角色条目：触发词 = 名称 + 称号标签。"""
-    entries = []
-    char_dir = REPO_ROOT / "data" / "characters"
-    if not char_dir.is_dir():
+def _doc_id(path: Path) -> str:
+    """文档 id（相对类别目录、去扩展名、目录分隔符归一）。"""
+    return path.with_suffix("").as_posix()
+
+
+def category_entries(cat_dir: str, group: str, weight: int) -> list[dict]:
+    """一个类别目录下的全部文档 → 条目（递归扫描）。
+
+    - 实体目录（含 index.md）→ 一条条目（content = index.md 正文）
+    - 平铺 .md → 各一条条目
+    同名时实体目录条目优先（跳过实体目录内的其它散文件）。
+    """
+    entries: list[dict] = []
+    base = REPO_ROOT / "data" / cat_dir
+    if not base.is_dir():
         return entries
-    for item in sorted(char_dir.iterdir()):
-        if not item.is_dir():
+
+    entity_index_dirs = {p.parent for p in base.rglob("index.md")}
+    files: list[Path] = []
+    for d in sorted(entity_index_dirs):
+        files.append(d / "index.md")
+    for p in sorted(base.rglob("*.md")):
+        if p.parent in entity_index_dirs and p.stem != "index":
+            continue  # 实体目录只收 index.md
+        if p.stem.upper().startswith("TEMPLATE"):
             continue
-        idx = item / "index.md"
-        if not idx.is_file():
+        if p not in files:
+            files.append(p)
+
+    for path in files:
+        try:
+            md = frontmatter.load(path)
+        except Exception as exc:
+            print(f"  跳过解析失败的文档 {path}: {exc}")
             continue
-        md = frontmatter.load(idx)
         meta = md.metadata or {}
-        name = str(meta.get("name") or item.name).strip()
+        name = str(meta.get("name") or (path.stem if path.stem != "index" else path.parent.name)).strip()
         if not name:
             continue
-
+        body = (md.content or "").strip().replace("\r\n", "\n")
+        lines = [f"**{name}**（{group}设定）"]
+        for key in ("summary", "faction", "race", "class"):
+            if meta.get(key):
+                lines.append(f"{'简介' if key == 'summary' else key}：{meta[key]}")
+        if body:
+            lines.append("")
+            lines.append(body)
+        doc_id = _doc_id(path.relative_to(base))
         keys = [name]
-        for tag in (meta.get("tags") or []):
+        if doc_id != name and path.stem != "index":
+            keys.append(doc_id)
+        for tag in (meta.get("tags") or [])[:6]:
             t = str(tag).strip()
             if t and t not in keys:
                 keys.append(t)
-
-        lines = [f"**{name}**（角色设定）"]
-        if meta.get("class"):
-            lines.append(f"职业：{meta['class']}")
-        if meta.get("faction"):
-            lines.append(f"势力：{meta['faction']}")
-        if meta.get("race"):
-            lines.append(f"种族：{meta['race']}")
-        if meta.get("summary"):
-            lines.append(f"简介：{meta['summary']}")
-        body = (md.content or "").strip().replace("\r\n", "\n")
-        if body:
-            lines.append("")
-            lines.append(body[:2000])
-        content = "\n".join(lines)
-
-        entries.append({
-            "uid": f"char_{item.name}",
-            "name": f"{name}（角色设定）",
-            "content": content,
-            "trigger_keys": keys,
-            "secondary_keys": [],
-            "always_active": False,
-            "selective": True,
-            "enabled": True,
-            "position": 1,
-            "depth": 4,
-            "scan_depth": 4,
-            "probability": 100,
-            "group": "角色",
-            "group_weight": 100,
-            "case_sensitive": False,
-            "match_whole_words": False,
-            "raw": {},
-        })
-    return entries
-
-
-def plot_entries():
-    """剧情条目：触发词 = 剧情 id + 名称（若存在）。"""
-    entries = []
-    plot_dir = REPO_ROOT / "data" / "plots"
-    if not plot_dir.is_dir():
-        return entries
-    for item in sorted(plot_dir.iterdir()):
-        if not item.is_dir():
-            continue
-        idx = item / "index.md"
-        if not idx.is_file():
-            continue
-        md = frontmatter.load(idx)
-        meta = md.metadata or {}
-        pid = str(meta.get("id") or item.name).strip()
-        name = str(meta.get("name") or "").strip()
-        keys = [pid]
-        if name and name not in keys:
-            keys.append(name)
-
-        lines = [f"**{name or pid}**（剧情）"]
-        if meta.get("initial_atmosphere"):
-            lines.append(f"开篇氛围：{meta['initial_atmosphere']}")
-        chars = meta.get("initial_characters") or []
-        if chars:
-            lines.append(f"登场角色：{'、'.join(str(c) for c in chars)}")
-        body = (md.content or "").strip().replace("\r\n", "\n")
-        if body:
-            lines.append("")
-            lines.append(body[:2000])
-        content = "\n".join(lines)
-
-        entries.append({
-            "uid": f"plot_{pid}",
-            "name": f"{name or pid}（剧情）",
-            "content": content,
-            "trigger_keys": keys,
-            "secondary_keys": [],
-            "always_active": False,
-            "selective": True,
-            "enabled": True,
-            "position": 1,
-            "depth": 4,
-            "scan_depth": 4,
-            "probability": 100,
-            "group": "剧情",
-            "group_weight": 90,
-            "case_sensitive": False,
-            "match_whole_words": False,
-            "raw": {},
-        })
+        entries.append(_entry(
+            f"{Path(cat_dir).name}_{doc_id.replace('/', '_')}",
+            f"{name}（{group}设定）", "\n".join(lines), keys, group, weight))
     return entries
 
 
 def main():
-    entries = char_entries() + plot_entries()
+    entries: list[dict] = []
+    for cat_dir, group, weight in CATEGORIES:
+        part = category_entries(cat_dir, group, weight)
+        print(f"  {cat_dir}: {len(part)} 条")
+        entries.extend(part)
+
     book = {
         "id": "arknights",
         "name": "明日方舟·内置设定集",
@@ -162,10 +146,7 @@ def main():
     with open(OUT, "w", encoding="utf-8") as f:
         json.dump(book, f, ensure_ascii=False, indent=2)
         f.write("\n")
-    n_char = sum(1 for e in entries if e["uid"].startswith("char_"))
-    n_plot = len(entries) - n_char
-    print(f"已生成 {OUT}")
-    print(f"条目：角色 {n_char} + 剧情 {n_plot} = {len(entries)}")
+    print(f"已生成 {OUT}（共 {len(entries)} 条）")
 
 
 if __name__ == "__main__":

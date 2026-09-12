@@ -212,6 +212,39 @@ def register(app, managers):
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
+    @bp.route("/api/assets/<category>/<path:entity>/worldbook", methods=["PUT"])
+    def set_entity_worldbook(category, entity):
+        """设置实体的来源世界书标注（写入 index.md frontmatter 的 worldbook_id）。
+
+        body: {worldbook_id: "" | book_id}；空串表示清除标注。
+        资产目录与卡牌界面共用此端点（characters/classes 等含 index.md 的实体均可）。
+        """
+        import os as _os
+        import frontmatter as _fm
+
+        cat = doc_mgr.get_category(category)
+        if not cat:
+            return jsonify({"error": f"未知类别: {category}"}), 404
+
+        index_md = _os.path.join(cat.directory, entity.replace("\\", "/"), "index.md")
+        if not _os.path.isfile(index_md):
+            return jsonify({"error": "实体不存在"}), 404
+
+        data = request.json or {}
+        book_id = str(data.get("worldbook_id", "") or "").strip()
+        try:
+            with open(index_md, "r", encoding="utf-8") as f:
+                post = _fm.load(f)
+            if book_id:
+                post.metadata["worldbook_id"] = book_id
+            else:
+                post.metadata.pop("worldbook_id", None)
+            with open(index_md, "w", encoding="utf-8") as f:
+                f.write(_fm.dumps(post))
+            return jsonify({"message": "已更新", "worldbook_id": book_id})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
     app.register_blueprint(bp)
 
 
@@ -219,7 +252,11 @@ _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"}
 
 
 def _list_entity_images(doc_mgr):
-    """递归扫描所有实体文件夹及其子目录下的图片文件。"""
+    """递归扫描所有实体文件夹及其子目录下的图片文件。
+
+    每个实体附带上级目录（`category/entity`）与来源世界书
+    （index.md frontmatter 的 `worldbook_id`，未标注为空串）。
+    """
     import os
     import frontmatter
 
@@ -235,18 +272,22 @@ def _list_entity_images(doc_mgr):
 
         # 收集该分类下所有实体目录（含 index.md 的目录）
         entity_dirs: dict[str, str] = {}  # dir_path -> entity_name
+        entity_books: dict[str, str] = {}  # dir_path -> worldbook_id
         for root, dirs, _files in os.walk(cat_dir):
             dirs[:] = [d for d in dirs if not d.startswith(".")]
             index_md = os.path.join(root, "index.md")
             if os.path.isfile(index_md):
                 entity_name = os.path.basename(root)
+                book_id = ""
                 try:
                     with open(index_md, "r", encoding="utf-8") as fh:
                         meta = frontmatter.load(fh).metadata
                     entity_name = meta.get("name", entity_name)
+                    book_id = str(meta.get("worldbook_id") or "")
                 except Exception:
                     pass
                 entity_dirs[root] = entity_name
+                entity_books[root] = book_id
 
         # 递归扫描每个实体目录内的所有图片（包括子目录 avatar/、skin/ 等）
         for entity_root, entity_name in entity_dirs.items():
@@ -271,13 +312,17 @@ def _list_entity_images(doc_mgr):
                         "url": f"/api/assets/{quote(path_key, safe='/')}",
                         "size": file_stat.st_size,
                         "subdir": inner_rel if inner_rel != "." else "",
+                        "parent_dir": f"{cat_id}/{entity_rel}",
                     })
 
             if images:
+                entity_rel = os.path.relpath(entity_root, cat_dir).replace("\\", "/")
                 result.append({
                     "category": cat_id,
-                    "entity": os.path.relpath(entity_root, cat_dir).replace("\\", "/"),
+                    "entity": entity_rel,
                     "entity_name": entity_name,
+                    "parent_dir": f"{cat_id}/{entity_rel}",
+                    "worldbook_id": entity_books.get(entity_root, ""),
                     "images": images,
                 })
 

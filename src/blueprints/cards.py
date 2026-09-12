@@ -179,16 +179,33 @@ def register(app, managers):
 
     @bp.route("/api/cards/tree", methods=["GET"])
     def cards_tree():
-        """Return tree structure for the card management UI."""
+        """Return tree structure for the card management UI.
+
+        附带 `worldbook_map`（characters/classes → 来源世界书标注，读实体
+        index.md frontmatter 的 `worldbook_id`，未标注为空串）。
+        """
+        import frontmatter
+
         characters = []
         classes = []
         character_class_map = {}
+        worldbook_map = {"characters": {}, "classes": {}}
+
+        def _read_worldbook_id(directory: Path) -> str:
+            index_md = directory / "index.md"
+            if not index_md.is_file():
+                return ""
+            try:
+                return str(frontmatter.load(index_md).metadata.get("worldbook_id") or "")
+            except Exception:
+                return ""
 
         if CHAR_DIR.exists():
             for name in sorted(os.listdir(str(CHAR_DIR))):
                 subdir = CHAR_DIR / name
                 if subdir.is_dir() and (subdir / "combat.json").exists():
                     characters.append(name)
+                    worldbook_map["characters"][name] = _read_worldbook_id(subdir)
                     try:
                         with open(subdir / "combat.json", "r", encoding="utf-8") as f:
                             data = json.load(f)
@@ -201,11 +218,13 @@ def register(app, managers):
                 subdir = CLASS_DIR / name
                 if subdir.is_dir() and (subdir / "cards.json").exists():
                     classes.append(name)
+                    worldbook_map["classes"][name] = _read_worldbook_id(subdir)
 
         return jsonify({
             "characters": characters,
             "classes": classes,
             "character_class_map": character_class_map,
+            "worldbook_map": worldbook_map,
         })
 
     # ── Single-card operations (character) ──

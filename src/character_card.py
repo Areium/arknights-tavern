@@ -277,4 +277,26 @@ def import_character_card(raw: bytes, wb_mgr=None, chars_dir: str | Path | None 
             "source": book.source,
             "entry_count": len(book.entries),
         }
+        # 来源标注：角色目录记录其世界书，资产/卡牌界面据此展示与筛选
+        _stamp_worldbook_id(character["path"], book.id, chars_dir)
+
     return {"character": character, "worldbook": book_summary}
+
+
+def _stamp_worldbook_id(entity_path: str, book_id: str,
+                        chars_dir: str | Path | None = None) -> None:
+    """把 worldbook_id 写入实体 index.md frontmatter（无 index.md 或写入失败时静默跳过）。
+
+    entity_path 形如 "characters/<slug>"，目录基于角色根（默认 data/characters）。
+    """
+    import frontmatter as _fm
+
+    base = Path(chars_dir) if chars_dir else _DEFAULT_CHARS_DIR
+    target = base / Path(entity_path).name / "index.md"
+    try:
+        if target.is_file():
+            post = _fm.load(target)
+            post.metadata["worldbook_id"] = book_id
+            target.write_text(_fm.dumps(post), encoding="utf-8")
+    except Exception:
+        pass
