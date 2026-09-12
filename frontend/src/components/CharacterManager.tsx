@@ -45,7 +45,7 @@ const ATTR_LABELS: Record<string, string> = {
 
 export default function CharacterManager() {
   const api = useApi();
-  const { setCurrentView, setContentHubTab, setDocJumpTarget } = useAppStore();
+  const { setCurrentView, setContentHubTab, setWorldbookJumpId } = useAppStore();
 
   const [tab, setTab] = useState<ManagerTab>("characters");
 
@@ -233,10 +233,11 @@ export default function CharacterManager() {
   };
 
   // ── 跳转编辑 ──
-  const jumpToDocs = (category: string, id: string) => {
-    setDocJumpTarget({ category, id });
-    setContentHubTab("docs");
-    setCurrentView("content");
+  // 角色资料已迁移至世界书（整合包/来源标注），跳转世界书页编辑
+  const jumpToWorldbook = () => {
+    const bookId = String((charDetail?.metadata as any)?.worldbook_id || "");
+    setWorldbookJumpId(bookId || null);
+    setCurrentView("worldbook");
   };
 
   const jumpToCards = () => {
@@ -328,10 +329,11 @@ export default function CharacterManager() {
 
         <div className="flex flex-wrap gap-2 pt-2">
           <button
-            onClick={() => jumpToDocs("characters", selectedChar)}
+            onClick={jumpToWorldbook}
             className="text-xs px-3 py-1.5 rounded bg-blue-600/20 text-blue-300 hover:bg-blue-600/40 transition-colors"
+            title="角色设定已迁移至世界书，跳转世界书页编辑"
           >
-            📜 编辑角色资料
+            📖 编辑世界书设定
           </button>
           <button
             onClick={() => jumpToCards()}

@@ -18,10 +18,10 @@ export interface CombatContext {
   selectedUnitId: string | null;
 }
 
-type ViewName = "home" | "chat" | "sessions" | "documents" | "settings" | "combat" | "index" | "worldbook" | "content" | "docs" | "characters";
+type ViewName = "home" | "chat" | "sessions" | "settings" | "combat" | "index" | "worldbook" | "content" | "docs" | "characters";
 
-/** 内容中心内部 Tab（统一管理：文档/索引/资产/卡牌/战斗节点；世界书为上一级独立入口，不在此重复） */
-export type ContentHubTab = "docs" | "index" | "images" | "cards" | "combat";
+/** 内容中心内部 Tab（统一管理：索引/资产/卡牌/节点图；世界书为上一级独立入口，不在此重复） */
+export type ContentHubTab = "index" | "images" | "cards" | "combat";
 
 /** 最小化对话框的恢复入口信息（key = 对话框 id） */
 export interface MinimizedDialogEntry {
@@ -34,7 +34,7 @@ interface AppState {
   currentView: ViewName;
   setCurrentView: (view: ViewName) => void;
 
-  // 内容中心 Tab（跨组件跳转：文档 Tab 内「管理依赖」→ 索引 Tab）
+  // 内容中心 Tab（跨组件跳转：会话列表 → 索引 Tab 等）
   contentHubTab: ContentHubTab;
   setContentHubTab: (tab: ContentHubTab) => void;
 
@@ -45,10 +45,6 @@ interface AppState {
   // 战斗节点编辑器跳转：战前卡片等入口指定要打开的节点
   combatNodeJumpId: string | null;
   setCombatNodeJumpId: (id: string | null) => void;
-
-  // 内容中心：跳转并打开指定文档（统一检索结果点击）
-  docJumpTarget: { category: string; id: string } | null;
-  setDocJumpTarget: (target: { category: string; id: string } | null) => void;
 
   // 主题
   theme: Theme;
@@ -154,8 +150,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   currentView: "home",
   setCurrentView: (view) => set({ currentView: view }),
 
-  // 内容中心 Tab
-  contentHubTab: "docs",
+  // 内容中心 Tab（默认进入索引）
+  contentHubTab: "index",
   setContentHubTab: (tab) => set({ contentHubTab: tab }),
 
   // 内容中心检索 → 上一级「世界书」页跳转
@@ -165,10 +161,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   // 战斗节点编辑器跳转
   combatNodeJumpId: null,
   setCombatNodeJumpId: (id) => set({ combatNodeJumpId: id }),
-
-  // 内容中心：文档跳转
-  docJumpTarget: null,
-  setDocJumpTarget: (target) => set({ docJumpTarget: target }),
 
   // 主题
   theme: "dark",

@@ -62,25 +62,6 @@ export interface DocumentCategory {
   refs: string[];
 }
 
-/** 文档树节点（来自后端） */
-export interface DocTreeNode {
-  name: string;
-  type: "folder" | "document";
-  id?: string;
-  hash?: string;
-  mtime?: number;
-  summary?: string;
-  category_id?: string;
-  children?: DocTreeNode[];
-}
-
-/** 文档树类别分组 */
-export interface DocTreeCategory {
-  category: string;
-  category_info: DocumentCategory;
-  children: DocTreeNode[];
-}
-
 /** Electron API （通过 preload 暴露） */
 export interface ElectronAPI {
   getBackendUrl: () => Promise<string>;
@@ -265,6 +246,8 @@ export interface CardsTreeDTO {
   characters: string[];
   classes: string[];
   character_class_map: Record<string, string>;
+  /** 来源世界书标注（读实体 index.md frontmatter，未标注为空串） */
+  worldbook_map?: { characters: Record<string, string>; classes: Record<string, string> };
 }
 
 /** 角色卡池（手牌 + 抽牌堆 + 弃牌堆 + 消耗堆） */
@@ -683,6 +666,8 @@ export interface BattleNodeDTO {
   background?: string;
   balance_version?: number;
   source?: { type?: string; book_id?: string; entry_uid?: string };
+  /** 归属世界书（节点图按书组织；世界书导入的节点自动标注） */
+  worldbook_id?: string;
   _hash?: string;
   warnings?: string[];
 }
@@ -707,9 +692,62 @@ export interface BattleNodeOverviewDTO {
     beat_summary?: string;
   } | null;
   source_worldbook?: string;
+  /** 归属世界书 id（空串 = 未标注） */
+  worldbook_id?: string;
   hash?: string;
   /** 剧情引用了但注册表里还没有配置 → 编辑器可一键创建 */
   missing?: boolean;
+}
+
+/** 节点图剧情节拍（来自 data/plots/<id>/index.md 的叙述区） */
+export interface PlotFlowBeatDTO {
+  id: string;
+  keep_on_deviate: boolean;
+  summary: string;
+  combat_nodes: string[];
+}
+
+/** 节点图剧情章节 */
+export interface PlotFlowChapterDTO {
+  idx: number;
+  title: string;
+  combat_nodes: string[];
+  beats: PlotFlowBeatDTO[];
+}
+
+/** 节点图剧情流程（一个 plot = 一条横向分支） */
+export interface PlotFlowDTO {
+  plot_id: string;
+  name: string;
+  summary: string;
+  worldbook_id: string;
+  combat_nodes: string[];
+  chapters: PlotFlowChapterDTO[];
+}
+
+/** 节点图数据（GET /api/combat/nodes/graph?book_id=） */
+export interface CombatNodeGraphDTO {
+  book_id: string;
+  plots: PlotFlowDTO[];
+  nodes: BattleNodeOverviewDTO[];
+  meta: { plot: any; bindings: number; plot_count: number; node_count: number };
+}
+
+/** 资产实体组（一个实体目录的图片集合；parent_dir = 上级目录，worldbook_id = 来源世界书） */
+export interface AssetEntityGroupDTO {
+  category: string;
+  entity: string;
+  entity_name: string;
+  parent_dir: string;
+  worldbook_id: string;
+  images: {
+    name: string;
+    path: string;
+    url: string;
+    size: number;
+    subdir: string;
+    parent_dir?: string;
+  }[];
 }
 
 /** 校验报告（只读，不阻断保存以外的行为） */

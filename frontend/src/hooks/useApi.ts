@@ -7,7 +7,7 @@
 import { useMemo } from "react";
 import { getBaseUrl } from "../utils/baseUrl";
 import type {
-  BattleNodeDTO, BattleNodeOverviewDTO, CombatSettlementDTO, ValidationReportDTO,
+  BattleNodeDTO, BattleNodeOverviewDTO, CombatNodeGraphDTO, CombatSettlementDTO, ValidationReportDTO,
 } from "../types";
 
 async function uploadMultipart(path: string, fields: Record<string, string>, file: File): Promise<any> {
@@ -218,9 +218,7 @@ export function useApi() {
         body: JSON.stringify({ round }),
       }),
 
-    // ── 文档 ──
-    getDocumentTree: () => request<any[]>("/api/documents/tree"),
-    getDocumentCategories: () => request<{ categories: any[]; hierarchy: { level: number; label: string; categories: string[] }[] }>("/api/documents/categories"),
+    // ── 文档（剧情节点图编辑 plots/*.md 用；文档管理 UI 已并入世界书） ──
     readDocument: (category: string, id: string) =>
       request<any>(`/api/documents/${category}/${encodeURIComponent(id)}`),
     saveDocument: (
@@ -246,13 +244,6 @@ export function useApi() {
     },
 
     // ── 文档依赖导入 ──
-    searchDocuments: async (q: string, category?: string, docId?: string) => {
-      const params = new URLSearchParams({ q });
-      if (category) params.set("category", category);
-      if (docId) params.set("exclude_doc_id", docId);
-      const data = await request<{ results: any[]; total: number }>(`/api/documents/search?${params.toString()}`);
-      return data.results || [];
-    },
     getDocImports: (category: string, id: string) =>
       request<{ imports: { path: string; name: string }[] }>(`/api/documents/${category}/${encodeURIComponent(id)}/imports`),
     updateDocImports: (category: string, id: string, imports: string[]) =>
@@ -260,15 +251,15 @@ export function useApi() {
         method: "PUT",
         body: JSON.stringify({ imports }),
       }),
-    scanDocImports: (category: string, id: string) =>
-      request<{ suggestions: any[]; existing: any[] }>(`/api/documents/${category}/${encodeURIComponent(id)}/imports/scan`, {
-        method: "POST",
-      }),
-    verifyDocImports: (category: string, id: string) =>
-      request<{ total: number; valid: number; invalid: number; results: { path: string; valid: boolean; category?: string; id?: string; error?: string }[] }>(`/api/documents/${category}/${encodeURIComponent(id)}/imports/verify`),
 
-    getAssetImages: () => request<any[]>("/api/assets/images"),
+    getAssetImages: () => request<import("../types").AssetEntityGroupDTO[]>("/api/assets/images"),
     getDataDir: () => request<{ path: string }>("/api/assets/data-dir"),
+    /** 设置实体（资产/卡牌共用）的来源世界书标注（空串 = 清除） */
+    setEntityWorldbook: (category: string, entity: string, worldbookId: string) =>
+      request<{ message: string; worldbook_id: string }>(
+        `/api/assets/${encodeURIComponent(category)}/${encodeURIComponent(entity)}/worldbook`,
+        { method: "PUT", body: JSON.stringify({ worldbook_id: worldbookId }) },
+      ),
 
     uploadAssetImage: async (category: string, file: File, subdir?: string) => {
       const base = await getBaseUrl();
@@ -298,8 +289,6 @@ export function useApi() {
         method: "PUT",
         body: JSON.stringify({ type, filename, ...(crop !== undefined ? { crop } : {}) }),
       }),
-    getCardFaceCrop: (name: string) =>
-      request<import("../types").SkinCrop | null>(`/api/characters/${encodeURIComponent(name)}/card-face-crop`),
 
     // ── 索引管理（基于 imports 的新系统） ──
     getIndexOverview: () =>
@@ -543,53 +532,6 @@ export function useApi() {
         body: JSON.stringify({ content, metadata, hash }),
       }),
 
-    // ── 文档创建 ──
-    createDocument: (
-      category: string,
-      id: string,
-      content: string = "",
-      metadata?: Record<string, any>
-    ) =>
-      request<any>(`/api/documents/${category}`, {
-        method: "POST",
-        body: JSON.stringify({ id, content, metadata }),
-      }),
-
-    // ── 文档删除 ──
-    deleteDocument: (category: string, id: string) =>
-      request<any>(`/api/documents/${category}/${encodeURIComponent(id)}`, {
-        method: "DELETE",
-      }),
-
-    // ── 文件夹操作 ──
-    createFolder: (category: string, path: string) =>
-      request<any>(`/api/documents/${category}/folders`, {
-        method: "POST",
-        body: JSON.stringify({ path }),
-      }),
-
-    deleteFolder: (category: string, path: string) =>
-      request<any>(
-        `/api/documents/${category}/folders/${encodeURIComponent(path)}`,
-        { method: "DELETE" }
-      ),
-
-    // ── 移动/重命名 ──
-    moveDocument: (category: string, id: string, newPath: string) =>
-      request<any>(`/api/documents/${category}/${encodeURIComponent(id)}/move`, {
-        method: "POST",
-        body: JSON.stringify({ new_path: newPath }),
-      }),
-
-    moveFolder: (category: string, path: string, newPath: string) =>
-      request<any>(
-        `/api/documents/${category}/folders/${encodeURIComponent(path)}/move`,
-        {
-          method: "POST",
-          body: JSON.stringify({ new_path: newPath }),
-        }
-      ),
-
     // ── Combat ──
     combatStart: (sessionId: string, encounterId: string, characters: string[], approachId?: string) =>
       request<any>(`/api/sessions/${sessionId}/combat/start`, {
@@ -603,10 +545,22 @@ export function useApi() {
         (selectedUnit ? `?selected_unit=${encodeURIComponent(selectedUnit)}` : ""),
       ),
 
-    /** 战斗节点列表（含地图尺寸、剧情节拍绑定与会话进度） */
-    listCombatNodes: (sessionId?: string) =>
-      request<{ nodes: BattleNodeOverviewDTO[]; meta: any }>(
-        "/api/combat/nodes" + (sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : ""),
+    /** 战斗节点列表（含地图尺寸、剧情节拍绑定与会话进度；bookId 过滤归属世界书） */
+    listCombatNodes: (sessionId?: string, bookId?: string) => {
+      const params = new URLSearchParams();
+      if (sessionId) params.set("session_id", sessionId);
+      if (bookId) params.set("book_id", bookId);
+      const qs = params.toString();
+      return request<{ nodes: BattleNodeOverviewDTO[]; meta: any }>(
+        "/api/combat/nodes" + (qs ? `?${qs}` : ""),
+      );
+    },
+
+    /** 节点图数据：某本世界书的剧情流程（章节/节拍）+ 战斗节点 */
+    getCombatNodeGraph: (bookId: string, sessionId?: string) =>
+      request<CombatNodeGraphDTO>(
+        `/api/combat/nodes/graph?book_id=${encodeURIComponent(bookId)}` +
+        (sessionId ? `&session_id=${encodeURIComponent(sessionId)}` : ""),
       ),
 
     /** 单个战斗节点完整 JSON（编辑器读取） */
@@ -616,10 +570,10 @@ export function useApi() {
       ),
 
     /** 新建战斗节点（按模板；空波次可保存，开战前必须补敌人） */
-    createCombatNode: (nodeId: string, name: string) =>
+    createCombatNode: (nodeId: string, name: string, worldbookId = "") =>
       request<{ ok: boolean; node: BattleNodeDTO }>("/api/combat/nodes", {
         method: "POST",
-        body: JSON.stringify({ node_id: nodeId, name }),
+        body: JSON.stringify({ node_id: nodeId, name, worldbook_id: worldbookId }),
       }),
 
     /** 保存战斗节点（`_hash` 冲突 → 409） */

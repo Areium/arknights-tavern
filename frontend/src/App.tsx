@@ -8,7 +8,6 @@ import StatusBar from "./components/StatusBar";
 import ChatView from "./components/ChatView";
 import SessionManagerView from "./components/session/SessionManagerView";
 import CombatView from "./components/combat/CombatView";
-import DocumentManager from "./components/DocumentManager";
 import SettingsPanel from "./components/SettingsPanel";
 import IndexManager from "./components/IndexManager";
 import WorldBookManager from "./components/WorldBookManager";
@@ -133,8 +132,6 @@ export default function App() {
     switch (currentView) {
       case "sessions":
         return <SessionManagerView />;
-      case "documents":
-        return <DocumentManager />;
       case "settings":
         return <SettingsPanel />;
       case "index":

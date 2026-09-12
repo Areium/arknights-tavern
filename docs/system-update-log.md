@@ -15,6 +15,54 @@
 ---
 
 ## 更新记录
+### 2026-09-12 — 信息架构整治：内容中心去重 + 世界书归属 + 节点图编辑器
+
+> UI 与信息架构专项：消除重复入口、收敛功能层级、把"世界书"确立为内容归属的
+> 一等主体（剧情语料、战斗节点、资产与卡牌的来源标注）。
+
+- **返回入口全站唯一**：`ContentHub` 子栏的「◀ 主菜单」删除，返回统一走全局
+  顶栏 `GameTopBar`（全库排查仅此一处重复；ChatView 的返回按钮在沉浸式页面，
+  是唯一入口，不属重复）。
+- **删除「角色·剧情」栏，文档迁移世界书**：`DocumentManager`（1737 行，文档/
+  图像/卡牌三层 Tab 嵌套）拆解删除——
+  - 图像管理 → `AssetManager.tsx`（内容中心「资产」Tab，等价入口）；
+  - 卡牌管理 → `CardManager.tsx`（内容中心「卡牌」Tab，等价入口）；
+  - SillyTavern 角色卡导入 → `CharacterManager`（原有）与世界书导入（PNG/JSON
+    连带导入角色 + 内嵌世界书）双入口保留；
+  - 文档语料 → `scripts/generate_builtin_worldbook.py` 重写为**世界书整合包**
+    生成器：12 类语料（世界观/规则/属性/种族/职业/地点/物品/敌人/角色/剧情）
+    全量完整正文打包为 `data/packs/arknights.json`（109 条，~215KB），随程序
+    预装分发，亦可经世界书导入功能手动导入；
+  - 统一检索只搜世界书条目；`CharacterManager` 的「编辑角色资料」改为跳转
+    世界书页（优先该角色标注的来源世界书）。
+- **战斗节点 → 关联世界书 + 节点图**：
+  - 节点 JSON 新增 `worldbook_id` 归属字段（世界书导入自动标注；存量 16 节点
+    已迁移归属 arknights；剧情 index.md frontmatter 同步标注）；
+  - `combat_nodes.plot_flows`：解析剧情叙述区的章节/节拍结构与 `[COMBAT:]`
+    引用（只收叙述区，忽略 near-light 场景流程图配置区里的重复章节）；
+  - 新端点 `GET /api/combat/nodes/graph?book_id=` + 节点列表 `book_id` 过滤；
+  - `NodeFlowEditor.tsx`（新）：先选世界书再编辑，横向可展开节点图同屏呈现
+    剧情节点（plot → 章节 → 节拍，章节可折叠）与战斗节点（节拍 ↓ 连线触发），
+    「未绑定剧情」与跨书引用单独呈现；点击任意节点开右侧抽屉编辑、支持增删；
+  - `BattleNodeForm.tsx`（自原 BattleNodeEditor 抽出）：单节点完整编辑（地图/
+    波次/难度/校验/试打），抽屉内挂载；
+  - `StoryBeatEditor.tsx` + `utils/plotBeatEditor.ts`：剧情节拍抽屉编辑，对
+    `data/plots/<id>/index.md` 做节拍增删改的 Markdown 手术（documents API
+    保存，`_hash` 冲突检测；注意会按 yaml 规范化 frontmatter，与
+    `set_default_image` 同一行为模式）。
+- **资产/卡牌标注来源世界书**：
+  - 实体 index.md frontmatter 新增可选 `worldbook_id`（来源约定）；角色卡
+    导入时自动写入其内嵌世界书 id；
+  - `GET /api/assets/images` 附带 `parent_dir`（上级目录）与 `worldbook_id`；
+    `GET /api/cards/tree` 附带 `worldbook_map`；
+  - 新端点 `PUT /api/assets/<category>/<entity>/worldbook` 标注/清除归属
+    （资产与卡牌共用）；
+  - `AssetManager`/`CardManager`：实体条目显示来源徽章，支持按世界书筛选
+    （选中后按书归类分组），详情面板可改标注。
+- **测试**：新增 `tests/test_node_graph_worldbook.py`（plot_flows 解析、按书
+  过滤、导入自动打标 10 项）；已跟踪 pytest + perf_tests 全绿；前端 tsc +
+  vite build 通过。
+
 ### 2026-09-12 — 战斗系统重构批次 3：升级属性点 + 难度带生效 + LLM 生成铺垫
 
 > 承接批次 2（编辑器）。本批次补齐"成长曲线不好"与"为 AI 生成战斗铺垫"两件事，并把散落的
