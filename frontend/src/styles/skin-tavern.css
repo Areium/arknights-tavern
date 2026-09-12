@@ -28,6 +28,26 @@ html.skin-tavern {
   --t-forest: #5b7350;
   --t-sky: #6b8299;
   --t-serif: "Noto Serif SC", serif;
+
+  /* ── 剧情节点图色板（style.css 的 --ng-* 默认是深色，压在羊皮纸上会很突兀）──
+     这是浅色皮肤，故整体走「纸面 + 墨水」：卡片=书页色、标题=墨水棕、连线=旧线色；
+     五类节点用低饱和同族色，combat/note 直接取皮肤的火漆红 / 黄铜。 */
+  --ng-plot: #3f5a86;      --ng-plot-soft: rgba(63,90,134,.12);    --ng-plot-border: rgba(63,90,134,.45);
+  --ng-chapter: #6b4f8a;   --ng-chapter-soft: rgba(107,79,138,.12); --ng-chapter-border: rgba(107,79,138,.45);
+  --ng-beat: #2f6f63;      --ng-beat-soft: rgba(47,111,99,.12);    --ng-beat-border: rgba(47,111,99,.45);
+  --ng-combat: #a03d2d;    --ng-combat-soft: rgba(160,61,45,.12);  --ng-combat-border: rgba(160,61,45,.5);
+  --ng-note: #7d5a1c;      --ng-note-soft: rgba(125,90,28,.13);    --ng-note-border: rgba(125,90,28,.5);
+  --ng-card-bg: rgba(251,246,233,.96);
+  --ng-card-border: rgba(64,52,42,.14);
+  --ng-title: #40342a;
+  --ng-body: #5a4b3d;
+  --ng-muted: #7a6a57;
+  --ng-edge-color: #a08a6b;
+  --ng-edge-color-hl: #a87b2f;
+  --ng-grid-dot: rgba(64,52,42,.18);
+  --ng-float-bg: rgba(251,246,233,.97);
+  --ng-drawer-bg: #fbf6e9;
+  --ng-scrim: rgba(64,52,42,.16);
 }
 
 /* ── 氛围层：羊皮纸颗粒（body 背景）+ 静态烛光（::before，无动画） ──────── */
@@ -117,6 +137,9 @@ html.skin-tavern body {
   .bg-gray-850\/30 { background-color: rgba(247, 240, 221, 0.3); }
   .bg-gray-900 { background-color: #ece1c9; }
   .bg-gray-900\/30 { background-color: rgba(236, 225, 201, 0.3); }
+  /* 补漏：此前没有 /40 映射，回落到 Tailwind 默认 rgb(17 19 24 / 0.4)，
+     压在羊皮纸上变成泥色调 #8d8676 —— 剧情 Tab 条上的文字因此只有 1.18:1。 */
+  .bg-gray-900\/40 { background-color: rgba(236, 225, 201, 0.4); }
   .bg-gray-900\/50 { background-color: rgba(236, 225, 201, 0.5); }
   .bg-gray-900\/60 { background-color: rgba(236, 225, 201, 0.6); }
   .bg-gray-900\/95 { background-color: rgba(236, 225, 201, 0.95); }
@@ -141,9 +164,11 @@ html.skin-tavern body {
   .text-gray-300 { color: #5b4c3e; }
   .text-gray-400 { color: #6d5c4b; }
   .hover\:text-gray-400:hover { color: #6d5c4b; }
-  .text-gray-500 { color: #8a7862; }
-  .text-gray-600 { color: #a89880; }
-  .placeholder\:text-gray-600::placeholder { color: #a89880; }
+  /* 500/600 原为 #8a7862 / #a89880，压在羊皮纸(#ece1c9)上只有 2.9 / 1.9:1，
+     提示文字读不清；压深到与墨水层次一致的棕。 */
+  .text-gray-500 { color: #665644; }
+  .text-gray-600 { color: #5b4c3e; }
+  .placeholder\:text-gray-600::placeholder { color: #5b4c3e; }
   .text-gray-700 { color: #f3ead7; }
 
   /* ── 自定义 surface 色板 ── */
@@ -184,23 +209,35 @@ html.skin-tavern body {
   .border-amber-600\/60 { border-color: rgba(122, 87, 24, 0.6); }
   .border-amber-700\/20 { border-color: rgba(122, 87, 24, 0.2); }
   .border-amber-700\/30 { border-color: rgba(122, 87, 24, 0.3); }
-  .text-amber-100 { color: #6b4a16; }
-  .text-amber-100\/90 { color: rgba(107, 74, 22, 0.9); }
-  .text-amber-200 { color: #7d5618; }
-  .hover\:text-amber-200:hover { color: #7d5618; }
-  .text-amber-200\/70 { color: rgba(125, 86, 24, 0.7); }
-  .text-amber-300 { color: #8f6220; }
-  .hover\:text-amber-300:hover { color: #8f6220; }
-  .text-amber-300\/80 { color: rgba(143, 98, 32, 0.8); }
-  .text-amber-300\/90 { color: rgba(143, 98, 32, 0.9); }
-  .text-amber-400 { color: #a87b2f; }
+  .text-amber-100 { color: #4e350c; }
+  .text-amber-100\/90 { color: rgba(78, 53, 12, 0.92); }
+  .text-amber-200 { color: #5c3f10; }
+  .hover\:text-amber-200:hover { color: #5c3f10; }
+  .text-amber-200\/70 { color: rgba(92, 63, 16, 0.78); }
+  /* 300 原为 #8f6220：在羊皮纸(#ece1c9)上只有 2.9:1、压在琥珀激活底上 3.15:1，
+     且该亮度在任何浅底上都到不了 4.5，必须压深。 */
+  .text-amber-300 { color: #6b4a16; }
+  .hover\:text-amber-300:hover { color: #6b4a16; }
+  .text-amber-300\/80 { color: rgba(107, 74, 22, 0.86); }
+  .text-amber-300\/90 { color: rgba(107, 74, 22, 0.93); }
+  .text-amber-400 { color: #7d5a1c; }
   .text-amber-400\/70 { color: rgba(168, 123, 47, 0.7); }
   .text-amber-400\/80 { color: rgba(168, 123, 47, 0.8); }
-  .text-amber-500 { color: #8a6420; }
-  .text-amber-500\/60 { color: rgba(138, 100, 32, 0.6); }
-  .text-amber-500\/70 { color: rgba(138, 100, 32, 0.7); }
-  .text-amber-500\/80 { color: rgba(138, 100, 32, 0.8); }
-  .text-amber-600 { color: #7a5718; }
+  .text-amber-500 { color: #6b4a16; }
+  .text-amber-500\/60 { color: rgba(107, 74, 22, 0.7); }
+  .text-amber-500\/70 { color: rgba(107, 74, 22, 0.78); }
+  .text-amber-500\/80 { color: rgba(107, 74, 22, 0.86); }
+  .text-amber-600 { color: #5c3f10; }
+
+  /* ── sky → 旧蓝（补漏：此前无映射，激活的剧情 Tab 用 Tailwind 浅蓝 #bae6fd，
+        压在浅蓝底上只有 1.48:1）── */
+  .text-sky-200 { color: #334e63; }
+  .bg-sky-700\/25 { background-color: rgba(107, 130, 153, 0.22); }
+  .border-sky-500\/40 { border-color: rgba(107, 130, 153, 0.5); }
+
+  /* ── emerald → 苔绿（补漏：此前无映射，「保存」按钮回落到 Tailwind 深绿 40%）── */
+  .bg-emerald-800\/40 { background-color: rgba(91, 115, 80, 0.18); }
+  .border-emerald-600\/50 { border-color: rgba(91, 115, 80, 0.45); }
 
   /* ── yellow ── */
   .border-yellow-500\/60 { border-color: rgba(168, 123, 47, 0.6); }

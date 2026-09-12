@@ -30,6 +30,27 @@ html.skin-prts {
   --p-text-2: #8ca3b8;
   --p-text-3: #54687c;
   --p-display: "Orbitron", "Noto Sans SC", sans-serif;
+
+  /* ── 剧情节点图色板（style.css 的 --ng-* 默认是通用深色，与全息青主题不搭）──
+     五类节点各取皮肤同族的色：plot=全息青、chapter=靛青、beat=OK 绿、
+     combat=警报红、note=战备金；画布/卡片底色走面板色，连线用低饱和青。
+     注：--ng-* 只被节点图组件引用（GraphCanvas.tsx），战斗页不受影响。 */
+  --ng-plot: #38bdf8;      --ng-plot-soft: rgba(56,189,248,.14);   --ng-plot-border: rgba(56,189,248,.5);
+  --ng-chapter: #8b9cf7;   --ng-chapter-soft: rgba(139,156,247,.14); --ng-chapter-border: rgba(139,156,247,.5);
+  --ng-beat: #3ddc97;      --ng-beat-soft: rgba(61,220,151,.13);   --ng-beat-border: rgba(61,220,151,.45);
+  --ng-combat: #fb5e5e;    --ng-combat-soft: rgba(251,94,94,.14);  --ng-combat-border: rgba(251,94,94,.5);
+  --ng-note: #f0c060;      --ng-note-soft: rgba(240,192,96,.14);   --ng-note-border: rgba(240,192,96,.5);
+  --ng-card-bg: rgba(11,21,36,.96);
+  --ng-card-border: rgba(56,189,248,.16);
+  --ng-title: #dce8f2;
+  --ng-body: #a9bdd1;
+  --ng-muted: #7f96ac;
+  --ng-edge-color: #4a7ea6;
+  --ng-edge-color-hl: #f0c060;
+  --ng-grid-dot: rgba(56,189,248,.14);
+  --ng-float-bg: rgba(11,21,36,.96);
+  --ng-drawer-bg: #0b1524;
+  --ng-scrim: rgba(2,7,14,.5);
 }
 
 /* ── 氛围层：网格地平线 + 静态扫描线（纯静态，无 keyframes） ────────────── */
@@ -156,9 +177,11 @@ html.skin-prts body {
   .text-gray-300 { color: #a8bdd1; }
   .text-gray-400 { color: #8ca3b8; }
   .hover\:text-gray-400:hover { color: #8ca3b8; }
-  .text-gray-500 { color: #6f849a; }
-  .text-gray-600 { color: #54687c; }
-  .placeholder\:text-gray-600::placeholder { color: #54687c; }
+  /* 500/600 原为 #6f849a / #54687c，压在深空底上只有 5.2 / 3.5:1，600 读不清；
+     提亮一档并保持 500 比 600 亮。 */
+  .text-gray-500 { color: #7f96ac; }
+  .text-gray-600 { color: #6f849a; }
+  .placeholder\:text-gray-600::placeholder { color: #6f849a; }
   .text-gray-700 { color: #122032; }
 
   /* ── 自定义 surface 色板 ── */

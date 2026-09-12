@@ -1417,7 +1417,8 @@ html.light .lobby-empty { background: rgba(249, 250, 251, 0.6); border-color: rg
 }
 .home-status .dot.ok { background: #34d399; box-shadow: 0 0 8px rgba(52, 211, 153, 0.7); }
 .home-status .dot.bad { background: #f87171; box-shadow: 0 0 8px rgba(248, 113, 113, 0.7); }
-.home-menu-version { color: rgba(107, 114, 128, 0.8); letter-spacing: 0.08em; }
+/* 版本号压在底图暗部上：原来 rgba(107,114,128,.8) 偏暗，提亮一档 */
+.home-menu-version { color: rgba(148, 163, 184, 0.85); letter-spacing: 0.08em; }
 .home-audio-btn {
   padding: 3px 8px;
   border-radius: 8px;
@@ -1444,7 +1445,69 @@ html.light .lobby-empty { background: rgba(249, 250, 251, 0.6); border-color: rg
   to { opacity: 1; transform: none; }
 }
 
-/* 浅色主题：主页保持深色沉浸（背景图使然），无需覆盖 */
+/* ── 浅色主题：主页 ──
+   背景是一张暗色氛围图，整页反转会糊掉；故只把「菜单面板 + 选项」做成浅色玻璃
+   （白底深字），氛围遮罩相应减淡，让底图透出来；标题/强调色的琥珀渐变压深以保对比度。 */
+html.light .home-menu-vignette {
+  background:
+    radial-gradient(120% 90% at 50% 30%, rgba(8, 10, 16, 0) 0%, rgba(8, 10, 16, 0.26) 62%, rgba(5, 6, 10, 0.6) 100%),
+    linear-gradient(to bottom, rgba(6, 8, 13, 0.26) 0%, rgba(6, 8, 13, 0.05) 30%, rgba(6, 8, 13, 0.1) 60%, rgba(4, 5, 9, 0.55) 100%);
+}
+
+/* 点击进入闸门 */
+html.light .home-splash { background: rgba(248, 250, 252, 0.9); }
+html.light .home-splash-press { color: rgba(71, 85, 105, 0.92); }
+
+/* 琥珀渐变字在浅底上要压深 */
+html.light .home-splash-title,
+html.light .home-menu-title {
+  background-image: linear-gradient(120deg, #b45309 0%, #d97706 50%, #b45309 100%);
+  text-shadow: 0 2px 22px rgba(180, 83, 9, 0.18);
+}
+
+/* 菜单面板 */
+html.light .home-menu-column {
+  border-color: rgba(15, 23, 42, 0.1);
+  background: linear-gradient(170deg, rgba(255, 255, 255, 0.9), rgba(248, 250, 252, 0.95));
+  box-shadow: 0 24px 70px -28px rgba(15, 23, 42, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+html.light .home-menu-sub { color: rgba(71, 85, 105, 0.9); }
+html.light .home-menu-divider::before { background: linear-gradient(to right, transparent, rgba(180, 83, 9, 0.4)); }
+html.light .home-menu-divider::after { background: linear-gradient(to left, transparent, rgba(180, 83, 9, 0.4)); }
+
+/* 菜单项 */
+html.light .home-menu-item {
+  border-color: rgba(15, 23, 42, 0.1);
+  background: rgba(15, 23, 42, 0.035);
+}
+html.light .home-menu-item:hover {
+  border-color: rgba(180, 83, 9, 0.45);
+  background: rgba(245, 158, 11, 0.1);
+  box-shadow: 0 4px 22px -8px rgba(180, 83, 9, 0.35);
+}
+html.light .home-menu-item-icon { filter: drop-shadow(0 2px 6px rgba(15, 23, 42, 0.18)); }
+html.light .home-menu-item-label { color: #1f2937; }
+html.light .home-menu-item-desc { color: #5b6472; }
+html.light .home-menu-item-arrow { color: #b45309; }
+html.light .home-menu-item-badge {
+  color: #92400e;
+  background: rgba(245, 158, 11, 0.14);
+  border-color: rgba(180, 83, 9, 0.35);
+}
+html.light .home-menu-item.primary {
+  border-color: rgba(180, 83, 9, 0.45);
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(180, 83, 9, 0.1));
+  box-shadow: 0 6px 26px -10px rgba(180, 83, 9, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+html.light .home-menu-item.primary .home-menu-item-label { color: #92400e; }
+html.light .home-menu-item.primary:hover {
+  border-color: rgba(180, 83, 9, 0.65);
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.3), rgba(180, 83, 9, 0.16));
+}
+
+/* 底部状态条压在底图暗部上，文字保持浅色 */
+html.light .home-menu-footer { color: rgba(226, 232, 240, 0.92); }
+html.light .home-menu-version { color: rgba(203, 213, 225, 0.8); }
 
 /* ═══════════════════════════════════════
    出牌飞行动画（CardFlyOverlay）
