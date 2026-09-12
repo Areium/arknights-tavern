@@ -10,6 +10,10 @@ from world_book import estimate_tokens
 
 logger = logging.getLogger(__name__)
 
+# 已验证不支持 /embeddings 的端点（按 base_url 记忆，进程级）：
+# 避免每个 ApiLLM 实例都重复探测 + 重复打印同一条 WARNING 噪音。
+_EMBED_UNSUPPORTED_ENDPOINTS: set[str] = set()
+
 
 # ── 结构化 LLM 错误（对齐 DSH：错误是事件/异常，绝不伪装成模型可读内容）──
 
@@ -386,9 +390,11 @@ class ApiLLM:
         Returns:
             list[list[float]] | None: 向量列表，不支持时返回 None。
         """
-        # 短路：端点首次失败后不再重复发起网络调用（DeepSeek 等不提供 /embeddings，
-        # 每轮 2 次注定失败的调用纯属浪费 ~125ms/次）
-        if getattr(self, "_embed_disabled", False):
+        # 短路：同一端点首次失败后不再重复发起网络调用（DeepSeek 等不提供
+        # /embeddings，每个 CharacterAgent 新建实例都重试纯属浪费 ~125ms/次）。
+        # 按 base_url 记忆，换成支持 /embeddings 的端点时会重新探测。
+        endpoint = self.config.base_url or ""
+        if getattr(self, "_embed_disabled", False) or endpoint in _EMBED_UNSUPPORTED_ENDPOINTS:
             return None
         try:
             payload = {
@@ -401,9 +407,14 @@ class ApiLLM:
             data = sorted(result["data"], key=lambda x: x["index"])
             return [item["embedding"] for item in data]
         except Exception:
-            if not getattr(self, "_embed_warned", False):
-                logger.warning("Embedding API 不可用 (将回退到滑动窗口模式)")
-                self._embed_warned = True
+            # 端点级一次性提示：不可用是常态（DeepSeek 无 /embeddings），且每个
+            # CharacterAgent 都会新建 ApiLLM 探测一次，逐实例 WARNING 会在启动时
+            # 刷出多行同样噪音。降级为 debug（终端默认 INFO 不显示）；对用户的
+            # 实际影响由 memory.resolve_embed_fn 说明（回退本地 ONNX / 滑动窗口）。
+            if endpoint not in _EMBED_UNSUPPORTED_ENDPOINTS:
+                _EMBED_UNSUPPORTED_ENDPOINTS.add(endpoint)
+                logger.debug("远端 Embedding API 不可用（端点 %s 本进程内不再探测），"
+                             "语义记忆回退本地嵌入或滑动窗口", endpoint or "<默认>")
             self._embed_disabled = True
             return None
 

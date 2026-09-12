@@ -10,6 +10,9 @@ logger = logging.getLogger(__name__)
 _LOCAL_EMBED_FN = None
 _LOCAL_EMBED_RESOLVED = False
 
+# “远端不可用 → 回退本地”只在进程内提示一次（避免每个 CharacterAgent 刷一行）。
+_REMOTE_FALLBACK_LOGGED = False
+
 
 def get_local_embed_fn():
     """返回本地 ONNX 嵌入函数（chromadb DefaultEmbeddingFunction），不可用时返回 None。
@@ -53,7 +56,12 @@ def resolve_embed_fn(llm=None):
         if probe_ok:
             logger.debug("语义记忆使用远端 embedding")
             return llm.embed
-        logger.info("远端 embedding 不可用，语义记忆回退本地 ONNX 嵌入")
+        # 进程内只提示一次：每个 CharacterAgent 构造都会走到这里，逐次 INFO 会
+        # 在启动时刷出多行同样的回退说明（远端不可用是稳定状态，不会中途变好）。
+        global _REMOTE_FALLBACK_LOGGED
+        if not _REMOTE_FALLBACK_LOGGED:
+            _REMOTE_FALLBACK_LOGGED = True
+            logger.info("远端 embedding 不可用，语义记忆回退本地 ONNX 嵌入")
     return get_local_embed_fn()
 
 
