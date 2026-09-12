@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "node_id": "enc_example",
-  "name": "示例战斗节点",
+  "node_id": "enc_new",
+  "name": "新战斗节点",
   "summary": "一句话说明这场战斗的处境与目的。",
-  "description": "可选的 markdown 描述：写给设计者与 LLM 看的战斗背景。",
+  "description": "",
   "bind": {
     "plot_id": "",
     "chapter_id": "",
@@ -14,33 +14,19 @@
     "allow_corner_cut": false
   },
   "map": {
-    "rows": 9,
-    "cols": 9,
+    "rows": 7,
+    "cols": 7,
     "tiles": "ground",
-    "tile_defs": {
-      "cover": {
-        "name": "掩体",
-        "glyph": "H",
-        "color": "#a16207",
-        "defense_bonus": 2,
-        "evasion_bonus": 1
-      }
-    },
+    "tile_defs": {},
     "deploy": {
       "player": { "rect": [3, 0, 5, 1] },
-      "enemy": { "rect": [3, 7, 6, 8] },
+      "enemy": { "rect": [3, 5, 5, 6] },
       "enemy_random_shift": false
     }
   },
   "waves": [
     {
-      "enemies": [
-        {
-          "enemy": "整合运动士兵",
-          "count": 2,
-          "positions": [[4, 7], [6, 7]]
-        }
-      ]
+      "enemies": []
     }
   ],
   "conditions": {
@@ -48,7 +34,7 @@
     "escape_enabled": true
   },
   "rewards": {
-    "xp": 60,
+    "xp": 0,
     "items": [],
     "unlock": []
   },
@@ -56,9 +42,9 @@
     "category": "test",
     "encounter_type": "normal",
     "band": "T1",
-    "threat_budget": 3.2,
+    "threat_budget": 0,
     "target_rounds": 4,
-    "difficulty": 2
+    "difficulty": 1
   },
   "background": "default",
   "balance_version": 1

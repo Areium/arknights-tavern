@@ -15,6 +15,37 @@
 ---
 
 ## 更新记录
+### 2026-09-12 — 战斗系统重构批次 2：节点注册表 + 世界书携带 + 可视化编辑器
+
+> 承接批次 1（JSON 节点战场）。本批次把"手写 JSON 节点"变成"可编辑 + 可随世界书分发"，并让编辑器读到会话的剧情节拍进度。
+
+- **节点注册表**（`src/combat_nodes.py`）：JSON 读写 + `_hash` 冲突检测（与卡牌共用
+  `src/shared/json_hash.py`，同一套"带着旧 hash 保存 → 409"语义）+ 校验（敌人名称/数量上限/
+  站位越界与阻挡/回合上限/奖励/阶段带/度量）+ 剧情节拍绑定扫描 + 会话进度 + 世界书条目编解码。
+  校验规则与**开战前**一致：错误阻止保存与试打，警告仅提示。
+- **接口**（`src/blueprints/combat_nodes.py`）：`GET /api/combat/nodes?session_id=`（总览：
+  地图尺寸/单位数/节拍绑定/`progress` = done·current·locked/来源世界书/待创建标记）、
+  `POST`（新建，空波次可存但不可开战）、`GET|PUT|DELETE /api/combat/nodes/<id>`
+  （PUT 带 `_hash` → 409；DELETE 被剧情引用时 409，需 `force=1`）、
+  `POST /api/combat/nodes/validate`（只校验不落盘）、`GET …/worldbook`（条目预览）、
+  `POST /api/combat/nodes/import-worldbook`（按条目或书 id 导入）、
+  `GET /api/combat/nodes/progress?session_id=`。
+- **世界书携带**：节点可编码为一条世界书条目 —— `content` 内 ```json combat-node 围栏块
+  （酒馆格式唯一无损文本通道）+ `raw.extensions.arknights_tavern.entry_type=combat_node`。
+  导入世界书时**自动落地**为 `data/combat/nodes/*.json`（校验失败逐条返回错误、不落半成品）；
+  导出前从注册表**回灌**条目 content，节点侧编辑不丢。
+- **编辑器**（`frontend/src/components/combat/BattleNodeEditor.tsx` + `BattleMapCanvas.tsx`）：
+  左侧节点列表（搜索/新建/删除/剧情节拍绑定/进度徽章/待创建提示），右侧 — 基本信息（含
+  `plot/chapter/beat` 绑定）、**地图绘制**（行列调整、画格子笔刷、整图填充、玩家/敌方部署区
+  涂抹）、**敌人编成**（波次增删、从图鉴加敌人、数量、**逐单位血量覆盖**、📍点图指定站位）、
+  难度与奖励、服务端校验面板；顶部支持**保存（含 409 冲突重新加载）**与**⚔ 试打**。
+  入口：内容中心新增「战斗节点」Tab；战斗视图战前卡片的「⚙ 编辑此节点」直接跳到该节点。
+- **保底**：空节点（没有敌人）可保存但开战会被拒绝（`NodeError` → 400 与可读原因），
+  避免出现"零敌人战场"。
+- **测试**：新增 `tests/test_combat_nodes.py`（22 项：校验矩阵、CRUD 冲突、删除保护、
+  进度、世界书往返、坏条目拒绝、整书导入、空节点拦截）。全量 `bash scripts/run_tests.sh` =
+  151 + 58 + 4 个 legacy 脚本全绿；前端 `tsc --noEmit` 与 `vite build` 通过。
+
 ### 2026-09-12 — 战斗系统重构批次 1：JSON 节点战场 + 统一曼哈顿度量 + 可扩展地形
 
 > 承接批次 0（去历史包袱）。本批次把"固定 7×7 网格 + 全局遭遇文件 + 切比雪夫距离"换成"自由尺寸战场 JSON + 统一曼哈顿 + 地形系统"，并完成敌人库合并。

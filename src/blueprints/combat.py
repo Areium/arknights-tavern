@@ -13,6 +13,7 @@ from flask import Blueprint, jsonify, request
 from shared.helpers import json_error, make_sse_response, build_character_metas
 from combat_approaches import resolve_approach, list_approaches, roll_check
 from combat_map import MapError
+from combat_nodes import NodeError
 from combat_engine.engine import CombatEvent
 from combat_settlement import (
     SettlementApplyError,
@@ -349,6 +350,9 @@ def register(app, managers):
             return jsonify(resp)
         except MapError as e:
             return json_error(f"战场配置无效：{e}", 400)
+        except NodeError as e:
+            # 节点本身没问题但内容不可开战（例如没有敌人）→ 400 而非 404
+            return json_error("；".join(e.errors), 400)
         except ValueError as e:
             return json_error(str(e), 404)
         except Exception as e:
@@ -631,7 +635,6 @@ def register(app, managers):
         编排完全由节点决定（便于编辑器"试打这个节点"）。
         """
         from combat_session import CombatSession
-        from combat_map import MapError
 
         data = request.json or {}
         node_id = data.get("node_id") or data.get("encounter_id") or ""
@@ -658,28 +661,16 @@ def register(app, managers):
             return jsonify({"test_id": test_id, "node_id": node_id, "state": state})
         except MapError as e:
             return json_error(f"战场配置无效：{e}", 400)
+        except NodeError as e:
+            # 节点本身没问题但内容不可开战（例如没有敌人）→ 400 而非 404
+            return json_error("；".join(e.errors), 400)
         except ValueError as e:
             return json_error(str(e), 404)
         except Exception as e:
             logger.exception("Failed to start test combat")
             return json_error(f"战斗测试启动失败: {e}", 500)
 
-    # ── 只读目录（编辑器 / 选择器 / 前端下拉）──
-
-    @bp.route("/api/combat/nodes", methods=["GET"])
-    def combat_nodes():
-        """战斗节点列表（含地图尺寸、单位总数、剧情节拍绑定）。"""
-        from combat_data_loader import CombatDataLoader
-        return jsonify({"nodes": CombatDataLoader().list_nodes()})
-
-    @bp.route("/api/combat/nodes/<path:node_id>", methods=["GET"])
-    def combat_node_detail(node_id: str):
-        """单个战斗节点完整 JSON（编辑器读取）。"""
-        from combat_data_loader import CombatDataLoader
-        node = CombatDataLoader().load_node(node_id)
-        if not node:
-            return json_error(f"战斗节点不存在: {node_id}", 404)
-        return jsonify(node)
+    # ── 只读目录（选择器 / 前端下拉；编辑器的节点 CRUD 见 blueprints/combat_nodes.py）──
 
     @bp.route("/api/combat/enemies", methods=["GET"])
     def combat_enemies():

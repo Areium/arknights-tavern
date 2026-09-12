@@ -41,11 +41,12 @@ Electron 主进程管理窗口 + Python 子进程生命周期（`frontend/electr
 - `combat_session.py` — 战斗会话包装器：组装 CombatEngine + CombatDataLoader，管理生命周期、玩家操作、敌人 AI、SSE 推送
 - `combat_data_loader.py` — 加载战斗节点 `data/combat/nodes/*.json`、敌人 `data/enemies/*.md`（叙事 attributes + 战斗 combat_stats，缺 combat_stats 时按 attributes 派生）与 `backgrounds/`
 - `combat_map.py` — 战斗地图 JSON：尺寸/格子类型注册表/部署区解析与校验（行列定位错误、软锁警告、上限 40×40）
+- `combat_nodes.py` — 战斗节点注册表：JSON 读写 + `_hash` 冲突检测 + 校验 + 剧情节拍绑定/进度 + 世界书条目编解码（`shared/json_hash.py` 与卡牌共用哈希）
 - `avatar_color.py` — 从角色 PNG 头像提取主导色（hex），用于 UI 主题配色
 - `index_manager.py` — 基于 `imports` 字段的文档关系图，YAML 导出/导入
 - `hooks/` — Hook 管道：`pipeline.py`（执行器）+ `attribute_roll.py` + `wiki_prefetch.py`
 
-API 层（`src/blueprints/`）：Flask Blueprint — `chat.py`（对话/叙述/SSE/战斗触发）、`combat.py`（战斗 SSE）、`cards.py`（卡牌 JSON CRUD）、`documents.py`、`sessions.py`、`scene.py`、`environment.py`、`index.py`、`wiki.py`、`llm.py`、`assets.py`、`memories.py`、`status.py`、`worldbook.py`（书 CRUD/导入/条目/默认书/会话绑定）。
+API 层（`src/blueprints/`）：Flask Blueprint — `chat.py`（对话/叙述/SSE/战斗触发）、`combat.py`（战斗 SSE + 敌人/格子目录）、`combat_nodes.py`（战斗节点 CRUD/校验/世界书携带/节拍进度）、`cards.py`（卡牌 JSON CRUD）、`documents.py`、`sessions.py`、`scene.py`、`environment.py`、`index.py`、`wiki.py`、`llm.py`、`assets.py`、`memories.py`、`status.py`、`worldbook.py`（书 CRUD/导入/条目/默认书/会话绑定）。
 
 战斗引擎（`src/combat_engine/`）：`engine.py`（回合循环/AP/士气/地形效果/寻路移动）、`entity.py`（CombatUnit）、`grid.py`（自由尺寸网格、Dijkstra 寻路、视线、统一曼哈顿度量与目标形状）、`card.py`（卡牌/CardPool）、`card_data.py`（职业基础卡牌，JSON 单一真相源）、`dice.py`（命中/伤害，含 `terrain_mods` 地形修正）。
 
@@ -61,6 +62,7 @@ API 层（`src/blueprints/`）：Flask Blueprint — `chat.py`（对话/叙述/S
 - `components/ChatView.tsx` — 对话页容器：会话列表 + 场景面板（角色/物品/环境/记忆/任务）+ `ChatPanel.tsx`（消息流/流式输出/选项/变体/回滚/对话气泡）
 - `components/chat/` — 气泡渲染子组件（DialogueBubble、NarrationText、AvatarPlaceholder 等）
 - `components/combat/CombatView.tsx` — 战斗主控（50k+ LOC，最大组件）
+- `components/combat/BattleNodeEditor.tsx` — 战斗节点编辑器（节点列表 + 剧情节拍进度 + 地图绘制 BattleMapCanvas + 敌人编成与血量覆盖 + 服务端校验 + 试打）
 - `components/combat/` — CSS 网格（CombatGrid：行列自由尺寸 + 地形着色 + 部署区标识）+ PixiJS Spine 覆盖层（PixiCombatScene，runtime-3.8）+ 手牌（CombatHand）+ 卡组查看（DeckViewer）+ 卡牌编辑（CardEditor）+ 状态/事件面板 + Spine 动画规格（spineAnimSpecs.ts）
 - `components/DocumentManager.tsx` — 文档树 + Markdown 编辑器 + 图片资产管理（上传/裁剪/卡面）
 - `components/WorldBookManager.tsx` — 世界书管理：导入（文件/粘贴）、条目编辑器、会话绑定、酒馆格式导出

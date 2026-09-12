@@ -197,6 +197,12 @@ class CombatSession:
                     wave_units.append((enemy_unit, pos))
             all_waves.append(wave_units)
 
+        if not any(all_waves):
+            from combat_nodes import NodeError
+            raise NodeError(
+                f"战斗节点「{node.get('name', encounter_id)}」没有可出场的敌人："
+                "请先在编辑器中配置波次")
+
         # 波次交给引擎管理：wave 0 立即入场，其余进 pending_waves
         self.engine.load_waves(all_waves)
 

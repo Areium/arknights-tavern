@@ -6,7 +6,9 @@
 
 import { useMemo } from "react";
 import { getBaseUrl } from "../utils/baseUrl";
-import type { CombatSettlementDTO } from "../types";
+import type {
+  BattleNodeDTO, BattleNodeOverviewDTO, CombatSettlementDTO, ValidationReportDTO,
+} from "../types";
 
 async function uploadMultipart(path: string, fields: Record<string, string>, file: File): Promise<any> {
   const base = await getBaseUrl();
@@ -601,10 +603,61 @@ export function useApi() {
         (selectedUnit ? `?selected_unit=${encodeURIComponent(selectedUnit)}` : ""),
       ),
 
-    /** 战斗节点列表（含地图尺寸与剧情节拍绑定） */
-    listCombatNodes: () =>
-      request<{ nodes: { node_id: string; name: string; summary: string; rows: number; cols: number; unit_total: number; wave_count: number; category: string; band: string }[] }>(
-        "/api/combat/nodes",
+    /** 战斗节点列表（含地图尺寸、剧情节拍绑定与会话进度） */
+    listCombatNodes: (sessionId?: string) =>
+      request<{ nodes: BattleNodeOverviewDTO[]; meta: any }>(
+        "/api/combat/nodes" + (sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : ""),
+      ),
+
+    /** 单个战斗节点完整 JSON（编辑器读取） */
+    getCombatNode: (nodeId: string) =>
+      request<{ node: BattleNodeDTO; bindings: any[]; validation: ValidationReportDTO; worldbook_entry: any }>(
+        `/api/combat/nodes/${encodeURIComponent(nodeId)}`,
+      ),
+
+    /** 新建战斗节点（按模板；空波次可保存，开战前必须补敌人） */
+    createCombatNode: (nodeId: string, name: string) =>
+      request<{ ok: boolean; node: BattleNodeDTO }>("/api/combat/nodes", {
+        method: "POST",
+        body: JSON.stringify({ node_id: nodeId, name }),
+      }),
+
+    /** 保存战斗节点（`_hash` 冲突 → 409） */
+    saveCombatNode: (nodeId: string, node: BattleNodeDTO) =>
+      request<{ ok: boolean; node: BattleNodeDTO }>(
+        `/api/combat/nodes/${encodeURIComponent(nodeId)}`,
+        { method: "PUT", body: JSON.stringify({ node, _hash: (node as any)._hash || "" }) },
+      ),
+
+    /** 删除战斗节点（被剧情引用时需 force） */
+    deleteCombatNode: (nodeId: string, force = false) =>
+      request<{ ok: boolean; deleted: string; referenced_by: any[] }>(
+        `/api/combat/nodes/${encodeURIComponent(nodeId)}${force ? "?force=1" : ""}`,
+        { method: "DELETE" },
+      ),
+
+    /** 只校验不落盘（编辑器实时提示） */
+    validateCombatNode: (node: BattleNodeDTO) =>
+      request<ValidationReportDTO>("/api/combat/nodes/validate", {
+        method: "POST",
+        body: JSON.stringify({ node }),
+      }),
+
+    /** 会话节拍进度（node_id → done/current/locked） */
+    combatNodeProgress: (sessionId: string) =>
+      request<{ progress: Record<string, any>; context: any; has_plot: boolean }>(
+        `/api/combat/nodes/progress?session_id=${encodeURIComponent(sessionId)}`,
+      ),
+
+    /** 节点 → 世界书条目预览（可直接贴进世界书/导出） */
+    combatNodeWorldbookEntry: (nodeId: string) =>
+      request<{ entry: any }>(`/api/combat/nodes/${encodeURIComponent(nodeId)}/worldbook`),
+
+    /** 从世界书条目/书 id 导入战斗节点 */
+    importCombatNodes: (payload: { book_id?: string; entries?: any[] }) =>
+      request<{ ok: boolean; imported: any[]; skipped: string[]; errors: string[] }>(
+        "/api/combat/nodes/import-worldbook",
+        { method: "POST", body: JSON.stringify(payload) },
       ),
 
     /** 格子类型注册表（内置 + data/combat/tiles/*.json） */

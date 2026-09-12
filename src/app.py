@@ -64,6 +64,7 @@ def create_app():
     from blueprints.chat import register as reg_chat
     from blueprints.scene import register as reg_scene
     from blueprints.combat import register as reg_combat
+    from blueprints.combat_nodes import register as reg_combat_nodes
     from blueprints.documents import register as reg_documents
     from blueprints.index import register as reg_index
     from blueprints.llm import register as reg_llm
@@ -80,6 +81,7 @@ def create_app():
         reg_chat,
         reg_scene,
         reg_combat,
+        reg_combat_nodes,
         reg_documents,
         reg_index,
         reg_llm,

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useAppStore } from "../../stores/appStore";
 import { useApi, createCombatSSE, createCombatTestSSE } from "../../hooks/useApi";
-import type { CombatEventDTO, CombatStateDTO, CombatUnitDTO, CardDTO, CombatSettlementDTO } from "../../types";
+import type { CombatEventDTO, CombatStateDTO, CombatUnitDTO, CardDTO, CombatSettlementDTO, BattleNodeOverviewDTO } from "../../types";
 import PixiCombatScene, { type PixiCombatSceneHandle } from "./PixiCombatScene";
 import { audioManager } from "../../audio/audioManager";
 import CombatGrid from "./CombatGrid";
@@ -38,6 +38,8 @@ export default function CombatView() {
     setCombatContext,
     setCurrentView,
     setPendingAutoNarrate,
+    setContentHubTab,
+    setCombatNodeJumpId,
   } = useAppStore();
   const {
     state: combatState,
@@ -89,11 +91,7 @@ export default function CombatView() {
   const [rosterLoading, setRosterLoading] = useState(false);
   const [encounterId, setEncounterId] = useState(DEFAULT_ENCOUNTER);
   // 战斗节点目录（含地图尺寸与剧情节拍绑定），供战前选择
-  const [combatNodes, setCombatNodes] = useState<{
-    node_id: string; name: string; summary: string; rows: number; cols: number;
-    unit_total: number; wave_count: number; category: string; band: string;
-    bind?: { plot_id?: string; beat_id?: string };
-  }[]>([]);
+  const [combatNodes, setCombatNodes] = useState<BattleNodeOverviewDTO[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1222,12 +1220,22 @@ export default function CombatView() {
             />
           )}
           {selectedNode && (
-            <p className="text-[10px] text-gray-500 mb-3">
-              {selectedNode.summary}
-              {selectedNode.bind?.beat_id
-                ? ` · 剧情节点 ${selectedNode.bind.plot_id}/${selectedNode.bind.beat_id}`
-                : " · 无剧情节拍绑定"}
-            </p>
+            <div className="mb-3">
+              <p className="text-[10px] text-gray-500">
+                {selectedNode.summary}
+                {selectedNode.bind?.beat_id
+                  ? ` · 剧情节点 ${selectedNode.bind.plot_id}/${selectedNode.bind.beat_id}`
+                  : " · 无剧情节拍绑定"}
+              </p>
+              <button
+                className="mt-1 text-[10px] text-amber-400/90 hover:text-amber-300 underline"
+                onClick={() => {
+                  setCombatNodeJumpId(selectedNode.node_id);
+                  setContentHubTab("combat");
+                  setCurrentView("content");
+                }}
+              >⚙ 编辑此节点（地图 / 敌人 / 血量）</button>
+            </div>
           )}
 
           <label className="block text-xs text-gray-500 mb-1 font-display tracking-wider">参战角色（会话入队阵容）</label>

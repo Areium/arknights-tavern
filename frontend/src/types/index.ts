@@ -619,3 +619,115 @@ export interface WorldBookResolveResult {
   book: WorldBookSummary | null;
   default_book_id: string | null;
 }
+
+// ── 战斗节点编辑器（batch 2）─────────────────────────────────────────────────
+
+/** 节点里的一波敌人条目 */
+export interface BattleWaveEntryDTO {
+  enemy: string;
+  count: number;
+  /** 声明站位；缺失会自动落到部署区空格 */
+  positions?: [number, number][];
+  /** 逐实例数值覆盖（如 {hp: 150}） */
+  stats?: Record<string, number>;
+}
+
+export interface BattleWaveDTO {
+  enemies: BattleWaveEntryDTO[];
+}
+
+/** 地图部署区写法（rect 为 [r0,c0,r1,c1] 对角；cells 为显式坐标） */
+export interface DeployZoneDTO {
+  rect?: [number, number, number, number];
+  cells?: [number, number][];
+}
+
+export interface BattleMapDTO {
+  rows: number;
+  cols: number;
+  /** 二维 tile_id 数组，或整图统一填充的字符串简写 */
+  tiles: string[][] | string;
+  tile_defs?: Record<string, Partial<TileTypeDTO>>;
+  deploy?: {
+    player?: DeployZoneDTO;
+    enemy?: DeployZoneDTO;
+    enemy_random_shift?: boolean;
+  };
+}
+
+/** 战斗节点 JSON（与后端 data/combat/nodes/<id>.json 一一对应） */
+export interface BattleNodeDTO {
+  schema_version?: number;
+  node_id: string;
+  name: string;
+  summary?: string;
+  description?: string;
+  bind?: { plot_id?: string; chapter_id?: string; beat_id?: string };
+  rules?: { range_metric?: "manhattan" | "chebyshev"; allow_corner_cut?: boolean };
+  map: BattleMapDTO;
+  waves: BattleWaveDTO[];
+  enemies_def?: Record<string, any>;
+  conditions?: { max_rounds?: number; escape_enabled?: boolean };
+  rewards?: { xp?: number; items?: string[]; unlock?: string[] };
+  difficulty?: {
+    category?: string; encounter_type?: string; band?: string;
+    threat_budget?: number; target_rounds?: number; difficulty?: number;
+  };
+  background?: string;
+  balance_version?: number;
+  source?: { type?: string; book_id?: string; entry_uid?: string };
+  _hash?: string;
+  warnings?: string[];
+}
+
+/** 节点列表行（含剧情节拍绑定与会话进度） */
+export interface BattleNodeOverviewDTO {
+  node_id: string;
+  name: string;
+  summary: string;
+  rows: number | null;
+  cols: number | null;
+  wave_count: number;
+  unit_total: number;
+  bind: { plot_id?: string; chapter_id?: string; beat_id?: string };
+  markers: { plot_id: string; chapter_id?: string; beat_id?: string }[];
+  progress?: {
+    state: "done" | "current" | "locked";
+    plot_id: string;
+    chapter_idx: number;
+    chapter_title?: string;
+    beat_id: string;
+    beat_summary?: string;
+  } | null;
+  source_worldbook?: string;
+  hash?: string;
+  /** 剧情引用了但注册表里还没有配置 → 编辑器可一键创建 */
+  missing?: boolean;
+}
+
+/** 校验报告（只读，不阻断保存以外的行为） */
+export interface ValidationReportDTO {
+  errors: string[];
+  warnings: string[];
+}
+
+/** 敌人图鉴条目 */
+export interface EnemyCatalogEntryDTO {
+  name: string;
+  summary: string;
+  race: string;
+  faction: string;
+  class: string;
+  level: number;
+  power_tier: string;
+  role: string;
+  action_slots: number;
+  threat_points: number;
+  ai_behavior: string;
+  ai_skills: string[];
+  drop_items: string[];
+  drop_rate: number;
+  xp_reward: number;
+  derived_from_attributes: boolean;
+  combat_stats: Record<string, number>;
+}
