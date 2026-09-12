@@ -1,0 +1,1229 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Arknights Tavern · 主页设计台（HomeMenu 现状基线）</title>
+
+<!--
+  ═══════════════════════════════════════════════════════════════════════════
+  主页（HomeMenu）独立预览稿 —— 现状基线 + 设计台
+  ═══════════════════════════════════════════════════════════════════════════
+
+  【这是什么】
+  把 frontend/src/components/HomeMenu.tsx + style.css 的 .home-menu-* 区段
+  + styles/skin-prts.css / skin-tavern.css 的主页覆盖，抽成一个可直接双击打开的
+  独立 HTML。目的：不启动 Electron / Vite / Flask 后端，就能对主页做视觉设计迭代。
+
+  【与产品代码的关系】
+  · 本文件不接入构建，不参与打包，改它不会影响运行时（与同目录 01~04 稿一致）。
+  · DOM 结构与 CSS 数值是 1:1 抄录现状，作为「改之前长什么样」的基线。
+  · 唯一的结构性差异：把所有散落的硬编码值上提到了「设计令牌」区（CSS 变量）。
+    产品代码刻意「不做 CSS 变量重构」（见 AGENTS.md），那是生产约束；
+    本预览稿是设计台，变量化恰恰是为了让改配色/改版式只动十几行。
+  · 产品里由 Tailwind preflight 提供的基线（box-sizing、line-height:1.5、h1 归一化、
+    img 块级）在本文件「1. 基础」区手工补齐 —— 少了 line-height，文字块会比真实
+    应用矮一截，量出来的面板高度就不作数了。
+
+  【怎么用】
+  · 双击打开即可。资源用相对路径 ../frontend/public/{menu_bg.jpg,logo.png}，
+    所以请保持 ui-styles/ 与 frontend/ 的相对位置（移动文件会丢背景图，届时回落到渐变底）。
+  · 右下角「设计台」按钮（或按 D）→ 切皮肤 / 模拟状态 / 调版式 / 试强调色 / 换画布尺寸。
+  · 快捷键：D 开关设计台 · 1/2/3 切皮肤 · R 重置 · Esc 关闭设计台。
+  · URL 参数可复现某个状态（便于截图评审 / 发给别人看）：
+      ?skin=tavern|prts|default  ?accent=holo|amber|seal|jade|skin
+      ?gate=1  ?backend=0  ?llm=0  ?sessions=5  ?combat=2
+      ?width=30  ?radius=0.5  ?alpha=0.6  ?dim=0.8  ?canvas=390x844
+  · 删掉「设计台」那一段 HTML + <script>，剩下的就是纯净的 1:1 基线。
+
+  【现状问题（无头 Chrome 实测得出，非目测；改版时可一并处理）】
+  1. 默认 / PRTS 皮肤的主标题折成两行。Orbitron 700 / 23.2px / 0.3em 字距实测需
+     392px，而栏目内容宽只有 358px（416 − 2×28 padding − 2×1 border）。面板因此
+     比单行时高 39px。tavern 皮肤是单行 —— 因为它已把标题收紧到 1.28rem / 0.14em：
+     同一个坑，只有衬线那版填了。
+  2. 面板与底部状态栏在矮视口重叠。.home-menu-stage 按整个视口高度居中，没给
+     38px 状态栏留位置；面板又随宽度变窄而变高。实测 360×740 起重叠
+     （面板底 752 > 状态栏顶 734），320×568 时面板 700px 高过画布 568px。
+  3. 底部状态栏在窄屏被裁。内容实测需 351px（LLM 名短）～507px（provider 名长），
+     而窄屏容器只有屏宽；配合 justify-content:center + 根部 overflow:hidden，
+     溢出时两端同时被切 —— 实测 390px 手机配长 provider 名，音量条直接被切掉。
+  4. tavern 皮肤的闸门标题渐变与 logo 辉光仍是琥珀金：skin-tavern.css 只改了衬线
+     字体 / 字号 / 字距，没改 linear-gradient 与 box-shadow，金压在羊皮纸上偏脏。
+  5. 版本号 v0.1.0 硬编码在组件里（frontend/package.json 的 version 目前也是 0.1.0，
+     暂时不会不一致）。
+  ═══════════════════════════════════════════════════════════════════════════
+-->
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@500;700;900&family=Orbitron:wght@500;700;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   0. 设计令牌 —— 改版主要动这里
+   ═══════════════════════════════════════════════════════════════════════════
+   下面 :root 是「默认皮肤（琥珀金 / 深色）」的现状值。
+   同名变量在 html.skin-prts / html.skin-tavern 里被整组覆盖 ——
+   想新增第 4 个视觉方向，只需复制一个 token 块改值，组件 CSS 一行都不用动。
+   ─────────────────────────────────────────────────────────────────────────── */
+:root {
+  /* ── 字体 ── */
+  --hm-font-display: "Orbitron", sans-serif;            /* tailwind font-display */
+  --hm-font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif;
+  --hm-font-serif: "Noto Serif SC", serif;
+
+  /* ── 版式旋钮（设计台可实时调）── */
+  --hm-col-maxw: 26rem;        /* 主栏目宽度 */
+  --hm-panel-radius: 1.25rem;  /* 主面板圆角 */
+  --hm-panel-alpha: 1;         /* 主面板不透明度倍率 */
+  --hm-dim: 1;                 /* 背景遮罩强度倍率 */
+
+  /* ── 背景与遮罩 ── */
+  --hm-bg-image: url("../frontend/public/menu_bg.jpg");
+  --hm-bg-color: #0a0c12;
+  /* 暗角（radial-gradient）三个停靠色 */
+  --hm-vig-core: rgba(8, 10, 16, 0);
+  --hm-vig-mid:  rgba(8, 10, 16, 0.55);
+  --hm-vig-edge: rgba(5, 6, 10, 0.92);
+  /* 上下压暗（linear-gradient）四个停靠色 */
+  --hm-vig-top:    rgba(6, 8, 13, 0.55);
+  --hm-vig-30:     rgba(6, 8, 13, 0.15);
+  --hm-vig-60:     rgba(6, 8, 13, 0.20);
+  --hm-vig-bottom: rgba(4, 5, 9, 0.85);
+
+  /* ── 主面板（.home-menu-column）── */
+  --hm-panel-rgb-1: 13, 16, 24;
+  --hm-panel-rgb-2: 9, 11, 17;
+  --hm-panel-a1: 0.78;
+  --hm-panel-a2: 0.86;
+  --hm-panel-border: rgba(255, 255, 255, 0.08);
+  --hm-panel-blur: 10px;
+  --hm-panel-shadow: 0 24px 80px -24px rgba(0, 0, 0, 0.85);
+  --hm-panel-inset: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+
+  /* ── 主标题 ARKNIGHTS TAVERN ── */
+  --hm-title-font: var(--hm-font-display);
+  --hm-title-size: 1.45rem;
+  --hm-title-ls: 0.3em;
+  --hm-title-g1: #fde68a;
+  --hm-title-g2: #f59e0b;
+  --hm-title-g3: #fde68a;
+  --hm-title-shadow: 0 2px 24px rgba(251, 191, 36, 0.22);
+
+  /* ── 闸门标题（渐变基线不同，故单列）── */
+  --hm-splash-title-font: var(--hm-font-display);
+  --hm-splash-title-size: 22px;
+  --hm-splash-title-ls: 0.42em;
+  --hm-splash-g1: #fcd34d;
+  --hm-splash-g2: #f59e0b;
+  --hm-splash-g3: #fcd34d;
+  --hm-splash-title-shadow: 0 2px 22px rgba(251, 191, 36, 0.2);
+
+  --hm-sub-color: rgba(156, 163, 175, 0.85);
+
+  /* ── 菱形分隔符 ── */
+  --hm-div-rgb: 251, 191, 36;
+  --hm-div-alpha: 0.4;
+  --hm-dot-1: #fcd34d;
+  --hm-dot-2: #d97706;
+  --hm-dot-shadow: 0 0 10px rgba(245, 158, 11, 0.6);
+
+  /* ── 菜单项 ── */
+  --hm-item-border: rgba(255, 255, 255, 0.07);
+  --hm-item-bg: rgba(255, 255, 255, 0.035);
+  --hm-item-hover-border: rgba(251, 191, 36, 0.4);
+  --hm-item-hover-bg: rgba(251, 191, 36, 0.07);
+  --hm-item-hover-shadow: 0 4px 22px -8px rgba(245, 158, 11, 0.35);
+  --hm-label-color: #e5e7eb;
+  --hm-label-font: var(--hm-font-ui);   /* 不要写 inherit：自定义属性上 inherit 会解析成空值 */
+  --hm-label-ls: 0.06em;
+  --hm-desc-color: rgba(156, 163, 175, 0.75);
+  --hm-badge-color: #fcd34d;
+  --hm-badge-bg: rgba(245, 158, 11, 0.14);
+  --hm-badge-border: rgba(245, 158, 11, 0.3);
+  --hm-arrow-color: #fcd34d;
+
+  /* ── 主入口「会话大厅」 ── */
+  --hm-prim-border: rgba(245, 158, 11, 0.45);
+  --hm-prim-rgb-1: 245, 158, 11;
+  --hm-prim-a1: 0.16;
+  --hm-prim-2: rgba(180, 83, 9, 0.10);
+  --hm-prim-shadow: 0 6px 26px -10px rgba(245, 158, 11, 0.4);
+  --hm-prim-inset: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --hm-prim-label: #fde68a;
+  --hm-prim-h-border: rgba(251, 191, 36, 0.7);
+  --hm-prim-h-a1: 0.24;
+  --hm-prim-h-2: rgba(180, 83, 9, 0.16);
+  --hm-prim-h-shadow: 0 8px 32px -10px rgba(245, 158, 11, 0.55);
+  --hm-prim-h-inset: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+
+  /* ── 点击进入闸门 ── */
+  --hm-splash-bg: rgba(5, 6, 10, 0.82);
+  --hm-splash-press: rgba(209, 213, 219, 0.85);
+  --hm-splash-logo-glow: 0 0 42px rgba(245, 158, 11, 0.35);
+
+  /* ── 底部状态栏 ── */
+  --hm-footer-color: rgba(156, 163, 175, 0.8);
+  --hm-version-color: rgba(107, 114, 128, 0.8);
+  --hm-audio-border: rgba(255, 255, 255, 0.1);
+  --hm-audio-bg: rgba(255, 255, 255, 0.04);
+  --hm-audio-hover-bg: rgba(255, 255, 255, 0.1);
+  --hm-slider-accent: #f59e0b;
+  /* 状态点（两个皮肤都未覆盖） */
+  --hm-dot-ok: #34d399;
+  --hm-dot-ok-glow: 0 0 8px rgba(52, 211, 153, 0.7);
+  --hm-dot-bad: #f87171;
+  --hm-dot-bad-glow: 0 0 8px rgba(248, 113, 113, 0.7);
+}
+
+/* ── 皮肤 B：PRTS 全息终端（照抄 styles/skin-prts.css L498-556）─────────── */
+html.skin-prts {
+  --hm-font-display: "Orbitron", "Noto Sans SC", sans-serif;  /* --p-display */
+  --hm-bg-color: #04070d;                                     /* --p-abyss */
+  --hm-vig-core: rgba(4, 7, 13, 0);
+  --hm-vig-mid:  rgba(4, 7, 13, 0.55);
+  --hm-vig-edge: rgba(2, 4, 10, 0.92);
+  --hm-vig-top:    rgba(4, 7, 13, 0.55);
+  --hm-vig-30:     rgba(4, 7, 13, 0.15);
+  --hm-vig-60:     rgba(4, 7, 13, 0.20);
+  --hm-vig-bottom: rgba(2, 4, 10, 0.88);
+  --hm-panel-rgb-1: 11, 21, 36;
+  --hm-panel-rgb-2: 4, 7, 13;
+  --hm-panel-a1: 0.86;
+  --hm-panel-a2: 0.92;
+  --hm-panel-border: rgba(56, 189, 248, 0.20);
+  --hm-panel-shadow: 0 24px 80px -24px rgba(0, 0, 0, 0.9);
+  --hm-panel-inset: inset 0 1px 0 rgba(56, 189, 248, 0.06);
+  --hm-title-g1: #bae6fd;  --hm-title-g2: #38bdf8;  --hm-title-g3: #bae6fd;
+  --hm-title-shadow: 0 2px 24px rgba(56, 189, 248, 0.28);
+  --hm-sub-color: rgba(140, 163, 184, 0.85);
+  --hm-div-rgb: 56, 189, 248;  --hm-div-alpha: 0.45;
+  --hm-dot-1: #7dd3fc;  --hm-dot-2: #0284c7;
+  --hm-dot-shadow: 0 0 10px rgba(56, 189, 248, 0.6);
+  --hm-item-border: rgba(56, 189, 248, 0.12);
+  --hm-item-bg: rgba(56, 189, 248, 0.04);
+  --hm-item-hover-border: rgba(56, 189, 248, 0.45);
+  --hm-item-hover-bg: rgba(56, 189, 248, 0.10);
+  --hm-item-hover-shadow: 0 4px 22px -8px rgba(56, 189, 248, 0.40);
+  --hm-label-color: #dce8f2;  --hm-label-font: var(--hm-font-display);  --hm-label-ls: 0.10em;
+  --hm-desc-color: rgba(140, 163, 184, 0.78);
+  --hm-badge-color: #38bdf8;  --hm-badge-bg: rgba(56, 189, 248, 0.14);  --hm-badge-border: rgba(56, 189, 248, 0.30);
+  --hm-arrow-color: #38bdf8;
+  --hm-prim-border: rgba(56, 189, 248, 0.50);
+  --hm-prim-rgb-1: 56, 189, 248;  --hm-prim-a1: 0.16;
+  --hm-prim-2: rgba(2, 132, 199, 0.10);
+  --hm-prim-shadow: 0 6px 26px -10px rgba(56, 189, 248, 0.45);
+  --hm-prim-inset: inset 0 1px 0 rgba(56, 189, 248, 0.08);
+  --hm-prim-label: #bae6fd;
+  --hm-prim-h-border: rgba(56, 189, 248, 0.75);
+  --hm-prim-h-a1: 0.24;
+  --hm-prim-h-2: rgba(2, 132, 199, 0.16);
+  --hm-prim-h-shadow: 0 8px 32px -10px rgba(56, 189, 248, 0.60);
+  --hm-prim-h-inset: inset 0 1px 0 rgba(56, 189, 248, 0.10);
+  --hm-footer-color: rgba(140, 163, 184, 0.8);
+  --hm-version-color: rgba(84, 104, 124, 0.85);
+  --hm-audio-border: rgba(56, 189, 248, 0.15);
+  --hm-audio-bg: rgba(56, 189, 248, 0.05);
+  --hm-audio-hover-bg: rgba(56, 189, 248, 0.12);
+  --hm-slider-accent: #38bdf8;   /* --p-holo */
+}
+
+/* ── 皮肤 C：酒馆手札（照抄 styles/skin-tavern.css L489-561）──────────── */
+html.skin-tavern {
+  --hm-bg-color: #ece1c9;                                     /* --t-parch */
+  --hm-vig-core: rgba(236, 225, 201, 0);
+  --hm-vig-mid:  rgba(236, 225, 201, 0.45);
+  --hm-vig-edge: rgba(224, 211, 181, 0.85);
+  --hm-vig-top:    rgba(236, 225, 201, 0.45);
+  --hm-vig-30:     rgba(236, 225, 201, 0.10);
+  --hm-vig-60:     rgba(236, 225, 201, 0.15);
+  --hm-vig-bottom: rgba(224, 211, 181, 0.80);
+  --hm-panel-rgb-1: 251, 246, 233;
+  --hm-panel-rgb-2: 247, 240, 221;
+  --hm-panel-a1: 0.92;
+  --hm-panel-a2: 0.96;
+  --hm-panel-border: #d8c9a8;                                 /* --t-line */
+  --hm-panel-shadow: 0 3px 0 rgba(64, 52, 42, 0.08), 0 24px 70px -24px rgba(64, 52, 42, 0.45);
+  --hm-panel-inset: inset 0 0 0 rgba(0, 0, 0, 0);             /* 占位，保持逗号列表合法 */
+  /* 衬线标题：实测 23.2px + 0.3em 字距 = 416px > 容器 358px 会折行，故收紧 */
+  --hm-title-font: var(--hm-font-serif);
+  --hm-title-size: 1.28rem;
+  --hm-title-ls: 0.14em;
+  --hm-title-g1: #a87b2f;  --hm-title-g2: #a03d2d;  --hm-title-g3: #a87b2f;
+  --hm-title-shadow: 0 2px 24px rgba(232, 163, 61, 0.25);
+  --hm-splash-title-font: var(--hm-font-serif);
+  --hm-splash-title-size: 1.22rem;
+  --hm-splash-title-ls: 0.16em;
+  --hm-sub-color: rgba(109, 92, 75, 0.85);
+  --hm-div-rgb: 168, 123, 47;  --hm-div-alpha: 0.55;
+  --hm-dot-1: #e8a33d;  --hm-dot-2: #a03d2d;
+  --hm-dot-shadow: 0 0 10px rgba(232, 163, 61, 0.55);
+  --hm-item-border: rgba(216, 201, 168, 0.9);
+  --hm-item-bg: rgba(255, 253, 246, 0.6);
+  --hm-item-hover-border: rgba(160, 61, 45, 0.40);
+  --hm-item-hover-bg: rgba(232, 163, 61, 0.14);
+  --hm-item-hover-shadow: 0 4px 22px -10px rgba(160, 61, 45, 0.35);
+  --hm-label-color: #40342a;  --hm-label-font: var(--hm-font-serif);  --hm-label-ls: 0.08em;
+  --hm-desc-color: rgba(109, 92, 75, 0.80);
+  --hm-badge-color: #7d5618;  --hm-badge-bg: rgba(232, 163, 61, 0.22);  --hm-badge-border: rgba(168, 123, 47, 0.40);
+  --hm-arrow-color: #a03d2d;                                  /* --t-seal */
+  --hm-prim-border: rgba(160, 61, 45, 0.45);
+  --hm-prim-rgb-1: 232, 163, 61;  --hm-prim-a1: 0.26;
+  --hm-prim-2: rgba(160, 61, 45, 0.12);
+  --hm-prim-shadow: 0 3px 0 rgba(124, 45, 32, 0.14), 0 8px 26px -12px rgba(160, 61, 45, 0.40);
+  --hm-prim-inset: inset 0 0 0 rgba(0, 0, 0, 0);
+  --hm-prim-label: #7c2d20;
+  --hm-prim-h-border: rgba(160, 61, 45, 0.65);
+  --hm-prim-h-a1: 0.34;
+  --hm-prim-h-2: rgba(160, 61, 45, 0.18);
+  --hm-prim-h-shadow: 0 3px 0 rgba(124, 45, 32, 0.18), 0 10px 32px -12px rgba(160, 61, 45, 0.50);
+  --hm-prim-h-inset: inset 0 0 0 rgba(0, 0, 0, 0);
+  --hm-splash-bg: rgba(236, 225, 201, 0.88);
+  --hm-splash-press: rgba(109, 92, 75, 0.85);
+  --hm-footer-color: rgba(109, 92, 75, 0.85);
+  --hm-version-color: rgba(156, 139, 116, 0.9);
+  --hm-audio-border: rgba(216, 201, 168, 0.9);
+  --hm-audio-bg: rgba(255, 253, 246, 0.6);
+  --hm-audio-hover-bg: rgba(232, 163, 61, 0.16);
+  --hm-slider-accent: #a03d2d;
+  /* 注意：闸门标题渐变 / logo 辉光 / 状态点 三处 tavern 未覆盖 → 仍为琥珀金（现状问题 #2） */
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   1. 基础
+   ═══════════════════════════════════════════════════════════════════════════ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; }
+
+/* Tailwind preflight 等价基线（产品里由 @tailwind base 提供）。
+   line-height:1.5 很关键 —— 少了它，文字块高度会比真实应用矮一截。 */
+html { line-height: 1.5; -webkit-text-size-adjust: 100%; }
+body { line-height: inherit; }
+h1, h2, h3, h4, h5, h6 { font-size: inherit; font-weight: inherit; }
+img, svg, video, canvas { display: block; vertical-align: middle; }
+
+body {
+  font-family: var(--hm-font-ui);
+  background: #05060a;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; color: inherit; cursor: pointer; background: none; border: none; }
+
+/* 现状：style.css @layer base 给「所有元素」挂了 300ms 的颜色过渡。
+   必须放在组件规则之前 —— 组件自带的 transition 要比它后出现才能生效。 */
+.home-menu-root *,
+.home-menu-root *::before,
+.home-menu-root *::after {
+  transition-property: background-color, border-color, color;
+  transition-duration: 300ms;
+  transition-timing-function: ease-in-out;
+}
+
+/* 产品里由 App.tsx 的 h-screen w-screen flex 容器提供满屏，这里等价复刻 */
+.home-menu-root {
+  position: relative;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  /* 背景图 + 兜底渐变（图缺失时不留白） */
+  background-image: var(--hm-bg-image), linear-gradient(160deg, #101526 0%, #0a0c12 55%, #05060a 100%);
+  background-size: cover, cover;
+  background-position: center, center;
+  background-color: var(--hm-bg-color);
+}
+
+/* 画布模式（设计台）：固定尺寸居中，模拟不同视口 */
+body.canvas-fixed { background: #16181f; }
+body.canvas-fixed .home-menu-root {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  height: auto;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.16), 0 30px 90px -20px rgba(0, 0, 0, 0.8);
+}
+body.canvas-fixed::before {
+  content: attr(data-canvas-label);
+  position: fixed; left: 12px; top: 10px; z-index: 999;
+  font: 500 11px/1 "JetBrains Mono", monospace;
+  letter-spacing: .08em; color: rgba(255, 255, 255, .45);
+  pointer-events: none;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   2. 氛围遮罩（style.css L1102-1109）
+   ═══════════════════════════════════════════════════════════════════════════ */
+.home-menu-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: var(--hm-dim);
+  background:
+    radial-gradient(120% 90% at 50% 30%, var(--hm-vig-core) 0%, var(--hm-vig-mid) 62%, var(--hm-vig-edge) 100%),
+    linear-gradient(to bottom, var(--hm-vig-top) 0%, var(--hm-vig-30) 30%, var(--hm-vig-60) 60%, var(--hm-vig-bottom) 100%);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   3. 点击进入闸门（style.css L1112-1152）
+   ═══════════════════════════════════════════════════════════════════════════ */
+.home-splash {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  background: var(--hm-splash-bg);
+  backdrop-filter: blur(6px);
+  cursor: pointer;
+  user-select: none;
+  animation: home-fade-in 0.6s ease-out;
+}
+.home-splash[hidden] { display: none; }
+.home-splash-logo {
+  width: 96px;
+  height: 96px;
+  border-radius: 20px;
+  box-shadow: var(--hm-splash-logo-glow);
+  animation: home-logo-breathe 3.2s ease-in-out infinite;
+}
+.home-splash-title {
+  font-family: var(--hm-splash-title-font);
+  font-size: var(--hm-splash-title-size);
+  letter-spacing: var(--hm-splash-title-ls);
+  text-indent: var(--hm-splash-title-ls);
+  font-weight: 700;
+  background: linear-gradient(120deg, var(--hm-splash-g1) 0%, var(--hm-splash-g2) 50%, var(--hm-splash-g3) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: var(--hm-splash-title-shadow);
+}
+.home-splash-press {
+  margin-top: 14px;
+  font-size: 13px;
+  letter-spacing: 0.5em;
+  text-indent: 0.5em;
+  color: var(--hm-splash-press);
+  animation: home-press-pulse 1.8s ease-in-out infinite;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   4. 主菜单舞台（style.css L1155-1323）
+   ═══════════════════════════════════════════════════════════════════════════ */
+.home-menu-stage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(10px);
+  transition: opacity 0.7s ease, transform 0.7s ease;
+}
+.home-menu-stage.entered { opacity: 1; pointer-events: auto; transform: none; }
+
+.home-menu-column {
+  width: 100%;
+  max-width: var(--hm-col-maxw);
+  margin: 0 1.5rem;
+  padding: 2rem 1.75rem 1.75rem;
+  border-radius: var(--hm-panel-radius);
+  border: 1px solid var(--hm-panel-border);
+  background: linear-gradient(
+    170deg,
+    rgba(var(--hm-panel-rgb-1), calc(var(--hm-panel-a1) * var(--hm-panel-alpha))),
+    rgba(var(--hm-panel-rgb-2), calc(var(--hm-panel-a2) * var(--hm-panel-alpha)))
+  );
+  backdrop-filter: blur(var(--hm-panel-blur));
+  box-shadow: var(--hm-panel-shadow), var(--hm-panel-inset);
+}
+
+/* ── 标题区 ── */
+.home-menu-head { text-align: center; }
+.home-menu-logo {
+  width: 68px;
+  height: 68px;
+  margin: 0 auto 12px;
+  border-radius: 16px;
+  box-shadow: 0 0 30px rgba(245, 158, 11, 0.28);
+  display: block;
+}
+.home-menu-title {
+  font-family: var(--hm-title-font);
+  font-size: var(--hm-title-size);
+  font-weight: 800;
+  letter-spacing: var(--hm-title-ls);
+  text-indent: var(--hm-title-ls);
+  background: linear-gradient(120deg, var(--hm-title-g1) 0%, var(--hm-title-g2) 45%, var(--hm-title-g3) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: var(--hm-title-shadow);
+}
+.home-menu-sub {
+  margin-top: 6px;
+  font-size: 11px;
+  letter-spacing: 0.42em;
+  text-indent: 0.42em;
+  color: var(--hm-sub-color);
+}
+.home-menu-divider { display: flex; align-items: center; gap: 10px; margin: 16px 8px 0; }
+.home-menu-divider::before,
+.home-menu-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(to right, transparent, rgba(var(--hm-div-rgb), var(--hm-div-alpha)));
+}
+.home-menu-divider::after { background: linear-gradient(to left, transparent, rgba(var(--hm-div-rgb), var(--hm-div-alpha))); }
+.home-menu-divider span {
+  width: 7px;
+  height: 7px;
+  transform: rotate(45deg);
+  background: linear-gradient(135deg, var(--hm-dot-1), var(--hm-dot-2));
+  box-shadow: var(--hm-dot-shadow);
+}
+
+/* ── 菜单项 ── */
+.home-menu-nav { display: flex; flex-direction: column; gap: 8px; margin-top: 20px; }
+.home-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--hm-item-border);
+  background: var(--hm-item-bg);
+  text-align: left;
+  transition: transform 0.16s ease, border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+  animation: home-item-in 0.5s ease-out backwards;
+}
+.home-menu-nav .home-menu-item:nth-child(1) { animation-delay: 0.05s; }
+.home-menu-nav .home-menu-item:nth-child(2) { animation-delay: 0.11s; }
+.home-menu-nav .home-menu-item:nth-child(3) { animation-delay: 0.17s; }
+.home-menu-nav .home-menu-item:nth-child(4) { animation-delay: 0.23s; }
+.home-menu-nav .home-menu-item:nth-child(5) { animation-delay: 0.29s; }
+.home-menu-nav .home-menu-item:nth-child(6) { animation-delay: 0.35s; }
+.home-menu-item:hover {
+  transform: translateX(4px);
+  border-color: var(--hm-item-hover-border);
+  background: var(--hm-item-hover-bg);
+  box-shadow: var(--hm-item-hover-shadow);
+}
+.home-menu-item:active { transform: translateX(4px) scale(0.99); }
+.home-menu-item-icon {
+  width: 30px;
+  text-align: center;
+  font-size: 17px;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.5));
+}
+.home-menu-item-text { flex: 1; min-width: 0; }
+.home-menu-item-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--hm-label-font);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--hm-label-color);
+  letter-spacing: var(--hm-label-ls);
+}
+.home-menu-item-desc {
+  display: block;
+  margin-top: 1px;
+  font-size: 10.5px;
+  color: var(--hm-desc-color);
+  letter-spacing: 0.04em;
+}
+.home-menu-item-badge {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: var(--hm-badge-color);
+  background: var(--hm-badge-bg);
+  border: 1px solid var(--hm-badge-border);
+}
+.home-menu-item-badge[hidden] { display: none; }
+.home-menu-item-arrow {
+  font-size: 10px;
+  color: var(--hm-arrow-color);
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.home-menu-item:hover .home-menu-item-arrow { opacity: 1; transform: none; }
+
+/* 主入口强调 */
+.home-menu-item.primary {
+  padding: 13px 16px;
+  border-color: var(--hm-prim-border);
+  background: linear-gradient(135deg, rgba(var(--hm-prim-rgb-1), var(--hm-prim-a1)), var(--hm-prim-2));
+  box-shadow: var(--hm-prim-shadow), var(--hm-prim-inset);
+}
+.home-menu-item.primary .home-menu-item-label { color: var(--hm-prim-label); font-size: 14.5px; }
+.home-menu-item.primary:hover {
+  border-color: var(--hm-prim-h-border);
+  background: linear-gradient(135deg, rgba(var(--hm-prim-rgb-1), var(--hm-prim-h-a1)), var(--hm-prim-h-2));
+  box-shadow: var(--hm-prim-h-shadow), var(--hm-prim-h-inset);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   5. 底部状态栏（style.css L1326-1357 + L1424-1430）
+   ═══════════════════════════════════════════════════════════════════════════ */
+.home-menu-footer {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  font-size: 11px;
+  color: var(--hm-footer-color);
+  z-index: 10;
+}
+.home-status { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.home-status .dot {
+  width: 7px; height: 7px;
+  border-radius: 999px;
+  display: inline-block;
+}
+.home-status .dot.ok  { background: var(--hm-dot-ok);  box-shadow: var(--hm-dot-ok-glow); }
+.home-status .dot.bad { background: var(--hm-dot-bad); box-shadow: var(--hm-dot-bad-glow); }
+.home-menu-version { color: var(--hm-version-color); letter-spacing: 0.08em; }
+.home-audio-group { display: inline-flex; align-items: center; gap: 8px; }
+.home-audio-btn {
+  padding: 3px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--hm-audio-border);
+  background: var(--hm-audio-bg);
+  transition: background-color 0.2s ease;
+}
+.home-audio-btn:hover { background: var(--hm-audio-hover-bg); }
+.home-vol-slider { width: 90px; accent-color: var(--hm-slider-accent); cursor: pointer; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   6. 动效
+   ═══════════════════════════════════════════════════════════════════════════ */
+@keyframes home-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes home-logo-breathe {
+  0%, 100% { transform: scale(1);      box-shadow: 0 0 42px rgba(245, 158, 11, 0.3); }
+  50%      { transform: scale(1.045);  box-shadow: 0 0 60px rgba(245, 158, 11, 0.5); }
+}
+@keyframes home-press-pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+@keyframes home-item-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .home-splash, .home-splash-logo, .home-splash-press, .home-menu-item, .home-menu-stage {
+    animation: none !important;
+    transition: opacity 0.01ms !important;
+  }
+}
+
+/* 浅色主题下主页保持深色沉浸（现状如此，故本稿不提供 light 变体） */
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   7. 设计台（非产品代码 —— 仅供本预览页调参，删掉不影响基线）
+   ═══════════════════════════════════════════════════════════════════════════ */
+.bench-fab {
+  position: fixed; right: 16px; bottom: 16px; z-index: 200;
+  padding: 8px 14px; border-radius: 999px;
+  font: 600 12px/1 "JetBrains Mono", monospace; letter-spacing: .06em;
+  color: #0b0d12; background: #f0c060;
+  box-shadow: 0 8px 24px -8px rgba(240, 192, 96, .7);
+}
+.bench-fab:hover { background: #ffd98a; }
+
+.bench {
+  position: fixed; right: 0; top: 0; bottom: 0; z-index: 190;
+  width: 310px; overflow-y: auto; padding: 14px 16px 40px;
+  background: rgba(16, 18, 24, 0.97);
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: -20px 0 60px -20px rgba(0, 0, 0, 0.9);
+  color: #d7dbe4;
+  font: 12px/1.5 var(--hm-font-ui);
+  backdrop-filter: blur(14px);
+}
+.bench[hidden] { display: none; }
+.bench-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4px; }
+.bench-head h2 { font-size: 13px; letter-spacing: .08em; color: #f0c060; }
+.bench-head span { font: 400 10px/1 "JetBrains Mono", monospace; color: #5d6472; }
+.bench-note {
+  margin: 8px 0 14px; padding: 7px 9px; border-radius: 6px;
+  font-size: 10.5px; line-height: 1.55; color: #8ea0b5;
+  background: rgba(56, 189, 248, 0.07); border: 1px solid rgba(56, 189, 248, 0.18);
+}
+.bench section { margin-bottom: 16px; }
+.bench h3 {
+  font: 600 10px/1 "JetBrains Mono", monospace; letter-spacing: .14em;
+  color: #6b7484; text-transform: uppercase;
+  padding-bottom: 6px; margin-bottom: 9px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+.bench-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.bench-row > label { font-size: 11.5px; color: #aeb6c4; }
+.bench-seg { display: flex; gap: 4px; flex-wrap: wrap; }
+.bench-seg button {
+  padding: 5px 9px; border-radius: 6px; font-size: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.13); background: rgba(255, 255, 255, 0.04);
+  color: #c3cad6; transition: all .15s;
+}
+.bench-seg button:hover { border-color: rgba(240, 192, 96, .5); }
+.bench-seg button.on {
+  border-color: #f0c060; background: rgba(240, 192, 96, .16); color: #ffd98a; font-weight: 600;
+}
+.bench-slider { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+.bench-slider label { flex: 0 0 74px; font-size: 11px; color: #aeb6c4; }
+.bench-slider input[type=range] { flex: 1; accent-color: #f0c060; min-width: 0; }
+.bench-slider output {
+  flex: 0 0 46px; text-align: right;
+  font: 400 10.5px/1 "JetBrains Mono", monospace; color: #7f8899;
+}
+.bench-switch { display: flex; gap: 4px; }
+.bench-switch button {
+  flex: 1; padding: 5px 0; border-radius: 6px; font-size: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.13); background: rgba(255, 255, 255, 0.04); color: #c3cad6;
+}
+.bench-switch button.on { border-color: #4ade80; background: rgba(74, 222, 128, .14); color: #86efac; }
+.bench-switch button.off { border-color: #f87171; background: rgba(248, 113, 113, .13); color: #fca5a5; }
+.bench-swatches { display: flex; gap: 6px; }
+.bench-swatches button {
+  flex: 1; height: 26px; border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+.bench-swatches button.on { outline: 2px solid #fff; outline-offset: 1px; }
+.bench select {
+  width: 100%; padding: 5px 7px; border-radius: 6px;
+  background: #1b1f28; color: #d7dbe4;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  font: 11px var(--hm-font-ui);
+}
+.bench-reset {
+  width: 100%; padding: 8px 0; border-radius: 8px; font-size: 11.5px;
+  border: 1px solid rgba(255, 255, 255, 0.16); background: rgba(255, 255, 255, 0.05); color: #d7dbe4;
+}
+.bench-reset:hover { background: rgba(255, 255, 255, 0.1); }
+.bench code { font: 400 10px "JetBrains Mono", monospace; color: #7f8899; }
+</style>
+</head>
+
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     主页本身 —— 以下 DOM 与 HomeMenu.tsx 的 JSX 结构一致
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="home-menu-root" id="homeRoot">
+
+  <!-- 氛围遮罩 -->
+  <div class="home-menu-vignette"></div>
+
+  <!-- ═══ 点击进入闸门 ═══ -->
+  <div class="home-splash" id="splash" role="button" tabindex="0" aria-label="点击进入">
+    <img src="../frontend/public/logo.png" alt="logo" class="home-splash-logo" draggable="false" id="splashLogo">
+    <div class="home-splash-title">ARKNIGHTS&nbsp;TAVERN</div>
+    <div class="home-splash-press">— 点 击 进 入 —</div>
+  </div>
+
+  <!-- ═══ 主菜单栏目 ═══ -->
+  <div class="home-menu-stage" id="stage">
+    <div class="home-menu-column">
+
+      <!-- 标题 -->
+      <div class="home-menu-head">
+        <img src="../frontend/public/logo.png" alt="logo" class="home-menu-logo" draggable="false">
+        <h1 class="home-menu-title">ARKNIGHTS TAVERN</h1>
+        <p class="home-menu-sub">明 日 方 舟 · 文 字 酒 馆</p>
+        <div class="home-menu-divider"><span></span></div>
+      </div>
+
+      <!-- 菜单项（MENU_ITEMS） -->
+      <nav class="home-menu-nav">
+
+        <button class="home-menu-item primary" data-view="sessions">
+          <span class="home-menu-item-icon">🏛️</span>
+          <span class="home-menu-item-text">
+            <span class="home-menu-item-label">
+              会话大厅
+              <span class="home-menu-item-badge" id="sessionBadge" hidden>0 个会话</span>
+            </span>
+            <span class="home-menu-item-desc">进入故事与战斗</span>
+          </span>
+          <span class="home-menu-item-arrow">▶</span>
+        </button>
+
+        <button class="home-menu-item" data-view="characters">
+          <span class="home-menu-item-icon">🎭</span>
+          <span class="home-menu-item-text">
+            <span class="home-menu-item-label">角色管理</span>
+            <span class="home-menu-item-desc">角色库 · 玩家身份 · 卡牌</span>
+          </span>
+          <span class="home-menu-item-arrow">▶</span>
+        </button>
+
+        <button class="home-menu-item" data-view="worldbook">
+          <span class="home-menu-item-icon">📖</span>
+          <span class="home-menu-item-text">
+            <span class="home-menu-item-label">世界书</span>
+            <span class="home-menu-item-desc">关键词触发式设定注入</span>
+          </span>
+          <span class="home-menu-item-arrow">▶</span>
+        </button>
+
+        <button class="home-menu-item" data-view="content">
+          <span class="home-menu-item-icon">🗂️</span>
+          <span class="home-menu-item-text">
+            <span class="home-menu-item-label">内容中心</span>
+            <span class="home-menu-item-desc">文档 · 索引 · 资产 · 卡牌</span>
+          </span>
+          <span class="home-menu-item-arrow">▶</span>
+        </button>
+
+        <button class="home-menu-item" data-view="docs">
+          <span class="home-menu-item-icon">📘</span>
+          <span class="home-menu-item-text">
+            <span class="home-menu-item-label">文档</span>
+            <span class="home-menu-item-desc">帮助与设定文档</span>
+          </span>
+          <span class="home-menu-item-arrow">▶</span>
+        </button>
+
+        <button class="home-menu-item" data-view="settings">
+          <span class="home-menu-item-icon">⚙️</span>
+          <span class="home-menu-item-text">
+            <span class="home-menu-item-label">设置</span>
+            <span class="home-menu-item-desc">LLM · 主题 · 叙述选项</span>
+          </span>
+          <span class="home-menu-item-arrow">▶</span>
+        </button>
+
+      </nav>
+    </div>
+  </div>
+
+  <!-- ═══ 底部状态条 ═══ -->
+  <footer class="home-menu-footer">
+    <span class="home-status">
+      <i class="dot ok" id="backendDot"></i><span id="backendText">后端已连接</span>
+    </span>
+    <span class="home-status">
+      <i class="dot ok" id="llmDot"></i><span id="llmText">deepseek</span>
+    </span>
+    <span class="home-menu-version">v0.1.0</span>
+    <div class="home-audio-group">
+      <button class="home-audio-btn" id="muteBtn" title="静音（本预览稿为示意，BGM 由后端 /api/assets/audio/bgm 流式提供）">🔊</button>
+      <input type="range" min="0" max="1" step="0.05" value="0.6" class="home-vol-slider" title="BGM 音量 60%">
+    </div>
+  </footer>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     设计台（非产品代码）
+     ═══════════════════════════════════════════════════════════════════════ -->
+<button class="bench-fab" id="benchFab" title="切换设计台（D）">⚙ 设计台</button>
+
+<aside class="bench" id="bench" hidden>
+  <div class="bench-head">
+    <h2>设计台</h2>
+    <span>D 开关 · 1/2/3 皮肤 · R 重置</span>
+  </div>
+  <p class="bench-note">
+    这里的开关只作用于本预览页，<b>不会回写项目代码</b>。
+    定稿后要改的值在文件顶部「0. 设计令牌」区，或对应皮肤 token 块。
+  </p>
+
+  <section>
+    <h3>皮肤</h3>
+    <div class="bench-seg" id="skinSeg">
+      <button data-skin="default" class="on">默认 · 琥珀</button>
+      <button data-skin="prts">PRTS 全息</button>
+      <button data-skin="tavern">酒馆手札</button>
+    </div>
+  </section>
+
+  <section>
+    <h3>状态模拟</h3>
+    <div class="bench-row">
+      <label>点击进入闸门</label>
+      <div class="bench-switch" id="gateSw" style="width:112px">
+        <button data-v="1">显示</button><button data-v="0" class="on">隐藏</button>
+      </div>
+    </div>
+    <div class="bench-row">
+      <label>后端连接</label>
+      <div class="bench-switch" id="backendSw" style="width:112px">
+        <button data-v="1" class="on">已连接</button><button data-v="0">断开</button>
+      </div>
+    </div>
+    <div class="bench-row">
+      <label>LLM 已配置</label>
+      <div class="bench-switch" id="llmSw" style="width:112px">
+        <button data-v="1" class="on">是</button><button data-v="0">否</button>
+      </div>
+    </div>
+    <div class="bench-slider">
+      <label>会话数</label>
+      <input type="range" id="sessRange" min="0" max="12" step="1" value="3">
+      <output id="sessOut">3</output>
+    </div>
+    <div class="bench-slider">
+      <label>战斗中</label>
+      <input type="range" id="combatRange" min="0" max="5" step="1" value="1">
+      <output id="combatOut">1</output>
+    </div>
+  </section>
+
+  <section>
+    <h3>版式</h3>
+    <div class="bench-slider">
+      <label>栏目宽</label>
+      <input type="range" id="wRange" min="20" max="44" step="0.5" value="26">
+      <output id="wOut">26rem</output>
+    </div>
+    <div class="bench-slider">
+      <label>面板圆角</label>
+      <input type="range" id="rRange" min="0" max="2.5" step="0.05" value="1.25">
+      <output id="rOut">1.25rem</output>
+    </div>
+    <div class="bench-slider">
+      <label>面板不透明</label>
+      <input type="range" id="aRange" min="0.3" max="1" step="0.01" value="1">
+      <output id="aOut">100%</output>
+    </div>
+    <div class="bench-slider">
+      <label>背景压暗</label>
+      <input type="range" id="dRange" min="0" max="1.5" step="0.05" value="1">
+      <output id="dOut">100%</output>
+    </div>
+  </section>
+
+  <section>
+    <h3>强调色探索（覆盖当前皮肤）</h3>
+    <div class="bench-swatches" id="accentSeg">
+      <button data-accent="skin"  class="on" style="background:linear-gradient(120deg,#fde68a,#f59e0b)" title="跟随皮肤"></button>
+      <button data-accent="amber" style="background:linear-gradient(120deg,#fde68a,#d97706)" title="琥珀（现状）"></button>
+      <button data-accent="holo"  style="background:linear-gradient(120deg,#bae6fd,#0284c7)" title="全息青"></button>
+      <button data-accent="seal"  style="background:linear-gradient(120deg,#f0b4a6,#7c2d20)" title="火漆红"></button>
+      <button data-accent="jade"  style="background:linear-gradient(120deg,#bbf7d0,#047857)" title="苔绿"></button>
+    </div>
+    <p style="margin-top:8px"><code id="accentHint">跟随皮肤（不改任何变量）</code></p>
+  </section>
+
+  <section>
+    <h3>画布（响应式检查）</h3>
+    <select id="canvasSel">
+      <option value="fit">自适应窗口</option>
+      <option value="1920x1080">1920 × 1080 · 桌面</option>
+      <option value="1600x900">1600 × 900 · 笔记本</option>
+      <option value="1366x768">1366 × 768 · 小笔记本</option>
+      <option value="1024x640">1024 × 640 · 窗口化</option>
+      <option value="390x844">390 × 844 · 手机（复现状态栏溢出）</option>
+    </select>
+  </section>
+
+  <button class="bench-reset" id="resetAll">↺ 全部重置</button>
+</aside>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════════
+   设计台逻辑（非产品代码）
+   ═══════════════════════════════════════════════════════════════════════════ */
+(function () {
+  "use strict";
+  var $ = function (s) { return document.querySelector(s); };
+  var root = document.documentElement;
+
+  /* ── 强调色预设：hi/mid/deep 三色，其余 rgba 由结构派生 ── */
+  var ACCENTS = {
+    amber: { hi: "#fde68a", mid: "#f59e0b", deep: "#b45309" },
+    holo:  { hi: "#bae6fd", mid: "#38bdf8", deep: "#0284c7" },
+    seal:  { hi: "#f0b4a6", mid: "#a03d2d", deep: "#7c2d20" },
+    jade:  { hi: "#bbf7d0", mid: "#34d399", deep: "#047857" }
+  };
+  function rgbOf(hex) {
+    var n = parseInt(hex.slice(1), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255].join(", ");
+  }
+  /* 一次性写出预设涉及的全部变量，保证与 token 块同构 */
+  function accentVars(a) {
+    var rMid = rgbOf(a.mid), rDeep = rgbOf(a.deep), rHi = rgbOf(a.hi);
+    return {
+      "--hm-title-g1": a.hi, "--hm-title-g2": a.mid, "--hm-title-g3": a.hi,
+      "--hm-title-shadow": "0 2px 24px rgba(" + rMid + ", 0.28)",
+      "--hm-div-rgb": rMid, "--hm-div-alpha": "0.45",
+      "--hm-dot-1": a.hi, "--hm-dot-2": a.deep,
+      "--hm-dot-shadow": "0 0 10px rgba(" + rMid + ", 0.6)",
+      "--hm-badge-color": a.hi,
+      "--hm-badge-bg": "rgba(" + rMid + ", 0.14)",
+      "--hm-badge-border": "rgba(" + rMid + ", 0.3)",
+      "--hm-arrow-color": a.hi,
+      "--hm-item-hover-border": "rgba(" + rHi + ", 0.4)",
+      "--hm-item-hover-bg": "rgba(" + rHi + ", 0.07)",
+      "--hm-item-hover-shadow": "0 4px 22px -8px rgba(" + rMid + ", 0.35)",
+      "--hm-prim-border": "rgba(" + rMid + ", 0.45)",
+      "--hm-prim-rgb-1": rMid, "--hm-prim-a1": "0.16",
+      "--hm-prim-2": "rgba(" + rDeep + ", 0.10)",
+      "--hm-prim-shadow": "0 6px 26px -10px rgba(" + rMid + ", 0.4)",
+      "--hm-prim-label": a.hi,
+      "--hm-prim-h-border": "rgba(" + rHi + ", 0.7)",
+      "--hm-prim-h-a1": "0.24",
+      "--hm-prim-h-2": "rgba(" + rDeep + ", 0.16)",
+      "--hm-prim-h-shadow": "0 8px 32px -10px rgba(" + rMid + ", 0.55)",
+      "--hm-slider-accent": a.mid
+    };
+  }
+  var ACCENT_VAR_NAMES = Object.keys(accentVars(ACCENTS.amber));
+
+  function defaults() {
+    return {
+      skin: "default", accent: "skin", gate: false,
+      backend: true, llm: true, sessions: 3, combat: 1,
+      width: 26, radius: 1.25, alpha: 1, dim: 1, canvas: "fit"
+    };
+  }
+  var state = defaults();
+
+  /* ── URL 参数：便于分享 / 复现某个设计状态 ──
+     例：05-home-menu.html?skin=tavern&gate=1&sessions=5&combat=2&canvas=390x844&accent=holo */
+  function readQuery() {
+    var q = new URLSearchParams(location.search);
+    var pick = function (key, list) { return list.indexOf(q.get(key)) >= 0 ? q.get(key) : null; };
+    state.skin = pick("skin", ["default", "prts", "tavern"]) || state.skin;
+    state.accent = pick("accent", ["skin"].concat(Object.keys(ACCENTS))) || state.accent;
+    if (q.has("gate")) state.gate = q.get("gate") === "1";
+    if (q.has("backend")) state.backend = q.get("backend") !== "0";
+    if (q.has("llm")) state.llm = q.get("llm") !== "0";
+    if (q.has("sessions")) state.sessions = Math.max(0, Math.min(12, parseInt(q.get("sessions"), 10) || 0));
+    if (q.has("combat")) state.combat = Math.max(0, Math.min(5, parseInt(q.get("combat"), 10) || 0));
+    if (q.has("width")) state.width = parseFloat(q.get("width")) || 26;
+    if (q.has("radius")) state.radius = parseFloat(q.get("radius")) || 1.25;
+    if (q.has("alpha")) state.alpha = parseFloat(q.get("alpha")) || 1;
+    if (q.has("dim")) state.dim = isNaN(parseFloat(q.get("dim"))) ? 1 : parseFloat(q.get("dim"));
+    if (q.has("canvas")) state.canvas = q.get("canvas");
+  }
+
+  /* 把 state 写回设计台控件 */
+  function syncControls() {
+    $("#sessRange").value = state.sessions;   $("#sessOut").textContent = state.sessions;
+    $("#combatRange").value = state.combat;   $("#combatOut").textContent = state.combat;
+    $("#wRange").value = state.width;         $("#wOut").textContent = state.width + "rem";
+    $("#rRange").value = state.radius;        $("#rOut").textContent = state.radius + "rem";
+    $("#aRange").value = state.alpha;         $("#aOut").textContent = Math.round(state.alpha * 100) + "%";
+    $("#dRange").value = state.dim;           $("#dOut").textContent = Math.round(state.dim * 100) + "%";
+    $("#canvasSel").value = state.canvas;
+    switchUI($("#gateSw"), state.gate);
+    switchUI($("#backendSw"), state.backend);
+    switchUI($("#llmSw"), state.llm);
+  }
+
+  /* ── 渲染：皮肤 ── */
+  function applySkin() {
+    root.classList.toggle("skin-prts", state.skin === "prts");
+    root.classList.toggle("skin-tavern", state.skin === "tavern");
+    seg($("#skinSeg"), "skin", state.skin);
+  }
+
+  /* ── 渲染：强调色 ── */
+  function applyAccent() {
+    if (state.accent === "skin") {
+      ACCENT_VAR_NAMES.forEach(function (k) { root.style.removeProperty(k); });
+      $("#accentHint").textContent = "跟随皮肤（不改任何变量）";
+    } else {
+      var vars = accentVars(ACCENTS[state.accent]);
+      Object.keys(vars).forEach(function (k) { root.style.setProperty(k, vars[k]); });
+      var a = ACCENTS[state.accent];
+      $("#accentHint").textContent = "已覆盖：" + a.hi + " → " + a.mid + " → " + a.deep;
+    }
+    seg($("#accentSeg"), "accent", state.accent);
+  }
+
+  /* ── 渲染：状态 ── */
+  function applyStatus() {
+    $("#splash").hidden = !state.gate;
+    $("#stage").classList.add("entered");
+
+    var bd = $("#backendDot"), bt = $("#backendText");
+    bd.className = "dot " + (state.backend ? "ok" : "bad");
+    bt.textContent = state.backend ? "后端已连接" : "后端未连接";
+
+    var ld = $("#llmDot"), lt = $("#llmText");
+    ld.className = "dot " + (state.llm ? "ok" : "bad");
+    lt.textContent = state.llm ? "deepseek" : "LLM 未配置";
+
+    var badge = $("#sessionBadge");
+    if (state.sessions > 0) {
+      badge.hidden = false;
+      badge.textContent = state.sessions + " 个会话" +
+        (state.combat > 0 ? " · ⚔" + state.combat + " 战斗中" : "");
+    } else {
+      badge.hidden = true;
+    }
+  }
+
+  /* ── 渲染：版式 ── */
+  function applyLayout() {
+    root.style.setProperty("--hm-col-maxw", state.width + "rem");
+    root.style.setProperty("--hm-panel-radius", state.radius + "rem");
+    root.style.setProperty("--hm-panel-alpha", String(state.alpha));
+    root.style.setProperty("--hm-dim", String(state.dim));
+    $("#wOut").textContent = state.width + "rem";
+    $("#rOut").textContent = state.radius + "rem";
+    $("#aOut").textContent = Math.round(state.alpha * 100) + "%";
+    $("#dOut").textContent = Math.round(state.dim * 100) + "%";
+  }
+
+  /* ── 渲染：画布 ── */
+  function applyCanvas() {
+    var r = $("#homeRoot"), b = document.body;
+    if (state.canvas === "fit") {
+      b.classList.remove("canvas-fixed");
+      r.style.width = ""; r.style.height = "";
+      b.removeAttribute("data-canvas-label");
+    } else {
+      var p = state.canvas.split("x");
+      b.classList.add("canvas-fixed");
+      r.style.width = p[0] + "px";
+      r.style.height = p[1] + "px";
+      b.setAttribute("data-canvas-label", "画布 " + p[0] + " × " + p[1] + "（产品中为全屏，此处模拟视口）");
+    }
+  }
+
+  /* ── 分段控件高亮 ── */
+  function seg(box, attr, value) {
+    Array.prototype.forEach.call(box.querySelectorAll("button"), function (b) {
+      b.classList.toggle("on", b.dataset[attr] === value);
+    });
+  }
+  function switchUI(box, on) {
+    Array.prototype.forEach.call(box.querySelectorAll("button"), function (b) {
+      var v = b.dataset.v === "1";
+      b.classList.toggle("on", v === on);
+      b.classList.toggle("off", v !== on);
+    });
+  }
+
+  /* ═══ 事件绑定 ═══ */
+  var bindSeg = function (sel, attr, after) {
+    $(sel).addEventListener("click", function (e) {
+      var b = e.target.closest("button[data-" + attr + "]");
+      if (!b) return;
+      state[attr === "skin" ? "skin" : "accent"] = b.dataset[attr];
+      after();
+    });
+  };
+  bindSeg("#skinSeg", "skin", applySkin);
+  bindSeg("#accentSeg", "accent", applyAccent);
+
+  var bindSwitch = function (sel, key) {
+    $(sel).addEventListener("click", function (e) {
+      var b = e.target.closest("button[data-v]");
+      if (!b) return;
+      state[key] = b.dataset.v === "1";
+      switchUI($(sel), state[key]);
+      applyStatus();
+    });
+  };
+  bindSwitch("#gateSw", "gate");
+  bindSwitch("#backendSw", "backend");
+  bindSwitch("#llmSw", "llm");
+
+  var bindRange = function (sel, key, outSel, fmt, after) {
+    $(sel).addEventListener("input", function (e) {
+      state[key] = parseFloat(e.target.value);
+      if (outSel) $(outSel).textContent = fmt(state[key]);
+      after();
+    });
+  };
+  bindRange("#sessRange", "sessions", "#sessOut", function (v) { return String(v); }, applyStatus);
+  bindRange("#combatRange", "combat", "#combatOut", function (v) { return String(v); }, applyStatus);
+  bindRange("#wRange", "width", "#wOut", function (v) { return v + "rem"; }, applyLayout);
+  bindRange("#rRange", "radius", "#rOut", function (v) { return v + "rem"; }, applyLayout);
+  bindRange("#aRange", "alpha", "#aOut", function (v) { return Math.round(v * 100) + "%"; }, applyLayout);
+  bindRange("#dRange", "dim", "#dOut", function (v) { return Math.round(v * 100) + "%"; }, applyLayout);
+
+  $("#canvasSel").addEventListener("change", function (e) {
+    state.canvas = e.target.value;
+    applyCanvas();
+  });
+
+  /* 闸门：真实交互（点击后展开菜单，满足自动播放策略） */
+  var enter = function () { state.gate = false; switchUI($("#gateSw"), false); applyStatus(); };
+  $("#splash").addEventListener("click", enter);
+  $("#splash").addEventListener("keydown", function (e) {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); enter(); }
+  });
+
+  /* 首页底部音量/静音：仅示意（BGM 来自后端） */
+  var muted = false;
+  $("#muteBtn").addEventListener("click", function () {
+    muted = !muted;
+    this.textContent = muted ? "🔇" : "🔊";
+  });
+  var slider = document.querySelector(".home-vol-slider");
+  slider.addEventListener("input", function () {
+    this.title = "BGM 音量 " + Math.round(this.value * 100) + "%";
+  });
+
+  /* 菜单项：预览稿不做真实跳转，点击只给一个反馈 */
+  Array.prototype.forEach.call(document.querySelectorAll(".home-menu-item"), function (b) {
+    b.addEventListener("click", function () {
+      console.log("[预览稿] 进入视图：", b.dataset.view);
+    });
+  });
+
+  /* 设计台开合 */
+  var bench = $("#bench"), fab = $("#benchFab");
+  function toggleBench(force) {
+    bench.hidden = typeof force === "boolean" ? !force : !bench.hidden;
+    fab.textContent = bench.hidden ? "⚙ 设计台" : "✕ 关闭设计台";
+  }
+  fab.addEventListener("click", function () { toggleBench(); });
+
+  /* 重置 */
+  function reset() {
+    state = defaults();
+    syncControls();
+    applySkin(); applyAccent(); applyStatus(); applyLayout(); applyCanvas();
+  }
+  $("#resetAll").addEventListener("click", reset);
+
+  /* 快捷键 */
+  document.addEventListener("keydown", function (e) {
+    if (/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+    var k = e.key.toLowerCase();
+    if (k === "d") { toggleBench(); }
+    else if (k === "escape") { toggleBench(false); }
+    else if (k === "1" || k === "2" || k === "3") {
+      state.skin = ["default", "prts", "tavern"][parseInt(k, 10) - 1];
+      applySkin();
+    } else if (k === "r") { reset(); }
+  });
+
+  /* 资源缺失时优雅降级（保持 ui-styles/ 与 frontend/ 的相对位置） */
+  Array.prototype.forEach.call(document.querySelectorAll('img[src*="logo.png"]'), function (img) {
+    img.addEventListener("error", function () {
+      var ph = document.createElement("div");
+      ph.className = img.className;
+      ph.style.cssText = "display:flex;align-items:center;justify-content:center;" +
+        "background:linear-gradient(135deg,rgba(245,158,11,.25),rgba(180,83,9,.15));" +
+        "border:1px solid rgba(245,158,11,.4);font-size:22px;";
+      ph.textContent = "🏮";
+      img.replaceWith(ph);
+    });
+  });
+
+  /* 初始化 */
+  readQuery();
+  syncControls();
+  applySkin(); applyAccent(); applyStatus(); applyLayout(); applyCanvas();
+})();
+</script>
+
+</body>
+</html>
