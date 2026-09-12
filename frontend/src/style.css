@@ -709,6 +709,40 @@ html.light .bg-black { background-color: rgb(229 231 235); }
 html.light .bg-black\/70 { background-color: rgba(229,231,235,0.7); }
 html.light .bg-black\/50 { background-color: rgba(229,231,235,0.5); }
 
+/* ── 内容中心 / 节点图页（ContentHub、PlotGraphPage）补充 ──
+   这些工具类此前没有浅色映射，浅色主题下「内容中心」顶栏与节点图画布底色仍是深色：
+   实测顶栏 bg=#111318（Tab 文字对比度 1.04）、画布 bg=#0a0c12（顶栏按钮 1.9）。
+   注意只补「常驻」底色与状态色，hover: 变体与战斗页浮层（bg-gray-950/70）未动。 */
+html.light .bg-gray-950 { background-color: rgb(248 250 252); }
+html.light .bg-gray-900\/60 { background-color: rgba(249,250,251,0.8); }
+html.light .bg-gray-900\/40 { background-color: rgba(243,244,246,0.6); }
+html.light .border-gray-800 { border-color: rgb(229 231 235); }
+html.light .border-gray-800\/80 { border-color: rgba(229,231,235,0.85); }
+html.light .border-gray-700\/70 { border-color: rgba(229,231,235,0.8); }
+
+/* 状态色补充：300 号色在浅底上几乎不可读（例 text-emerald-300 on #fff = 1.52） */
+html.light .text-emerald-300 { color: #047857; }
+html.light .bg-emerald-800\/40 { background-color: rgba(209,250,229,0.7); }
+html.light .bg-emerald-800\/70 { background-color: rgba(167,243,208,0.8); }
+html.light .border-emerald-600\/50 { border-color: rgba(5,150,105,0.4); }
+html.light .border-emerald-500\/60 { border-color: rgba(16,185,129,0.45); }
+html.light .bg-red-900\/40 { background-color: rgba(254,226,226,0.6); }
+html.light .bg-red-950\/40 { background-color: rgba(254,226,226,0.5); }
+html.light .border-red-800\/60 { border-color: rgba(220,38,38,0.35); }
+html.light .border-red-700 { border-color: rgba(220,38,38,0.45); }
+html.light .border-cyan-600\/50 { border-color: rgba(14,116,144,0.4); }
+html.light .text-sky-200 { color: #0369a1; }
+html.light .bg-sky-700\/25 { background-color: rgba(2,132,199,0.10); }
+html.light .border-sky-500\/40 { border-color: rgba(2,132,199,0.4); }
+
+/* ── 内容中心（含节点图页 / 编辑抽屉）浅色下的次要文字 ──
+   全局 `html.light .text-gray-500` 映射到 #9ca3af，在白底上只有 2.54:1（读不清）。
+   底色转浅后这些提示文字必须压深，但**不改全局映射**（会影响其它页面观感），
+   故用 .content-hub 作用域：500 → #6b7280(5.07:1)、400 → #4b5563(7.6:1)，
+   同时保持「400 比 500 深」的相对层次。 */
+html.light .content-hub .text-gray-500 { color: #6b7280; }
+html.light .content-hub .text-gray-400 { color: #4b5563; }
+
 /* ── 格子 ── */
 html.light .combat-cell {
   background: rgba(200, 210, 225, 0.25);
