@@ -3996,20 +3996,12 @@
     "wave_num": 1
   },
   "enc_snow_ambush": {
-    "cols": 7,
+    "cols": 9,
     "deck_size": 15,
     "deploy": {
       "enemy": [
         [
           3,
-          3
-        ],
-        [
-          3,
-          4
-        ],
-        [
-          3,
           5
         ],
         [
@@ -4017,12 +4009,12 @@
           6
         ],
         [
-          4,
-          3
+          3,
+          7
         ],
         [
-          4,
-          4
+          3,
+          8
         ],
         [
           4,
@@ -4033,12 +4025,12 @@
           6
         ],
         [
-          5,
-          3
+          4,
+          7
         ],
         [
-          5,
-          4
+          4,
+          8
         ],
         [
           5,
@@ -4049,12 +4041,12 @@
           6
         ],
         [
-          6,
-          3
+          5,
+          7
         ],
         [
-          6,
-          4
+          5,
+          8
         ],
         [
           6,
@@ -4063,6 +4055,14 @@
         [
           6,
           6
+        ],
+        [
+          6,
+          7
+        ],
+        [
+          6,
+          8
         ]
       ],
       "player": [
@@ -4118,7 +4118,7 @@
     "phase": "PLAYER_TURN",
     "range_metric": "manhattan",
     "round_num": 1,
-    "rows": 7,
+    "rows": 8,
     "shared_ap": 5,
     "shared_ap_max": 5,
     "tile_ids": [
@@ -4132,13 +4132,6 @@
         "ground",
         "ground",
         "ground",
-        "ground"
-      ],
-      [
-        "ground",
-        "ground",
-        "ground",
-        "ground",
         "ground",
         "ground",
         "ground"
@@ -4146,13 +4139,6 @@
       [
         "ground",
         "ground",
-        "ground",
-        "ground",
-        "ground",
-        "ground",
-        "ground"
-      ],
-      [
         "ground",
         "ground",
         "ground",
@@ -4168,6 +4154,19 @@
         "ground",
         "ground",
         "ground",
+        "ground",
+        "ground",
+        "ground"
+      ],
+      [
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
         "ground"
       ],
       [
@@ -4177,9 +4176,35 @@
         "ground",
         "ground",
         "ground",
+        "ground",
+        "ground",
         "ground"
       ],
       [
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground"
+      ],
+      [
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground"
+      ],
+      [
+        "ground",
+        "ground",
         "ground",
         "ground",
         "ground",
@@ -4205,7 +4230,7 @@
         "personal_ap": 3,
         "pos": [
           3,
-          5
+          6
         ],
         "res": 4,
         "spd": 11.0,
@@ -4248,8 +4273,8 @@
         "patk": 22.0,
         "personal_ap": 3,
         "pos": [
-          3,
-          3
+          5,
+          7
         ],
         "res": 3,
         "spd": 10.0,
@@ -4270,8 +4295,8 @@
         "patk": 22.0,
         "personal_ap": 3,
         "pos": [
-          4,
-          3
+          3,
+          5
         ],
         "res": 3,
         "spd": 10.0,

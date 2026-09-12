@@ -1,23 +1,36 @@
 {
-  "schema_version": 1,
-  "node_id": "enc_snow_ambush",
-  "name": "矿道伏击",
-  "summary": "博士与银灰一行在追击刺客追入的旧矿道上遭遇山雪鬼主力与冰原猎人的交叉伏击。",
+  "background": "snow_mountain",
+  "balance_version": 1,
   "bind": {
-    "plot_id": "fengxue_guojing",
+    "beat_id": "beat_ambush",
     "chapter_id": "townsfolk",
     "chapter_title": "入乡随俗·息事宁人",
-    "beat_id": "beat_ambush"
+    "plot_id": "fengxue_guojing"
   },
-  "rules": {
-    "range_metric": "manhattan",
-    "allow_corner_cut": false
+  "conditions": {
+    "escape_enabled": true,
+    "max_rounds": 8
+  },
+  "difficulty": {
+    "band": "T1",
+    "category": "story",
+    "difficulty": 2,
+    "encounter_type": "normal",
+    "target_rounds": 3,
+    "threat_budget": 6.4
   },
   "map": {
-    "rows": 7,
-    "cols": 7,
-    "tiles": "ground",
+    "cols": 9,
     "deploy": {
+      "enemy": {
+        "rect": [
+          3,
+          5,
+          6,
+          8
+        ]
+      },
+      "enemy_random_shift": false,
       "player": {
         "rect": [
           0,
@@ -25,38 +38,131 @@
           2,
           2
         ]
-      },
-      "enemy": {
-        "rect": [
-          3,
-          3,
-          6,
-          6
-        ]
-      },
-      "enemy_random_shift": false
-    }
+      }
+    },
+    "rows": 8,
+    "tiles": [
+      [
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground"
+      ],
+      [
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground"
+      ],
+      [
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground"
+      ],
+      [
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground"
+      ],
+      [
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground"
+      ],
+      [
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground"
+      ],
+      [
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground"
+      ],
+      [
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground",
+        "ground"
+      ]
+    ]
   },
+  "name": "矿道伏击",
+  "node_id": "enc_snow_ambush",
+  "rewards": {
+    "items": [
+      "源石碎片"
+    ],
+    "unlock": [],
+    "xp": 38
+  },
+  "rules": {
+    "allow_corner_cut": false,
+    "range_metric": "manhattan"
+  },
+  "schema_version": 1,
+  "summary": "博士与银灰一行在追击刺客追入的旧矿道上遭遇山雪鬼主力与冰原猎人的交叉伏击。",
   "waves": [
     {
       "enemies": [
         {
-          "enemy": "山雪鬼",
           "count": 2,
+          "enemy": "山雪鬼",
           "positions": [
             [
-              3,
-              3
-            ],
-            [
-              4,
-              3
+              5,
+              7
             ]
           ]
         },
         {
-          "enemy": "冰原猎人",
           "count": 2,
+          "enemy": "冰原猎人",
           "positions": [
             [
               3,
@@ -71,27 +177,6 @@
       ]
     }
   ],
-  "conditions": {
-    "max_rounds": 8,
-    "escape_enabled": true
-  },
-  "rewards": {
-    "xp": 38,
-    "items": [
-      "源石碎片"
-    ],
-    "unlock": []
-  },
-  "difficulty": {
-    "category": "story",
-    "encounter_type": "normal",
-    "band": "T1",
-    "threat_budget": 6.4,
-    "target_rounds": 3,
-    "difficulty": 2
-  },
-  "balance_version": 1,
-  "background": "snow_mountain",
   "worldbook_id": "arknights",
-  "_hash": "e9362092db2390bc"
+  "_hash": "4089033bfc14b7ff"
 }
