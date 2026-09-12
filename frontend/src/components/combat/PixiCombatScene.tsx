@@ -38,6 +38,17 @@ const SPINE_VARIANT: Record<string, string> = {
   "初雪": "char_174_slbell",
   "崖心": "char_173_slchan",
   "锏": "char_4116_blkkgt",
+  // 红松骑士团 / 卡西米尔线（fexli/ArknightsResource main，含 Idle/Attack/Die）
+  "焰尾": "char_420_flamtl",
+  "灰毫": "char_431_ashlok",
+  "野鬃": "char_496_wildmn",
+  "远牙": "char_430_fartth",
+  "薇薇安娜": "char_4098_vvana",
+  // 使徒 / 罗德岛线
+  "白金": "char_204_platnm",
+  "暴行": "char_230_savage",
+  "耶拉": "char_4013_kjera",
+  "凯尔希": "char_003_kalts",
 };
 
 // 敌人 Spine 变体 — 约定与角色一致：文件放 data/characters/<敌名>/spine/<变体>/Front|Back/，

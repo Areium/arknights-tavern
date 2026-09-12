@@ -26,7 +26,11 @@ export function resolveAnimSpec(animNames: string[]): AnimSpec {
   const idle = find(/^idle/i) ?? find(/^default/i) ?? animNames[0] ?? "";
 
   // ── 攻击多段链识别 ──
-  const atks = animNames.filter((n) => /^attack/i.test(n));
+  const allAtks = animNames.filter((n) => /^attack/i.test(n));
+  // `*_Down*` 是倒地/受击方向动画，混进来会拼出错误链条（远牙：Attack_Begin→Attack_Down_Loop→
+  // Attack_Down_End）。优先只用非 Down 变体，若一个都没有则退回全量。
+  const nonDown = allAtks.filter((n) => !/_down/i.test(n));
+  const atks = nonDown.length > 0 ? nonDown : allAtks;
   const core = atks.slice().sort((a, b) => a.length - b.length)[0]; // 最短 = 裸 Attack
   const begin = atks.find((n) => /_begin/i.test(n));
   const end = atks.find((n) => /_end/i.test(n));
@@ -35,8 +39,10 @@ export function resolveAnimSpec(animNames: string[]): AnimSpec {
   const pre = atks.find((n) => /_pre/i.test(n));
 
   let attack: string[] = [];
-  if (begin && core && end) attack = [begin, core, end];
+  // Begin→Loop→End 优先于 Begin→core→End（后者在无裸 Attack 时 core 会误选到 _End 段）
+  if (begin && loop && end) attack = [begin, loop, end];
   else if (start && loop && end) attack = [start, loop, end];
+  else if (begin && core && end) attack = [begin, core, end];
   else if (pre && core && end) attack = [pre, core, end];
   else if (core) attack = [core];
 
