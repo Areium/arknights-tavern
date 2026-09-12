@@ -77,6 +77,8 @@ export interface ChatMessage {
   content: string;
   character?: string;
   choices?: string[];
+  /** 结构化分支选项（含目标节拍），与 choices 并存 */
+  branches?: BranchChoice[];
   round?: number;
   variants?: string[];
   variantIndex?: number;
@@ -86,6 +88,54 @@ export interface ChatMessage {
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
   reasoning?: string;
   rollData?: AttributeRollData;
+}
+
+/** 剧情分支选项（LLM 生成或作者预设） */
+export interface BranchChoice {
+  id: string;
+  label: string;
+  intent?: string | null;
+  target_beat_id?: string | null;
+  source?: "llm" | "author";
+}
+
+/** 剧情节点状态（路线图中的一个节拍） */
+export interface StoryBeatNode {
+  id: string;
+  summary: string;
+  keep_on_deviate?: boolean;
+  state: "done" | "current" | "locked";
+  round_start: number | null;
+  round_end: number | null;
+  has_combat?: boolean;
+  authored_branches?: BranchChoice[];
+}
+
+/** 剧情章节（含节拍列表） */
+export interface StoryRoad {
+  chapter_idx: number;
+  title: string;
+  summary?: string;
+  state: "done" | "current" | "locked";
+  beats: StoryBeatNode[];
+}
+
+/** 剧情状态 DTO（GET /story-state） */
+export interface StoryStateDTO {
+  has_plot: boolean;
+  plot_id?: string;
+  plot_name?: string;
+  chapter?: { idx: number; title: string; total: number; id: string } | null;
+  beat?: {
+    idx: number; total: number; id: string; summary: string; narrations_on_beat: number;
+  } | null;
+  roads: StoryRoad[];
+  completed_beats?: string[];
+  pending_branch?: any;
+  character_states?: Record<string, any>;
+  quest_states?: Record<string, any>;
+  node_history?: { node_id: string; round_start: number; round_end: number }[];
+  combat_nodes?: Record<string, any>;
 }
 
 /** 属性检定结果 */

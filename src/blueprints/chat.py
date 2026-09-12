@@ -173,6 +173,74 @@ def _build_choices(session, inline_choices: list[str] | None) -> list[str]:
     return options
 
 
+def _build_branches(session, inline_branches: list[dict] | None) -> list[dict]:
+    """合并 LLM 分支与作者手写分支（按 label 去重）。
+
+    作者分支始终可用（剧情章节级预设），LLM 分支排在前面；两者共存，
+    玩家都能点选，从而自由进入不同分支。
+    """
+    merged: list[dict] = []
+    seen: set[str] = set()
+    for b in (inline_branches or []):
+        label = str(b.get("label") or "").strip()
+        if not label or label in seen:
+            continue
+        seen.add(label)
+        merged.append({
+            "id": b.get("id") or f"br_{len(merged) + 1}",
+            "label": label,
+            "intent": b.get("intent"),
+            "target_beat_id": b.get("target_beat_id"),
+            "source": b.get("source") or "llm",
+        })
+    overlay = getattr(session, "overlay", None)
+    if overlay is not None and hasattr(overlay, "get_authored_branches"):
+        for b in overlay.get_authored_branches():
+            label = str(b.get("label") or "").strip()
+            if not label or label in seen:
+                continue
+            seen.add(label)
+            merged.append({
+                "id": f"au_{len(merged) + 1}",
+                "label": label,
+                "intent": b.get("intent"),
+                "target_beat_id": b.get("target_beat_id"),
+                "source": "author",
+            })
+    return merged
+
+
+def _resolve_branch(session, branch_id: str, label: str) -> dict | None:
+    """按 branch_id（或 label）从本会话上一轮下发的分支中恢复分支对象。"""
+    if not branch_id and not label:
+        return None
+    overlay = getattr(session, "overlay", None)
+    if overlay is None:
+        return None
+    emitted = overlay.get_emitted_branches() if hasattr(overlay, "get_emitted_branches") else []
+    for b in emitted:
+        if branch_id and b.get("id") == branch_id:
+            return b
+        if label and b.get("label") == label:
+            return b
+    # 回退：作者分支（来源稳定，不依赖上一轮记录）
+    for b in overlay.get_authored_branches():
+        if label and b.get("label") == label:
+            return b
+    return None
+
+
+def _record_node_snapshot(session):
+    """推进后记录刚完成节点的状态快照（供状态展示与回档）。"""
+    overlay = getattr(session, "overlay", None)
+    if overlay is None or not hasattr(overlay, "record_node_snapshot"):
+        return
+    try:
+        overlay.record_node_snapshot(session.narration_count)
+    except Exception:
+        logger.warning("记录节点快照失败", exc_info=True)
+
+
 # ── Blueprint 注册 ──
 
 def register(app, managers):
@@ -298,7 +366,26 @@ def register(app, managers):
         stream_id = f"narr_{uuid.uuid4().hex[:12]}"
         player_info = {"identity": request.args.get("identity") or session.player_identity}
         user_action = request.args.get("action", "").strip()
+        branch_id = request.args.get("branch_id", "").strip()
         env_context = session.environment.build_context()
+
+        # 分支落点：玩家上一轮选择的分支（若带 branch_id/label 则恢复其目标）
+        selected_branch = _resolve_branch(session, branch_id, user_action)
+        if selected_branch and selected_branch.get("target_beat_id"):
+            session.overlay.set_pending_branch({**selected_branch, "round": session.narration_count})
+        branch_hint = ""
+        if selected_branch:
+            hint_bits = []
+            if selected_branch.get("intent"):
+                hint_bits.append(f"倾向：{selected_branch['intent']}")
+            if selected_branch.get("target_beat_id"):
+                hint_bits.append(f"目标节拍：{selected_branch['target_beat_id']}")
+            if hint_bits:
+                branch_hint = (
+                    f"玩家本轮选择「{selected_branch.get('label', '')}」（"
+                    + "，".join(hint_bits)
+                    + "），请让本轮叙述朝该方向推进。"
+                )
 
         def _run_intra_round_hooks(hook_ctx, narrative):
             """Phase 1 和 Phase 2 之间的 hook 执行。
@@ -366,6 +453,7 @@ def register(app, managers):
                 # 选项/战斗/节拍标记在文本流完后提取（Call 2），与对话内容分开、不阻塞阅读。
                 dialogue_segments = None
                 inline_choices = None
+                inline_branches = None
                 plot_summary = None
                 marker_env = None
                 for event_type, data in session.scene_manager.narrate_stream(
@@ -376,6 +464,7 @@ def register(app, managers):
                     conversation_history=conversation_history,
                     is_first_turn=is_first_turn,
                     thinking=thinking,
+                    branch_hint=branch_hint,
                 ):
                     if event_type == "token":
                         yield f"data: {json.dumps({'type': 'text', 'data': {'token': data, 'stream_id': stream_id}})}\n\n"
@@ -407,6 +496,8 @@ def register(app, managers):
                     markers = session.scene_manager.extract_markers(
                         narrative, choices_count=choices_count,
                         beat_state_active=bool(session.overlay and session.overlay.get_beat_state()),
+                        branch_context=session.scene_manager._branch_context() if choices_count > 0 else "",
+                        worldbook_text=session.scene_manager._recent_worldbook_text() if choices_count > 0 else "",
                     )
                     if markers.get("usage"):
                         session.accumulate_usage(markers["usage"])
@@ -421,6 +512,7 @@ def register(app, managers):
                     if briefing:
                         yield f"data: {json.dumps({'type': 'combat_briefing', 'data': briefing}, ensure_ascii=False)}\n\n"
                     inline_choices = markers.get("choices")
+                    inline_branches = markers.get("branches")
                     plot_summary = markers.get("summary")
                     marker_env = markers.get("environment")
 
@@ -452,6 +544,10 @@ def register(app, managers):
                         plot_summary if plot_summary else narrative[:300].replace('\n', ' ')
                     )
                     session.overlay.update_beat_progress()
+                    # 记录节点快照：入口节点（首个快照）+ 本轮推进后的完成节点
+                    if not session.overlay.get_node_history():
+                        session.overlay.record_node_snapshot(session.narration_count)
+                    _record_node_snapshot(session)
                     interval = config.get("memory_interval", 5)
                     if session.should_generate_memory(interval):
                         memory = session.generate_memory()
@@ -461,10 +557,13 @@ def register(app, managers):
                                 'stream_id': stream_id
                             }})}\n\n"
 
-                # 生成选项：优先使用提取结果，回退到默认选项
+                # 生成选项：优先使用提取结果，回退到默认选项；分支与作者预设合并
                 options = _build_choices(session, inline_choices)
+                branches = _build_branches(session, inline_branches)
+                if branches and session.overlay:
+                    session.overlay.set_emitted_branches(branches)
 
-                yield f"data: {json.dumps({'type': 'choice', 'data': {'options': options, 'stream_id': stream_id}})}\n\n"
+                yield f"data: {json.dumps({'type': 'choice', 'data': {'options': options, 'branches': branches, 'stream_id': stream_id}}, ensure_ascii=False)}\n\n"
 
                 # 发送 token 使用量
                 if usage:
@@ -494,6 +593,23 @@ def register(app, managers):
         player_info = {"identity": data.get("identity") or session.player_identity}
         env_context = session.environment.build_context()
         user_action = data.get("action", "")
+        branch_id = str(data.get("branch_id") or "").strip()
+        selected_branch = _resolve_branch(session, branch_id, user_action)
+        if selected_branch and selected_branch.get("target_beat_id"):
+            session.overlay.set_pending_branch({**selected_branch, "round": session.narration_count})
+        branch_hint = ""
+        if selected_branch:
+            hint_bits = []
+            if selected_branch.get("intent"):
+                hint_bits.append(f"倾向：{selected_branch['intent']}")
+            if selected_branch.get("target_beat_id"):
+                hint_bits.append(f"目标节拍：{selected_branch['target_beat_id']}")
+            if hint_bits:
+                branch_hint = (
+                    f"玩家本轮选择「{selected_branch.get('label', '')}」（"
+                    + "，".join(hint_bits)
+                    + "），请让本轮叙述朝该方向推进。"
+                )
 
         # 注入记忆上下文
         context_with_memory = inject_memory_context(session, env_context)
@@ -542,6 +658,7 @@ def register(app, managers):
                 conversation_history=conversation_history,
                 is_first_turn=is_first_turn,
                 thinking=thinking,
+                branch_hint=branch_hint,
             )
             session.accumulate_usage(usage)
 
@@ -567,6 +684,7 @@ def register(app, managers):
 
             # 两阶段提取：从叙事文本中提取标记（Call 2）
             inline_choices = None
+            inline_branches = None
             plot_summary = None
             combat_briefing = None
             marker_env = None
@@ -574,6 +692,8 @@ def register(app, managers):
                 markers = session.scene_manager.extract_markers(
                     narrative, choices_count=choices_count,
                     beat_state_active=bool(session.overlay and session.overlay.get_beat_state()),
+                    branch_context=session.scene_manager._branch_context() if choices_count > 0 else "",
+                    worldbook_text=session.scene_manager._recent_worldbook_text() if choices_count > 0 else "",
                 )
                 if markers.get("usage"):
                     session.accumulate_usage(markers["usage"])
@@ -586,6 +706,7 @@ def register(app, managers):
                     beat_combat_id=beat_combat_id if combat_due else "",
                 )
                 inline_choices = markers.get("choices")
+                inline_branches = markers.get("branches")
                 plot_summary = markers.get("summary")
                 marker_env = markers.get("environment")
 
@@ -601,6 +722,9 @@ def register(app, managers):
                     plot_summary if plot_summary else narrative[:300].replace('\n', ' ')
                 )
                 session.overlay.update_beat_progress()
+                if not session.overlay.get_node_history():
+                    session.overlay.record_node_snapshot(session.narration_count)
+                _record_node_snapshot(session)
                 interval = config.get("memory_interval", 5)
                 if session.should_generate_memory(interval):
                     memory = session.generate_memory()
@@ -608,6 +732,10 @@ def register(app, managers):
                         response_extra["memory"] = memory
 
             options = _build_choices(session, inline_choices)
+            branches = _build_branches(session, inline_branches)
+            if branches and session.overlay:
+                session.overlay.set_emitted_branches(branches)
+            response_extra["branches"] = branches
 
             if dialogue_segments:
                 response_extra["dialogue_segments"] = dialogue_segments

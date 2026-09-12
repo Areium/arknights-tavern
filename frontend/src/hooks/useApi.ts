@@ -8,6 +8,7 @@ import { useMemo } from "react";
 import { getBaseUrl } from "../utils/baseUrl";
 import type {
   BattleNodeDTO, BattleNodeOverviewDTO, CombatNodeGraphDTO, CombatSettlementDTO, ValidationReportDTO,
+  StoryStateDTO, BranchChoice,
 } from "../types";
 
 async function uploadMultipart(path: string, fields: Record<string, string>, file: File): Promise<any> {
@@ -216,6 +217,25 @@ export function useApi() {
       }>(`/api/sessions/${sessionId}/rollback`, {
         method: "POST",
         body: JSON.stringify({ round }),
+      }),
+
+    // ── 剧情状态 & 节点回档 ──
+    getStoryState: (sessionId: string) =>
+      request<StoryStateDTO>(`/api/sessions/${sessionId}/story-state`),
+    rollbackNode: (sessionId: string, nodeId: string) =>
+      request<{
+        target_round: number;
+        narration_count: number;
+        deleted_rounds: number;
+        deleted_memories: number;
+        memories: any[];
+        node_id: string;
+        round_range: [number, number];
+        restored: any;
+        story_state: StoryStateDTO;
+      }>(`/api/sessions/${sessionId}/rollback-node`, {
+        method: "POST",
+        body: JSON.stringify({ node_id: nodeId }),
       }),
 
     // ── 文档（剧情节点图编辑 plots/*.md 用；文档管理 UI 已并入世界书） ──
@@ -733,7 +753,7 @@ export function createSSE(
     onReasoning?: (token: string) => void;
     onSceneEvent?: (event: any) => void;
     onMemoryEvent?: (event: any) => void;
-    onChoice?: (options: string[]) => void;
+    onChoice?: (options: string[], branches?: BranchChoice[]) => void;
     onDialogueSegments?: (segments: { type: string; text: string; speaker?: string }[]) => void;
     onTokenUsage?: (usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }) => void;
     onCombatTrigger?: (data: { encounter_id: string; session_id: string }) => void;
@@ -865,7 +885,7 @@ function connectSSE(
     onReasoning?: (token: string) => void;
     onSceneEvent?: (event: any) => void;
     onMemoryEvent?: (event: any) => void;
-    onChoice?: (options: string[]) => void;
+    onChoice?: (options: string[], branches?: BranchChoice[]) => void;
     onDialogueSegments?: (segments: { type: string; text: string; speaker?: string }[]) => void;
     onTokenUsage?: (usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }) => void;
     onCombatTrigger?: (data: { encounter_id: string; session_id: string }) => void;
@@ -947,7 +967,7 @@ function connectSSE(
                 handlers.onMemoryEvent?.(event.data);
                 break;
               case "choice":
-                handlers.onChoice?.(event.data.options);
+                handlers.onChoice?.(event.data.options, event.data.branches);
                 break;
               case "dialogue_segments":
                 handlers.onDialogueSegments?.(event.data.segments);

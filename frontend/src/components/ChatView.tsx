@@ -13,6 +13,7 @@ import CharacterBrowser from "./CharacterBrowser";
 import ItemBrowser from "./ItemBrowser";
 import MemoryPanel from "./MemoryPanel";
 import QuestPanel from "./QuestPanel";
+import StoryStatePanel from "./StoryStatePanel";
 import SessionResourcePanel from "./session/SessionResourcePanel";
 
 export default function ChatView() {
@@ -107,6 +108,7 @@ export default function ChatView() {
               onAddClick={() => setItemBrowserOpen(true)}
             />
             <EnvironmentPanel />
+            <StoryStatePanel />
             <MemoryPanel />
             <QuestPanel />
           </div>

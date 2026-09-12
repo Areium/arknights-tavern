@@ -75,6 +75,7 @@ def create_app():
     from blueprints.cards import register as reg_cards
     from blueprints.worldbook import register as reg_worldbook
     from blueprints.plot_graphs import register as reg_plot_graphs
+    from blueprints.story import register as reg_story
 
     for reg in [
         reg_status,
@@ -93,6 +94,7 @@ def create_app():
         reg_cards,
         reg_worldbook,
         reg_plot_graphs,
+        reg_story,
     ]:
         reg(app, managers)
 

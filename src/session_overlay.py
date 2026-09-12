@@ -334,13 +334,33 @@ class SessionOverlay:
             return remaining.strip()
         return ""
 
+    def _ensure_narrative_beats(self) -> list[dict]:
+        """惰性加载节拍结构。
+
+        节拍结构只在会话创建（init_session_docs）时解析进内存；服务重启后
+        恢复的会话没有该属性，会导致状态展示/推进/回档全部失效。此处按
+        plot_id 从剧情模板重新解析一次，保证恢复会话也能读取节点结构。
+        """
+        if hasattr(self, "_narrative_beats"):
+            return self._narrative_beats
+        self._narrative_beats: list[dict] = []
+        plot_id = self._data.get("plot_id")
+        if plot_id:
+            text = self._load_narrative_text(plot_id)
+            if text:
+                self._narrative_text = text
+                self._narrative_beats = _parse_narrative_beats(text)
+                logger.debug("会话 %s: 惰性加载剧情结构 %s（%d 章）",
+                             self.session_id, plot_id, len(self._narrative_beats))
+        return self._narrative_beats
+
     def get_beat_state(self) -> dict:
         """获取当前节拍进度状态。"""
         return self._data.get("beat_state", {})
 
     def get_current_beat(self) -> dict | None:
         """获取当前节拍信息（content + dialogue + reveals）。"""
-        beats = self._narrative_beats if hasattr(self, "_narrative_beats") else []
+        beats = self._ensure_narrative_beats()
         bs = self._data.get("beat_state", {})
         if not beats or not bs:
             return None
@@ -369,7 +389,7 @@ class SessionOverlay:
         用于预取 hook 提前加载下一节拍可能需要的 wiki 文档。
         如果当前是最后一个节拍则返回 None。
         """
-        beats = self._narrative_beats if hasattr(self, "_narrative_beats") else []
+        beats = self._ensure_narrative_beats()
         bs = self._data.get("beat_state", {})
         if not beats or not bs:
             return None
@@ -386,7 +406,7 @@ class SessionOverlay:
 
     def _build_beat_roadmap(self) -> str:
         """构建节拍路线图——展示当前章节 ±1，远章节折叠为一行。"""
-        beats = self._narrative_beats if hasattr(self, "_narrative_beats") else []
+        beats = self._ensure_narrative_beats()
         bs = self._data.get("beat_state", {})
         if not beats:
             return ""
@@ -419,11 +439,23 @@ class SessionOverlay:
         return "\n".join(lines)
 
     def advance_beat(self):
-        """推进到下一个节拍。跨章节自动处理。"""
-        beats = self._narrative_beats if hasattr(self, "_narrative_beats") else []
+        """推进到下一个节拍。跨章节自动处理。
+
+        若 beat_state 中存在待生效的分支落点（pending_branch）且目标节拍合法，
+        则直接跳转到该节拍（分支自由进入的确定性落点）；否则顺序推进。
+        """
+        beats = self._ensure_narrative_beats()
         bs = self._data.get("beat_state", {})
         if not beats or not bs:
             return
+
+        # 分支落点优先：玩家上轮选择的目标节拍
+        pending = bs.get("pending_branch") if isinstance(bs, dict) else None
+        target = (pending or {}).get("target_beat_id") or ""
+        if target and target in self._beat_index():
+            if self.jump_to_beat(target):
+                self.clear_pending_branch()
+                return
 
         ci = bs.get("chapter_idx", 0)
         bi = bs.get("beat_idx", 0)
@@ -438,6 +470,9 @@ class SessionOverlay:
                 bs["completed_beats"] = []
             if current_beat["id"] not in bs["completed_beats"]:
                 bs["completed_beats"].append(current_beat["id"])
+
+        # 清理待生效分支（未命中合法目标 / 已顺序推进）
+        bs.pop("pending_branch", None)
 
         # 推进
         if bi + 1 < len(ch["beats"]):
@@ -601,12 +636,424 @@ class SessionOverlay:
             self._rewrite_plot_state()
             self._save()
 
+    # ── 分支（LLM 生成 + 作者手写） ──
+
+    def _beat_index(self) -> dict[str, tuple[int, int]]:
+        """beat_id → (chapter_idx, beat_idx) 索引。"""
+        beats = self._ensure_narrative_beats()
+        index: dict[str, tuple[int, int]] = {}
+        for ci, ch in enumerate(beats):
+            for bi, b in enumerate(ch.get("beats", [])):
+                index[b["id"]] = (ci, bi)
+        return index
+
+    def jump_to_beat(self, beat_id: str) -> bool:
+        """直接跳转到指定节拍（仅由分支落点调用，非顺序推进）。
+
+        把当前节拍记入 completed_beats 后定位到目标节拍。目标不存在返回 False。
+        """
+        beats = self._ensure_narrative_beats()
+        bs = self._data.get("beat_state", {})
+        if not beats or not bs:
+            return False
+        index = self._beat_index()
+        if beat_id not in index:
+            return False
+        # 记录当前节拍为已完成（与 advance_beat 语义一致）
+        current = self.get_current_beat()
+        if current:
+            bs.setdefault("completed_beats", [])
+            if current["id"] not in bs["completed_beats"]:
+                bs["completed_beats"].append(current["id"])
+        ci, bi = index[beat_id]
+        bs["chapter_idx"] = ci
+        bs["beat_idx"] = bi
+        bs["narrations_on_beat"] = 0
+        self._data["beat_state"] = bs
+        self._rewrite_plot_state()
+        self._save()
+        logger.info("会话 %s: 分支落点跳转 → %s", self.session_id, beat_id)
+        return True
+
+    def set_pending_branch(self, branch: dict) -> None:
+        """记录玩家本轮选择的分支（作为推进时的落点提示）。"""
+        bs = self._data.get("beat_state", {})
+        if not bs:
+            return
+        bs["pending_branch"] = {
+            "target_beat_id": branch.get("target_beat_id") or "",
+            "intent": branch.get("intent") or "",
+            "label": branch.get("label") or "",
+            "round": branch.get("round", self._data.get("narration_round", 0)),
+        }
+        self._data["beat_state"] = bs
+        self._save()
+
+    def set_emitted_branches(self, branches: list[dict]) -> None:
+        """记录上一轮下发给前端的分支列表（供选择回传时按 id 恢复）。"""
+        self._data["emitted_branches"] = list(branches or [])
+        self._save()
+
+    def get_emitted_branches(self) -> list[dict]:
+        """读取上一轮下发的分支列表。"""
+        emitted = self._data.get("emitted_branches")
+        return list(emitted) if isinstance(emitted, list) else []
+
+    def get_pending_branch(self) -> dict | None:
+        """读取待生效的分支落点提示（无则 None）。"""
+        bs = self._data.get("beat_state", {})
+        pending = bs.get("pending_branch") if isinstance(bs, dict) else None
+        return pending if isinstance(pending, dict) and pending.get("target_beat_id") else None
+
+    def clear_pending_branch(self) -> None:
+        """清除待生效的分支落点。"""
+        bs = self._data.get("beat_state", {})
+        if isinstance(bs, dict) and "pending_branch" in bs:
+            bs.pop("pending_branch", None)
+            self._data["beat_state"] = bs
+            self._save()
+
+    def build_branch_context(self) -> str:
+        """构建注入 Call 2 的「玩家当前节点状态」文本块。
+
+        包含：当前节拍 id/内容摘录/揭示信息 + 后续 5 个节拍 id+概要（跨章节）+
+        章节标题 + 本 beat 的作者手写选项方向。供 LLM 生成有根的后续分支。
+        """
+        beats = self._ensure_narrative_beats()
+        bs = self._data.get("beat_state", {})
+        if not beats or not bs:
+            return ""
+        current = self.get_current_beat()
+        if not current:
+            return ""
+
+        ci = bs.get("chapter_idx", 0)
+        lines = ["<current_node>"]
+        if ci < len(beats):
+            lines.append(f"章节：第{ci + 1}章 {beats[ci]['title']}")
+        lines.append(f"当前节拍：{current['id']}")
+        content = (current.get("content") or "").strip()
+        if content:
+            lines.append(f"节拍内容：{content[:300]}")
+        reveals = (current.get("reveals") or "").strip()
+        if reveals:
+            lines.append(f"已揭示信息：{reveals[:200]}")
+
+        # 后续节拍候选（跨章节，最多 5 个）——供 target_beat_id 选择
+        flat = [(c, b) for c, ch in enumerate(beats) for b in ch.get("beats", [])]
+        cur_pos = next(
+            (p for p, (c, b) in enumerate(flat) if c == ci and b["id"] == current["id"]),
+            None,
+        )
+        next_infos = []
+        if cur_pos is not None:
+            for p in range(cur_pos + 1, min(cur_pos + 6, len(flat))):
+                c, b = flat[p]
+                label = b["id"] if c == ci else f"{b['id']}（第{c + 1}章）"
+                next_infos.append(f"{label} — {(b.get('summary') or '')[:50]}")
+        if next_infos:
+            lines.append("后续节拍候选：" + "；".join(next_infos))
+            lines.append("说明：不同意图的分支可指向不同的候选节拍；都不贴切则 target_beat_id 填 null。")
+
+        authored = self.get_authored_branches()
+        if authored:
+            authored_txt = "；".join(
+                f"{b['label']}（{b['intent']}）" if b.get("intent") else b["label"]
+                for b in authored
+            )
+            lines.append(f"作者预设选项方向：{authored_txt}")
+
+        paths = current.get("discovery_paths") or []
+        if paths:
+            lines.append("发现路径参考：" + "；".join(p[:60] for p in paths))
+
+        lines.append("</current_node>")
+        return "\n".join(lines)
+
+    def get_authored_branches(self) -> list[dict]:
+        """当前章节的作者手写分支（结构化）。
+
+        「玩家选项方向」在剧情文件里是**章节级**的（写在章节最后一个节拍之后），
+        因此只要处于该章节内就返回，而不是仅限最后一个节拍。
+        """
+        beats = self._ensure_narrative_beats()
+        bs = self._data.get("beat_state", {})
+        if not beats or not bs:
+            return []
+        ci = bs.get("chapter_idx", 0)
+        if ci >= len(beats):
+            return []
+        # 章节内任一节拍携带的作者分支（通常落在最后一个节拍上）
+        for b in beats[ci].get("beats", []):
+            authored = b.get("authored_branches") or []
+            if authored:
+                return list(authored)
+        return []
+
+    # ── 节点历史（每节点状态快照，用于记录/回档） ──
+
+    def _node_history_path(self) -> Path:
+        return _SESSIONS_DIR / self.mode / self.session_id / "node_history.json"
+
+    def _load_node_history(self) -> dict:
+        path = self._node_history_path()
+        if not path.is_file():
+            return {"version": 1, "nodes": []}
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if not isinstance(data, dict) or not isinstance(data.get("nodes"), list):
+                return {"version": 1, "nodes": []}
+            return data
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("会话 %s: 节点历史读取失败（按空处理）: %s", self.session_id, e)
+            return {"version": 1, "nodes": []}
+
+    def _save_node_history(self, data: dict) -> None:
+        """原子落盘 node_history.json（tmp + os.replace）。"""
+        path = self._node_history_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path.with_name(path.name + ".tmp")
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+                f.write("\n")
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, path)
+        finally:
+            if tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
+
+    def record_node_snapshot(self, round_num: int | None = None) -> dict | None:
+        """记录「刚完成的节点」的完整状态快照。
+
+        记录已完成的最后一个节拍（completed_beats[-1]）及其结束时的角色/任务/
+        环境状态，供后续回档恢复。同一 node_id + round_end 幂等替换。
+        无剧情或无已完成节拍时返回 None。
+        """
+        beats = self._ensure_narrative_beats()
+        bs = self._data.get("beat_state", {})
+        if not beats or not bs:
+            return None
+        completed = bs.get("completed_beats") or []
+        if not completed:
+            return None
+        node_id = completed[-1]
+        index = self._beat_index()
+        if node_id not in index:
+            return None
+        ci, bi = index[node_id]
+
+        history = self._load_node_history()
+        nodes = history.get("nodes", [])
+
+        if round_num is None:
+            round_num = self._data.get("narration_round", 0)
+
+        prev_round_end = nodes[-1].get("round_end", 0) if nodes else 0
+        # 幂等：同节点同结束轮次已记录则跳过
+        for n in nodes:
+            if n.get("node_id") == node_id and n.get("round_end") == round_num:
+                return n
+
+        snapshot = {
+            "node_id": node_id,
+            "chapter_idx": ci,
+            "beat_idx": bi,
+            "chapter_title": beats[ci]["title"] if ci < len(beats) else "",
+            "round_start": prev_round_end + 1,
+            "round_end": round_num,
+            "narration_round": self._data.get("narration_round", 0),
+            "plot_log_len": len(self._plot_log_entries()),
+            "environment": copy.deepcopy(self._data.get("environment", {})),
+            "character_states": copy.deepcopy(self._data.get("character_states", {})),
+            "quest_states": copy.deepcopy(self._data.get("quest_states", {})),
+            "completed_beats": list(completed),
+            "created_at": __import__("time").time(),
+        }
+        nodes.append(snapshot)
+        history["nodes"] = nodes
+        self._save_node_history(history)
+        logger.info("会话 %s: 记录节点快照 %s（第%d-%d轮）",
+                    self.session_id, node_id, snapshot["round_start"], round_num)
+        return snapshot
+
+    def _plot_log_entries(self) -> list[str]:
+        """读取 plot_log.md 的条目行。"""
+        content = self.read_session_doc("plot_log.md") or ""
+        return [l for l in content.split("\n") if l.startswith("[轮次")]
+
+    def get_node_history(self) -> list[dict]:
+        """全部节点快照（按记录顺序）。"""
+        return self._load_node_history().get("nodes", [])
+
+    def get_node_snapshot(self, node_id: str) -> dict | None:
+        """某节点的最后一个快照（无则 None）。"""
+        snap = None
+        for n in self.get_node_history():
+            if n.get("node_id") == node_id:
+                snap = n
+        return snap
+
+    def prune_node_history(self, keep_round: int) -> int:
+        """删除 round_end 晚于 keep_round 的节点快照，返回删除数量。"""
+        history = self._load_node_history()
+        nodes = history.get("nodes", [])
+        kept = [n for n in nodes if int(n.get("round_end") or 0) <= keep_round]
+        removed = len(nodes) - len(kept)
+        if removed:
+            history["nodes"] = kept
+            self._save_node_history(history)
+            logger.info("会话 %s: 裁剪 %d 个滞后节点快照（>%d轮）",
+                        self.session_id, removed, keep_round)
+        return removed
+
+    def restore_from_snapshot(self, node_id: str) -> dict:
+        """从节点快照恢复会话覆盖态（节拍/角色/任务/环境/剧情日志）。
+
+        时间旅行语义：整体替换而非合并。返回恢复摘要。
+        """
+        snap = self.get_node_snapshot(node_id)
+        if not snap:
+            raise ValueError(f"未找到节点快照: {node_id}")
+
+        index = self._beat_index()
+        if node_id not in index:
+            raise ValueError(f"节点不在当前剧情结构中: {node_id}")
+        ci, bi = index[node_id]
+
+        bs = self._data.get("beat_state", {})
+        bs["chapter_idx"] = ci
+        bs["beat_idx"] = bi
+        bs["narrations_on_beat"] = 0
+        bs["completed_beats"] = list(snap.get("completed_beats") or [])
+        bs.pop("pending_branch", None)
+        self._data["beat_state"] = bs
+
+        if "character_states" in snap:
+            self._data["character_states"] = copy.deepcopy(snap["character_states"])
+        if "quest_states" in snap:
+            self._data["quest_states"] = copy.deepcopy(snap["quest_states"])
+        if "environment" in snap:
+            self._data["environment"] = copy.deepcopy(snap["environment"])
+        self._data["narration_round"] = int(snap.get("round_end") or 0)
+
+        self._save()
+        self._rewrite_plot_state()
+
+        # 重建 plot_log.md（截断到快照时长度）
+        log_len = int(snap.get("plot_log_len") or 0)
+        entries = self._plot_log_entries()[:log_len]
+        new_content = _PLOT_LOG_HEADER + "\n".join(entries)
+        if entries:
+            new_content += "\n"
+        self.write_session_doc("plot_log.md", new_content)
+
+        logger.info("会话 %s: 已从节点快照恢复 %s（第%d轮）",
+                    self.session_id, node_id, snap.get("round_end", 0))
+        return {
+            "node_id": node_id,
+            "chapter_idx": ci,
+            "beat_idx": bi,
+            "round_end": int(snap.get("round_end") or 0),
+            "completed_beats": list(snap.get("completed_beats") or []),
+        }
+
+    # ── 状态展示（当前位置） ──
+
+    def build_story_state(self) -> dict:
+        """构建剧情状态视图：当前章节/节拍位置 + 节拍路线图 + 已完成 + 待生效分支。
+
+        无剧情返回 {"has_plot": False, "roads": []}。
+        """
+        beats = self._ensure_narrative_beats()
+        bs = self._data.get("beat_state", {})
+        if not beats or not bs:
+            return {"has_plot": False, "roads": []}
+
+        ci = bs.get("chapter_idx", 0)
+        bi = bs.get("beat_idx", 0)
+        completed = set(bs.get("completed_beats", []))
+        snap_by_node = {n["node_id"]: n for n in self.get_node_history()}
+
+        roads = []
+        for i, ch in enumerate(beats):
+            ch_state = "locked"
+            if i < ci:
+                ch_state = "done"
+            elif i == ci:
+                ch_state = "current"
+            ch_beats = []
+            for j, b in enumerate(ch.get("beats", [])):
+                if b["id"] in completed:
+                    bstate = "done"
+                elif i == ci and j == bi:
+                    bstate = "current"
+                else:
+                    bstate = "locked"
+                snap = snap_by_node.get(b["id"])
+                ch_beats.append({
+                    "id": b["id"],
+                    "summary": (b.get("summary") or "")[:80],
+                    "keep_on_deviate": b.get("keep_on_deviate", False),
+                    "state": bstate,
+                    "round_start": snap.get("round_start") if snap else None,
+                    "round_end": snap.get("round_end") if snap else None,
+                    "has_combat": "[COMBAT:" in (b.get("content") or ""),
+                    "authored_branches": b.get("authored_branches", []),
+                })
+            roads.append({
+                "chapter_idx": i,
+                "title": ch.get("title", ""),
+                "summary": (ch.get("summary") or "")[:120],
+                "state": ch_state,
+                "beats": ch_beats,
+            })
+
+        current_beat = self.get_current_beat()
+        beat_info = None
+        if current_beat:
+            beat_info = {
+                "idx": bi,
+                "total": len(beats[ci]["beats"]) if ci < len(beats) else 0,
+                "id": current_beat["id"],
+                "summary": (current_beat.get("summary") or "")[:80],
+                "narrations_on_beat": bs.get("narrations_on_beat", 0),
+            }
+
+        return {
+            "has_plot": True,
+            "plot_id": self._data.get("plot_id", ""),
+            "plot_name": self._data.get("plot_name", ""),
+            "chapter": {
+                "idx": ci,
+                "title": beats[ci]["title"] if ci < len(beats) else "",
+                "total": len(beats),
+                "id": beats[ci].get("id", "") if ci < len(beats) else "",
+            },
+            "beat": beat_info,
+            "roads": roads,
+            "completed_beats": list(bs.get("completed_beats", [])),
+            "pending_branch": self.get_pending_branch(),
+            "character_states": self._data.get("character_states", {}),
+            "quest_states": self._data.get("quest_states", {}),
+            "node_history": [
+                {"node_id": n.get("node_id"), "round_start": n.get("round_start"),
+                 "round_end": n.get("round_end")}
+                for n in self.get_node_history()
+            ],
+        }
+
     def _rewrite_plot_state(self):
         """从当前内存状态重写 plot_state.md。
 
         包含 YAML frontmatter（机器可读状态）和 Markdown body（LLM 可读上下文）。
         """
-        beats = self._narrative_beats if hasattr(self, "_narrative_beats") else []
+        beats = self._ensure_narrative_beats()
         bs = self._data.get("beat_state", {})
 
         body_parts = []
@@ -837,6 +1284,13 @@ class SessionOverlay:
             "character_states": self._data.get("character_states", {}),
             "has_plot_context": self.has_plot_context(),
         }
+        node_history = [
+            {"node_id": n.get("node_id"), "round_start": n.get("round_start"),
+             "round_end": n.get("round_end")}
+            for n in self.get_node_history()
+        ]
+        if node_history:
+            result["node_history"] = node_history
         custom = self.get_custom_prompt()
         if custom:
             result["custom_prompt"] = custom
@@ -1006,20 +1460,28 @@ def _parse_narrative_beats(text: str) -> list[dict]:
     """解析 narrative.md 为章节/节拍结构。
 
     Returns:
-        [{title, id, summary, beats: [{id, summary, content, dialogue, reveals}]}, ...]
+        [{title, id, summary, beats: [{id, summary, content, dialogue, reveals,
+          keep_on_deviate, stat_check, option_directions, authored_branches,
+          discovery_paths}]}, ...]
     """
     chapters = []
     current_chapter = None
     current_beat = None
-    current_section = None  # "content" | "dialogue" | "reveals"
+    current_section = None  # "content" | "dialogue" | "reveals" | "option_directions" | "discovery_paths"
     section_buf = []
 
     def flush_section():
         nonlocal current_section, section_buf
         if current_beat and current_section and section_buf:
-            text = "\n".join(section_buf).strip()
-            if text:
-                current_beat[current_section] = text
+            if current_section in ("option_directions", "discovery_paths"):
+                # 列表型 section：保留原始条目行（供作者分支/发现路径使用）
+                items = [s.strip() for s in section_buf if s.strip()]
+                if items:
+                    current_beat[current_section] = items
+            else:
+                text = "\n".join(section_buf).strip()
+                if text:
+                    current_beat[current_section] = text
         section_buf = []
         current_section = None
 
@@ -1087,6 +1549,9 @@ def _parse_narrative_beats(text: str) -> list[dict]:
                 "reveals": "",
                 "keep_on_deviate": keep_on_deviate,
                 "stat_check": stat_check,
+                "option_directions": [],
+                "authored_branches": [],
+                "discovery_paths": [],
             }
             continue
 
@@ -1114,8 +1579,26 @@ def _parse_narrative_beats(text: str) -> list[dict]:
             section_buf.append(re.sub(r"^\*\*揭示信息\*\*[：:]\s*", "", line))
             continue
 
-        # 发现路径 / 玩家选项 / 对话方向 — 不属于我们关注的 section
-        if re.match(r"^\*\*(发现路径|玩家选项方向|对话方向)\*\*[：:]", line):
+        # 作者手写选项方向（h3 形式）：### 玩家选项方向
+        if re.match(r"^###\s*玩家选项方向\s*$", line):
+            flush_section()
+            current_section = "option_directions"
+            continue
+
+        # 对话方向（h3 形式）：仅作参考，解析后丢弃
+        if re.match(r"^###\s*对话方向\s*$", line):
+            flush_section()
+            continue
+
+        # 发现路径: **发现路径**： → 保留（供 prompt 上下文，非可点选项）
+        if re.match(r"^\*\*发现路径\*\*[：:]", line):
+            flush_section()
+            current_section = "discovery_paths"
+            section_buf.append(re.sub(r"^\*\*发现路径\*\*[：:]\s*", "", line))
+            continue
+
+        # 玩家选项方向（bold 形式）/ 对话方向 — 不关注
+        if re.match(r"^\*\*(玩家选项方向|对话方向)\*\*[：:]", line):
             flush_section()
             continue
 
@@ -1136,8 +1619,50 @@ def _parse_narrative_beats(text: str) -> list[dict]:
         for b in ch["beats"]:
             if not b.get("summary") and b.get("content"):
                 b["summary"] = b["content"][:80].replace("\n", " ")
+            b["authored_branches"] = _derive_authored_branches(
+                b.get("option_directions", [])
+            )
 
     return chapters
+
+
+def _derive_authored_branches(option_directions: list[str]) -> list[dict]:
+    """把剧情里手写的「玩家选项方向」条目转成结构化作者分支。
+
+    条目形如「接受银灰的"证人"邀请，明确表示罗德岛只记录事实（中立取向）」。
+    括号尾的内容作为 intent 方向标签（截断到首个分句，≤20 字），其余作为 label。
+
+    Returns:
+        [{"label": str, "intent": str | None, "target_beat_id": None, "source": "author"}]
+    """
+    branches: list[dict] = []
+    for raw in option_directions or []:
+        text = str(raw).strip()
+        # 去掉列表前缀（- / * / 数字.）
+        text = re.sub(r"^[-*]\s*", "", text)
+        text = re.sub(r"^\d+[.、]\s*", "", text)
+        if not text:
+            continue
+        # 过滤分隔线（--- / ***）等非选项行
+        if re.fullmatch(r"[-*_=\s]+", text):
+            continue
+        intent = None
+        m = re.search(r"[（(]([^）)]+)[）)]\s*$", text)
+        if m:
+            # 括号内容可能很长的说明，取到首个分隔符为止作为方向标签
+            raw_intent = m.group(1).strip()
+            raw_intent = re.split(r"[：:，,；;]", raw_intent)[0].strip()
+            intent = raw_intent[:20] or None
+            text = text[:m.start()].strip()
+        if not text:
+            continue
+        branches.append({
+            "label": text[:30],
+            "intent": intent,
+            "target_beat_id": None,
+            "source": "author",
+        })
+    return branches
 
 
 def parse_narrative_beats(text: str) -> list[dict]:

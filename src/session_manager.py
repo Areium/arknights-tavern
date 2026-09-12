@@ -520,6 +520,12 @@ class Session:
 
         self._save_memories()
 
+        # 节点快照与已删除的轮次保持一致（封闭「回滚不动 overrides」缺口）
+        try:
+            self.overlay.prune_node_history(target_round)
+        except Exception:
+            logger.warning("回滚后裁剪节点快照失败", exc_info=True)
+
         deleted_rounds = old_history_len - len(self._narration_history)
         deleted_memories = old_memory_len - len(self._memories)
 
@@ -533,6 +539,47 @@ class Session:
             "deleted_memories": deleted_memories,
             "memories": self.get_memories(),
         }
+
+    def rollback_to_node(self, node_id: str) -> dict:
+        """回档到某个已记录的关键节点，并恢复该节点时的全部状态。
+
+        与 rollback_to_round 的区别：除截断叙述历史/回忆外，还从节点快照
+        恢复 beat_state、角色状态、任务状态、环境与剧情日志（时间旅行语义）。
+
+        Raises:
+            ValueError: 节点无快照或不在当前剧情结构中。
+        """
+        snap = self.overlay.get_node_snapshot(node_id)
+        if snap is None:
+            raise ValueError(f"未找到节点快照: {node_id}")
+        target_round = int(snap.get("round_end") or 0)
+
+        base = self.rollback_to_round(target_round)
+        restored = self.overlay.restore_from_snapshot(node_id)
+        self.reload_environment_from_overlay()
+
+        return {
+            **base,
+            "node_id": node_id,
+            "round_range": [snap.get("round_start"), target_round],
+            "restored": restored,
+            "story_state": self.overlay.build_story_state(),
+        }
+
+    def reload_environment_from_overlay(self):
+        """把 overrides.json 中持久化的环境同步到 EnvironmentState（回档后调用）。"""
+        env = self.overlay.get_environment_overrides() or {}
+        try:
+            if env.get("location"):
+                self.environment.set_location(env["location"])
+            if env.get("weather"):
+                self.environment.set_weather(env["weather"])
+            if env.get("time_of_day"):
+                self.environment.time_of_day = env["time_of_day"]
+            if env.get("atmosphere"):
+                self.environment.atmosphere = list(env["atmosphere"])
+        except Exception:
+            logger.warning("会话 %s: 从覆盖恢复环境失败", self.id, exc_info=True)
 
     def to_dict(self) -> dict:
         overridden_chars = [

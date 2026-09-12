@@ -16,6 +16,7 @@ def _empty_extraction_result() -> dict:
         "beat_complete": False,
         "combat": None,
         "choices": None,
+        "branches": None,
         "summary": None,
         "environment": None,
         "usage": None,
@@ -23,11 +24,12 @@ def _empty_extraction_result() -> dict:
     }
 
 
-def _parse_extraction_json(text: str) -> dict:
+def _parse_extraction_json(text: str, valid_beat_ids=None) -> dict:
     """从 LLM 响应中解析标记提取 JSON。
 
     处理 markdown 代码块包裹、JSON 对象定位和解析异常。
     失败时返回 _empty_extraction_result()。
+    valid_beat_ids 用于校验 branches 的 target_beat_id。
     """
     text = text.strip()
     # 移除 markdown 代码块包裹
@@ -60,6 +62,7 @@ def _parse_extraction_json(text: str) -> dict:
         "beat_complete": bool(data.get("beat_complete", False)),
         "combat": _normalize_combat_field(data.get("combat_trigger")),
         "choices": _normalize_choices_field(data.get("choices")),
+        "branches": _normalize_branches_field(data.get("branches"), valid_beat_ids),
         "summary": _normalize_summary_field(data.get("summary")),
         "environment": _normalize_environment_field(data.get("environment")),
     }
@@ -102,6 +105,42 @@ def _normalize_choices_field(choices) -> list[str] | None:
     if not choices or not isinstance(choices, list):
         return None
     result = [str(c).strip() for c in choices if c and len(str(c).strip()) <= 30]
+    return result if result else None
+
+
+def _normalize_branches_field(branches, valid_beat_ids=None) -> list[dict] | None:
+    """验证并规范化 branches 字段（结构化分支，含目标节拍）。
+
+    接受对象或裸字符串；label 截断到 15 字；target_beat_id 仅在
+    valid_beat_ids 集合内时保留（防止 LLM 编造不存在的节拍）。
+    """
+    if not branches or not isinstance(branches, list):
+        return None
+    valid = set(valid_beat_ids) if valid_beat_ids else set()
+    result: list[dict] = []
+    for i, item in enumerate(branches):
+        if isinstance(item, dict):
+            label = str(item.get("label") or item.get("text") or "").strip()
+            intent = item.get("intent")
+            intent = str(intent).strip() if isinstance(intent, str) and intent.strip() else None
+            target = item.get("target_beat_id")
+            target = str(target).strip() if isinstance(target, str) and target.strip() else None
+        else:
+            label = str(item or "").strip()
+            intent = None
+            target = None
+        if not label:
+            continue
+        # 目标节拍必须真实存在，否则丢弃（软引导仍需有根）
+        if target and target not in valid:
+            target = None
+        result.append({
+            "id": f"br_{i + 1}",
+            "label": label[:15],
+            "intent": intent,
+            "target_beat_id": target,
+            "source": "llm",
+        })
     return result if result else None
 
 
@@ -525,9 +564,13 @@ speaker 必须从场景角色列表选择，无法判断时用 null
 - MUST：只基于叙述文本中实际发生的内容进行判断，严禁虚构或推测
 - MUST：只有叙述末尾场景明确达到段落结束点（角色离开、对话结束、行动完成等），才设置 beat_complete 为 true
 - MUST：只有叙述中明确出现了敌对冲突/战斗场面时，才设置 combat_trigger
-- MUST：选项必须基于叙述内容推导，每个选项不超过15个汉字
+- MUST：选项必须同时参照叙述内容、<current_node>（玩家当前节点状态）与
+  <world_background>（世界背景设定）推导；每个选项不超过15个汉字
+- MUST：branches 里每个选项的 target_beat_id 只能从 <current_node> 列出的
+  后续节拍 id 中选取；若都不合适则填 null，严禁编造节拍 id
+- SHOULD：让不同意图的分支指向各自最贴合方向的后续节拍，使玩家能走向不同节点
 - MUST：只有叙述中明确出现了场景转移、天气/时段/氛围变化时，才填写 environment；没有变化时为 null
-- 如果对某个字段没有把握，使用默认值（false / null / null / null / null）
+- 如果对某个字段没有把握，使用默认值（false / null / null / null / null / null）
 </core_rules>
 
 <output_format>
@@ -536,6 +579,7 @@ speaker 必须从场景角色列表选择，无法判断时用 null
   "beat_complete": false,
   "combat_trigger": null,
   "choices": null,
+  "branches": null,
   "summary": null,
   "environment": null
 }
@@ -543,7 +587,8 @@ speaker 必须从场景角色列表选择，无法判断时用 null
 字段说明：
 - beat_complete: boolean，场景是否自然结束
 - combat_trigger: null 或 {"encounter_id": "遭遇ID", "params": null}
-- choices: null 或字符串数组（每个选项不超过15个汉字）
+- choices: null 或字符串数组（每个选项不超过15个汉字，与 branches 的 label 对应）
+- branches: null 或对象数组，每项 {"label": "≤15字行动文本", "intent": "方向标签或null", "target_beat_id": "后续节拍id或null"}
 - summary: null 或字符串（不超过50个汉字，只写事实不写评价）
 - environment: null 或对象，可包含 location（地点名）、weather（天气）、time（时段）、atmosphere（氛围字符串或字符串数组）；只填写叙述中明确出现变化的内容
 </output_format>"""
@@ -551,12 +596,20 @@ speaker 必须从场景角色列表选择，无法判断时用 null
     def _build_extraction_messages(
         self, narrative: str, choices_count: int = 0,
         beat_state_active: bool = False,
+        branch_context: str = "", worldbook_text: str = "",
     ) -> list[dict]:
         """构建标记提取的消息列表（Call 2）。
 
         根据条件动态构建 tasks 列表：仅当相关功能激活时才加入对应任务。
+        branch_context / worldbook_text 为分支生成提供「当前节点状态」与
+        「世界书背景设定」，使后续分支有根（而非凭空捏造）。
         """
         parts = [f"<narrative>\n{narrative}\n</narrative>"]
+
+        if branch_context:
+            parts.append(branch_context)
+        if worldbook_text:
+            parts.append(f"<world_background>\n{worldbook_text}\n</world_background>")
 
         tasks = [
             "- 判断叙述中是否发生了场景变化：地点转移、天气变化、时段变化、氛围变化。\n"
@@ -588,10 +641,22 @@ speaker 必须从场景角色列表选择，无法判断时用 null
             )
 
         if choices_count > 0:
+            grounding = ""
+            if branch_context or worldbook_text:
+                grounding = (
+                    "\n  必须同时参照 <current_node>（玩家当前节点状态）与 "
+                    "<world_background>（世界背景设定），使分支贴合当前剧情位置与世界观。"
+                )
             tasks.append(
-                f"- 基于叙述内容，推导恰好 {choices_count} 个合理的后续行动选项。\n"
+                f"- 基于叙述内容，推导恰好 {choices_count} 个合理的后续行动选项。{grounding}\n"
                 f"  每个选项不超过15个汉字，表达简洁直接，不编号。\n"
-                f"  将选项填入 choices 数组。\n"
+                f"  同时输出：\n"
+                f"  1) choices 字符串数组（向后兼容）；\n"
+                f"  2) branches 对象数组，每项 {{\"label\": \"同上文本\", "
+                f"\"intent\": \"方向标签（如情报/战斗/社交/中立，或 null）\", "
+                f"\"target_beat_id\": \"从 <current_node> 中列出的后续节拍 id 选一个，或 null\"}}。\n"
+                f"  不同意图的分支应各自指向最贴合其方向的候选节拍（可以相同）；\n"
+                f"  target_beat_id 只能取 <current_node> 中真实出现的后续节拍 id，严禁编造。\n"
                 f"- 用不超过50个汉字概括本章节叙述的剧情事实（只写事实，不写评价）。\n"
                 f"  将摘要填入 summary 字段。"
             )
@@ -609,17 +674,22 @@ speaker 必须从场景角色列表选择，无法判断时用 null
     def extract_markers(
         self, narrative: str, choices_count: int = 0,
         beat_state_active: bool = False,
+        branch_context: str = "", worldbook_text: str = "",
     ) -> dict:
         """从叙述文本中提取结构化标记（Call 2）。
 
         这是一个简单的分类/提取任务，即使 flash 模型也能可靠处理。
-        输入叙述文本，输出包含 beat_complete/combat/choices/summary 的字典。
+        输入叙述文本，输出包含 beat_complete/combat/choices/branches/summary 的字典。
+
+        branch_context（当前节点状态）与 worldbook_text（世界书背景）为分支生成提供
+        有根依据；两者都为空时行为与旧版一致。
 
         Returns:
             {
                 "beat_complete": bool,
                 "combat": {"encounter_id": str, "params": dict | None} | None,
                 "choices": list[str] | None,
+                "branches": list[dict] | None,
                 "summary": str | None,
                 "usage": dict | None,
                 "error": str | None,
@@ -631,7 +701,11 @@ speaker 必须从场景角色列表选择，无法判断时用 null
         messages = self._build_extraction_messages(
             narrative, choices_count=choices_count,
             beat_state_active=beat_state_active,
+            branch_context=branch_context, worldbook_text=worldbook_text,
         )
+
+        # 合法节拍 id 集合：用于校验 LLM 给出的 target_beat_id（防止编造）
+        valid_beat_ids = self._valid_beat_ids()
 
         try:
             _t0 = time.monotonic()
@@ -645,7 +719,7 @@ speaker 必须从场景角色列表选择，无法判断时用 null
             text = result.get("content", "") if isinstance(result, dict) else str(result)
             usage = result.get("usage") if isinstance(result, dict) else None
             finish_reason = result.get("finish_reason") if isinstance(result, dict) else None
-            parsed = _parse_extraction_json(text)
+            parsed = _parse_extraction_json(text, valid_beat_ids)
 
             # 空响应/截断重试一次：推理 token 消耗存在随机抖动（实测同一案例跨运行
             # 空/截断概率 8%~42% 不等），单次重试可吸收该随机性。
@@ -656,7 +730,7 @@ speaker 必须从场景角色列表选择，无法判断时用 null
                 result2 = self._llm.chat(messages, stream=False, max_tokens=2048, thinking="none")
                 text2 = result2.get("content", "") if isinstance(result2, dict) else str(result2)
                 if (text2 or "").strip():
-                    text, parsed = text2, _parse_extraction_json(text2)
+                    text, parsed = text2, _parse_extraction_json(text2, valid_beat_ids)
                     usage = result2.get("usage") if isinstance(result2, dict) else None
                     finish_reason = result2.get("finish_reason") if isinstance(result2, dict) else None
                     retried = True
@@ -744,13 +818,45 @@ speaker 必须从场景角色列表选择，无法判断时用 null
             cls._encounters_cache = result
         return "、".join(cls._encounters_cache) if cls._encounters_cache else "初遇整合运动"
 
+    def _valid_beat_ids(self) -> list[str]:
+        """当前会话剧情中全部真实节拍 id（用于校验分支目标）。
+
+        优先用 overlay 的节拍索引（会话已加载的剧情结构）；无 overlay 时返回空。
+        """
+        overlay = getattr(self, "_overlay", None)
+        if overlay is None or not hasattr(overlay, "_beat_index"):
+            return []
+        try:
+            return list(overlay._beat_index().keys())
+        except Exception:
+            return []
+
+    def _branch_context(self) -> str:
+        """当前节点状态文本块（供 Call 2 生成有根分支）。"""
+        overlay = getattr(self, "_overlay", None)
+        if overlay is None or not hasattr(overlay, "build_branch_context"):
+            return ""
+        try:
+            return overlay.build_branch_context()
+        except Exception:
+            logger.debug("构建分支上下文失败", exc_info=True)
+            return ""
+
+    def _recent_worldbook_text(self) -> str:
+        """本轮叙述已解析出的世界书动态层文本（供 Call 2 注入背景设定）。"""
+        return getattr(self, "_last_worldbook_text", "") or ""
+
     def _build_narration_messages(
         self, player_info, env_context,
         user_action="", is_first_turn=True,
         conversation_history="",
         word_limit=500, structured=False,
+        branch_hint="",
     ) -> list[dict]:
-        """构建叙述的 messages 列表，XML 标签分区用户消息。"""
+        """构建叙述的 messages 列表，XML 标签分区用户消息。
+
+        branch_hint：玩家上一轮所选分支的落点提示（软引导，注入动态层）。
+        """
         identity = (player_info or {}).get("identity", "博士") if player_info else "博士"
 
         char_summaries = []
@@ -819,6 +925,9 @@ speaker 必须从场景角色列表选择，无法判断时用 null
             current_input=user_action,
             identity=identity,
         )
+        # 缓存本轮动态层世界书文本，供 Call 2 分支生成复用（不改动 Call 1 注入，
+        # 前缀缓存不受影响）。
+        self._last_worldbook_text = wb_after or ""
 
         # 构建用户消息，稳定内容在前（利用 API 前缀缓存），易变内容在后（recency 效应）
         context_parts = []
@@ -848,6 +957,9 @@ speaker 必须从场景角色列表选择，无法判断时用 null
             plot_log = self._overlay.read_session_doc("plot_log.md")
             if plot_log:
                 dynamic_ref_parts.append("剧情进度日志（已发生的事件，请勿重复）：\n" + plot_log)
+        # 分支落点提示（玩家上轮所选分支，软引导本轮走向）
+        if branch_hint:
+            dynamic_ref_parts.append(f"<branch_hint>\n{branch_hint}\n</branch_hint>")
         if self._session_context:
             preloaded_text = self._session_context.format_preloaded()
             if preloaded_text:
@@ -960,7 +1072,8 @@ speaker 必须从场景角色列表选择，无法判断时用 null
                 word_limit: int = 500,
                 conversation_history: str = "",
                 is_first_turn: bool = True,
-                thinking: str | None = None) -> tuple[str, dict, dict | None]:
+                thinking: str | None = None,
+                branch_hint: str = "") -> tuple[str, dict, dict | None]:
         """生成剧情叙述（非流式）。
 
         用于需要完整响应后再处理的场景（气泡模式、缓冲模式）。
@@ -973,6 +1086,7 @@ speaker 必须从场景角色列表选择，无法判断时用 null
             structured: True 时要求 LLM 直接输出 JSON 片段数组
             conversation_history: 格式化的历史对话文本
             is_first_turn: 首轮时为 True，注入完整场景描述
+            branch_hint: 玩家上轮所选分支的落点提示（软引导）
 
         Returns:
             tuple[str, dict, dict|None]: (叙述文本, 环境更新字典, token使用量)
@@ -982,6 +1096,7 @@ speaker 必须从场景角色列表选择，无法判断时用 null
             user_action=user_action, is_first_turn=is_first_turn,
             conversation_history=conversation_history,
             word_limit=word_limit, structured=structured,
+            branch_hint=branch_hint,
         )
 
         _t0 = time.monotonic()
@@ -1002,7 +1117,8 @@ speaker 必须从场景角色列表选择，无法判断时用 null
                        word_limit: int = 500,
                        conversation_history: str = "",
                        is_first_turn: bool = True,
-                       thinking: str | None = None):
+                       thinking: str | None = None,
+                       branch_hint: str = ""):
         """流式生成剧情叙述 — 生成器，逐 token yield。
 
         使用线程+队列桥接 LLM 的 on_token 回调和 SSE 生成器，
@@ -1019,6 +1135,7 @@ speaker 必须从场景角色列表选择，无法判断时用 null
             user_action=user_action, is_first_turn=is_first_turn,
             conversation_history=conversation_history,
             word_limit=word_limit, structured=structured,
+            branch_hint=branch_hint,
         )
 
         # 真流式模式

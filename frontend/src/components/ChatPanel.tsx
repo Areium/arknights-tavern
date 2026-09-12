@@ -3,7 +3,7 @@ import { useAppStore } from "../stores/appStore";
 import { useApi, createSSE } from "../hooks/useApi";
 import { useDialogMinimize } from "../hooks/useDialogMinimize";
 import { parseDialogue, normalizeSegments } from "../utils/dialogueParser";
-import type { ChatMessage } from "../types";
+import type { ChatMessage, BranchChoice } from "../types";
 import DialogueBubble from "./chat/DialogueBubble";
 import NarrationText from "./chat/NarrationText";
 import LoadingIndicator from "./chat/LoadingIndicator";
@@ -311,13 +311,13 @@ export default function ChatPanel() {
   // ── Send ──
 
   const performSend = useCallback(
-    async (text: string) => {
+    async (text: string, branchId?: string) => {
       if (!activeSessionId) return;
       const sid = activeSessionId;
 
       // Story mode: use SSE streaming for progressive token display
       if (chatMode === "story") {
-        triggerNarrate(sid, text);
+        triggerNarrate(sid, text, branchId);
         return;
       }
 
@@ -422,7 +422,7 @@ export default function ChatPanel() {
   }, [input, sending, streaming, activeSessionId, performSend]);
 
   const handleChoiceClick = useCallback(
-    (choice: string) => {
+    (choice: string, branch?: BranchChoice) => {
       // 必选战斗选项未完成前，内联选项同样不允许推进剧情
       if (choiceLocked) return;
       if (editBeforeSend) {
@@ -434,7 +434,7 @@ export default function ChatPanel() {
       const curRound = useAppStore.getState().sessionNarrationCount[sid] || 0;
       setInput("");
       useAppStore.getState().setSessionMessages(sid, (prev) => [...prev, { role: "user", content: choice, round: curRound }]);
-      performSend(choice);
+      performSend(choice, branch?.id);
     },
     [activeSessionId, performSend, editBeforeSend]
   );
@@ -743,6 +743,9 @@ export default function ChatPanel() {
         {messages.map((msg, i) => {
           const isRoundStart = roundBoundaries.includes(i);
           const isEditing = editingIdx === i;
+          const choicesDisabled =
+            sending || streaming || choiceLocked || !!activeSession?.in_combat ||
+            (msg.round != null && msg.round < narrationCount);
 
           return (
             <div key={i}>
@@ -777,7 +780,7 @@ export default function ChatPanel() {
                           ? dialogueBubbleMode
                             ? "bg-transparent border-0 p-0 max-w-[95%]"
                             : "bg-amber-900/30 border border-amber-700/20 italic text-amber-100"
-                          : msg.role === "system" && msg.choices
+                          : msg.role === "system" && (msg.choices || msg.branches?.length)
                             ? "bg-transparent border-0 p-0"
                             : msg.role === "system"
                               ? "bg-gray-700/50 text-gray-400 text-xs font-mono whitespace-pre-wrap"
@@ -889,19 +892,41 @@ export default function ChatPanel() {
                         </div>
                       )}
 
-                      {msg.choices && (
+                      {(msg.branches?.length || msg.choices) && (
                         <div className="flex flex-wrap gap-2 mt-1">
-                          {msg.choices.map((choice, ci) => (
-                            <button
-                              key={ci}
-                              onClick={() => handleChoiceClick(choice)}
-                              disabled={sending || streaming || choiceLocked || !!activeSession?.in_combat || (msg.round != null && msg.round < narrationCount)}
-                              className="px-3 py-1.5 rounded-lg text-sm border border-amber-600/40
-                                text-amber-300 hover:bg-amber-600/20 transition-colors disabled:opacity-50"
-                            >
-                              {msg.choices!.length > 1 ? `${ci + 1}. ` : ""}{choice}
-                            </button>
-                          ))}
+                          {msg.branches?.length
+                            ? msg.branches.map((b) => (
+                                <button
+                                  key={b.id}
+                                  onClick={() => handleChoiceClick(b.label, b)}
+                                  disabled={choicesDisabled}
+                                  title={b.target_beat_id ? `目标节点：${b.target_beat_id}` : undefined}
+                                  className="px-3 py-1.5 rounded-lg text-sm border border-amber-600/40
+                                    text-amber-300 hover:bg-amber-600/20 transition-colors disabled:opacity-50
+                                    flex items-center gap-1.5"
+                                >
+                                  <span>{b.label}</span>
+                                  {b.intent && (
+                                    <span className="text-[10px] px-1 rounded bg-amber-600/20 text-amber-400/80">
+                                      {b.intent}
+                                    </span>
+                                  )}
+                                  {b.source === "author" && (
+                                    <span className="text-[10px] text-gray-500" title="作者预设分支">✎</span>
+                                  )}
+                                </button>
+                              ))
+                            : msg.choices!.map((choice, ci) => (
+                                <button
+                                  key={ci}
+                                  onClick={() => handleChoiceClick(choice)}
+                                  disabled={choicesDisabled}
+                                  className="px-3 py-1.5 rounded-lg text-sm border border-amber-600/40
+                                    text-amber-300 hover:bg-amber-600/20 transition-colors disabled:opacity-50"
+                                >
+                                  {msg.choices!.length > 1 ? `${ci + 1}. ` : ""}{choice}
+                                </button>
+                              ))}
                         </div>
                       )}
                       {msg.role === "narrator" && streaming && i === messages.length - 1 && (
@@ -1189,6 +1214,7 @@ export default function ChatPanel() {
 function triggerNarrate(
   sessionId: string,
   action?: string,
+  branchId?: string,
 ) {
   const store = useAppStore.getState();
 
@@ -1218,8 +1244,12 @@ function triggerNarrate(
   const url = action
     ? `/api/sessions/${sessionId}/narrate?identity=${encodeURIComponent(identity)}&action=${encodeURIComponent(action)}`
     : `/api/sessions/${sessionId}/narrate?identity=${encodeURIComponent(identity)}`;
+  // 分支落点：玩家点选的是结构化分支时，带上 branch_id 让后端精确恢复目标节拍
+  const urlWithBranch = branchId
+    ? `${url}&branch_id=${encodeURIComponent(branchId)}`
+    : url;
 
-  const sse = createSSE(url, {
+  const sse = createSSE(urlWithBranch, {
       onReasoning: (token: string) => {
         accumulatedReasoning += token;
         useAppStore.getState().setSessionMessages(sessionId, (prev) => {
@@ -1242,10 +1272,10 @@ function triggerNarrate(
       },
       onSceneEvent: () => useAppStore.getState().triggerEnvRefresh(),
       onMemoryEvent: () => useAppStore.getState().triggerMemoryRefresh(),
-      onChoice: (options: string[]) => {
+      onChoice: (options: string[], branches?: BranchChoice[]) => {
         useAppStore.getState().setSessionMessages(sessionId, (prev) => [
           ...prev,
-          { role: "system", content: "— 请选择 —", choices: options, round: newRound },
+          { role: "system", content: "— 请选择 —", choices: options, branches, round: newRound },
         ]);
       },
       onDialogueSegments: (segments) => {
