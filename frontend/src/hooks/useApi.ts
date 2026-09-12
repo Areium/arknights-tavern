@@ -595,8 +595,25 @@ export function useApi() {
         body: JSON.stringify({ encounter_id: encounterId, characters, approach_id: approachId }),
       }),
 
-    combatState: (sessionId: string) =>
-      request<any>(`/api/sessions/${sessionId}/combat/state`),
+    combatState: (sessionId: string, selectedUnit?: string) =>
+      request<any>(
+        `/api/sessions/${sessionId}/combat/state` +
+        (selectedUnit ? `?selected_unit=${encodeURIComponent(selectedUnit)}` : ""),
+      ),
+
+    /** 战斗节点列表（含地图尺寸与剧情节拍绑定） */
+    listCombatNodes: () =>
+      request<{ nodes: { node_id: string; name: string; summary: string; rows: number; cols: number; unit_total: number; wave_count: number; category: string; band: string }[] }>(
+        "/api/combat/nodes",
+      ),
+
+    /** 格子类型注册表（内置 + data/combat/tiles/*.json） */
+    listCombatTiles: () =>
+      request<{ tiles: any[]; warnings: string[] }>("/api/combat/tiles"),
+
+    /** 敌人图鉴（叙事字段 + 战斗数值） */
+    listCombatEnemies: () =>
+      request<{ enemies: any[] }>("/api/combat/enemies"),
 
     combatAction: (sessionId: string, action: { action: string; card_index?: number; target?: [number, number]; item_name?: string; unit_id?: string }) =>
       request<any>(`/api/sessions/${sessionId}/combat/action`, {
@@ -647,14 +664,20 @@ export function useApi() {
       ),
 
     // ── Combat Test (no session required) ──
-    combatTestStart: (encounterId?: string) =>
-      request<{ test_id: string; state: any }>("/api/combat/test/start", {
+    combatTestStart: (nodeId?: string, characters?: string[]) =>
+      request<{ test_id: string; node_id: string; state: any }>("/api/combat/test/start", {
         method: "POST",
-        body: JSON.stringify(encounterId ? { encounter_id: encounterId } : {}),
+        body: JSON.stringify({
+          ...(nodeId ? { node_id: nodeId } : {}),
+          ...(characters?.length ? { characters } : {}),
+        }),
       }),
 
-    combatTestState: (testId: string) =>
-      request<any>(`/api/combat/test/${testId}/state`),
+    combatTestState: (testId: string, selectedUnit?: string) =>
+      request<any>(
+        `/api/combat/test/${testId}/state` +
+        (selectedUnit ? `?selected_unit=${encodeURIComponent(selectedUnit)}` : ""),
+      ),
 
     combatTestAction: (testId: string, action: { action: string; card_index?: number; target?: [number, number]; item_name?: string; unit_id?: string }) =>
       request<any>(`/api/combat/test/${testId}/action`, {

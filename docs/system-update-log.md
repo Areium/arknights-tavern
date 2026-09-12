@@ -15,6 +15,46 @@
 ---
 
 ## 更新记录
+### 2026-09-12 — 战斗系统重构批次 1：JSON 节点战场 + 统一曼哈顿度量 + 可扩展地形
+
+> 承接批次 0（去历史包袱）。本批次把"固定 7×7 网格 + 全局遭遇文件 + 切比雪夫距离"换成"自由尺寸战场 JSON + 统一曼哈顿 + 地形系统"，并完成敌人库合并。
+
+- **数据格式切换**：`data/combat/encounters/*.md`（16 个）→ `data/combat/nodes/<node_id>.json`，
+  **node_id 与原 encounter_id 一致**，所以剧情节拍里的 `[COMBAT:enc_*]` 零改动即可解析
+  （16 个节点中 8 个已自动回填 `bind.{plot_id,chapter_id,beat_id}`）。
+  两套敌人库（`data/enemies/` 叙事 11 个 + `data/combat/enemies/` 战斗 11 个，其中 2 个重名且内容不一致）
+  合并为 `data/enemies/` 单一库：叙事 `attributes` + 战斗 `combat_stats`；无 `combat_stats` 的敌人
+  由引擎按 `attributes` 派生数值（与玩家同一套公式）。
+- **地图即数据**：`map.{rows,cols,tiles,tile_defs,deploy}`；`tiles` 支持二维 `tile_id` 数组或
+  整图简写（`"ground"`）；部署区支持 `rect`/`cells` 两种写法并**真正生效**（此前 `grid_size`/
+  `deploy_zones` 字段写了但代码从不读取，玩家固定 4 坐标、敌人随机落点）。上限 40×40 / 1200 格，
+  校验精确到行列，软锁（出生点被墙封死）给警告不阻断。
+- **可扩展地形**：格子效果由 `data/combat/tiles/*.json` 与节点内联 `tile_defs` 定义 ——
+  `blocks_movement`/`blocks_los`/`move_cost`/`defense_bonus`/`evasion_bonus`/`damage_bonus`/
+  `on_enter`/`on_round_start`（伤害·治疗·状态）。内置 ground/wall/cover/high_ground/hazard_fire；
+  未知字段只警告（为 `on_attack`/`aura` 等留扩展位），**新增一种格子不需要改引擎代码**。
+- **统一曼哈顿度量**：移动与攻击范围都改成曼哈顿（8 向，**斜向步代价 ×2**，等价于曼哈顿距离）；
+  移动走 Dijkstra（含 `move_cost` 与占位），默认**禁止切角**（`rules.allow_corner_cut` 可开），
+  攻击需要视线（Bresenham + 拐角；起点/终点所在格不参与阻挡，"站在掩体里仍可被瞄准"）。
+  敌人 AI 的斜向贪心踏步改为**寻路下一步**（此前遇墙会卡死）。
+- **射程覆盖影响与补偿**：r≥2 覆盖约减半（`(2r+1)²` → `2r²+2r+1`），r=1 由 8 邻格降为 4 正交格。
+  据此对**单体近战卡**（玩家 11 张 + 敌方 `enemy_atk`/`enemy_heavy`）执行射程 1 → 2 迁移，
+  补回 4 个斜角邻格；CV 预算随之收紧这几张卡的伤害（`scripts/cv_audit.py --apply`，
+  新增 `melee_range_manhattan` 例外说明）。前后对照见 `perf_tests/metric_migration_report.md`
+  （中位回合平均 +0.07，胜率与血损率基本持平）。
+- **接口**：新增只读 `GET /api/combat/nodes`、`/api/combat/nodes/<id>`、`/api/combat/enemies`、
+  `/api/combat/tiles`；战斗状态 DTO 换成 `rows/cols/tiles/tile_defs/deploy/map_warnings/
+  range_metric/valid_moves_unit`（**移除 `grid_size`**），`valid_moves` 改由服务端权威计算
+  （此前恒为空数组、前端自己按切比雪夫推）；`GET …/state?selected_unit=` 支持按选中单位取可达格。
+  combat-test 改为节点直启（删除 `data/plots/combat-test` 的敌人池随机采样间接层）。
+- **前端**：`CombatGrid` 按行列渲染（非正方形）+ 地形着色与字形 + 部署区标识；`cellSize`
+  自适应（`clamp(min(availW/cols, availH/rows), 28, 72)`）；移动高亮改读服务端 `valid_moves`；
+  范围/AOE 高亮与后端同度量（`metricDistance`）；战前卡片改为战斗节点下拉（显示尺寸与敌数、
+  剧情节拍绑定）。
+- **回归网**：新增 `tests/test_combat_map.py`（33）、`tests/test_grid_terrain.py`（13）、
+  `tests/test_terrain_effects.py`（17）、`tests/test_combat_api.py`（8）；黄金基线按"有意变更项"
+  重录（`tests/golden/`），全量 `bash scripts/run_tests.sh` = 99 + 58 + 4 个 legacy 脚本全绿。
+
 ### 2026-09-12 — 战斗系统去历史包袱（批次 0：回归网 + 删死代码 + 文档归档）
 
 > 背景：项目仍处早期，**不承担旧会话/旧数据兼容**。战斗重构分三批（0 去包袱 → 1 JSON 节点地图 + 统一曼哈顿度量 + 地形 → 2 节点注册表 + 世界书绑定 + 编辑器），本条目为批次 0。

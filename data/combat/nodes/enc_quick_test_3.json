@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "node_id": "enc_quick_test_3",
+  "name": "快速测试·第三波",
+  "summary": "战斗测试——第三波：士兵与术师混编，检验法术应对。",
+  "bind": {
+    "plot_id": "combat-test",
+    "chapter_id": "",
+    "chapter_title": "",
+    "beat_id": ""
+  },
+  "rules": {
+    "range_metric": "manhattan",
+    "allow_corner_cut": false
+  },
+  "map": {
+    "rows": 7,
+    "cols": 7,
+    "tiles": "ground",
+    "deploy": {
+      "player": {
+        "rect": [3, 0, 5, 1]
+      },
+      "enemy": {
+        "rect": [4, 4, 5, 5]
+      },
+      "enemy_random_shift": false
+    }
+  },
+  "waves": [
+    {
+      "enemies": [
+        {
+          "enemy": "整合运动士兵",
+          "count": 1,
+          "positions": [
+            [4, 4]
+          ]
+        },
+        {
+          "enemy": "整合运动术师",
+          "count": 1,
+          "positions": [
+            [5, 5]
+          ]
+        }
+      ]
+    }
+  ],
+  "conditions": {
+    "max_rounds": 6,
+    "escape_enabled": false
+  },
+  "rewards": {
+    "xp": 27,
+    "items": [],
+    "unlock": []
+  },
+  "difficulty": {
+    "category": "test",
+    "encounter_type": "teaching",
+    "band": "T1",
+    "threat_budget": 2.6,
+    "target_rounds": 2,
+    "difficulty": 2
+  },
+  "balance_version": 1
+}

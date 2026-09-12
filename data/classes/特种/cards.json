@@ -33,10 +33,10 @@
       "description": "从背后突袭目标",
       "damage_type": "physical",
       "min_damage": 11,
-      "max_damage": 20,
-      "atk_scale": 1.1,
+      "max_damage": 19,
+      "atk_scale": 1.05,
       "target": "SINGLE",
-      "range": 1,
+      "range": 2,
       "cost": 1,
       "tier": "basic",
       "class_required": "特种",
@@ -49,7 +49,7 @@
       "exhaust": null,
       "power_tier": "T1",
       "cv_budget": 24.0,
-      "cv_estimated": 28.72,
+      "cv_estimated": 28.73,
       "balance_version": 1
     },
     {
@@ -108,10 +108,10 @@
       "description": "提升闪避并反击",
       "damage_type": "physical",
       "min_damage": 3,
-      "max_damage": 7,
-      "atk_scale": 0.41,
+      "max_damage": 6,
+      "atk_scale": 0.39,
       "target": "SINGLE",
-      "range": 1,
+      "range": 2,
       "cost": 1,
       "tier": "basic",
       "class_required": "特种",
@@ -130,7 +130,7 @@
       "exhaust": null,
       "power_tier": "T1",
       "cv_budget": 24.0,
-      "cv_estimated": 20.27,
+      "cv_estimated": 20.46,
       "balance_version": 1
     },
     {
@@ -138,11 +138,11 @@
       "name": "处决",
       "description": "对低生命值目标造成致命伤害",
       "damage_type": "physical",
-      "min_damage": 22,
-      "max_damage": 39,
+      "min_damage": 21,
+      "max_damage": 37,
       "atk_scale": 1.5,
       "target": "SINGLE",
-      "range": 1,
+      "range": 2,
       "cost": 2,
       "tier": "elite",
       "class_required": "特种",
@@ -155,7 +155,7 @@
       "exhaust": null,
       "power_tier": "T2",
       "cv_budget": 48.0,
-      "cv_estimated": 41.14,
+      "cv_estimated": 42.13,
       "balance_version": 1
     },
     {
@@ -214,5 +214,5 @@
       "balance_version": 1
     }
   ],
-  "_hash": "dd5be468369e8b3f"
+  "_hash": "9376f72cb9d5af7f"
 }

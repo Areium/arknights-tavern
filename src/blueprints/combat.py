@@ -4,7 +4,6 @@ Combat blueprint -- session combat, test combat, and combat-mode routes.
 
 import json
 import uuid
-import random
 import time
 import logging
 from pathlib import Path
@@ -13,6 +12,7 @@ from flask import Blueprint, jsonify, request
 
 from shared.helpers import json_error, make_sse_response, build_character_metas
 from combat_approaches import resolve_approach, list_approaches, roll_check
+from combat_map import MapError
 from combat_engine.engine import CombatEvent
 from combat_settlement import (
     SettlementApplyError,
@@ -274,7 +274,7 @@ def register(app, managers):
         approach_id = data.get("approach_id")
 
         from combat_data_loader import CombatDataLoader
-        encounter = CombatDataLoader().load_encounter(encounter_id) or {}
+        encounter = CombatDataLoader().load_node(encounter_id) or {}
 
         # Build character metas with overlay merge
         character_metas = build_character_metas(session, doc_mgr)
@@ -347,6 +347,8 @@ def register(app, managers):
                 resp["check"] = check
                 resp["combat_started"] = True
             return jsonify(resp)
+        except MapError as e:
+            return json_error(f"战场配置无效：{e}", 400)
         except ValueError as e:
             return json_error(str(e), 404)
         except Exception as e:
@@ -367,7 +369,8 @@ def register(app, managers):
         if err:
             return err
 
-        return jsonify(session.combat.get_state())
+        selected_unit = request.args.get("selected_unit", "")
+        return jsonify(session.combat.get_state(selected_unit_id=selected_unit))
 
     @bp.route("/api/sessions/<session_id>/combat/action", methods=["POST"])
     def combat_action(session_id: str):
@@ -622,52 +625,77 @@ def register(app, managers):
 
     @bp.route("/api/combat/test/start", methods=["POST"])
     def combat_test_start():
-        """Start a test combat session (no session required).
+        """Start an ad-hoc combat from a battle node (no session required).
 
-        Reads config from data/plots/combat-test/index.md.
-        Randomly samples enemies from the configured enemy pool.
+        直接按节点 JSON 开战：不再走 `data/plots/combat-test` 的敌人池随机采样，
+        编排完全由节点决定（便于编辑器"试打这个节点"）。
         """
         from combat_session import CombatSession
-
-        try:
-            config = _load_combat_test_config()
-        except ValueError as e:
-            return json_error(str(e), 404)
+        from combat_map import MapError
 
         data = request.json or {}
-        encounter_id = data.get("encounter_id", config.get("default_encounter", "初遇整合运动"))
-        # 默认队伍：三人均有 Spine 战斗小人（博士/霜星无骨骼，故不再作为默认出战单位）
-        character_names = data.get("characters", config.get("characters", ["阿米娅", "银灰", "灵知"]))
-
-        # Randomly pick enemies from pool
-        enemy_pool = config.get("enemy_pool", [])
-        count_cfg = config.get("enemy_count", {})
-        min_enemies = count_cfg.get("min", 2)
-        max_enemies = count_cfg.get("max", 4)
-        enemy_count = random.randint(min_enemies, max(min_enemies, max_enemies))
-
-        if enemy_pool:
-            picked = random.sample(enemy_pool, min(enemy_count, len(enemy_pool)))
-        else:
-            picked = ["整合运动士兵", "整合运动术师"]
-
-        enemies_override = []
-        for name in picked:
-            enemies_override.append({"name": name, "count": 1, "positions": []})
+        node_id = data.get("node_id") or data.get("encounter_id") or ""
+        if not node_id:
+            try:
+                config = _load_combat_test_config()
+                node_id = config.get("default_encounter", "enc_training")
+            except ValueError:
+                node_id = "enc_training"
+        # 默认队伍：三人均有 Spine 战斗小人（博士/霜星无骨骼，故不作为默认出战单位）
+        character_names = data.get("characters")
+        if not character_names:
+            try:
+                character_names = _load_combat_test_config().get("characters")
+            except ValueError:
+                character_names = None
+        character_names = character_names or ["阿米娅", "银灰", "灵知"]
 
         test_id = uuid.uuid4().hex[:12]
         try:
             combat = CombatSession(test_id)
-            state = combat.start(
-                encounter_id,
-                character_names=character_names,
-                enemies_override=enemies_override,
-            )
+            state = combat.start(node_id, character_names=character_names)
             combat_test_mgr.create(test_id, combat)
-            return jsonify({"test_id": test_id, "state": state})
+            return jsonify({"test_id": test_id, "node_id": node_id, "state": state})
+        except MapError as e:
+            return json_error(f"战场配置无效：{e}", 400)
+        except ValueError as e:
+            return json_error(str(e), 404)
         except Exception as e:
             logger.exception("Failed to start test combat")
             return json_error(f"战斗测试启动失败: {e}", 500)
+
+    # ── 只读目录（编辑器 / 选择器 / 前端下拉）──
+
+    @bp.route("/api/combat/nodes", methods=["GET"])
+    def combat_nodes():
+        """战斗节点列表（含地图尺寸、单位总数、剧情节拍绑定）。"""
+        from combat_data_loader import CombatDataLoader
+        return jsonify({"nodes": CombatDataLoader().list_nodes()})
+
+    @bp.route("/api/combat/nodes/<path:node_id>", methods=["GET"])
+    def combat_node_detail(node_id: str):
+        """单个战斗节点完整 JSON（编辑器读取）。"""
+        from combat_data_loader import CombatDataLoader
+        node = CombatDataLoader().load_node(node_id)
+        if not node:
+            return json_error(f"战斗节点不存在: {node_id}", 404)
+        return jsonify(node)
+
+    @bp.route("/api/combat/enemies", methods=["GET"])
+    def combat_enemies():
+        """敌人图鉴（叙事字段 + 战斗数值；标记是否为 attributes 派生）。"""
+        from combat_data_loader import CombatDataLoader
+        return jsonify({"enemies": CombatDataLoader().list_enemy_catalog()})
+
+    @bp.route("/api/combat/tiles", methods=["GET"])
+    def combat_tiles():
+        """格子类型注册表（内置 + data/combat/tiles/*.json）。"""
+        from combat_data_loader import CombatDataLoader
+        registry, warnings = CombatDataLoader().load_tile_registry()
+        return jsonify({
+            "tiles": [tile.to_dict() for tile in registry.values()],
+            "warnings": warnings,
+        })
 
     @bp.route("/api/combat/test/<test_id>/state", methods=["GET"])
     def combat_test_state(test_id: str):
@@ -675,7 +703,8 @@ def register(app, managers):
         combat = combat_test_mgr.get(test_id)
         if not combat:
             return json_error("测试战斗不存在或已过期", 404)
-        return jsonify(combat.get_state())
+        selected_unit = request.args.get("selected_unit", "")
+        return jsonify(combat.get_state(selected_unit_id=selected_unit))
 
     @bp.route("/api/combat/test/<test_id>/action", methods=["POST"])
     def combat_test_action(test_id: str):

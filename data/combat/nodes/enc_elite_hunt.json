@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "node_id": "enc_elite_hunt",
+  "name": "精英讨伐",
+  "summary": "精英讨伐战斗任务，针对强敌的挑战活动。",
+  "bind": {
+    "plot_id": "",
+    "chapter_id": "",
+    "beat_id": ""
+  },
+  "rules": {
+    "range_metric": "manhattan",
+    "allow_corner_cut": false
+  },
+  "map": {
+    "rows": 7,
+    "cols": 7,
+    "tiles": "ground",
+    "deploy": {
+      "player": {
+        "cells": [
+          [2, 0],
+          [3, 1],
+          [4, 0]
+        ]
+      },
+      "enemy": {
+        "cells": [
+          [1, 6],
+          [3, 5],
+          [5, 6]
+        ]
+      },
+      "enemy_random_shift": false
+    }
+  },
+  "waves": [
+    {
+      "enemies": [
+        {
+          "enemy": "整合运动盾卫",
+          "count": 1,
+          "positions": [
+            [1, 5]
+          ]
+        },
+        {
+          "enemy": "整合运动狙击手",
+          "count": 1,
+          "positions": [
+            [0, 4]
+          ]
+        }
+      ]
+    },
+    {
+      "enemies": [
+        {
+          "enemy": "整合运动术师",
+          "count": 2,
+          "positions": [
+            [2, 6],
+            [4, 6]
+          ]
+        },
+        {
+          "enemy": "整合运动士兵",
+          "count": 1,
+          "positions": [
+            [1, 4]
+          ]
+        }
+      ]
+    },
+    {
+      "enemies": [
+        {
+          "enemy": "整合运动盾卫",
+          "count": 1,
+          "positions": [
+            [3, 6]
+          ]
+        },
+        {
+          "enemy": "整合运动术师",
+          "count": 1,
+          "positions": [
+            [6, 5]
+          ]
+        },
+        {
+          "enemy": "整合运动狙击手",
+          "count": 1,
+          "positions": [
+            [3, 4]
+          ]
+        }
+      ]
+    }
+  ],
+  "conditions": {
+    "max_rounds": 12,
+    "escape_enabled": false
+  },
+  "rewards": {
+    "xp": 83,
+    "items": [
+      "精英猎手勋章",
+      "高级源石碎片"
+    ],
+    "unlock": []
+  },
+  "difficulty": {
+    "category": "test",
+    "encounter_type": "normal",
+    "band": "T3",
+    "threat_budget": 7.0,
+    "target_rounds": 11,
+    "difficulty": 5
+  },
+  "balance_version": 1
+}

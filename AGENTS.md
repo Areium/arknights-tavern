@@ -19,7 +19,7 @@ MUST 实现和修改功能前，遵循以下分支工作流：
 
 ### 系统概述
 
-明日方舟主题文字 RPG：剧情模式（LLM 驱动叙事 + 选项 + 记忆 + 环境）、自由模式（沙盒角色交互）、7×7 等距网格回合制战斗（CSS 3D 网格 + PixiJS Spine 骨骼动画覆盖层）、世界书（酒馆 Lorebook 兼容的关键词触发式设定注入）。
+明日方舟主题文字 RPG：剧情模式（LLM 驱动叙事 + 选项 + 记忆 + 环境）、自由模式（沙盒角色交互）、自由尺寸等距网格回合制战斗（JSON 战斗节点 + 可扩展地形 + 统一曼哈顿度量，CSS 3D 网格 + PixiJS Spine 骨骼动画覆盖层）、世界书（酒馆 Lorebook 兼容的关键词触发式设定注入）。
 
 Electron 主进程管理窗口 + Python 子进程生命周期（`frontend/electron/`）→ React 渲染进程（`frontend/src/`，Vite 代理 `/api` → Flask `:5000`）→ Flask API（`src/app.py`，factory 模式组装 Manager + Blueprint）。
 
@@ -39,14 +39,15 @@ Electron 主进程管理窗口 + Python 子进程生命周期（`frontend/electr
 - `llm_backend_manager.py` — 多 Provider 编排，主/备自动降级（验证缓存 120s TTL + 真实失败 30s 冷却）
 - `load_llm.py` — Ollama / OpenAI 兼容 HTTP 客户端。**结构化错误（LLMError 系列，错误绝不伪装成模型回复）+ 连接/429/5xx 指数退避重试 + 请求指纹日志（前缀漂移标尺）+ `on_failure` 降级回调**
 - `combat_session.py` — 战斗会话包装器：组装 CombatEngine + CombatDataLoader，管理生命周期、玩家操作、敌人 AI、SSE 推送
-- `combat_data_loader.py` — 从 `data/combat/enemies/*.md`、`encounters/*.md` 和 `backgrounds/` 加载战斗数据（含背景图解析）
+- `combat_data_loader.py` — 加载战斗节点 `data/combat/nodes/*.json`、敌人 `data/enemies/*.md`（叙事 attributes + 战斗 combat_stats，缺 combat_stats 时按 attributes 派生）与 `backgrounds/`
+- `combat_map.py` — 战斗地图 JSON：尺寸/格子类型注册表/部署区解析与校验（行列定位错误、软锁警告、上限 40×40）
 - `avatar_color.py` — 从角色 PNG 头像提取主导色（hex），用于 UI 主题配色
 - `index_manager.py` — 基于 `imports` 字段的文档关系图，YAML 导出/导入
 - `hooks/` — Hook 管道：`pipeline.py`（执行器）+ `attribute_roll.py` + `wiki_prefetch.py`
 
 API 层（`src/blueprints/`）：Flask Blueprint — `chat.py`（对话/叙述/SSE/战斗触发）、`combat.py`（战斗 SSE）、`cards.py`（卡牌 JSON CRUD）、`documents.py`、`sessions.py`、`scene.py`、`environment.py`、`index.py`、`wiki.py`、`llm.py`、`assets.py`、`memories.py`、`status.py`、`worldbook.py`（书 CRUD/导入/条目/默认书/会话绑定）。
 
-战斗引擎（`src/combat_engine/`）：`engine.py`（回合循环/AP/士气）、`entity.py`（CombatUnit）、`grid.py`（7×7 寻路/范围）、`card.py`（卡牌/CardPool）、`card_data.py`（职业基础卡牌）、`dice.py`。
+战斗引擎（`src/combat_engine/`）：`engine.py`（回合循环/AP/士气/地形效果/寻路移动）、`entity.py`（CombatUnit）、`grid.py`（自由尺寸网格、Dijkstra 寻路、视线、统一曼哈顿度量与目标形状）、`card.py`（卡牌/CardPool）、`card_data.py`（职业基础卡牌，JSON 单一真相源）、`dice.py`（命中/伤害，含 `terrain_mods` 地形修正）。
 
 服务层（`src/services/`）：`dice.py`、`attribute_loader.py`。共享工具（`src/shared/`）：`helpers.py`（SSE 响应工厂、记忆注入）、`cache.py`。Provider（`src/providers/`）：`openai.py`、`deepseek.py`。
 
@@ -60,7 +61,7 @@ API 层（`src/blueprints/`）：Flask Blueprint — `chat.py`（对话/叙述/S
 - `components/ChatView.tsx` — 对话页容器：会话列表 + 场景面板（角色/物品/环境/记忆/任务）+ `ChatPanel.tsx`（消息流/流式输出/选项/变体/回滚/对话气泡）
 - `components/chat/` — 气泡渲染子组件（DialogueBubble、NarrationText、AvatarPlaceholder 等）
 - `components/combat/CombatView.tsx` — 战斗主控（50k+ LOC，最大组件）
-- `components/combat/` — CSS 网格（CombatGrid）+ PixiJS Spine 覆盖层（PixiCombatScene，runtime-3.8）+ 手牌（CombatHand）+ 卡组查看（DeckViewer）+ 卡牌编辑（CardEditor）+ 状态/事件面板 + Spine 动画规格（spineAnimSpecs.ts）
+- `components/combat/` — CSS 网格（CombatGrid：行列自由尺寸 + 地形着色 + 部署区标识）+ PixiJS Spine 覆盖层（PixiCombatScene，runtime-3.8）+ 手牌（CombatHand）+ 卡组查看（DeckViewer）+ 卡牌编辑（CardEditor）+ 状态/事件面板 + Spine 动画规格（spineAnimSpecs.ts）
 - `components/DocumentManager.tsx` — 文档树 + Markdown 编辑器 + 图片资产管理（上传/裁剪/卡面）
 - `components/WorldBookManager.tsx` — 世界书管理：导入（文件/粘贴）、条目编辑器、会话绑定、酒馆格式导出
 - `components/SettingsPanel.tsx` — LLM 配置/主题/叙述选项

@@ -325,12 +325,43 @@ export interface CombatBriefingDTO {
   approaches: ApproachDTO[];
 }
 
+/** 战场格子类型（服务端 `combat_map.TileType` 的镜像） */
+export interface TileTypeDTO {
+  tile_id: string;
+  name: string;
+  glyph: string;
+  color: string;
+  blocks_movement: boolean;
+  blocks_los: boolean;
+  move_cost: number;
+  defense_bonus: number;
+  evasion_bonus: number;
+  damage_bonus: number;
+  deployable_player: boolean;
+  deployable_enemy: boolean;
+  on_enter: Record<string, number | string>;
+  on_round_start: Record<string, number | string>;
+  tags: string[];
+}
+
 /** 战斗状态快照 */
 export interface CombatStateDTO {
   round_num: number;
   phase: string;
   winner: string | null;
-  grid_size: number;
+  /** 战场行列（自由尺寸，非正方形） */
+  rows: number;
+  cols: number;
+  /** 每格的 tile_id（tiles[row][col]） */
+  tiles: string[][];
+  /** 地图上用到的格子定义 */
+  tile_defs: Record<string, TileTypeDTO>;
+  /** 部署区（已展开为坐标列表） */
+  deploy: { player: [number, number][]; enemy: [number, number][] };
+  /** 地图校验警告（软锁/越界等，非阻断） */
+  map_warnings: string[];
+  /** 距离度量（默认 manhattan） */
+  range_metric: "manhattan" | "chebyshev";
   /** 战斗背景图 URL（无图时为 null，前端回退纯色背景） */
   background_url?: string | null;
   units: CombatUnitDTO[];
@@ -345,6 +376,8 @@ export interface CombatStateDTO {
   escape_enabled: boolean;
   valid_targets: [number, number][];
   valid_moves: [number, number][];
+  /** valid_moves 对应的单位（未选择时为行动中的单位） */
+  valid_moves_unit?: string | null;
   active_unit_id: string | null;
   grid: Record<string, string>;
   /** 敌人意图：unit_id → intent（玩家回合内读取敌方计划） */

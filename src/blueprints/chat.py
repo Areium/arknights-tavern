@@ -132,7 +132,7 @@ def _apply_combat_briefing(session, combat_data: dict | None, stream_id: str,
     try:
         from combat_data_loader import CombatDataLoader
         from combat_approaches import list_approaches
-        encounter = CombatDataLoader().load_encounter(encounter_id) or {}
+        encounter = CombatDataLoader().load_node(encounter_id) or {}
         briefing = {
             "encounter_id": encounter_id,
             "session_id": session.id,

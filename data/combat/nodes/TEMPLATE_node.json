@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "node_id": "enc_example",
+  "name": "示例战斗节点",
+  "summary": "一句话说明这场战斗的处境与目的。",
+  "description": "可选的 markdown 描述：写给设计者与 LLM 看的战斗背景。",
+  "bind": {
+    "plot_id": "",
+    "chapter_id": "",
+    "beat_id": ""
+  },
+  "rules": {
+    "range_metric": "manhattan",
+    "allow_corner_cut": false
+  },
+  "map": {
+    "rows": 9,
+    "cols": 9,
+    "tiles": "ground",
+    "tile_defs": {
+      "cover": {
+        "name": "掩体",
+        "glyph": "H",
+        "color": "#a16207",
+        "defense_bonus": 2,
+        "evasion_bonus": 1
+      }
+    },
+    "deploy": {
+      "player": { "rect": [3, 0, 5, 1] },
+      "enemy": { "rect": [3, 7, 6, 8] },
+      "enemy_random_shift": false
+    }
+  },
+  "waves": [
+    {
+      "enemies": [
+        {
+          "enemy": "整合运动士兵",
+          "count": 2,
+          "positions": [[4, 7], [6, 7]]
+        }
+      ]
+    }
+  ],
+  "conditions": {
+    "max_rounds": 8,
+    "escape_enabled": true
+  },
+  "rewards": {
+    "xp": 60,
+    "items": [],
+    "unlock": []
+  },
+  "difficulty": {
+    "category": "test",
+    "encounter_type": "normal",
+    "band": "T1",
+    "threat_budget": 3.2,
+    "target_rounds": 4,
+    "difficulty": 2
+  },
+  "background": "default",
+  "balance_version": 1
+}

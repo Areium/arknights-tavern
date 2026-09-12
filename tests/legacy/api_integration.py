@@ -7,7 +7,7 @@ import sys
 import zlib
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from app import create_app
 from SceneManager import SceneManager
@@ -54,7 +54,7 @@ def check(label, cond, extra=""):
 
 app = create_app()
 client = app.test_client()
-REPO = Path(__file__).resolve().parent.parent
+REPO = Path(__file__).resolve().parents[2]
 created_chars = []
 created_sessions = []
 
@@ -148,8 +148,15 @@ finally:
     for kind, key in created_sessions:
         if kind == "book":
             client.delete(f"/api/worldbook/{key}")
-    for slug in created_chars:
-        target = REPO / "data" / "characters" / slug
+    char_dir = REPO / "data" / "characters"
+    # 导入会按重名自动加后缀（集成测试卡_2 …），因此按前缀兜底清理，
+    # 避免中断/异常路径把测试角色留在 data/ 里。
+    candidates = set(created_chars)
+    if char_dir.is_dir():
+        candidates |= {p.name for p in char_dir.iterdir()
+                       if p.is_dir() and p.name.startswith("集成测试卡")}
+    for slug in sorted(candidates):
+        target = char_dir / slug
         if target.is_dir() and (target / "index.md").exists():
             import shutil
             shutil.rmtree(target, ignore_errors=True)

@@ -11,7 +11,7 @@
       "max_damage": 13,
       "atk_scale": 0.88,
       "target": "SINGLE",
-      "range": 1,
+      "range": 2,
       "cost": 1,
       "tier": "basic",
       "class_required": "重装",
@@ -24,7 +24,7 @@
       "exhaust": null,
       "power_tier": "T1",
       "cv_budget": 24.0,
-      "cv_estimated": 20.1,
+      "cv_estimated": 21.1,
       "balance_version": 1
     },
     {
@@ -63,11 +63,11 @@
       "name": "重甲冲撞",
       "description": "利用重甲冲撞目标",
       "damage_type": "physical",
-      "min_damage": 18,
-      "max_damage": 33,
+      "min_damage": 17,
+      "max_damage": 31,
       "atk_scale": 1.5,
       "target": "SINGLE",
-      "range": 1,
+      "range": 2,
       "cost": 2,
       "tier": "basic",
       "class_required": "重装",
@@ -80,7 +80,7 @@
       "exhaust": null,
       "power_tier": "T1",
       "cv_budget": 48.0,
-      "cv_estimated": 44.4,
+      "cv_estimated": 45.36,
       "balance_version": 1
     },
     {
@@ -221,5 +221,5 @@
       "balance_version": 1
     }
   ],
-  "_hash": "ef4130f9ebf66e53"
+  "_hash": "4a26826d490d4a63"
 }

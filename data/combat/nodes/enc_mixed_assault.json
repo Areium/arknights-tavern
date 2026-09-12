@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "node_id": "enc_mixed_assault",
+  "name": "混编突击",
+  "summary": "混编突击：多兵种协同实施快速突袭的作战方式。",
+  "bind": {
+    "plot_id": "",
+    "chapter_id": "",
+    "beat_id": ""
+  },
+  "rules": {
+    "range_metric": "manhattan",
+    "allow_corner_cut": false
+  },
+  "map": {
+    "rows": 7,
+    "cols": 7,
+    "tiles": "ground",
+    "deploy": {
+      "player": {
+        "cells": [
+          [2, 0],
+          [4, 1],
+          [6, 0]
+        ]
+      },
+      "enemy": {
+        "cells": [
+          [1, 4],
+          [3, 5],
+          [5, 4]
+        ]
+      },
+      "enemy_random_shift": true
+    }
+  },
+  "waves": [
+    {
+      "enemies": [
+        {
+          "enemy": "整合运动士兵",
+          "count": 1,
+          "positions": [
+            [1, 4]
+          ]
+        },
+        {
+          "enemy": "整合运动狙击手",
+          "count": 1,
+          "positions": [
+            [5, 4]
+          ]
+        }
+      ]
+    },
+    {
+      "enemies": [
+        {
+          "enemy": "整合运动术师",
+          "count": 1,
+          "positions": [
+            [2, 5]
+          ]
+        },
+        {
+          "enemy": "整合运动士兵",
+          "count": 1,
+          "positions": [
+            [6, 4]
+          ]
+        }
+      ]
+    }
+  ],
+  "conditions": {
+    "max_rounds": 10,
+    "escape_enabled": true
+  },
+  "rewards": {
+    "xp": 42,
+    "items": [
+      "战术徽记"
+    ],
+    "unlock": []
+  },
+  "difficulty": {
+    "category": "test",
+    "encounter_type": "normal",
+    "band": "T1",
+    "threat_budget": 5.2,
+    "target_rounds": 7,
+    "difficulty": 3
+  },
+  "balance_version": 1
+}

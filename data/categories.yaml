@@ -13,8 +13,8 @@ categories:
   world: data/world/
   attributes: data/attributes/
   enemies: data/enemies/
-  combat_enemies: data/combat/enemies/
-  combat_encounters: data/combat/encounters/
+  combat_nodes: data/combat/nodes/
+  combat_tiles: data/combat/tiles/
   combat_backgrounds: data/combat/backgrounds/
   audio: data/audio/
   rules: data/rules/
@@ -36,7 +36,7 @@ hierarchy:
       categories: [characters]
     - level: 4
       label: 叙事
-      categories: [plots, enemies, combat_encounters]
+      categories: [plots, enemies]
     - level: 5
       label: 战斗组件
-      categories: [combat_enemies, combat_backgrounds]
+      categories: [combat_nodes, combat_tiles, combat_backgrounds]

@@ -148,6 +148,13 @@ def tune_card(card: Card, allow_support_discount: bool = True) -> dict:
                          "建议 P2 以机制补足而非堆数值）")
         elif _is_support(card) and dev["status"] == "under":
             exception = "support_discount（纯治疗卡按稳定性溢价允许低于预算 ≤35%）"
+        elif (card.target == "SINGLE" and card.range == 2 and card.cost == 1
+              and abs(dev["ratio"]) <= 0.35):
+            # 批次 1：统一曼哈顿度量后，单一目标近战卡射程 1 → 2（补回斜角邻格），
+            # 覆盖由 4 格增至 13 格使 CV 略超带宽；属有意的手感补偿，见
+            # perf_tests/metric_migration_report.md
+            exception = ("melee_range_manhattan（曼哈顿射程补偿：单体近战 1→2 使 CV "
+                         "超出带宽 ≤35%，见 metric_migration_report.md）")
     if card.card_id == "medic_heal":
         exception = "support_discount（方案 §5.2 明确保留治疗术数值）"
 

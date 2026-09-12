@@ -53,8 +53,11 @@ class HitResult:
         return f"HitResult(roll={self.roll}, {' '.join(tags)})"
 
 
-def check_hit(attacker: "CombatUnit", defender: "CombatUnit") -> HitResult:
+def check_hit(attacker: "CombatUnit", defender: "CombatUnit",
+              terrain_mods: dict | None = None) -> HitResult:
     """Roll d20 + HIT against target DC (6 + EVA).
+
+    `terrain_mods` 为守方所在地形修正（`evasion_bonus` 提高 DC，掩体因此更难被命中）。
 
     重平衡说明：角色 HIT≈13（战斗技巧+战场机动）远高于敌人 EVA≈5，而敌人 HIT≈6
     低于角色 EVA≈10。若沿用 DC=10+EVA，修正 dodge 后敌人命中率仅 ~37%（过于无力）、
@@ -72,6 +75,8 @@ def check_hit(attacker: "CombatUnit", defender: "CombatUnit") -> HitResult:
         hit_bonus -= 3
     if defender.status_amount("evade") > 0:
         eva += 3
+    if terrain_mods:
+        eva += int(terrain_mods.get("evasion_bonus", 0) or 0)
 
     total = roll + hit_bonus
     dc = 6 + eva
@@ -109,7 +114,8 @@ class DamageResult:
 
 
 def compute_damage(attacker: "CombatUnit", defender: "CombatUnit",
-                   card: "Card", hit_result: HitResult) -> DamageResult:
+                   card: "Card", hit_result: HitResult,
+                   terrain_mods: dict | None = None) -> DamageResult:
     """Calculate damage from a card play.
 
     Steps:
@@ -118,6 +124,9 @@ def compute_damage(attacker: "CombatUnit", defender: "CombatUnit",
       3. Add ATK × card.atk_scale
       4. Subtract defender's DEF (physical) or RES (arts)
       5. Apply crit multiplier (×2)
+
+    `terrain_mods` 为本场地形修正：`defense_bonus`（守方所在格加防）与
+    `damage_bonus`（攻方所在格加伤），不修改单位自身状态，便于 UI 解释数值来源。
     """
     if not hit_result.hit:
         # miss（自然 1）或 dodge（未达 DC）均无伤害
@@ -147,12 +156,19 @@ def compute_damage(attacker: "CombatUnit", defender: "CombatUnit",
     else:  # healing / mixed — use lower of DEF/RES
         resist = min(defender.DEF, defender.RES)
 
+    # 地形修正：守方所在格加防、攻方所在格加伤
+    terrain_damage_bonus = 0
+    if terrain_mods:
+        resist += int(terrain_mods.get("defense_bonus", 0) or 0)
+        terrain_damage_bonus = int(terrain_mods.get("damage_bonus", 0) or 0)
+    resist = max(0, resist)
+
     if card.damage_type == "healing":
         # Healing ignores hit/miss (always lands), no resistance
         raw = base_damage + atk_bonus
         final = max(0, round(raw))
     else:
-        raw = base_damage + atk_bonus - resist
+        raw = base_damage + atk_bonus + terrain_damage_bonus - resist
         if hit_result.crit:
             raw *= 2
         final = max(1, round(raw))

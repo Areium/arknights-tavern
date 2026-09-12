@@ -42,26 +42,15 @@ def _round_floats(value):
     return value
 
 
-def _encounter_ids() -> list[str]:
-    ids: list[str] = []
+def _encounter_ids() -> list[tuple[str, dict]]:
+    """全部战斗节点（id, 节点 JSON）。"""
     loader = CombatDataLoader()
-    enc_dir = ROOT / "data" / "combat" / "encounters"
-    node_dir = ROOT / "data" / "combat" / "nodes"
-    if enc_dir.is_dir():
-        ids += [p.stem for p in sorted(enc_dir.glob("*.md"))]
-    if node_dir.is_dir():
-        for path in sorted(node_dir.glob("*.json")):
-            try:
-                node_id = json.loads(path.read_text(encoding="utf-8")).get("node_id") or path.stem
-            except (OSError, ValueError):
-                continue
-            if node_id not in ids:
-                ids.append(node_id)
-    resolved = []
-    for battle_id in ids:
-        encounter = loader.load_encounter(battle_id)
-        if encounter:
-            resolved.append((battle_id, encounter))
+    resolved: list[tuple[str, dict]] = []
+    for summary in loader.list_nodes():
+        node_id = summary["node_id"]
+        node = loader.load_node(node_id)
+        if node:
+            resolved.append((node_id, node))
     return resolved
 
 

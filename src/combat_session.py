@@ -23,10 +23,14 @@ from combat_engine.entity import CombatUnit
 from combat_engine.card import Card
 from combat_engine.card_data import get_starting_deck
 from combat_engine.engine import CombatEngine, CombatEvent
-from combat_engine.grid import TOTAL_ROWS, TOTAL_COLS, ENEMY_COL_START
 from combat_data_loader import CombatDataLoader
 
 logger = logging.getLogger(__name__)
+
+
+def _tile_used(battle_map, tile_id: str) -> bool:
+    """只导出实际出现在地图上的格子定义（减少 DTO 体积）。"""
+    return any(tile_id in row for row in battle_map.tiles)
 
 
 class CombatSession:
@@ -44,6 +48,8 @@ class CombatSession:
         self._inventory: list[dict] = []
         self._reward_mult: float = 1.0
         self._enemy_scale: float = 1.0
+        self._map = None                     # BattleMap（节点 JSON 的地图段）
+        self._custom_enemies: dict = {}      # 会话自定义敌人定义
         self.last_activity_at: float = time.time()
 
     # ── Setup ──
@@ -57,41 +63,46 @@ class CombatSession:
               session_dir: str = "",
               inventory: list[dict] = None,
               reward_mult: float = 1.0,
-              bonus_cards: list[dict] = None) -> dict:
-        """Initialize a battle from an encounter definition and character list.
+              bonus_cards: list[dict] = None,
+              custom_enemies: dict | None = None) -> dict:
+        """Initialize a battle from a battle node definition and character list.
 
         Args:
-            encounter_id: Key in data/combat/encounters/ (without .md)
+            encounter_id: 战斗节点 id（`data/combat/nodes/<id>.json`，也接受中文名）
             character_names: List of character names to load from data/characters/
             character_metas: List of character metadata dicts (takes precedence over names)
-            enemies_override: Optional list of {name, count, positions} dicts.
-                              When provided, replaces encounter waves.
+            enemies_override: Optional list of {name, count, positions, stats} dicts.
+                              When provided, replaces node waves（单波）。
+            custom_enemies: 会话内自定义敌人定义（name → meta），优先于全局敌人库
             combat_params: Optional dict with narrative-driven combat modifiers.
-                           Supported keys:
-                           - status_effects: {name: {hp_penalty, atk_bonus, def_penalty}}
             location: Current narrative location name, used to resolve the
-                      combat background when the encounter doesn't specify one.
+                      combat background when the node doesn't specify one.
             session_dir: Owning session's data directory; its backgrounds/
                       subfolder can override global background images.
 
         Returns:
             dict: Initial combat state snapshot.
         """
-        encounter = self.loader.load_encounter(encounter_id)
-        if not encounter:
-            raise ValueError(f"Encounter not found: {encounter_id}")
+        node = self.loader.load_node(encounter_id)
+        if not node:
+            raise ValueError(f"战斗节点不存在: {encounter_id}")
 
         self._encounter_id = encounter_id
         self._session_dir = session_dir
         self._inventory = inventory or []
         self._reward_mult = reward_mult
         self._enemy_scale = float((combat_params or {}).get("enemy_scale", 1.0) or 1.0)
+        self._custom_enemies = dict(custom_enemies or {})
         self._background_url = self.loader.resolve_background(
-            encounter, location, session_dir=session_dir, session_id=self.session_id)
-        self.engine = CombatEngine()
+            node, location, session_dir=session_dir, session_id=self.session_id)
 
-        # 遭遇战 conditions：回合上限 + 是否允许撤退（难度曲线 / fail-forward）
-        conditions = encounter.get("conditions", {}) or {}
+        # ── 战场：节点 JSON 的地图段（尺寸/地形/部署区）──
+        self._map = self.loader.load_map(node)          # 校验失败抛 MapError
+        self.engine = CombatEngine(battle_map=self._map,
+                                   rules=self.loader.rules_of(node))
+
+        # 节点 conditions：回合上限 + 是否允许撤退（难度曲线 / fail-forward）
+        conditions = node.get("conditions", {}) or {}
         self.engine.max_rounds = int(conditions.get("max_rounds", 0) or 0)
         self.engine.escape_enabled = bool(conditions.get("escape_enabled", False))
 
@@ -108,8 +119,7 @@ class CombatSession:
                 if meta:
                     self._character_metas.append(meta)
 
-        # Default positions for 4 players in 3×3 zone spanning rows 3-5, cols 0-2
-        default_positions = [(3, 0), (4, 0), (5, 0), (4, 1)]
+        player_slots = self._player_slots(len(self._character_metas))
 
         for i, meta in enumerate(self._character_metas):
             unit = CombatUnit.from_character_metadata(meta, team="player")
@@ -127,8 +137,7 @@ class CombatSession:
                 cards = get_starting_deck("辅助", count=7)
                 logger.warning("No card pool for class '%s', using 辅助 fallback", char_class)
 
-            pos = default_positions[i] if i < len(default_positions) else (4 + i % 3, 0)
-            self.engine.add_player_unit(unit, cards, pos)
+            self.engine.add_player_unit(unit, cards, player_slots[i])
 
         # ── 持久化卡组奖励卡（战后 1 选 1 获得）──
         if bonus_cards and self.engine.shared_pool:
@@ -152,23 +161,25 @@ class CombatSession:
         if enemies_override:
             wave_defs_list = [enemies_override]
         else:
-            wave_defs_list = [w.get("enemies", []) for w in encounter.get("waves", [])]
+            wave_defs_list = [w.get("enemies", []) for w in node.get("waves", [])]
             if not wave_defs_list:
                 wave_defs_list = [[]]
 
         all_waves: list[list[tuple[CombatUnit, tuple[int, int]]]] = []
         enemy_seq = 0
+        reserved: set[tuple[int, int]] = set()
         for wave_defs in wave_defs_list:
             wave_units: list[tuple[CombatUnit, tuple[int, int]]] = []
             for enemy_def in wave_defs:
                 enemy_name = enemy_def.get("enemy", enemy_def.get("name", ""))
-                count = enemy_def.get("count", 1)
+                count = int(enemy_def.get("count", 1) or 1)
                 if not enemies_override:
                     count = max(1, round(count * self._enemy_scale))
-                positions = enemy_def.get("positions", [])
+                positions = list(enemy_def.get("positions") or [])
+                stats = enemy_def.get("stats") or enemy_def.get("combat_stats")
 
                 for j in range(count):
-                    enemy_unit = self.loader.load_enemy(enemy_name)
+                    enemy_unit = self._load_enemy(enemy_name, stats)
                     if not enemy_unit:
                         logger.warning("Enemy '%s' not found, skipping", enemy_name)
                         continue
@@ -178,14 +189,11 @@ class CombatSession:
                     if count > 1 or len(wave_defs_list) > 1:
                         enemy_unit.unit_id = f"{enemy_name}#{enemy_seq}"
 
-                    # Use specified position or auto-place
-                    if j < len(positions):
-                        pos = tuple(positions[j])
-                    else:
-                        # Auto-place in enemy zone (cols 3-7)
-                        pos = (random.randint(0, TOTAL_ROWS - 1),
-                               random.randint(ENEMY_COL_START, TOTAL_COLS - 1))
-
+                    pos = self._enemy_slot(positions, j, reserved)
+                    if pos is None:
+                        logger.warning("敌人 %s 无可落脚点，跳过", enemy_unit.name)
+                        continue
+                    reserved.add(pos)
                     wave_units.append((enemy_unit, pos))
             all_waves.append(wave_units)
 
@@ -203,6 +211,58 @@ class CombatSession:
         self._flush_engine_events()
 
         return self.get_state()
+
+    # ── 落点选择（部署区优先，容错兜底）──
+
+    def _player_slots(self, count: int) -> list[tuple[int, int]]:
+        """玩家落点：优先玩家部署区（按行列顺序），不够时扩展到全图空格。"""
+        grid = self.engine.grid
+        slots = grid.free_deploy_cells("player")
+        if len(slots) < count:
+            taken = set(slots)
+            for r in range(grid.rows):
+                for c in range(grid.cols):
+                    pos = (r, c)
+                    if pos in taken or not grid.can_place(pos):
+                        continue
+                    slots.append(pos)
+                    taken.add(pos)
+                    if len(slots) >= count:
+                        break
+                if len(slots) >= count:
+                    break
+        if len(slots) < count:
+            raise ValueError(f"战场容不下 {count} 名玩家单位（可落脚格不足）")
+        return slots[:count]
+
+    def _enemy_slot(self, positions: list, index: int,
+                    reserved: set[tuple[int, int]]) -> tuple[int, int] | None:
+        """敌人落点：节点声明优先（需可落脚），否则在敌人部署区取空格。"""
+        grid = self.engine.grid
+        if index < len(positions):
+            try:
+                pos = tuple(int(v) for v in positions[index])
+            except (TypeError, ValueError):
+                pos = None
+            if pos and pos not in reserved and grid.can_place(pos):
+                return pos
+        cells = [p for p in grid.free_deploy_cells("enemy") if p not in reserved]
+        if not cells:
+            cells = [(r, c) for r in range(grid.rows) for c in range(grid.cols)
+                     if grid.can_place((r, c)) and (r, c) not in reserved]
+        if not cells:
+            return None
+        return random.choice(cells) if self._map and self._map.enemy_random_shift else cells[0]
+
+    def _load_enemy(self, name: str, stats: dict | None) -> CombatUnit | None:
+        """加载敌人：会话自定义定义优先，其次全局敌人库；stats 为逐实例覆盖。"""
+        custom = self._custom_enemies.get(name)
+        if custom:
+            unit = CombatDataLoader.load_enemy_from_meta(custom, stat_overrides=stats)
+            if unit:
+                unit.name = name
+                return unit
+        return self.loader.load_enemy(name, stat_overrides=stats)
 
     def _load_character_meta(self, name: str) -> dict | None:
         """Load a character's YAML frontmatter from data/characters/<name>/index.md."""
@@ -459,8 +519,11 @@ class CombatSession:
             pass
         return u.skin_crop
 
-    def get_state(self) -> dict:
-        """Return a full state snapshot for the frontend."""
+    def get_state(self, selected_unit_id: str = "") -> dict:
+        """Return a full state snapshot for the frontend.
+
+        `selected_unit_id` 非空时，`valid_moves` 为该单位的可达格（曼哈顿代价）。
+        """
         if not self.engine:
             return {"phase": "NONE", "error": "No active battle"}
 
@@ -519,19 +582,34 @@ class CombatSession:
         # Valid targets for targeting mode
         valid_targets = self._compute_valid_targets()
 
-        # Valid move destinations (computed client-side for selected unit)
-        valid_moves: list[list[int]] = []
+        # 选中单位的可达格（曼哈顿代价 + 地形 + 占位，服务端权威计算）
+        active_player_id = next((u.unit_id for u in e.units.values()
+                                 if u.team == "player" and u.is_alive), None)
+        move_for = selected_unit_id or active_player_id or ""
+        valid_moves = self._compute_valid_moves(move_for)
 
         # Grid (positions only)
         grid_cells = {}
         for pos_key, unit in e.grid._cells.items():
             grid_cells[f"{pos_key[0]},{pos_key[1]}"] = unit.unit_id
 
+        battle_map = self._map or e.map
+
         return {
             "round_num": e.state.round_num,
             "phase": e.state.phase,
             "winner": e.state.winner or None,
-            "grid_size": max(TOTAL_ROWS, TOTAL_COLS),
+            "rows": battle_map.rows,
+            "cols": battle_map.cols,
+            "tiles": [list(row) for row in battle_map.tiles],
+            "tile_defs": {tid: tt.to_dict() for tid, tt in battle_map.tile_types.items()
+                          if _tile_used(battle_map, tid)},
+            "deploy": {
+                "player": [list(p) for p in battle_map.deploy_player],
+                "enemy": [list(p) for p in battle_map.deploy_enemy],
+            },
+            "map_warnings": list(battle_map.warnings),
+            "range_metric": e.range_metric,
             "background_url": self._background_url,
             "shared_ap": e.shared_ap,
             "shared_ap_max": e.SHARED_AP_MAX,
@@ -548,12 +626,27 @@ class CombatSession:
                            "exhaust": shared_pool_data.get("exhaust", [])},
             "valid_targets": valid_targets,
             "valid_moves": valid_moves,
-            "active_unit_id": next((u.unit_id for u in e.units.values() if u.team == "player" and u.is_alive), None),
+            "valid_moves_unit": move_for or None,
+            "active_unit_id": active_player_id,
             "grid": grid_cells,
             "enemy_intents": dict(getattr(e.state, "enemy_intents", {}) or {}),
             "battle_over": e.is_battle_over(),
             "inventory": self._inventory,
         }
+
+    def _compute_valid_moves(self, unit_id: str) -> list[list[int]]:
+        """选中单位的可达格（Dijkstra，曼哈顿代价；非玩家回合返回空）。"""
+        if not self.engine or self.engine.state.phase != "PLAYER_TURN":
+            return []
+        unit = self.engine.units.get(unit_id) if unit_id else None
+        if not unit or unit.team != "player" or not unit.is_alive:
+            return []
+        if unit.AP < 1 or unit.status_amount("bind") > 0:
+            return []
+        reachable = self.engine.grid.reachable(unit.pos,
+                                              self.engine.move_budget(unit),
+                                              mover_id=unit.unit_id)
+        return [list(pos) for pos in sorted(reachable)]
 
     def _compute_valid_targets(self) -> list[list[int]]:
         """Compute valid target positions (all alive enemies) during player phase."""

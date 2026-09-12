@@ -1,12 +1,12 @@
-"""战斗开局黄金基线：重构前后，未声明地图的战斗必须保持结构一致。
+"""战斗开局黄金基线：重构前后，战斗开局结构必须保持稳定。
 
 基线文件 `tests/golden/combat_openings.json` 由本用例录制：
 
     GOLDEN_RECORD=1 python3 -m pytest tests/test_combat_golden.py
 
 基线的**不变项**：网格尺寸、部署坐标、单位血量/AP/属性、手牌、回合上限、波次。
-**有意变更项**（可达格集合、射程覆盖、受射程影响的伤害次数）不在此基线内，
-由 `perf_tests/metric_migration_report.md` 量化记录。
+**有意变更项**（度量切换带来的可达格/射程覆盖变化）在批次 1 重录基线时更新，
+变更前后对照见 `perf_tests/metric_migration_report.md`。
 """
 
 import json
@@ -23,7 +23,6 @@ sys.path.insert(0, str(ROOT / "src"))
 from combat_session import CombatSession  # noqa: E402
 
 GOLDEN_PATH = Path(__file__).resolve().parent / "golden" / "combat_openings.json"
-ENCOUNTER_DIR = ROOT / "data" / "combat" / "encounters"
 NODE_DIR = ROOT / "data" / "combat" / "nodes"
 
 # 固定阵容与种子：模拟"标准小队"，保证开局状态可复现
@@ -32,12 +31,12 @@ SEED = 20260912
 
 
 def battle_ids() -> list[str]:
-    """全部可开局战斗的 id：旧遭遇目录优先，切换到节点 JSON 后自动跟上。"""
+    """全部可开局战斗的 id（战斗节点 JSON）。"""
     ids: list[str] = []
-    if ENCOUNTER_DIR.is_dir():
-        ids += [p.stem for p in sorted(ENCOUNTER_DIR.glob("*.md"))]
     if NODE_DIR.is_dir():
         for path in sorted(NODE_DIR.glob("*.json")):
+            if path.stem.upper().startswith("TEMPLATE"):
+                continue
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
@@ -82,7 +81,12 @@ def opening_snapshot(encounter_id: str) -> dict:
         key=lambda item: (item["team"], item["unit_id"]),
     )
     return {
-        "grid_size": state["grid_size"],
+        "rows": state["rows"],
+        "cols": state["cols"],
+        "tiles": state["tiles"],
+        "tile_ids": sorted(state["tile_defs"]),
+        "deploy": state["deploy"],
+        "range_metric": state["range_metric"],
         "max_rounds": state["max_rounds"],
         "escape_enabled": state["escape_enabled"],
         "round_num": state["round_num"],
@@ -93,6 +97,9 @@ def opening_snapshot(encounter_id: str) -> dict:
         "pending_waves": state["pending_waves"],
         "hand": sorted(card["card_id"] for card in state["shared_hand"]),
         "deck_size": len(state["shared_pool"].get("deck", [])),
+        # 移动可达集：批次 1 起由服务端权威计算（曼哈顿代价 + 地形 + 占位）
+        "valid_moves_unit": state["valid_moves_unit"],
+        "valid_moves": sorted(state["valid_moves"]),
         "units": units,
     }
 

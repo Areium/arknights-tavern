@@ -335,7 +335,7 @@ def build_settlement(session, combat_data: dict, reward_mult: float = 1.0,
         loader = CombatDataLoader()
 
     encounter_id = combat_data.get("encounter_id", "") or ""
-    encounter = loader.load_encounter(encounter_id) or {}
+    encounter = loader.load_node(encounter_id) or {}
     engine_state = combat_data.get("engine_state", {}) or {}
     winner = engine_state.get("winner", "") or combat_data.get("winner", "") or ""
     rounds = int(engine_state.get("round_num", 0) or 0)

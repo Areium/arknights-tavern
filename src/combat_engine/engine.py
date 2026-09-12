@@ -9,8 +9,11 @@ import random
 from dataclasses import dataclass, field
 from typing import Optional, Callable
 
+from combat_map import BattleMap, default_map
 from combat_engine.entity import CombatUnit
-from combat_engine.grid import Grid, range_between, resolve_targets
+from combat_engine.grid import (
+    CHEBYSHEV, MANHATTAN, Grid, metric_distance, resolve_targets,
+)
 from combat_engine.card import Card, CardPool
 from combat_engine.dice import check_hit, compute_damage, HitResult, DamageResult
 
@@ -99,8 +102,14 @@ class CombatEngine:
     SHARED_HAND_SIZE = 6
     BALANCE_VERSION = 1
 
-    def __init__(self):
-        self.grid = Grid()
+    def __init__(self, battle_map: BattleMap | None = None,
+                 rules: dict | None = None):
+        rules = dict(rules or {})
+        self.map: BattleMap = battle_map or default_map()
+        self.corner_cut = bool(rules.get("allow_corner_cut", False))
+        # 距离度量：移动与攻击统一曼哈顿（8 向、斜向步代价 ×2），可逐节点覆盖
+        self.range_metric = str(rules.get("range_metric") or MANHATTAN)
+        self.grid = Grid(self.map, corner_cut=self.corner_cut)
         self.units: dict[str, CombatUnit] = {}     # unit_id → CombatUnit
         self.shared_pool: CardPool | None = None    # single shared pool for all player cards
         self.enemy_pools: dict[str, CardPool] = {}  # per-enemy pools for AI
@@ -121,6 +130,35 @@ class CombatEngine:
 
     # ── Setup ──
 
+    def distance(self, a: tuple[int, int], b: tuple[int, int]) -> int:
+        """按本场度量取距离（默认曼哈顿；移动与攻击共用同一度量）。"""
+        return metric_distance(a, b, self.range_metric)
+
+    def _terrain_mods(self, attacker_pos: tuple[int, int],
+                      defender_pos: tuple[int, int]) -> dict:
+        """攻守双方所在地形修正：攻方加伤、守方加防/加闪避。"""
+        atk = self.grid.terrain_at(attacker_pos)
+        dfn = self.grid.terrain_at(defender_pos)
+        return {
+            "damage_bonus": atk.get("damage_bonus", 0),
+            "defense_bonus": dfn.get("defense_bonus", 0),
+            "evasion_bonus": dfn.get("evasion_bonus", 0),
+        }
+
+    def move_budget(self, unit: CombatUnit) -> int:
+        """单位一次移动的预算（曼哈顿格）：mobility // 2，减速减半。"""
+        budget = unit.mobility // 2
+        if unit.status_amount("slow") > 0:
+            budget = max(1, budget // 2)
+        return max(1, budget)
+
+    def _place_validated(self, unit: CombatUnit, pos) -> None:
+        """坐标校验后落位（越界/地形阻挡/占用一律拒绝，避免静默错位）。"""
+        pos = tuple(pos)
+        if not self.grid.can_place(pos, ignore_unit_id=unit.unit_id):
+            raise ValueError(
+                f"{unit.name} 无法部署到 {pos}：越界、地形阻挡或该格已有单位")
+
     def add_player_unit(self, unit: CombatUnit, cards: list[Card] = None,
                         pos: tuple[int, int] = None):
         """Add a player unit. Player cards go into the shared pool."""
@@ -137,7 +175,8 @@ class CombatEngine:
 
         # Auto-place if position given
         if pos:
-            self.grid.place_unit(unit, pos)
+            self._place_validated(unit, pos)
+            self.grid.place_unit(unit, tuple(pos))
 
     def add_enemy_unit(self, unit: CombatUnit, pos: tuple[int, int] = None):
         """Add an enemy unit with its own simple card pool."""
@@ -148,7 +187,8 @@ class CombatEngine:
         self.enemy_pools[unit.unit_id] = pool
 
         if pos:
-            self.grid.place_unit(unit, pos)
+            self._place_validated(unit, pos)
+            self.grid.place_unit(unit, tuple(pos))
 
     @staticmethod
     def _enemy_cards(unit: CombatUnit) -> list[Card]:
@@ -173,9 +213,35 @@ class CombatEngine:
         wave = self.pending_waves.pop(0)
         self.wave_num += 1
         for unit, pos in wave:
-            self.add_enemy_unit(unit, pos)
+            spawn = self._resolve_spawn_pos(pos)
+            if spawn is None:
+                logger.warning("波次 %d：%s 无可用落脚点，跳过入场", self.wave_num, unit.name)
+                continue
+            self.add_enemy_unit(unit, spawn)
         self._emit("wave_start", wave=self.wave_num)
         return True
+
+    def _resolve_spawn_pos(self, pos, max_radius: int = 6):
+        """波次入场落点：声明格不可用时顺延到最近空位；全图无空位返回 None。
+
+        多波次节点常复用同一批坐标，第二波入场时原格已被占——此时顺延而不是
+        报错（此前旧实现会静默覆盖占位，导致先入场的单位被从网格上抹掉）。
+        """
+        pos = tuple(pos)
+        if self.grid.can_place(pos):
+            return pos
+        for radius in range(1, max_radius + 1):
+            ring = [(pos[0] + dr, pos[1] + dc)
+                    for dr in range(-radius, radius + 1)
+                    for dc in range(-radius, radius + 1)]
+            for cand in ring:
+                if self.grid.can_place(cand):
+                    return cand
+        for row in range(self.grid.rows):
+            for col in range(self.grid.cols):
+                if self.grid.can_place((row, col)):
+                    return (row, col)
+        return None
 
     # ── State Machine ──
 
@@ -273,6 +339,8 @@ class CombatEngine:
                 unit.reset_ap()
                 self._apply_burn(unit)
                 unit.tick_status()
+                if unit.is_alive:
+                    self._apply_tile_effects(unit, [unit.pos], hook="round_start")
         if self._check_battle_end():
             return
 
@@ -413,7 +481,9 @@ class CombatEngine:
         if not self.grid.is_valid_position(target_pos):
             return []
         if card.target not in ("ALL_ALLIES", "GLOBAL") and card.range >= 0:
-            if range_between(unit.pos, target_pos) > card.range:
+            if self.distance(unit.pos, target_pos) > card.range:
+                return []
+            if card.range > 1 and not self.grid.has_line_of_sight(unit.pos, target_pos):
                 return []
         if card.target == "SELF":
             positions = [unit.pos]
@@ -424,15 +494,20 @@ class CombatEngine:
         elif card.target == "LINE_3":
             dr = (target_pos[0] > unit.pos[0]) - (target_pos[0] < unit.pos[0])
             dc = (target_pos[1] > unit.pos[1]) - (target_pos[1] < unit.pos[1])
-            positions = resolve_targets(card.target, target_pos, direction=(dr, dc) if dr or dc else (0, 1))
+            positions = resolve_targets(card.target, target_pos,
+                                       direction=(dr, dc) if dr or dc else (0, 1),
+                                       rows=self.grid.rows, cols=self.grid.cols)
         else:
-            positions = resolve_targets(card.target, target_pos)
+            positions = resolve_targets(card.target, target_pos,
+                                        rows=self.grid.rows, cols=self.grid.cols)
         targets = []
         for pos in positions:
             target = self.grid.get_unit_at(pos)
             if not target or not target.is_alive:
                 continue
-            if card.range >= 0 and range_between(unit.pos, pos) > card.range:
+            if card.range >= 0 and self.distance(unit.pos, pos) > card.range:
+                continue
+            if card.range > 1 and not self.grid.has_line_of_sight(unit.pos, pos):
                 continue
             if (target.team == unit.team) != (card.damage_type == "healing"):
                 continue
@@ -469,6 +544,9 @@ class CombatEngine:
         if ap < card.cost:
             return "Insufficient shared AP" if unit.team == "player" else "Insufficient personal AP"
         if not self._card_targets(unit, card, target_pos):
+            if card.range > 1 and self._valid_position(target_pos) and \
+                    not self.grid.has_line_of_sight(unit.pos, tuple(target_pos)):
+                return "Target is blocked by terrain"
             return "No legal targets in range"
         return None
 
@@ -501,8 +579,9 @@ class CombatEngine:
                            support=bool(card.effects),
                            card=card.name, target_pos=list(target.pos))
             else:
-                hr = check_hit(unit, target)
-                dr = compute_damage(unit, target, card, hr)
+                terrain_mods = self._terrain_mods(unit.pos, target.pos)
+                hr = check_hit(unit, target, terrain_mods)
+                dr = compute_damage(unit, target, card, hr, terrain_mods)
                 actual = 0
                 shielded = 0
                 if hr.hit and dr.final > 0:
@@ -593,32 +672,94 @@ class CombatEngine:
         if not self._valid_position(new_pos):
             return "Invalid move target"
         new_pos = tuple(new_pos)
-        if not self.grid.is_valid_position(new_pos, unit.team) or self.grid.get_unit_at(new_pos):
+        if not self.grid.can_place(new_pos, ignore_unit_id=unit_id):
             return "Invalid or occupied move target"
-        max_move = unit.mobility // 2
-        if unit.status_amount("slow") > 0:
-            max_move = max(1, max_move // 2)
-        if range_between(unit.pos, new_pos) > max_move:
-            return "Move target is out of range"
+        if self.grid.path_to(unit.pos, new_pos, budget=self.move_budget(unit),
+                             mover_id=unit_id) is None:
+            return "Move target is out of range or unreachable"
         return None
 
     def move_unit(self, unit_id: str, new_pos: tuple[int, int],
                   ap_cost: int = 1) -> bool:
-        """Move for one personal AP; shared AP is reserved for cards/items."""
+        """Move for one personal AP; shared AP is reserved for cards/items.
+
+        路径按曼哈顿代价计算（斜向 ×2、地形 move_cost），逐格触发 `on_enter` 效果。
+        """
         error = self.validate_move(unit_id, new_pos, ap_cost)
         if error:
             self._emit("error", unit_id=unit_id, msg=error)
             return False
         unit = self.units[unit_id]
         from_pos = unit.pos
+        path = self.grid.path_to(from_pos, tuple(new_pos),
+                                 budget=self.move_budget(unit), mover_id=unit_id) or []
         if not self.grid.move_unit(unit, tuple(new_pos)):
             return False
         unit.AP -= ap_cost
         if unit.team == "enemy":
             self.enemy_actions_taken[unit_id] = self.enemy_actions_taken.get(unit_id, 0) + 1
         self._emit("move", unit_id=unit_id, name=unit.name, cost=ap_cost,
-                   from_pos=list(from_pos), to_pos=list(unit.pos))
+                   from_pos=list(from_pos), to_pos=list(unit.pos),
+                   path=[list(p) for p in path])
+        self._apply_tile_effects(unit, path[1:] or [unit.pos], hook="enter")
         return True
+
+    # ── 格子效果 ──
+
+    def _apply_tile_effects(self, unit: CombatUnit, cells, hook: str) -> None:
+        """触发格子效果：`enter`（移动途经/落脚）或 `round_start`（回合开始所在格）。
+
+        效果字段：damage（立即伤害，护盾先吸收）/ heal（立即治疗）/
+        status + stacks（burn=每回合 stacks 点伤害持续 2 回合；shield=层数持续 2 回合；
+        其余状态视为持续回合数）。
+        """
+        for pos in cells:
+            if not unit.is_alive:
+                return
+            pos = tuple(pos)
+            if not self.grid.in_bounds(pos):
+                continue
+            tile = self.grid.tile(pos)
+            effect = tile.effect(hook)
+            if not effect:
+                continue
+            tile_card = f"tile_{tile.tile_id}"
+            damage = int(effect.get("damage") or 0)
+            if damage > 0:
+                shield_before = unit.status_amount("shield")
+                actual = unit.take_damage(damage)
+                self._emit("damage", unit_id=f"terrain:{pos}", caster=tile.name or "地形",
+                           team="", card_id=tile_card, cost=0, source_type="terrain",
+                           target_team=unit.team, target_id=unit.unit_id, target=unit.name,
+                           damage=actual, hit_result="HIT", card=tile.name,
+                           shielded=shield_before - unit.status_amount("shield"),
+                           damage_type="arts", target_pos=list(unit.pos))
+            heal = int(effect.get("heal") or 0)
+            if heal > 0 and unit.is_alive:
+                healed = unit.heal(heal)
+                if healed:
+                    self._emit("heal", unit_id=f"terrain:{pos}", caster=tile.name or "地形",
+                               card_id=tile_card, cost=0, target_team=unit.team,
+                               target_id=unit.unit_id, target=unit.name, amount=healed,
+                               overflow=heal - healed, requested=heal, support=False,
+                               card=tile.name, target_pos=list(unit.pos))
+            status = str(effect.get("status") or "")
+            stacks = int(effect.get("stacks") or 0)
+            if status and stacks and unit.is_alive:
+                if status == "burn":
+                    unit.apply_burn(stacks, 2)
+                elif status == "shield":
+                    unit.apply_status("shield", stacks, duration=2)
+                else:
+                    unit.apply_status(status, stacks)
+                self._emit("status", unit_id=f"terrain:{pos}", card_id=tile_card, cost=0,
+                           duration=2, target_id=unit.unit_id, target=unit.name,
+                           type=status, value=stacks, target_pos=list(unit.pos))
+            if not unit.is_alive:
+                self._emit("death", unit_id=unit.unit_id, name=unit.name,
+                           team=unit.team, pos=list(unit.pos))
+                self.grid.remove_unit(unit)
+        self._check_battle_end()
 
     # ── Enemy intent ──
 
@@ -693,7 +834,7 @@ class CombatEngine:
             else:
                 affected = sum(
                     1 for p in players
-                    if range_between(pos, p.pos) <= card.range)
+                    if self.distance(pos, p.pos) <= card.range)
 
             if affected == 0:
                 continue
@@ -709,16 +850,23 @@ class CombatEngine:
         """敌人目标选择：优先攻击嘲讽（taunt）中的玩家，否则攻击最近的。"""
         taunted = [p for p in players if p.status_amount("taunt") > 0]
         pool = taunted if taunted else players
-        return min(pool, key=lambda p: range_between(unit.pos, p.pos))
+        return min(pool, key=lambda p: self.distance(unit.pos, p.pos))
 
-    @staticmethod
-    def _step_toward(pos: tuple[int, int], target: tuple[int, int]) -> tuple[int, int]:
-        """返回朝 target 前进一格的坐标（Chebyshev，含对角线）。"""
-        r, c = pos
-        tr, tc = target
-        dr = 0 if r == tr else (1 if tr > r else -1)
-        dc = 0 if c == tc else (1 if tc > c else -1)
-        return (r + dr, c + dc)
+    def step_toward(self, pos: tuple[int, int], target: tuple[int, int],
+                     mover_id: str = "") -> tuple[int, int]:
+        """朝 target 前进一格：走寻路结果的第一步（曼哈顿代价，绕开地形）。
+
+        目标格可能被目标单位占着，这里只把目标当作方向指引，取第一个**可落脚**的
+        中间步；无路可走或下一步不可落脚时返回原位，调用方据此结束该动作
+        （不阻塞回合），这样被墙围死的敌人不会卡死整场战斗。
+        """
+        path = self.grid.path_to(pos, target, budget=None, mover_id=mover_id,
+                                 goal_may_be_occupied=True)
+        if path and len(path) > 1:
+            step = path[1]
+            if self.grid.can_place(step, ignore_unit_id=mover_id):
+                return step
+        return pos
 
     def _plan_enemy_actions(self, unit: CombatUnit,
                             players: list[CombatUnit]) -> list[dict]:
@@ -735,7 +883,7 @@ class CombatEngine:
         for _ in range(max(0, int(unit.action_slots))):
             if ap <= 0 or not players:
                 break
-            target = min(players, key=lambda p: range_between(pos, p.pos))
+            target = min(players, key=lambda p: self.distance(pos, p.pos))
             card = self._pick_enemy_card(unit, target, from_pos=pos)
             if card and card.cost <= ap:
                 itype = self._classify_enemy_intent(card)
@@ -747,7 +895,7 @@ class CombatEngine:
                 ap -= card.cost
                 continue
             if unit.ai_behavior != "defensive" and ap >= 1:
-                step = self._step_toward(pos, target.pos)
+                step = self.step_toward(pos, target.pos, mover_id=unit.unit_id)
                 if step == pos:
                     break
                 plan.append({"type": "move", "label": INTENT_LABELS["move"],
@@ -871,7 +1019,7 @@ class CombatEngine:
             target = self._resolve_intent_target(unit, action, players)
             if target is None:
                 return False, []
-            step = self._step_toward(unit.pos, target.pos)
+            step = self.step_toward(unit.pos, target.pos, mover_id=unit.unit_id)
             if self.validate_move(unit.unit_id, step):
                 return False, []
             return (True, []) if self.move_unit(unit.unit_id, step) else (False, [])
@@ -896,7 +1044,7 @@ class CombatEngine:
                 return candidate
         if not players:
             return None
-        return min(players, key=lambda p: range_between(unit.pos, p.pos))
+        return min(players, key=lambda p: self.distance(unit.pos, p.pos))
 
     def _fallback_enemy_action(self, unit: CombatUnit,
                                players: list[CombatUnit]) -> bool:
@@ -908,7 +1056,7 @@ class CombatEngine:
             results = self.play_card(unit.unit_id, card, target.pos)
             return bool(results)
         if unit.ai_behavior != "defensive" and unit.AP >= 1:
-            step = self._step_toward(unit.pos, target.pos)
+            step = self.step_toward(unit.pos, target.pos, mover_id=unit.unit_id)
             if step != unit.pos and not self.validate_move(unit.unit_id, step):
                 return self.move_unit(unit.unit_id, step)
         return False
