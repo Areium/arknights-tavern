@@ -29,6 +29,9 @@ export const NODE_TYPE_ORDER: PlotGraphNodeType[] = ["plot", "chapter", "beat", 
 
 export const VIEW_KEY_PREFIX = "ark_nodeflow_view:";
 export const LAST_BOOK_KEY = "ark_nodeflow_book";
+export const EDITOR_W_KEY = "ark_nodeflow_editor_w";
+/** 手动双击判定窗口（ms）：画布节点、抽屉拖拽把手共用同一阈值 */
+export const DBLCLICK_MS = 320;
 export const lastPlotKey = (bookId: string) => `ark_nodeflow_plot:${bookId}`;
 
 export interface ViewState { x: number; y: number; zoom: number }
@@ -380,6 +383,37 @@ export function loadViewState(plotId: string): ViewState | null {
 
 export function saveViewState(plotId: string, view: ViewState) {
   try { localStorage.setItem(VIEW_KEY_PREFIX + plotId, JSON.stringify(view)); } catch { /* ignore */ }
+}
+
+// ── 编辑器抽屉宽度（全局一份，localStorage 持久化） ──
+
+/** 抽屉最小宽度（px）；上限按画布容器宽度动态算（92%） */
+export const EDITOR_W_MIN = 360;
+/** 抽屉默认宽度 = 画布容器宽度的 50%（"半屏左右"）；用户拖拽后以 px 覆盖 */
+export const EDITOR_W_RATIO = 0.5;
+
+export function loadEditorWidth(): number | null {
+  try {
+    const raw = localStorage.getItem(EDITOR_W_KEY);
+    if (!raw) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  } catch { return null; }
+}
+
+export function saveEditorWidth(w: number) {
+  try { localStorage.setItem(EDITOR_W_KEY, String(Math.round(w))); } catch { /* ignore */ }
+}
+
+/** 清除自定义宽度 → 回到默认半屏 */
+export function clearEditorWidth() {
+  try { localStorage.removeItem(EDITOR_W_KEY); } catch { /* ignore */ }
+}
+
+/** 把期望宽度夹到 [EDITOR_W_MIN, 容器宽 92%] 区间 */
+export function clampEditorWidth(w: number, containerW: number): number {
+  const max = Math.max(EDITOR_W_MIN, containerW * 0.92);
+  return Math.min(max, Math.max(EDITOR_W_MIN, w));
 }
 
 /** fit view：把所有节点纳入视口（含边距），返回新视图 */

@@ -11,6 +11,15 @@
  * src/plot_graphs.py）；剧情/战斗内容仍在 data/plots 与 data/combat/nodes，
  * 图节点用 ref 引用，点开走既有抽屉编辑器（StoryBeatEditor / BattleNodeForm）。
  * 编辑走快照撤销栈（Ctrl+Z / Ctrl+Shift+Z），保存 Ctrl+S，切剧情时自动落盘。
+ *
+ * 编辑器抽屉（双击节点 / 右键「打开编辑器」打开）：
+ *   · 位置：画布容器内右侧覆盖，顶栏/剧情条保持可用（不遮挡保存、撤销）；
+ *   · 宽度：默认画布 50%（半屏），可拖左边缘调整（360px ~ 92%，双击把手复位），
+ *     宽度存 localStorage（ark_nodeflow_editor_w）；
+ *   · 特效：挂载时先以收起态渲染、下一帧切展开态 → CSS 过渡从右侧滑入；
+ *     关闭先播退场动画（DRAWER_ANIM_MS）再卸载内容，避免内容瞬间消失；
+ *   · 收起：单击画布空白（GraphCanvas.onBlankClick）/ 空白处右键 / Esc /
+ *     编辑器内「✕ 关闭」；切剧情、换设定集、底层节点被删时直接卸载不播动画。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApi } from "../../hooks/useApi";
@@ -25,6 +34,7 @@ import GraphCanvas, { type AvailableBeat, type AvailableCombat, type GraphCanvas
 import {
   emptyGraphDoc, importLayoutFromFlow, lastPlotKey, LAST_BOOK_KEY,
   GraphHistory, loadViewState, removeNodes, resetNodePositions, saveViewState,
+  clampEditorWidth, clearEditorWidth, loadEditorWidth, saveEditorWidth, EDITOR_W_RATIO, DBLCLICK_MS,
   type ViewState,
 } from "./graphModel";
 import { createNodes } from "./nodeFactory";
@@ -39,6 +49,9 @@ type Drawer =
   | { kind: "battle"; nodeId: string }
   | { kind: "story"; plotId: string; beatId: string | null }
   | null;
+
+/** 抽屉进出场动画时长（ms），须与 style.css 的 .ng-drawer transition 一致 */
+const DRAWER_ANIM_MS = 260;
 
 type Selection = { kind: "node" | "edge"; id: string } | null;
 
@@ -62,6 +75,11 @@ export default function PlotGraphPage({ sessionId }: Props) {
   const [view, setView] = useState<ViewState>({ x: 0, y: 0, zoom: 1 });
   const [selected, setSelected] = useState<Selection>(null);
   const [drawer, setDrawer] = useState<Drawer>(null);
+  /** 抽屉"已打开"标志：与 drawer 分开，关闭时先播退场动画再卸载内容 */
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  /** 抽屉宽度（px）；null = 跟随 CSS 默认（容器 50%，半屏左右） */
+  const [drawerW, setDrawerW] = useState<number | null>(() => loadEditorWidth());
+  const [resizing, setResizing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [combatModal, setCombatModal] = useState<{ wx: number; wy: number; id: string; name: string; error: string } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -72,8 +90,10 @@ export default function PlotGraphPage({ sessionId }: Props) {
 
   const caches = useRef(new Map<string, PlotCache>());
   const canvasApi = useRef<GraphCanvasApi | null>(null);
+  const canvasBox = useRef<HTMLDivElement | null>(null);
   const viewPersist = useRef<number | undefined>(undefined);
   const noticeTimer = useRef<number | undefined>(undefined);
+  const drawerTimer = useRef<number | undefined>(undefined);
 
   const showNotice = useCallback((kind: "ok" | "err", text: string) => {
     setNotice({ kind, text });
@@ -81,6 +101,77 @@ export default function PlotGraphPage({ sessionId }: Props) {
     noticeTimer.current = window.setTimeout(() => setNotice(null), 4000);
   }, []);
   useEffect(() => () => window.clearTimeout(noticeTimer.current), []);
+
+  // ── 编辑抽屉：开/关（带进出场动画）──
+  /**
+   * 打开抽屉。首帧以"收起"状态挂载，下一帧再切到"展开"态，触发 CSS 过渡
+   * （抽屉从右侧滑入）。已在打开状态时直接换内容，不重播入场动画。
+   */
+  const openDrawer = useCallback((next: NonNullable<Drawer>) => {
+    window.clearTimeout(drawerTimer.current);
+    setDrawer(next);
+    requestAnimationFrame(() => requestAnimationFrame(() => setDrawerOpen(true)));
+  }, []);
+
+  /** 关闭抽屉：先播退场动画，动画结束再卸载内容（避免内容瞬间消失） */
+  const closeDrawer = useCallback(() => {
+    setDrawerOpen(false);
+    window.clearTimeout(drawerTimer.current);
+    drawerTimer.current = window.setTimeout(() => setDrawer(null), DRAWER_ANIM_MS);
+  }, []);
+
+  /** 立即关闭（切剧情/换设定集/底层节点被删等上下文已变：不播动画，直接卸载） */
+  const closeDrawerNow = useCallback(() => {
+    window.clearTimeout(drawerTimer.current);
+    setDrawerOpen(false);
+    setDrawer(null);
+  }, []);
+
+  useEffect(() => () => window.clearTimeout(drawerTimer.current), []);
+
+  // ── 抽屉宽度：默认半屏，拖左边缘调整，宽度持久化 ──
+  /** 双击拖拽把手 = 恢复默认半屏宽度 */
+  const resetDrawerWidth = useCallback(() => {
+    setDrawerW(null);
+    clearEditorWidth();
+  }, []);
+
+  const lastGripDown = useRef(0);
+
+  const onDrawerResizeStart = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    // preventDefault 会抑制兼容鼠标事件（含原生 dblclick），"双击把手重置宽度"
+    // 只能像画布节点那样自行按时间窗判定。
+    const now = performance.now();
+    if (now - lastGripDown.current <= DBLCLICK_MS) {
+      lastGripDown.current = 0;
+      resetDrawerWidth();
+      return;
+    }
+    lastGripDown.current = now;
+    const box = canvasBox.current;
+    if (!box) return;
+    const rect = box.getBoundingClientRect();
+    const startX = e.clientX;
+    const startW = drawerW ?? rect.width * EDITOR_W_RATIO;
+    let latest = startW;
+    setResizing(true);
+    document.body.classList.add("ng-resizing");
+    const move = (ev: PointerEvent) => {
+      latest = clampEditorWidth(startW - (ev.clientX - startX), rect.width);
+      setDrawerW(latest);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      document.body.classList.remove("ng-resizing");
+      setResizing(false);
+      saveEditorWidth(latest);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }, [drawerW, resetDrawerWidth]);
+
   const dirty = useMemo(() => {
     void version;
     return plotId ? (caches.current.get(plotId)?.dirty ?? false) : false;
@@ -149,11 +240,11 @@ export default function PlotGraphPage({ sessionId }: Props) {
     if (next === plotId) return;
     saveViewState(plotId, view);           // 旧剧情视图立即落盘
     setSelected(null);
-    setDrawer(null);
+    closeDrawerNow();
     setConfirmDelete(null);
     setPlotId(next);
     try { localStorage.setItem(lastPlotKey(bookId), next); } catch { /* ignore */ }
-  }, [plotId, view, bookId]);
+  }, [plotId, view, bookId, closeDrawerNow]);
 
   useEffect(() => {
     if (!plotId || !bookId) { setDoc(null); return; }
@@ -246,6 +337,8 @@ export default function PlotGraphPage({ sessionId }: Props) {
       const typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
       const mod = e.ctrlKey || e.metaKey;
       if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); save(); return; }
+      // Esc 收起编辑抽屉（抽屉惯例；输入框内同样生效）
+      if (e.key === "Escape" && drawer) { e.preventDefault(); closeDrawer(); return; }
       if (typing) return;
       if (mod && !e.shiftKey && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); }
       else if (mod && (e.shiftKey && e.key.toLowerCase() === "z" || e.key.toLowerCase() === "y")) { e.preventDefault(); redo(); }
@@ -260,7 +353,7 @@ export default function PlotGraphPage({ sessionId }: Props) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [save, undo, redo, selected, doc, commit]);
+  }, [save, undo, redo, selected, doc, commit, drawer, closeDrawer]);
 
   // ── 视图持久化（防抖 300ms） ──
   const onViewChange = useCallback((v: ViewState) => {
@@ -402,12 +495,12 @@ export default function PlotGraphPage({ sessionId }: Props) {
       }, doc);
       commit(res.doc);
       setCombatModal(null);
-      setDrawer({ kind: "battle", nodeId: id }); // 立即完善敌人编成等配置
+      openDrawer({ kind: "battle", nodeId: id }); // 立即完善敌人编成等配置
       loadOverview(bookId);
     } catch (e: any) {
       setCombatModal((m) => (m ? { ...m, error: errText(e, "创建失败") } : m));
     }
-  }, [combatModal, doc, bookId, api, commit, loadOverview]);
+  }, [combatModal, doc, bookId, api, commit, loadOverview, openDrawer]);
 
   const importLayout = useCallback(() => {
     if (!doc || !currentPlot) return;
@@ -443,10 +536,11 @@ export default function PlotGraphPage({ sessionId }: Props) {
     window.setTimeout(() => canvasApi.current?.fit(), 60);
   }, [doc, currentPlot, overview, commit, showNotice]);
 
+  /** 双击节点 / 右键「打开编辑器」的落点：按节点类型选编辑器 */
   const openNode = useCallback((node: PlotGraphNodeDTO) => {
-    if (node.type === "combat" && node.ref?.node_id) setDrawer({ kind: "battle", nodeId: node.ref.node_id });
-    else if (plotId) setDrawer({ kind: "story", plotId, beatId: node.ref?.beat_id ?? null });
-  }, [plotId]);
+    if (node.type === "combat" && node.ref?.node_id) openDrawer({ kind: "battle", nodeId: node.ref.node_id });
+    else if (plotId) openDrawer({ kind: "story", plotId, beatId: node.ref?.beat_id ?? null });
+  }, [plotId, openDrawer]);
 
   const deleteConfirmed = useCallback(() => {
     if (!confirmDelete || !doc) return;
@@ -464,7 +558,7 @@ export default function PlotGraphPage({ sessionId }: Props) {
       p.combat_nodes.includes(combatNodeJumpId) ||
       p.chapters.some((c) => c.combat_nodes.includes(combatNodeJumpId) || c.beats.some((b) => b.combat_nodes.includes(combatNodeJumpId))));
     if (hostPlot && hostPlot.plot_id !== plotId) switchPlot(hostPlot.plot_id);
-    setDrawer({ kind: "battle", nodeId: combatNodeJumpId });
+    openDrawer({ kind: "battle", nodeId: combatNodeJumpId });
     setCombatNodeJumpId(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [combatNodeJumpId, overview, doc]);
@@ -480,7 +574,7 @@ export default function PlotGraphPage({ sessionId }: Props) {
         <select
           className="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs outline-none focus:border-amber-500/50 max-w-[16rem]"
           value={bookId}
-          onChange={(e) => { setBookId(e.target.value); setPlotId(""); setDoc(null); setDrawer(null); }}
+          onChange={(e) => { setBookId(e.target.value); setPlotId(""); setDoc(null); closeDrawerNow(); }}
           title="选择设定集（世界书）——图文档保存到该书"
         >
           {books.length === 0 && <option value="">（无世界书）</option>}
@@ -591,7 +685,7 @@ export default function PlotGraphPage({ sessionId }: Props) {
       )}
 
       {/* ── 画布（一页一剧情，独占内容区） ── */}
-      <div className="flex-1 min-h-0 relative">
+      <div ref={canvasBox} className="flex-1 min-h-0 relative">
         {!bookId && books.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center text-sm text-gray-500">
             请先在「世界书」页创建或导入一本世界书
@@ -624,41 +718,63 @@ export default function PlotGraphPage({ sessionId }: Props) {
             availableCombats={availableCombats}
             onImportLayout={importLayout}
             onResetPositions={resetPositions}
+            onBlankClick={closeDrawer}
             canvasApiRef={canvasApi}
           />
         )}
-      </div>
 
-      {/* ── 编辑抽屉（复用既有编辑器） ── */}
-      {drawer && (
-        <div className="absolute inset-y-0 right-0 w-[46rem] max-w-[75%] bg-gray-950 border-l border-gray-700 shadow-2xl z-40 flex flex-col min-h-0">
-          {drawer.kind === "battle" ? (
-            <BattleNodeForm
-              key={`battle-${drawer.nodeId}`}
-              nodeId={drawer.nodeId}
-              onSaved={() => loadOverview(bookId)}
-              onDeleted={() => {
-                // 底层战斗节点已删 → 同步移除图上引用节点（可撤销）
-                if (doc) {
-                  const gn = doc.nodes.find((n) => n.type === "combat" && n.ref?.node_id === drawer.nodeId);
-                  if (gn) commit(removeNodes(doc, [gn.id]));
-                }
-                setDrawer(null);
-                loadOverview(bookId);
-              }}
-              onClose={() => setDrawer(null)}
+        {/* ── 编辑抽屉：双击节点 / 右键「打开编辑器」打开；点空白处或 Esc 收起 ── */}
+        {drawer && (
+          <>
+            {/* 遮罩：仅压暗画布（不拦截指针，点画布空白仍由画布处理并触发收起） */}
+            <div
+              className={"ng-drawer-scrim" + (drawerOpen ? " ng-drawer-scrim-open" : "")}
+              aria-hidden="true"
             />
-          ) : (
-            <StoryBeatEditor
-              key={`story-${drawer.plotId}`}
-              plotId={drawer.plotId}
-              beatId={drawer.beatId}
-              onChanged={() => loadOverview(bookId)}
-              onClose={() => setDrawer(null)}
-            />
-          )}
-        </div>
-      )}
+            <div
+              className={"ng-drawer" + (drawerOpen ? " ng-drawer-open" : "") + (resizing ? " ng-drawer-resizing" : "")}
+              style={drawerW != null ? { width: drawerW } : undefined}
+              role="complementary"
+              aria-label="节点编辑器"
+            >
+              {/* 左边缘拖拽把手：调整宽度（双击恢复默认半屏） */}
+              <div
+                className="ng-drawer-grip"
+                onPointerDown={onDrawerResizeStart}
+                title="拖拽调整编辑器宽度 · 双击恢复默认（半屏）"
+              >
+                <i className="ng-drawer-grip-bar" />
+              </div>
+
+              {drawer.kind === "battle" ? (
+                <BattleNodeForm
+                  key={`battle-${drawer.nodeId}`}
+                  nodeId={drawer.nodeId}
+                  onSaved={() => loadOverview(bookId)}
+                  onDeleted={() => {
+                    // 底层战斗节点已删 → 同步移除图上引用节点（可撤销）
+                    if (doc) {
+                      const gn = doc.nodes.find((n) => n.type === "combat" && n.ref?.node_id === drawer.nodeId);
+                      if (gn) commit(removeNodes(doc, [gn.id]));
+                    }
+                    closeDrawerNow();
+                    loadOverview(bookId);
+                  }}
+                  onClose={closeDrawer}
+                />
+              ) : (
+                <StoryBeatEditor
+                  key={`story-${drawer.plotId}`}
+                  plotId={drawer.plotId}
+                  beatId={drawer.beatId}
+                  onChanged={() => loadOverview(bookId)}
+                  onClose={closeDrawer}
+                />
+              )}
+            </div>
+          </>
+        )}
+      </div>
 
       {/* ── 删除节点二次确认 ── */}
       {confirmDelete && (() => {

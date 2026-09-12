@@ -1457,6 +1457,8 @@ html.light .lobby-empty { background: rgba(249, 250, 251, 0.6); border-color: rg
   --ng-edge-color-hl: #dfa945;
   --ng-grid-dot: rgba(148,163,184,.16);
   --ng-float-bg: rgba(15,18,24,.94);
+  --ng-drawer-bg: #0b0e14;
+  --ng-scrim: rgba(2,6,12,.34);
 }
 
 html.light {
@@ -1474,6 +1476,8 @@ html.light {
   --ng-edge-color-hl: #b4791b;
   --ng-grid-dot: rgba(71,85,105,.22);
   --ng-float-bg: rgba(255,255,255,.96);
+  --ng-drawer-bg: #ffffff;
+  --ng-scrim: rgba(15,23,42,.14);
 }
 
 /* ── 视口（平移/缩放的交互层） ── */
@@ -1856,3 +1860,71 @@ html.light .ng-menu-item.danger { color: #b91c1c; }
   border-color: rgba(95,163,181,.5);
   color: var(--ng-beat);
 }
+
+/* ═══════════════════════════════════════
+   节点编辑器抽屉（PlotGraphPage）
+   双击节点 / 右键「打开编辑器」→ 从右侧滑入；默认半屏宽，可拖左边缘调整；
+   单击画布空白或 Esc 收起。
+   ═══════════════════════════════════════ */
+
+.ng-drawer-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 39;
+  background: var(--ng-scrim);
+  opacity: 0;
+  pointer-events: none;          /* 不拦截指针：点画布空白仍能触发收起 */
+  transition: opacity .26s ease;
+}
+.ng-drawer-scrim-open { opacity: 1; }
+
+.ng-drawer {
+  position: absolute;
+  top: 0; bottom: 0; right: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  width: 50%;                    /* 默认半屏；拖拽后由内联 width(px) 覆盖 */
+  min-width: 360px;
+  max-width: 92%;
+  background: var(--ng-drawer-bg);
+  border-left: 1px solid var(--ng-card-border);
+  box-shadow: -14px 0 34px rgba(0,0,0,.42);
+  /* 进出场：从右侧滑入 / 滑出（时长与 PlotGraphPage 的 DRAWER_ANIM_MS 一致） */
+  transform: translateX(101%);
+  opacity: .3;
+  transition: transform .26s cubic-bezier(.22,.61,.36,1), opacity .26s ease;
+  will-change: transform, opacity;
+}
+.ng-drawer-open { transform: translateX(0); opacity: 1; }
+
+/* 左边缘拖拽把手（双击恢复默认半屏宽） */
+.ng-drawer-grip {
+  position: absolute;
+  left: -5px; top: 0; bottom: 0;
+  width: 11px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: col-resize;
+  touch-action: none;
+}
+.ng-drawer-grip-bar {
+  width: 3px;
+  height: 30px;
+  border-radius: 2px;
+  background: var(--ng-muted);
+  opacity: .3;
+  transition: height .18s ease, opacity .18s ease, background .18s ease;
+}
+.ng-drawer-grip:hover .ng-drawer-grip-bar,
+.ng-drawer-resizing .ng-drawer-grip-bar {
+  height: 52px;
+  opacity: 1;
+  background: var(--ng-edge-color-hl);
+}
+/* 拖拽调宽期间：全局保持 col-resize 光标并禁掉文本选择 */
+body.ng-resizing,
+body.ng-resizing * { cursor: col-resize !important; user-select: none !important; }

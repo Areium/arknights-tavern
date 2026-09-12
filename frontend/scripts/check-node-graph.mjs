@@ -9,6 +9,7 @@
  *   B. 节点拖拽严格跟手：任意缩放/平移下「屏幕位移 → 图内位移」与旧实现对照
  *   C. 「重置节点位置」基准 = 剧情结构默认布局：坐标命中、节点与连线保留、自由节点排到右侧
  *   D. 节点工厂：手动来源合并、id 唯一、挂接连线、上限保护、LLM 未接入时报 no_provider、超时/失败归类
+ *   E. 编辑器抽屉宽度：默认半屏、拖拽宽度夹取区间、localStorage 读写与脏数据容错
  */
 import { build } from "esbuild";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -48,6 +49,8 @@ const {
   screenToWorld, worldToScreen, dragGrabOffset, dragWorldPos,
   resetNodePositions, nodeIdentity, importLayoutFromFlow,
   createNodes, registerNodeGenProvider, NodeGenError, listNodeGenProviders, NODE_W,
+  clampEditorWidth, loadEditorWidth, saveEditorWidth, clearEditorWidth,
+  EDITOR_W_KEY, EDITOR_W_RATIO, EDITOR_W_MIN,
 } = mod;
 
 try {
@@ -225,9 +228,53 @@ try {
       (e) => ok("返回结构不合法 → invalid_result", e instanceof NodeGenError && e.code === "invalid_result", e?.code),
     );
   }
+
+  // ── E. 编辑器抽屉宽度 ──
+  console.log("E. 编辑器抽屉宽度（默认半屏 / 夹取区间 / 持久化）");
+  {
+    ok(`默认宽度比例 = 50%（半屏）`, EDITOR_W_RATIO === 0.5, String(EDITOR_W_RATIO));
+    ok(`最小宽度 = 360px`, EDITOR_W_MIN === 360, String(EDITOR_W_MIN));
+    ok(`持久化 key 与视图状态同前缀（${EDITOR_W_KEY}）`, EDITOR_W_KEY === "ark_nodeflow_editor_w", EDITOR_W_KEY);
+
+    // 夹取：下限 360px，上限 = 容器宽 92%
+    const cases = [
+      [120, 1600, 360, "拖到极窄 → 夹到下限"],
+      [360, 1600, 360, "正好下限 → 原样"],
+      [800, 1600, 800, "常规宽度 → 原样"],
+      [1500, 1600, 1472, "拖到极宽 → 夹到 92% 上限"],
+      [500, 200, 360, "容器比下限还窄 → 不低于下限（不返回 0/负宽）"],
+    ];
+    for (const [w, cw, want, name] of cases) {
+      const got = clampEditorWidth(w, cw);
+      ok(`${name}（${w}@${cw} → ${got}）`, got === want, `want ${want}`);
+    }
+
+    // Node 环境无 localStorage：注入最小实现，验证读写与脏数据容错
+    const store = new Map();
+    globalThis.localStorage = {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => { store.set(k, String(v)); },
+      removeItem: (k) => { store.delete(k); },
+    };
+    ok("未设置过 → null（由 CSS 回落到半屏）", loadEditorWidth() === null, String(loadEditorWidth()));
+    saveEditorWidth(812.4);
+    ok("保存后读回并取整 → 812", loadEditorWidth() === 812, String(loadEditorWidth()));
+    store.set(EDITOR_W_KEY, "not-a-number");
+    ok("脏数据 → null 且不抛错", loadEditorWidth() === null, String(loadEditorWidth()));
+    store.set(EDITOR_W_KEY, "-5");
+    ok("非法负值 → null", loadEditorWidth() === null, String(loadEditorWidth()));
+    clearEditorWidth();
+    ok("清除自定义宽度 → 回到默认", loadEditorWidth() === null, String(loadEditorWidth()));
+
+    // 无 localStorage（SSR / 隐私模式）时读写都不得抛错
+    delete globalThis.localStorage;
+    let threw = null;
+    try { saveEditorWidth(700); } catch (e) { threw = e; }
+    ok("无 localStorage 时保存不抛错", threw === null, String(threw));
+    ok("无 localStorage 时读取 → null", loadEditorWidth() === null, String(loadEditorWidth()));
+  }
 } finally {
   await cleanup();
 }
-
 console.log(failures === 0 ? "\n全部通过 ✅" : `\n失败 ${failures} 项 ❌`);
 process.exit(failures === 0 ? 0 : 1);

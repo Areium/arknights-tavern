@@ -12,6 +12,10 @@
  * 节点：拖拽移动（**屏幕位移恒定，与缩放/平移无关**，抬起才入撤销栈）、
  *       双击进入该节点的编辑态（自由节点内联编辑，其余打开既有抽屉编辑器）、
  *       锚点拖出连线；连线可选中、端点拖拽重连、右键删除。一个节点允许分出多条路线。
+ *       双击用**指针事件自行判定**（不依赖原生 dblclick）：指针捕获会把兼容鼠标事件
+ *       重定向到捕获元素（视口），原生 dblclick 到不了节点，故在 pointerup 里按
+ *       「同一节点 + DBLCLICK_MS 内」判定，原生 dblclick 仅作兜底（去重见 lastEditAt）。
+ * 空白：单击空白 = 取消选中 + 通知页面（onBlankClick，页面据此收起编辑抽屉）。
  * 新建：只走右键菜单（画布空白双击不再新建节点）。
  * 生成：统一走 nodeFactory.createNodes（来源可为 manual / llm，调用方不区分）。
  * 渲染：节点卡片 memo 化；节点尺寸经 ResizeObserver 实测（连线锚点用）；
@@ -23,7 +27,7 @@ import type {
 } from "../../types";
 import {
   edgeGeometry, estimateNodeH, fitView, MAX_ZOOM, MIN_ZOOM, NODE_META,
-  NODE_W, WHEEL_ZOOM_SENS, withEdge, withNode, ZOOM_STEP,
+  NODE_W, WHEEL_ZOOM_SENS, withEdge, withNode, ZOOM_STEP, DBLCLICK_MS,
   clampZoom, rewireEdge, dragGrabOffset, dragWorldPos, screenToWorld, type NodeRect, type ViewState,
 } from "./graphModel";
 import { createNodes } from "./nodeFactory";
@@ -65,6 +69,8 @@ interface Props {
   onImportLayout: () => void;
   /** 重置所有节点位置到默认布局（页面负责入撤销栈与视图回归） */
   onResetPositions: () => void;
+  /** 单击画布空白区域（左键点空白 / 空白处右键出菜单）——页面据此收起编辑抽屉 */
+  onBlankClick?: () => void;
   canvasApiRef?: { current: GraphCanvasApi | null };
 }
 
@@ -107,6 +113,10 @@ export default function GraphCanvas(props: Props) {
   const viewRef = useRef(view); viewRef.current = view;
   const docRef = useRef(doc); docRef.current = doc;
   const interaction = useRef<Interaction>(null);
+  /** 手动双击判定：上一次「按下后未移动的节点单击」（id + 时间戳） */
+  const lastNodeClick = useRef<{ id: string; t: number } | null>(null);
+  /** 最近一次进入节点编辑态的时间：原生 dblclick 若与手动判定重复则跳过 */
+  const lastEditAt = useRef(0);
 
   const [dragPos, setDragPos] = useState<{ id: string; x: number; y: number } | null>(null);
   const [linkPos, setLinkPos] = useState<{ x: number; y: number } | null>(null);
@@ -298,15 +308,33 @@ export default function GraphCanvas(props: Props) {
     if (!it) return;
 
     if (it.kind === "pan") {
-      if (!it.moved && e.button === 0) { onSelect(null); setEditingId(null); }
+      // 空白处「按下-抬起」未移动 = 单击空白：取消选中 + 收起编辑抽屉
+      if (!it.moved && e.button === 0) {
+        onSelect(null);
+        setEditingId(null);
+        lastNodeClick.current = null;
+        props.onBlankClick?.();
+      }
       return;
     }
     if (it.kind === "drag") {
       setDragPos(null);
       if (!it.moved) {
+        // 双击节点 = 打开该节点的编辑器。这里自行判定而不依赖原生 dblclick：
+        // 指针捕获（capture）会把后续兼容鼠标事件重定向到捕获元素（视口），
+        // 原生 dblclick 落不到节点上，双击因此"没反应"。
+        const now = performance.now();
+        const prev = lastNodeClick.current;
+        const isDouble = !!prev && prev.id === it.id && now - prev.t <= DBLCLICK_MS;
+        lastNodeClick.current = isDouble ? null : { id: it.id, t: now };
+        if (isDouble) {
+          const node = docRef.current.nodes.find((n) => n.id === it.id);
+          if (node) { enterNodeEdit(node); return; }
+        }
         onSelect({ kind: "node", id: it.id });
         return;
       }
+      lastNodeClick.current = null;   // 拖拽过就不算点击
       // 位置取自交互引用（最后一次 move 的最新值），不依赖 dragPos 渲染闭包，避免丢帧漏写
       const x = Math.round(it.curX), y = Math.round(it.curY);
       const node = docRef.current.nodes.find((n) => n.id === it.id);
@@ -395,6 +423,7 @@ export default function GraphCanvas(props: Props) {
    * 自由节点内联编辑标题与备注，其余类型打开既有抽屉编辑器编辑其内容/属性。
    */
   const enterNodeEdit = (node: PlotGraphNodeDTO) => {
+    lastEditAt.current = performance.now();
     closeMenu();
     setEditingId(null);
     onSelect({ kind: "node", id: node.id });
@@ -402,9 +431,14 @@ export default function GraphCanvas(props: Props) {
     else props.onOpenNode(node);
   };
 
-  /** 双击节点 = 进入该节点的编辑态（不再触发任何新建逻辑） */
+  /**
+   * 双击节点 = 进入该节点的编辑态（不再触发任何新建逻辑）。
+   * 主判定在 pointerup 里手动完成（指针捕获会吞掉原生 dblclick）；
+   * 这里只作为兜底：若刚刚已由手动判定处理过，则跳过，避免重复打开。
+   */
   const onNodeDoubleClick = (e: React.MouseEvent, node: PlotGraphNodeDTO) => {
     e.stopPropagation();
+    if (performance.now() - lastEditAt.current < DBLCLICK_MS * 2) return;
     enterNodeEdit(node);
   };
 
@@ -449,6 +483,8 @@ export default function GraphCanvas(props: Props) {
     } else {
       const w = toWorld(e.clientX, e.clientY);
       onSelect(null);
+      lastNodeClick.current = null;
+      props.onBlankClick?.();          // 空白右键：先收起编辑抽屉，再出菜单
       setMenu({ kind: "blank", sx, sy, wx: w.x, wy: w.y });
     }
   };
