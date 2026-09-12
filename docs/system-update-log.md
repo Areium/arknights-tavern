@@ -15,6 +15,16 @@
 ---
 
 ## 更新记录
+### 2026-09-12 — 战斗系统去历史包袱（批次 0：回归网 + 删死代码 + 文档归档）
+
+> 背景：项目仍处早期，**不承担旧会话/旧数据兼容**。战斗重构分三批（0 去包袱 → 1 JSON 节点地图 + 统一曼哈顿度量 + 地形 → 2 节点注册表 + 世界书绑定 + 编辑器），本条目为批次 0。
+
+- **回归网入库**：`tests/` 解除 `.gitignore` 并纳入版本控制；新增 `tests/golden/combat_openings.json`（16 场战斗的开局结构快照）与 `tests/golden/combat_sim_metrics.json`（固定种子模拟指标），由 `tests/test_combat_golden.py`、`tests/test_combat_sim_golden.py` 守护（`GOLDEN_RECORD=1` 重录）。统一入口 `scripts/run_tests.sh`（pytest + `tests/legacy/` 脚本式检查 + 无外部依赖的 `perf_tests` 子集）。此前 AGENTS.md 写的 `python -m pytest tests/ -q` 是错的：`tests/test_*.py` 是 import 即执行并 `sys.exit()` 的脚本，会让 pytest 收集器直接 INTERNALERROR。
+- **删除死代码**：战斗态从不落盘（`session.combat` 仅内存），故删除 `CombatSession.from_dict`（约 100 行）与 `CombatEngine.to_dict/from_dict`（含 v0→v1 平衡迁移分支）、`CombatUnit.from_dict`、`CardPool.from_dict`；`CombatSession.to_dict()` 收敛为结算专用的 `snapshot()`（`blueprints/combat.py` 三处调用点同步）。若将来需要"战斗中恢复"，应以「节点 spec + 命令流重放」实现。
+- **修一处真 bug**：`CombatUnit.to_dict()` 缺 `is_alive`，导致结算侧 `player_alive` 恒为 True（阵亡干员按存活 100% 拿经验）。现已导出 `is_alive`。
+- **删除失效工具**：`tools/migrate_combat_md_to_json.py`、`tools/split_combat_cards.py`（源格式 `combat.md`/index.md 战斗段已不存在）。`scripts/sync_cards_json_from_code.py` **保留**——`scripts/cv_audit.py:226` 依赖它生成 cv 审计基线。
+- **文档口径**：`docs/combat-core-design.md` 归档至 `docs/archive/`（该文档自述"已实现"，而 AGENTS.md 仍称其"未实现的目标态"，两处口径矛盾已修正）；其 B1「7×7 网格明确不改」条款作废，后续以批次 1 的可变地图为准。
+- **并发核查**：入场两次 `git status` 快照一致（无并发写）；发现休眠 worktree `../arknights-tavern-ui-preview`（分支 `design/ui-preview-20260912`，11 小时前创建、近 2 小时无写入），未触碰。
 ### 2026-09-12 — Windows 一键重启修复：Electron 二进制自愈 + bat 编码修复
 
 - **Electron 起不来的根因（关键）**：electron 42 的 `install.js` 依赖 `extract-zip@2 + yauzl@2`（2015 年的流式解压栈），在 Node 26 上解压 electron zip 时解压 promise 永不落定——写完第 1 个文件（`dxil.dll`）即静默挂起，事件循环清空后 node 以退出码 0 结束：不报错、不写 `path.txt`。于是 `npm run dev` 时 vite-plugin-electron 一加载 electron 包就抛 `ENOENT ... path.txt`，游戏窗口起不来。修复：用系统自带 bsdtar 从 `@electron/get` 下载缓存（`%LOCALAPPDATA%\electron\Cache`，zip 已在且校验可用）解压补齐 `dist/` 并写 `path.txt`。

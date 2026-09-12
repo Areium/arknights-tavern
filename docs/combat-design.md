@@ -4,7 +4,7 @@
 > 数值公式与平衡参数详见 [`combat-numerical-design.md`](combat-numerical-design.md)；
 > 界面交互与布局详见 [`combat-ui-design.md`](combat-ui-design.md)；
 > 背景图提示词规范见 [`combat-background-prompts.md`](combat-background-prompts.md)。
-> 未实现的重构方向（战前简报/Approach 打法/敌人意图等）见 [`combat-core-design.md`](combat-core-design.md)（提案状态）。
+> 章节战斗化改造方案（战前简报/Approach 打法/敌人意图等）见 [`archive/combat-core-design.md`](archive/combat-core-design.md)（**已实现并归档**；其"7×7 网格明确不改"条款已作废）。
 > 代码权威源：`src/combat_engine/`、`src/combat_session.py`、`src/combat_data_loader.py`、`src/blueprints/combat.py`。
 
 ---

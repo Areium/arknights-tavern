@@ -20,7 +20,7 @@ for _p in (_src_dir, _project_root):
         sys.path.insert(0, _p)
 
 from combat_engine.entity import CombatUnit
-from combat_engine.card import Card, CardPool
+from combat_engine.card import Card
 from combat_engine.card_data import get_starting_deck
 from combat_engine.engine import CombatEngine, CombatEvent
 from combat_engine.grid import TOTAL_ROWS, TOTAL_COLS, ENEMY_COL_START
@@ -569,10 +569,15 @@ class CombatSession:
             targets.append(list(enemy.pos))
         return targets
 
-    # ── Serialization ──
+    # ── 结算快照 ──
 
-    def to_dict(self) -> dict:
-        """Serialize for save/load."""
+    def snapshot(self) -> dict:
+        """结算与历史记录所需的战斗快照。
+
+        战斗态只存在于内存（`session.combat`），不跨进程保存，因此这里只导出
+        结算要用的字段，不再提供状态重建入口。若将来需要"战斗中恢复"，
+        应以「节点 spec + 命令流重放」实现，而不是回填状态序列化。
+        """
         if not self.engine:
             return {"active": False}
 
@@ -580,14 +585,10 @@ class CombatSession:
             "active": True,
             "encounter_id": self._encounter_id,
             "session_id": self.session_id,
-            "session_dir": self._session_dir,
             "reward_mult": self._reward_mult,
             "enemy_scale": self._enemy_scale,
-            "max_rounds": self.engine.max_rounds if self.engine else 0,
-            "escape_enabled": self.engine.escape_enabled if self.engine else False,
-            "shared_ap": self.engine.shared_ap if self.engine else 0,
-            "shared_ap_max": self.engine.SHARED_AP_MAX if self.engine else 2,
-            "engine": self.engine.to_dict() if self.engine else None,
+            "max_rounds": self.engine.max_rounds,
+            "escape_enabled": self.engine.escape_enabled,
             "engine_state": {
                 "round_num": self.engine.state.round_num,
                 "phase": self.engine.state.phase,
@@ -597,111 +598,8 @@ class CombatSession:
                 "enemy_intents": getattr(self.engine.state, "enemy_intents", {}) or {},
             },
             "units": {uid: u.to_dict() for uid, u in self.engine.units.items()},
-            "shared_pool": self.engine.shared_pool.to_dict() if self.engine.shared_pool else {},
-            "enemy_pools": {uid: p.to_dict() for uid, p in self.engine.enemy_pools.items()},
             "character_metas": self._character_metas,
         }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "CombatSession":
-        """Restore from a saved state."""
-        cs = cls(session_id=data.get("session_id", ""))
-        cs._encounter_id = data.get("encounter_id", "")
-        cs._session_dir = data.get("session_dir", "")
-        cs._reward_mult = data.get("reward_mult", 1.0)
-        cs._enemy_scale = data.get("enemy_scale", 1.0)
-        cs._character_metas = data.get("character_metas", [])
-
-        # 优先用引擎级快照恢复（含 balance_version 迁移、行动槽、遥测、
-        # 待入场波次与护盾层）；旧格式存档回退到字段级重建。
-        engine_snapshot = data.get("engine")
-        if engine_snapshot:
-            cs.engine = CombatEngine.from_dict(engine_snapshot)
-            cs.engine.max_rounds = int(data.get("max_rounds", cs.engine.max_rounds) or cs.engine.max_rounds)
-            cs.engine.escape_enabled = bool(data.get("escape_enabled", cs.engine.escape_enabled))
-            # Re-resolve background (location context is not persisted; the
-            # encounter-level field or the default background still applies).
-            if cs._encounter_id:
-                encounter = cs.loader.load_encounter(cs._encounter_id)
-                cs._background_url = cs.loader.resolve_background(
-                    encounter, session_dir=cs._session_dir, session_id=cs.session_id)
-            return cs
-
-        # Reconstruct engine (legacy path)
-        from combat_engine.engine import CombatState
-        engine = CombatEngine()
-        es = data.get("engine_state", {})
-        engine.state = CombatState(
-            round_num=es.get("round_num", 0),
-            turn_order=es.get("turn_order", []),
-            current_idx=es.get("current_idx", 0),
-            phase=es.get("phase", "INIT"),
-            winner=es.get("winner", ""),
-            enemy_intents=es.get("enemy_intents", {}) or {},
-        )
-
-        # Restore units
-        for uid, udict in data.get("units", {}).items():
-            unit = CombatUnit(
-                unit_id=udict["unit_id"],
-                name=udict["name"],
-                team=udict["team"],
-                char_class=udict.get("char_class", ""),
-                ai_behavior=udict.get("ai_behavior", "aggressive"),
-                ai_skills=udict.get("ai_skills", []),
-                max_hp=udict["max_hp"],
-                hp=udict["hp"],
-                PATK=udict.get("PATK", 10),
-                MATK=udict.get("MATK", 10),
-                HEAL=udict.get("HEAL", 10),
-                DEF=udict.get("DEF", 5),
-                RES=udict.get("RES", 5),
-                SPD=udict.get("SPD", 10),
-                HIT=udict.get("HIT", 5),
-                EVA=udict.get("EVA", 5),
-                AP=udict.get("AP", 3),
-                MAX_AP=udict.get("MAX_AP", 3),
-                attributes=udict.get("attributes", {}),
-                status=udict.get("status", {}),
-                pos=tuple(udict.get("pos", (-1, -1))),
-            )
-            engine.units[uid] = unit
-            if unit.pos != (-1, -1) and unit.is_alive:
-                engine.grid._cells[unit.pos] = unit
-                engine.grid._positions[uid] = unit.pos
-
-        # Restore shared card pool
-        sp = data.get("shared_pool", {})
-        if sp:
-            engine.shared_pool = CardPool(hand_size=CombatEngine.SHARED_HAND_SIZE)
-            engine.shared_pool.deck = [Card.from_dict(c) for c in sp.get("deck", [])]
-            engine.shared_pool.hand = [Card.from_dict(c) for c in sp.get("hand", [])]
-            engine.shared_pool.discard = [Card.from_dict(c) for c in sp.get("discard", [])]
-            engine.shared_pool.exhaust = [Card.from_dict(c) for c in sp.get("exhaust", [])]
-
-        # Restore enemy card pools
-        for uid, pdict in data.get("enemy_pools", {}).items():
-            pool = CardPool(hand_size=5)
-            pool.deck = [Card.from_dict(c) for c in pdict.get("deck", [])]
-            pool.hand = [Card.from_dict(c) for c in pdict.get("hand", [])]
-            pool.discard = [Card.from_dict(c) for c in pdict.get("discard", [])]
-            pool.exhaust = [Card.from_dict(c) for c in pdict.get("exhaust", [])]
-            engine.enemy_pools[uid] = pool
-
-        cs.engine = engine
-        engine.max_rounds = int(data.get("max_rounds", 0) or 0)
-        engine.escape_enabled = bool(data.get("escape_enabled", False))
-        engine.shared_ap = int(data.get("shared_ap", 0) or 0)
-        engine.SHARED_AP_MAX = int(data.get("shared_ap_max", 2) or 2)
-
-        # Re-resolve background (location context is not persisted; the
-        # encounter-level field or the default background still applies).
-        # Session-local overrides are restored via the persisted session_dir.
-        if cs._encounter_id:
-            encounter = cs.loader.load_encounter(cs._encounter_id)
-            cs._background_url = cs.loader.resolve_background(
-                encounter, session_dir=cs._session_dir, session_id=cs.session_id)
-        return cs
 
 
 class CombatTestSessionManager:

@@ -162,7 +162,7 @@ def _ensure_pending_settlement(session, combat=None, combat_data: dict | None = 
         return existing
 
     if combat_data is None:
-        combat_data = combat.to_dict() if combat is not None else {}
+        combat_data = combat.snapshot() if combat is not None else {}
     engine_state = combat_data.get("engine_state", {}) or {}
     winner = engine_state.get("winner") or combat_data.get("winner") or ""
     if winner != "player":
@@ -426,7 +426,7 @@ def register(app, managers):
             return json_error("会话不存在", 404)
 
         req_data = request.json or {}
-        combat_data = session.combat.to_dict() if session.combat else None
+        combat_data = session.combat.snapshot() if session.combat else None
         pending = session.overlay.get_pending_settlement()
 
         if pending is None and combat_data is None:
@@ -525,7 +525,7 @@ def register(app, managers):
 
         if pending is None:
             # 未获胜：明确告知（前端展示「本场无结算」而不是空列表）
-            engine_state = (session.combat.to_dict().get("engine_state", {})
+            engine_state = (session.combat.snapshot().get("engine_state", {})
                             if session.combat else {})
             return jsonify({
                 "ok": True,

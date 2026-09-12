@@ -50,7 +50,7 @@ API 层（`src/blueprints/`）：Flask Blueprint — `chat.py`（对话/叙述/S
 
 服务层（`src/services/`）：`dice.py`、`attribute_loader.py`。共享工具（`src/shared/`）：`helpers.py`（SSE 响应工厂、记忆注入）、`cache.py`。Provider（`src/providers/`）：`openai.py`、`deepseek.py`。
 
-测试：`tests/`（gitignored，仅本地）— `test_world_book.py`、`test_worldbook_integration.py`、`test_llm_client.py`，运行 `python -m pytest tests/ -q`。
+测试：`tests/`（已纳入版本控制，含黄金基线 `tests/golden/`）+ `perf_tests/test_*_v1.py`（无外部依赖的战斗/结算子集）。统一入口 `bash scripts/run_tests.sh`（内含 pytest 与 `tests/legacy/` 脚本式检查）。
 
 ### 前端架构
 
@@ -80,7 +80,7 @@ API 层（`src/blueprints/`）：Flask Blueprint — `chat.py`（对话/叙述/S
 - `combat-design.md` — 战斗引擎架构与机制设计
 - `combat-numerical-design.md` — 战斗数值公式与平衡参数
 - `combat-ui-design.md` — 战斗界面交互与布局设计
-- `combat-core-design.md` — 章节战斗化**重构提案（未实现，目标态）**，现状以代码与 combat-design.md 为准
+- `archive/combat-core-design.md` — 章节战斗化改造方案（**已实现**，2026-08；已归档。其中"7×7 网格明确不改"的骨架条款**已作废**，现状以代码与 combat-design.md 为准）
 - `combat-background-prompts.md` — 战斗背景图生成提示词规范
 - `prompt.md` — Prompt 工程策略与模板设计
 - `system-update-log.md` — 系统更新日志
