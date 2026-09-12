@@ -430,6 +430,13 @@ export interface CharacterSettlementDTO {
   xp_needed: number;
   level_ups: LevelUpDTO[];
   attribute_changes: AttributeChangeDTO[];
+  /** 本次升级发放的属性点（批次 3 起；默认自动分配到最低属性） */
+  attribute_points_gained?: number;
+  attribute_points_allocated?: number;
+  /** 关闭自动分配时累积的待分配属性点 */
+  attribute_points_pending?: number;
+  specialization_points_gained?: number;
+  specialization_points_after?: number;
   /** 属性已满值 → 无法继续成长 */
   capped: boolean;
   cap_reason: string;

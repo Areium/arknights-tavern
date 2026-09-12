@@ -23,7 +23,8 @@ from combat_engine.entity import CombatUnit
 from combat_engine.card import Card
 from combat_engine.card_data import get_starting_deck
 from combat_engine.engine import CombatEngine, CombatEvent
-from combat_data_loader import CombatDataLoader
+from combat_data_loader import CombatDataLoader, apply_enemy_overrides
+from combat_rules import band_scaling, difficulty_rules
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +94,8 @@ class CombatSession:
         self._reward_mult = reward_mult
         self._enemy_scale = float((combat_params or {}).get("enemy_scale", 1.0) or 1.0)
         self._custom_enemies = dict(custom_enemies or {})
+        # 阶段带缩放（可选）：节点 difficulty.apply_band_scaling 或全局默认开启时生效
+        self._band_scaling = self._resolve_band_scaling(node)
         self._background_url = self.loader.resolve_background(
             node, location, session_dir=session_dir, session_id=self.session_id)
 
@@ -220,6 +223,18 @@ class CombatSession:
 
     # ── 落点选择（部署区优先，容错兜底）──
 
+    @staticmethod
+    def _resolve_band_scaling(node: dict) -> tuple[float, float]:
+        """节点阶段带的敌人数值倍率：默认不缩放，需显式开启（或改全局默认）。"""
+        difficulty = (node or {}).get("difficulty") or {}
+        band = str(difficulty.get("band") or "").upper()
+        enabled = difficulty.get("apply_band_scaling")
+        if enabled is None:
+            enabled = bool(difficulty_rules().get("default_apply_band_scaling", False))
+        if not enabled or not band:
+            return 1.0, 1.0
+        return band_scaling(band)
+
     def _player_slots(self, count: int) -> list[tuple[int, int]]:
         """玩家落点：优先玩家部署区（按行列顺序），不够时扩展到全图空格。"""
         grid = self.engine.grid
@@ -261,14 +276,27 @@ class CombatSession:
         return random.choice(cells) if self._map and self._map.enemy_random_shift else cells[0]
 
     def _load_enemy(self, name: str, stats: dict | None) -> CombatUnit | None:
-        """加载敌人：会话自定义定义优先，其次全局敌人库；stats 为逐实例覆盖。"""
+        """加载敌人：会话自定义定义优先，其次全局敌人库。
+
+        数值顺序：基础数值 → 节点阶段带缩放（可选）→ 逐实例 `stats` 覆盖。
+        阶段带缩放让设计者用同一套敌人切换难度，而不必复制多份敌人条目。
+        """
         custom = self._custom_enemies.get(name)
+        unit = (CombatDataLoader.load_enemy_from_meta(custom) if custom
+                else self.loader.load_enemy(name))
+        if not unit:
+            return None
         if custom:
-            unit = CombatDataLoader.load_enemy_from_meta(custom, stat_overrides=stats)
-            if unit:
-                unit.name = name
-                return unit
-        return self.loader.load_enemy(name, stat_overrides=stats)
+            unit.name = name
+
+        hp_mult, atk_mult = self._band_scaling
+        if hp_mult != 1.0:
+            unit.max_hp = max(1, int(unit.max_hp * hp_mult))
+            unit.hp = unit.max_hp
+        if atk_mult != 1.0:
+            unit.PATK = unit.PATK * atk_mult
+            unit.MATK = unit.MATK * atk_mult
+        return apply_enemy_overrides(unit, stats)
 
     def _load_character_meta(self, name: str) -> dict | None:
         """Load a character's YAML frontmatter from data/characters/<name>/index.md."""

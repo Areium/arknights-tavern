@@ -120,13 +120,16 @@ def template_data() -> dict:
 
 # ── 校验 ──
 
-def validate_node(data: dict, *, enemy_names: set[str] | None = None) -> dict:
+def validate_node(data: dict, *, enemy_names: set[str] | None = None,
+                  include_balance: bool = True) -> dict:
     """校验节点规格。
 
-    返回 `{"errors": [...], "warnings": [...]}`；不抛异常，便于编辑器实时提示。
+    返回 `{"errors": [...], "warnings": [...], "metrics": {...}}`；不抛异常，
+    便于编辑器实时提示。`metrics.threat` 为威胁/预算/阶段带对照（设计者调难度用）。
     """
     errors: list[str] = []
     warnings: list[str] = []
+    metrics: dict = {}
     data = data or {}
 
     node_id = str(data.get("node_id") or "").strip()
@@ -237,7 +240,18 @@ def validate_node(data: dict, *, enemy_names: set[str] | None = None) -> dict:
     if metric not in ("manhattan", "chebyshev"):
         warnings.append(f"rules.range_metric '{metric}' 未知，将按 manhattan 处理")
 
-    return {"errors": errors, "warnings": warnings}
+    # 威胁 / 预算 / 阶段带对照（只警告不阻断：设计者可能有意做难关卡）
+    if include_balance and not errors:
+        try:
+            from combat_balance import node_budget_report
+            from combat_data_loader import CombatDataLoader
+            report = node_budget_report(data, loader=CombatDataLoader())
+            warnings.extend(w for w in report.pop("warnings", []) if w not in warnings)
+            metrics["threat"] = report
+        except Exception as exc:  # 数值模型异常不应阻断结构性校验
+            logger.warning("威胁预算计算失败: %s", exc)
+
+    return {"errors": errors, "warnings": warnings, "metrics": metrics}
 
 
 # ── 写入 ──

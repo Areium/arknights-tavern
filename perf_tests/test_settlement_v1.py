@@ -51,15 +51,18 @@ class XPCurveTests(unittest.TestCase):
 
 
 class GrowthDecouplingTests(unittest.TestCase):
-    def test_level_up_grants_points_not_attributes(self):
-        # 400 XP：1→2 花 180、2→3 花 220 → 连升 2 级、剩 0，得 2 专精点
+    def test_level_up_grants_points_and_attribute_points(self):
+        # 批次 3 起：升级同时发放专精点与属性点（属性点默认自动分配到最低属性）。
+        # 400 XP：1→2 花 180、2→3 花 220 → 连升 2 级、剩 0，得 2 专精点 + 2 属性点
         res = st.compute_character_growth(
-            "测试", {"物理强度": 5}, {"level": 1, "xp": 0}, 400)
+            "测试", {"物理强度": 5, "战场机动": 5}, {"level": 1, "xp": 0}, 400)
         self.assertEqual(res["level_after"], 3)
         self.assertEqual(res["level_delta"], 2)
         self.assertEqual(res["specialization_points_gained"], 2)
-        self.assertEqual(res["attribute_changes"], [],
-                         "v1 升级不得自动提升属性")
+        self.assertEqual(res["attribute_points_gained"], 2)
+        self.assertEqual(res["attribute_points_allocated"], 2)
+        self.assertEqual(len(res["attribute_changes"]), 2,
+                         "属性点应自动分配到最低属性并写回")
         self.assertEqual(res["xp_after"], 0)
 
     def test_node_unlock_every_three_levels(self):
@@ -68,7 +71,7 @@ class GrowthDecouplingTests(unittest.TestCase):
         self.assertGreaterEqual(res["level_after"], 4)
         unlocked = [lu["level"] for lu in res["level_ups"] if lu["node_unlocked"]]
         self.assertTrue(unlocked, "每 3 级应解锁职业节点")
-        self.assertTrue(all(lv % st.NODE_UNLOCK_EVERY == 0 for lv in unlocked))
+        self.assertTrue(all(lv % 3 == 0 for lv in unlocked))
         self.assertEqual(res["nodes_unlocked_gained"], len(unlocked))
 
     def test_dead_character_gets_seventy_percent(self):
@@ -83,14 +86,15 @@ class GrowthDecouplingTests(unittest.TestCase):
             in_battle=False, team_max_level=6)
         self.assertEqual(res["xp_gained"], int(round(1000 * 0.30 * 1.25)))
 
-    def test_writeback_payload_carries_spec_points(self):
+    def test_writeback_payload_carries_points_and_attributes(self):
         res = st.compute_character_growth(
-            "测试", {}, {"level": 1, "xp": 0, "specialization_points": 2}, 400)
+            "测试", {"物理强度": 5}, {"level": 1, "xp": 0, "specialization_points": 2}, 400)
         payload = st.build_writeback_payload(res)
         self.assertEqual(payload["progress"]["level"], 3)
         self.assertEqual(payload["progress"]["specialization_points"], 4)
         self.assertIn("nodes_unlocked", payload["progress"])
-        self.assertNotIn("metadata", payload, "无属性变化时不应写回属性覆盖")
+        self.assertIn("metadata", payload, "有属性变化时必须写回属性覆盖")
+        self.assertTrue(payload["metadata"]["attributes"])
 
 
 class RewardRollTests(unittest.TestCase):

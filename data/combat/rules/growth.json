@@ -1,0 +1,7 @@
+{
+  "attribute_points_per_level": 1,
+  "auto_allocate_attribute_points": true,
+  "attr_cap": 10,
+  "specialization_points_per_level": 1,
+  "node_unlock_every": 3
+}

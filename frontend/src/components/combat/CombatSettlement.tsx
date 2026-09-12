@@ -82,6 +82,26 @@ function CharacterRow({ ch }: { ch: CharacterSettlementDTO }) {
         </div>
       )}
 
+      {((ch.attribute_points_gained || 0) > 0
+        || (ch.specialization_points_gained || 0) > 0
+        || (ch.attribute_points_pending || 0) > 0) && (
+        <div className="flex flex-wrap items-center gap-2 mb-1.5 text-[10px] text-gray-400">
+          {(ch.attribute_points_gained || 0) > 0 && (
+            <span>
+              属性点 +{ch.attribute_points_gained}
+              {ch.attribute_points_pending
+                ? `（待分配 ${ch.attribute_points_pending}）`
+                : "（已自动分配到最低属性）"}
+            </span>
+          )}
+          {(ch.specialization_points_gained || 0) > 0 && (
+            <span>
+              专精点 +{ch.specialization_points_gained}（共 {ch.specialization_points_after}）
+            </span>
+          )}
+        </div>
+      )}
+
       <XpBar xp={ch.xp_after} needed={ch.xp_needed} level={ch.level_after} />
 
       {ch.capped && (

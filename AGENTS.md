@@ -42,6 +42,8 @@ Electron 主进程管理窗口 + Python 子进程生命周期（`frontend/electr
 - `combat_data_loader.py` — 加载战斗节点 `data/combat/nodes/*.json`、敌人 `data/enemies/*.md`（叙事 attributes + 战斗 combat_stats，缺 combat_stats 时按 attributes 派生）与 `backgrounds/`
 - `combat_map.py` — 战斗地图 JSON：尺寸/格子类型注册表/部署区解析与校验（行列定位错误、软锁警告、上限 40×40）
 - `combat_nodes.py` — 战斗节点注册表：JSON 读写 + `_hash` 冲突检测 + 校验 + 剧情节拍绑定/进度 + 世界书条目编解码（`shared/json_hash.py` 与卡牌共用哈希）
+- `combat_balance.py` — 威胁模型（五类模板/威胁点/阶段带推荐/预算对照），校验器、编辑器与生成工具共用
+- `combat_rules.py` — 战斗配置加载：`data/combat/rules/{growth,difficulty}.json`（升级属性点、阶段带缩放与威胁容差，按 mtime 热加载）
 - `avatar_color.py` — 从角色 PNG 头像提取主导色（hex），用于 UI 主题配色
 - `index_manager.py` — 基于 `imports` 字段的文档关系图，YAML 导出/导入
 - `hooks/` — Hook 管道：`pipeline.py`（执行器）+ `attribute_roll.py` + `wiki_prefetch.py`
@@ -75,6 +77,8 @@ API 层（`src/blueprints/`）：Flask Blueprint — `chat.py`（对话/叙述/S
 
 **UI 皮肤系统**（`skin`）：`appStore.skin: SkinId = "default" | "prts" | "tavern"`，持久化在后端 `config/llm_config.json` 的 `skin` 字段（`src/llm_backend_manager.py` 白名单校验，非法值回落 `default`）。`App.tsx` 按 `skin` 在 `<html>` 上切换 `skin-prts` / `skin-tavern` / `light` 三个 class —— 皮肤激活时 `light` 被抑制（仅 `skin === "default" && theme === "light"` 才加），设置页的明暗开关同步置灰。两套皮肤是纯覆盖层 CSS（`src/styles/skin-prts.css`、`src/styles/skin-tavern.css`），沿用 `style.css` 中 `html.light` 的既有模式，**不做 CSS 变量重构**；其中颜色工具类覆盖块（两个文件里由 `工具类覆盖（由 scripts/gen_skin_utils.py 生成，勿手改）` 标记界定的区段）由 `scripts/gen_skin_utils.py` 按色板生成 —— 前端实际用到 243 个颜色工具类（含 `hover:` / `placeholder:` 等变体与自定义 `surface-*` 色板），手写必漏，**改配色请改脚本里的色板后重跑**（`python scripts/gen_skin_utils.py`），不要手改该区段；氛围仅静态（PRTS 扫描线、Tavern 烛光渐变），无动画，各带 `prefers-reduced-motion` 兜底。作用域用 `@scope (html.skin-*) to (.bg-combat-bg)` 界定，**战斗页不换肤**（否则它复用的大量 `bg-gray-*` / `text-gray-*` 工具类会被污染）。覆盖范围：外壳 + 会话大厅 + 管理页 + 聊天页；视觉蓝本见 `ui-styles/02-prts-holo-terminal.html`、`ui-styles/03-tavern-journal.html`。
 
+战斗内容工具（`tools/`）：`validate_battle_spec.py`（候选规格校验，退出码门禁）、`simulate_battle.py`（固定种子试跑 + 阈值判定）、`generate_battle_spec.py`（按阶段带程序化生成合法战斗）、`balance_audit.py`（敌人分层/XP 单调性/节点预算审计）、`metric_migration_report.py`（度量迁移前后对照）。生成流程与硬性约束见 skill `combat-designer`，规格说明见 `docs/battle-spec.md`。
+
 工具：`utils/dialogueParser.ts` — 解析 `「」` 对话为 `DialogueSegment[]`，前文叙述匹配场景角色名确定说话人。`utils/baseUrl.ts` — 后端地址解析（Electron/浏览器）。`components/MarkdownRenderer.tsx` — 统一 Markdown 渲染。
 
 
@@ -84,6 +88,7 @@ API 层（`src/blueprints/`）：Flask Blueprint — `chat.py`（对话/叙述/S
 - `combat-numerical-design.md` — 战斗数值公式与平衡参数
 - `combat-ui-design.md` — 战斗界面交互与布局设计
 - `archive/combat-core-design.md` — 章节战斗化改造方案（**已实现**，2026-08；已归档。其中"7×7 网格明确不改"的骨架条款**已作废**，现状以代码与 combat-design.md 为准）
+- `battle-spec.md` — 战斗规格（节点 JSON 全字段/地形效果/威胁与阶段带/校验规则/生成闭环），LLM 与设计者共用
 - `combat-background-prompts.md` — 战斗背景图生成提示词规范
 - `prompt.md` — Prompt 工程策略与模板设计
 - `system-update-log.md` — 系统更新日志

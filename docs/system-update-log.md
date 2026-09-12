@@ -15,6 +15,49 @@
 ---
 
 ## 更新记录
+### 2026-09-12 — 战斗系统重构批次 3：升级属性点 + 难度带生效 + LLM 生成铺垫
+
+> 承接批次 2（编辑器）。本批次补齐"成长曲线不好"与"为 AI 生成战斗铺垫"两件事，并把散落的
+> 威胁模型收敛成一份可复用实现。
+
+- **升级重新发放属性点**（`src/combat_rules.py` + `src/combat_settlement.py`）：
+  `data/combat/rules/growth.json` 可配「每级属性点」（默认 1）；默认
+  `auto_allocate_attribute_points=true` 时自动加到**最低未满属性**并写回
+  `attribute_changes` → 会话覆盖 → 下一次战斗的战斗数值（HP/攻/防/速…按公式派生）。
+  关掉自动分配则累积为 `progress.attribute_points` 待分配。结算界面新增
+  「属性点 +N（已自动分配/待分配）」与专精点行。
+  此前 `attribute_changes` 在 v1 恒为空（"属性只由剧情里程碑改变"），现按用户要求重做。
+- **难度带与威胁预算生效**（`src/combat_balance.py` + `data/combat/rules/difficulty.json`）：
+  - 威胁模型从 `scripts/migrate_balance_v1.py` 抽成共享实现（五类模板 / 威胁点 /
+    期望 DPR / 有效生命 / 阶段带推荐），校验器、编辑器、生成与审计工具共用；
+  - 校验器返回 `metrics.threat`（实际威胁 vs 声明预算、声明阶段带 vs 模型推荐），
+    容差 25%，**只警告不阻断**；逐单位 `stats` 覆盖会重新分类（hp 150 的"士兵"不再算 1.6 威胁）；
+  - 节点写 `difficulty.apply_band_scaling: true` 时，敌人数值按阶段带倍率缩放
+    （T0 ×0.8 … T4 ×1.75/×1.5），一套敌人覆盖多个难度档；默认关闭（数值即文件终值）。
+- **生成 → 校验 → 试跑 → 入库 闭环**（为 LLM 生成铺垫）：
+  - `docs/battle-spec.md`：节点 JSON 全字段、格子效果、威胁与阶段带锚点、硬错误/警告清单、
+    世界书分发格式 —— LLM 与设计者共用的规格说明书；
+  - `tools/validate_battle_spec.py`：候选规格结构+数值自洽校验（退出码门禁，支持批量/stdin）；
+  - `tools/simulate_battle.py`：**未入库候选**也能固定种子试跑，输出胜率/中位回合/P90/
+    首回合清场/治疗溢出/血损/每轮 AP，并支持 `--min-win-rate` 等阈值判定；
+  - `tools/generate_battle_spec.py`：按阶段带程序化生成合法战斗（保留中央通路避免软锁，
+    按威胁预算凑编排，生成后自校验），作为 LLM 的确定性基线与兜底；
+  - `.agents/skills/combat-designer/SKILL.md`：给代理/LLM 的流程规范（铁律：不改引擎、
+    先校验后试跑再入库、数值要有依据；含判定标准表与回报格式）。
+- **审计工具收敛**：新增 `tools/balance_audit.py`（敌人分层一致性 + §12「XP 与威胁点单调」
+  + 节点预算/阶段带），产出 `perf_tests/balance_audit_report.md`；删除已失效的
+  `scripts/migrate_balance_v1.py`、`scripts/tune_encounters_v1.py`
+  （输入格式 `data/combat/encounters|enemies/*.md` 已在批次 1 被 JSON 节点 + 统一敌人库替代）。
+  当前审计结论：敌人分层偏差 0、XP 单调性 0 问题、节点 1 处真实偏差
+  （`enc_elite_hunt` 实际威胁 11.0 vs 声明预算 7.0，待设计者决定是调预算还是削编排）。
+- **文档对齐**：`docs/combat-numerical-design.md` 升到 v1.2 —— 共享 AP 旧口径
+  （`2 + (INT-5)//3`、上限 3、AP=3 卡"不可行"）全部改为 v1 实际值（基础 4 / 最高 5），
+  网格与距离改为自由尺寸 + 统一曼哈顿。
+- **测试**：新增 `tests/test_combat_growth_balance.py`（24 项：属性点分配/满值封顶/写回载荷/
+  威胁分类/阶段带推荐/预算告警/带宽缩放生效/生成器与两个 CLI 闭环/可复现性/接口指标）；
+  更新 `perf_tests/test_settlement_v1.py` 的成长断言。全量 `bash scripts/run_tests.sh` =
+  153 + 58 + 4 个 legacy 脚本全绿；前端 `tsc --noEmit` 通过。
+
 ### 2026-09-12 — 战斗系统重构批次 2：节点注册表 + 世界书携带 + 可视化编辑器
 
 > 承接批次 1（JSON 节点战场）。本批次把"手写 JSON 节点"变成"可编辑 + 可随世界书分发"，并让编辑器读到会话的剧情节拍进度。

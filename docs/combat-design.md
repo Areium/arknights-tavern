@@ -72,7 +72,7 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
 - 移动：**1 个人 AP 可移动最多 `mobility // 2`（曼哈顿格）**；斜向一步记 2 格，绕地形按 Dijkstra 代价。
 - 出牌/移动都先经 `validate_card_play` / `validate_move` 预检（AP、回合、卡牌归属、职业限制、
   射程与合法目标）；拒绝时不消耗任何资源、不弃牌。
-- 旧存档（无 `balance_version`）载入按 v1 迁移：AP 只做钳制（`min(存量, 新上限)`），不凭空增加剩余 AP。
+- 战斗态不跨进程保存；升级收益与难度参数由 `data/combat/rules/{growth,difficulty}.json` 配置（按 mtime 热加载）。
 
 ## 5. 命中 / 伤害 / 治疗
 
@@ -192,8 +192,12 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
 虚弱/增幅/沉默/灼烧/嘲讽/闪避/致盲 + 净化/破甲）、战后卡牌 1 选 1、剧情分支投点接入战斗、
 节拍 `[COMBAT:enc_id]` 代码级解析、波次逐波触发、敌人 `ai_skills` 数据驱动。
 
-**未实现**：`trigger_plot` 结算联动；节点编辑器（批次 2，含地图绘制/敌人编成）；
-LLM 经 skill 生成战斗规格（批次 3，规格 JSON + 校验器 + headless 试跑已具备基础）。
+**已具备**（批次 2/3）：可视化节点编辑器（地图绘制/敌人编成/血量覆盖/节拍进度）、
+节点随世界书分发、升级属性点成长、节点难度带与威胁预算审计、
+LLM 生成闭环（`docs/battle-spec.md` + `tools/validate_battle_spec.py` +
+`tools/simulate_battle.py` + `tools/generate_battle_spec.py` + skill `combat-designer`）。
+
+**未实现**：`trigger_plot` 结算联动；肉鸽 run 结构（种子化节点图 + run 内成长，另立批次）。
 
 ## 15. 平衡版本（`balance_version = 1`）
 
@@ -208,8 +212,9 @@ LLM 经 skill 生成战斗规格（批次 3，规格 JSON + 校验器 + headless
 | 保底抽牌 | 可从耗竭堆捞回精英卡 | **绝不取耗竭卡**，也不夺走他人唯一手牌 |
 | 卡表来源 | `card_data.py` 硬编码 + cards.json 双源 | **cards.json 单一真相源**（含 effects/ignore_def/cleanse 等全字段） |
 | 卡牌预算 | 无统一口径 | **24 CV/AP**（`combat_engine/cv.py`）；68/72 卡落带、4 卡带文档化例外 |
-| 升级收益 | +1 最低未满属性 | **专精点**（每级 1 点，每 3 级解锁职业节点），属性只由剧情里程碑改变 |
+| 升级收益 | +1 最低未满属性 | **专精点 + 属性点**（各每级 1 点；属性点默认自动加到最低未满属性并写回会话覆盖，可改配置为手动分配；每 3 级解锁职业节点） |
 | 升级阈值 | `level × 100` | `180 + 40 × (level - 1)` |
+| 升级属性成长 | 无 | **属性点**（每级 1，自动分配到最低未满属性 → 战斗数值随之提升） |
 | 敌人 XP | 与遭遇基础 XP 全额叠加 | `遭遇 XP + 0.35 × 敌人 XP`，倍率钳制 0.75–1.20 |
 | 遭遇难度 | `difficulty` 自由整数 | `encounter_type`/`recommended_power_tier`/`threat_budget`/`target_rounds` + 威胁带重排 |
 | 战斗态持久化 | 字段级重建（无版本） | **不再持久化**：战斗态只在内存（`session.combat`），结算用 `CombatSession.snapshot()`；若将来要"战斗中恢复"，用「节点 spec + 命令流重放」 |
