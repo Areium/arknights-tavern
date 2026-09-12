@@ -122,6 +122,9 @@ class LLMBackendManager:
         self._lock = threading.Lock()
         self._endpoint_fail_time: dict[str, float] = {}
         self._verified_at: dict[str, float] = {}  # 端点最近一次健康检查通过时间
+        self._instances: dict[str, ApiLLM | LocalLLM] = {}  # 端点 id → 复用的 LLM 实例
+        self._instance_lock = threading.Lock()
+        self._detect_gen = 0  # 检测代数：用于丢弃过期的异步探测结果
         self._detected = False
         self._provider: str = "auto"
         self._enable_thinking: bool = False
@@ -186,28 +189,69 @@ class LLMBackendManager:
             self._detected = True
 
     def _detect(self):
-        """检测所有可用后端。"""
+        """检测所有可用后端。
+
+        云端可用时，Ollama 探测放到后台线程：本机未监听 11434 时，connect 到
+        localhost 要 2~4s 才返回拒绝（IPv6/IPv4 各一次），而它只是备选信息，
+        没必要拖着启动不放。云端不可用时 Ollama 可能是唯一后端，必须同步探测。
+        """
         with self._lock:
+            # 端点即将重建：丢弃已缓存实例，确保新的 base_url/api_key 生效
+            with self._instance_lock:
+                self._instances.clear()
+            self._detect_gen += 1
+            gen = self._detect_gen
             cloud = self._check_cloud()
+
+            if cloud is not None and cloud.available:
+                self._all_endpoints = [cloud]
+                self._apply_endpoints()
+                self._detected = True
+                logger.info("LLM 后端检测完成: primary=%s (Ollama 后台探测中)",
+                            self._primary.name if self._primary else "无")
+                threading.Thread(target=self._probe_ollama_async, args=(gen,),
+                                 daemon=True, name="ollama-detect").start()
+                return
+
             local = self._check_ollama()
-
             self._all_endpoints = [ep for ep in [cloud, local] if ep is not None]
-
-            # 按优先级选择主后端：云端 > Ollama
-            available = [ep for ep in self._all_endpoints if ep.available]
-            if available:
-                self._primary = available[0]
-                self._fallback = available[1] if len(available) > 1 else None
-            else:
-                self._primary = None
-                self._fallback = None
-
+            self._apply_endpoints()
             self._detected = True
             logger.info(
                 "LLM 后端检测完成: primary=%s, fallback=%s",
                 self._primary.name if self._primary else "无",
                 self._fallback.name if self._fallback else "无",
             )
+
+    def _apply_endpoints(self):
+        """按优先级（云端 > Ollama）从 _all_endpoints 选出主/备后端。"""
+        available = [ep for ep in self._all_endpoints if ep.available]
+        if available:
+            self._primary = available[0]
+            self._fallback = available[1] if len(available) > 1 else None
+        else:
+            self._primary = None
+            self._fallback = None
+
+    def _probe_ollama_async(self, gen: int):
+        """后台探测 Ollama 并登记端点（gen 不匹配说明已重新检测，丢弃过期结果）。"""
+        try:
+            local = self._check_ollama()
+        except Exception as e:  # noqa: BLE001
+            logger.debug("Ollama 后台探测异常（忽略）: %s", e)
+            return
+        if local is None:
+            return
+        with self._lock:
+            if gen != self._detect_gen:
+                logger.debug("Ollama 后台探测结果已过期，丢弃")
+                return
+            self._all_endpoints = [ep for ep in self._all_endpoints if ep.id != "ollama"]
+            self._all_endpoints.append(local)
+            self._apply_endpoints()
+            logger.info("LLM 后端检测完成(异步): primary=%s, fallback=%s",
+                        self._primary.name if self._primary else "无",
+                        self._fallback.name if self._fallback else "无")
 
     def _check_cloud(self) -> Optional[LLMEndpoint]:
         """检测云端 API 连通性。"""
@@ -289,7 +333,15 @@ class LLMBackendManager:
         """检测本地 Ollama 服务。"""
         try:
             start = time.time()
-            response = httpx.get(f"{self.OLLAMA_URL}/api/tags", timeout=3)
+            # trust_env=False：localhost 必须绕过系统代理，否则会被代理拒掉
+            # （本机实测代理返回 502/超时 → 明明是本地服务却永远检测失败）。
+            # connect=1.0：未监听时本机 connect 到 localhost 要 2~4s 才返回拒绝，
+            # 这里主动设上限，避免探测把启动拖住。
+            response = httpx.get(
+                f"{self.OLLAMA_URL}/api/tags",
+                timeout=httpx.Timeout(3.0, connect=1.0),
+                trust_env=False,
+            )
             latency = (time.time() - start) * 1000
 
             if response.status_code == 200:
@@ -314,7 +366,9 @@ class LLMBackendManager:
                     "ollama", "Ollama 本地", "local", "", False,
                     latency, detail=f"HTTP {response.status_code}",
                 )
-        except httpx.ConnectError:
+        except (httpx.ConnectError, httpx.TimeoutException):
+            # 连接被拒 / connect 超时：都等价于"本地没跑 Ollama"，按 INFO 记录即可
+            # （之前超时落到下面的通用分支，会打出"检测异常: timed out"的 WARNING 噪音）
             logger.info("Ollama 未运行")
             return LLMEndpoint(
                 "ollama", "Ollama 本地", "local", "", False,
@@ -393,6 +447,27 @@ class LLMBackendManager:
                        endpoint_id, 30.0)
 
     def _instantiate(self, ep: LLMEndpoint) -> ApiLLM | LocalLLM:
+        """返回端点对应的 LLM 实例（同一端点全程复用同一个实例）。
+
+        复用是启动性能的关键：ApiLLM/LocalLLM 内部的 httpx.Client 构造在本机
+        约 0.8s（httpx 每次都重新读取系统代理并重建代理 transport 与 SSL 上下文）。
+        旧实现每次 get_llm() 都新建实例，而启动时会恢复全部历史会话（本机 158 个），
+        每个会话都会 refresh_llm() → 新建 client ≈ 0.8s，累计 ~2 分钟；这段时间
+        端口还没开始监听，前端所有 /api 请求都是 ECONNREFUSED。
+        复用同一实例同时收敛了连接池，避免每轮对话都重建 client。
+
+        实例在 _detect() 重建端点时清空（配置变更后不会复用旧 base_url/api_key）。
+        """
+        with self._instance_lock:
+            cached = self._instances.get(ep.id)
+            if cached is not None:
+                return cached
+            llm = self._create_instance(ep)
+            if llm is not None:
+                self._instances[ep.id] = llm
+            return llm
+
+    def _create_instance(self, ep: LLMEndpoint) -> ApiLLM | LocalLLM:
         """根据端点类型创建 LLM 实例（真实失败经 on_failure 标记端点降级）。"""
         def _on_failure(code: str):
             self.mark_endpoint_failed(ep.id)
@@ -598,7 +673,7 @@ class LLMBackendManager:
         url = ollama_url or "http://localhost:11434"
         try:
             start = time.time()
-            r = httpx.get(f"{url}/api/tags", timeout=5)
+            r = httpx.get(f"{url}/api/tags", timeout=5, trust_env=False)
             latency = (time.time() - start) * 1000
 
             if r.status_code == 200:

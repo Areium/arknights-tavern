@@ -184,7 +184,10 @@ class LocalLLM:
         """
         self.config = config
         self._on_failure = on_failure
-        self.client = httpx.Client(base_url=config.base_url, timeout=config.timeout)
+        # trust_env=False：Ollama 在 localhost/内网，走系统代理只会被代理拒掉
+        # （本机实测：代理对 127.0.0.1 返回 502 或超时，导致检测永远失败）。
+        self.client = httpx.Client(base_url=config.base_url, timeout=config.timeout,
+                                   trust_env=False)
 
     def _notify_failure(self, code: str):
         try:
