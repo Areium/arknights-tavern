@@ -203,16 +203,6 @@ class SceneManager:
         """返回场景中所有角色名。"""
         return list(self._agents.keys())
 
-    def get_active(self) -> str | None:
-        """返回当前对话目标角色名。"""
-        return self.active
-
-    def get_active_agent(self) -> CharacterAgent | None:
-        """返回当前对话目标的 CharacterAgent 实例。"""
-        if self.active and self.active in self._agents:
-            return self._agents[self.active]
-        return None
-
     # ── 世界书 ──
 
     def _resolve_worldbook(self):
@@ -472,28 +462,6 @@ class SceneManager:
         return results, total_usage
 
     # ── 叙述模式 ──
-
-    def build_status(self, env_context: str, player_info: dict | None = None) -> str:
-        """构建场景状态显示（置于叙述最前）。
-
-        Returns:
-            格式化的状态文本。
-        """
-        scene_chars = self.get_scene_characters()
-        active = self.active or ""
-        identity = (player_info or {}).get("identity", "博士") if player_info else "博士"
-
-        parts = []
-        if env_context:
-            parts.append(env_context)
-        if scene_chars:
-            chars_str = " · ".join(scene_chars)
-            parts.append(f"场景角色：{chars_str}")
-        else:
-            parts.append("场景角色：（无）")
-        if identity:
-            parts.append(f"玩家：{identity}")
-        return "  |  ".join(parts)
 
     _NARRATOR_SYSTEM = """\
 <role>
@@ -862,28 +830,31 @@ speaker 必须从场景角色列表选择，无法判断时用 null
                 "请详细描述战斗局势。战斗触发将由系统自动处理。"
             )
 
-        # ── 参考层：剧情结构、预加载资料、文档目录（稳定，放前面利用缓存）──
+        # ── 稳定参考层：预加载资料、文档目录、常驻世界书 ──
+        # 逐轮变化的剧情进度与按需 Wiki 结果必须留到动态层，否则会让其后的
+        # 常驻世界书内容失去 API 前缀缓存命中。
         ref_parts = []
+        dynamic_ref_parts = []
         if self._overlay and self._overlay.has_plot_context():
             opening = self._overlay.get_plot_context()
             if opening:
-                ref_parts.append(opening)
+                dynamic_ref_parts.append(opening)
                 logger.info("已注入开场上下文到首次叙述")
             self._overlay.clear_plot_context()
         if self._overlay:
             plot_state = self._overlay.read_session_doc("plot_state.md")
             if plot_state:
-                ref_parts.append("剧情结构参考（导航用，非脚本）：\n" + plot_state)
+                dynamic_ref_parts.append("剧情结构参考（导航用，非脚本）：\n" + plot_state)
             plot_log = self._overlay.read_session_doc("plot_log.md")
             if plot_log:
-                ref_parts.append("剧情进度日志（已发生的事件，请勿重复）：\n" + plot_log)
+                dynamic_ref_parts.append("剧情进度日志（已发生的事件，请勿重复）：\n" + plot_log)
         if self._session_context:
             preloaded_text = self._session_context.format_preloaded()
             if preloaded_text:
                 ref_parts.append(preloaded_text)
             retrieved_text = self._session_context.format_wiki_retrieved()
             if retrieved_text:
-                ref_parts.append(retrieved_text)
+                dynamic_ref_parts.append(retrieved_text)
         # 世界观标注：优先于文档目录，明确当前生效的世界书。
         if worldbook is not None:
             ref_parts.append(f"<worldview>\n当前世界观：{worldbook.name}\n</worldview>")
@@ -898,8 +869,12 @@ speaker 必须从场景角色列表选择，无法判断时用 null
         # 世界书（position=0 → 稳定参考层）
         if wb_before:
             ref_parts.append(wb_before)
+        # 开场设定仅首轮出现，属于动态内容；放到稳定前缀之后。
+        # （上面的 wb_scan_text 已把首轮开场设定纳入世界书关键词扫描。）
         if opening_setup_text:
-            ref_parts.append(opening_setup_text)
+            dynamic_ref_parts.append(opening_setup_text)
+
+        # 玩家身份角色设定（用户自身，稳定层）
         if player_profile_text:
             ref_parts.append(player_profile_text)
         if ref_parts:
@@ -915,7 +890,12 @@ speaker 必须从场景角色列表选择，无法判断时用 null
                 f"</encounters>"
             )
 
-        # ── 动态层：场景状态、历史、玩家动作（易变，放后面）──
+        # ── 动态层：剧情进度、场景状态、历史、玩家动作（易变，放后面）──
+        if dynamic_ref_parts:
+            context_parts.append(
+                "<story_context>\n" + "\n\n".join(dynamic_ref_parts) + "\n</story_context>"
+            )
+
         # 场景状态
         if is_first_turn:
             context_parts.append(f"<scene_state>\n{env_context or '当前场景'}\n</scene_state>")
@@ -938,7 +918,7 @@ speaker 必须从场景角色列表选择，无法判断时用 null
         player_lines = [f"身份：{identity}"]
         if user_action:
             player_lines.append(f"操作：{user_action}")
-        context_parts.append(f"<player>\n" + "\n".join(player_lines) + "\n</player>")
+        context_parts.append("<player>\n" + "\n".join(player_lines) + "\n</player>")
 
         # 场景动态
         recent = self._scene_log[-8:]

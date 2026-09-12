@@ -7,7 +7,7 @@ import re
 import frontmatter
 import yaml
 
-from memory import VectorMemory
+from memory import VectorMemory, resolve_embed_fn
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,9 @@ class CharacterAgent:
         self.character = self.load_character(character_name, self._overrides)
         self.memory = VectorMemory(
             character_name=character_name,
-            embed_fn=self.llm.embed if hasattr(self.llm, "embed") else None,
+            # 远端 embedding 探测一次，不可用回退本地 ONNX（DeepSeek 无
+            # /embeddings 端点，此前语义记忆在生产从未运行）
+            embed_fn=resolve_embed_fn(llm),
         )
 
     def load_character(self, character_name: str, overrides: dict = None) -> str:

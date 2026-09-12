@@ -17,7 +17,6 @@ import time
 from pathlib import Path
 
 import frontmatter
-import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OUT = REPO_ROOT / "data" / "packs" / "arknights.json"

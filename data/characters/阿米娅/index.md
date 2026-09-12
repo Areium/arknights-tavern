@@ -1,13 +1,17 @@
 ---
 attributes:
   情绪稳定性: 7
-  战场机动: 5
+  战场机动: 6
   战斗技巧: 5
   战术规划: 9
   源石技艺适应性: 9
   物理强度: 6
   生理耐受: 5
   魅力: 8
+# 演示调参：攻击数值 ×2（派生 patk 22 → 44、matk 36 → 72）
+combat_stats:
+  patk: 44
+  matk: 72
 card_face: char_002_amiya_1+b.png
 card_face_crop_h: 51.776507770764766
 card_face_crop_w: 80

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useAppStore } from "../stores/appStore";
 import { useApi } from "../hooks/useApi";
+import { useDialogMinimize } from "../hooks/useDialogMinimize";
 import CharacterDetailCard from "./CharacterDetailCard";
 
 interface AvailableCharacter {
@@ -29,6 +30,8 @@ export default function CharacterBrowser({
   const [hoverAnchor, setHoverAnchor] = useState<DOMRect | null>(null);
   const [pinnedChar, setPinnedChar] = useState<string | null>(null);
   const [pinnedAnchor, setPinnedAnchor] = useState<DOMRect | null>(null);
+  // 最小化：与关闭独立，最小化后 DOM 保留（搜索词/滚动位置不丢）
+  const dialog = useDialogMinimize("character-browser", "浏览角色", open);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const previewChar = hoveredChar || pinnedChar;
@@ -137,17 +140,33 @@ export default function CharacterBrowser({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="bg-gray-800 border border-gray-700 rounded-xl w-[480px] max-h-[600px] flex flex-col shadow-2xl">
+    <div className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 ${dialog.minimizedClass}`}>
+      <div
+        ref={dialog.containerRef}
+        tabIndex={-1}
+        className="bg-gray-800 border border-gray-700 rounded-xl w-[480px] max-h-[600px] flex flex-col shadow-2xl outline-none"
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700">
           <h2 className="text-base font-semibold">浏览角色</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-500 hover:text-gray-300 text-lg leading-none"
-          >
-            ✕
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={dialog.minimize}
+              className="text-gray-500 hover:text-gray-300 text-lg leading-none px-1"
+              title="最小化（保留搜索词与滚动位置）"
+              aria-label="最小化对话框"
+            >
+              —
+            </button>
+            <button
+              onClick={onClose}
+              className="text-gray-500 hover:text-gray-300 text-lg leading-none px-1"
+              title="关闭"
+              aria-label="关闭对话框"
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
         {/* Search */}

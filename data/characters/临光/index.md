@@ -1,13 +1,17 @@
 ---
 attributes:
   情绪稳定性: 8
-  战场机动: 5
+  战场机动: 6
   战斗技巧: 8
   战术规划: 6
   源石技艺适应性: 5
   物理强度: 8
   生理耐受: 9
   魅力: 7
+# 演示调参：攻击数值 ×2（派生 patk 32 → 64、matk 22 → 44）
+combat_stats:
+  patk: 64
+  matk: 44
 card_face: char_148_nearl_2b.png
 class: 重装
 faction: 临光家族

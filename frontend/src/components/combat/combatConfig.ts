@@ -28,6 +28,8 @@ const config: Record<LayoutMode, Record<string, number>> = {
     cardHeight: 259,
     handFanMarginTop: -36,
     bottomBarMarginTop: -72,
+    // 敌方小人高度缩放系数（相对我方 1.6 格目标高度）。等比缩放，不改素材宽高比。
+    enemySpineScale: 0.78,
   },
   windowed: {
     cellSize: 56,
@@ -36,6 +38,7 @@ const config: Record<LayoutMode, Record<string, number>> = {
     cardHeight: 166,
     handFanMarginTop: -24,
     bottomBarMarginTop: -48,
+    enemySpineScale: 0.78,
   },
 };
 

@@ -1,0 +1,35 @@
+[
+  {
+    "label": "reasoning_effort=none",
+    "first_reasoning_ms": null,
+    "first_content_ms": 750,
+    "total_ms": 2969,
+    "reasoning_chars": 0,
+    "content_chars": 347,
+    "finish_reason": "stop",
+    "completion_tokens": 210,
+    "reasoning_tokens_field": null
+  },
+  {
+    "label": "reasoning_effort=low",
+    "first_reasoning_ms": 922,
+    "first_content_ms": 2610,
+    "total_ms": 5625,
+    "reasoning_chars": 203,
+    "content_chars": 398,
+    "finish_reason": "stop",
+    "completion_tokens": 375,
+    "reasoning_tokens_field": 130
+  },
+  {
+    "label": "无参数(缺省)",
+    "first_reasoning_ms": 735,
+    "first_content_ms": 7547,
+    "total_ms": 10906,
+    "reasoning_chars": 877,
+    "content_chars": 430,
+    "finish_reason": "stop",
+    "completion_tokens": 841,
+    "reasoning_tokens_field": 554
+  }
+]

@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>风格 C · 酒馆手札 TAVERN JOURNAL — Arknights Tavern UI 预览</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;700;900&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+  /* ═══════════ 设计令牌：酒馆手札 ═══════════ */
+  :root {
+    --parch: #ece1c9;           /* 羊皮纸底 */
+    --page: #f7f0dd;            /* 书页 */
+    --card: #fbf6e9;
+    --ink: #40342a;             /* 墨水棕 */
+    --ink-2: #6d5c4b;
+    --ink-3: #9c8b74;
+    --line: #d8c9a8;
+    --seal: #a03d2d;            /* 火漆红 */
+    --brass: #a87b2f;           /* 黄铜 */
+    --candle: #e8a33d;          /* 烛火 */
+    --forest: #5b7350;
+    --sky: #6b8299;
+    --shadow: 0 3px 0 rgba(64,52,42,.12), 0 12px 28px -12px rgba(64,52,42,.25);
+    --serif: "Noto Serif SC", serif;
+    --sans: "Noto Sans SC", sans-serif;
+    --r-lg: 18px; --r-md: 12px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { font-size: 14.5px; }
+  body {
+    font-family: var(--sans); color: var(--ink); line-height: 1.7;
+    background:
+      radial-gradient(1000px 500px at 50% -20%, rgba(232,163,61,.16), transparent 60%),
+      radial-gradient(rgba(64,52,42,.05) 1px, transparent 1px) 0 0 / 22px 22px,
+      var(--parch);
+    -webkit-font-smoothing: antialiased; min-height: 100vh;
+  }
+  button { font-family: inherit; cursor: pointer; }
+  input, select, textarea { font-family: inherit; outline: none; }
+  :focus-visible { outline: 2.5px solid var(--seal); outline-offset: 2px; border-radius: 6px; }
+  ::selection { background: rgba(232,163,61,.4); }
+  .serif { font-family: var(--serif); }
+  .mono { font-family: "JetBrains Mono", monospace; }
+
+  /* ═══════════ 预览横幅 ═══════════ */
+  .preview-banner {
+    background: #2c231b; color: #f2e8d5; padding: 0 20px; min-height: 44px;
+    display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+    font-size: 12px; position: sticky; top: 0; z-index: 100;
+    border-bottom: 3px solid var(--brass);
+  }
+  .preview-banner strong { font-family: var(--serif); font-size: 13.5px; font-weight: 900; letter-spacing: .06em; }
+  .preview-banner .kw { color: #b3a186; }
+  .preview-banner .kw b { color: var(--candle); font-weight: 500; }
+  .preview-banner nav { margin-left: auto; display: flex; gap: 4px; }
+  .preview-banner nav a { color: #b3a186; text-decoration: none; padding: 4px 10px; border-radius: 999px; }
+  .preview-banner nav a:hover { color: #fff; background: rgba(255,255,255,.08); }
+  .preview-banner nav a.on { color: #2c231b; background: var(--candle); font-weight: 700; }
+
+  .app { display: flex; min-height: calc(100vh - 47px); }
+
+  /* ═══════════ 侧边导航：书脊目录 ═══════════ */
+  .side {
+    width: 224px; flex-shrink: 0; padding: 24px 16px;
+    border-right: 2px dashed var(--line); display: flex; flex-direction: column; gap: 3px;
+  }
+  .side .brand { text-align: center; padding-bottom: 18px; border-bottom: 1.5px solid var(--line); margin-bottom: 14px; }
+  .side .brand .seal {
+    width: 54px; height: 54px; margin: 0 auto 10px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #c05a44, var(--seal) 65%, #7c2d20);
+    color: #f7e9d2; display: grid; place-items: center; font-family: var(--serif); font-weight: 900; font-size: 20px;
+    box-shadow: 0 3px 10px rgba(124,45,32,.45), inset 0 2px 4px rgba(255,255,255,.25);
+  }
+  .side .brand h1 { font-family: var(--serif); font-size: 19px; font-weight: 900; letter-spacing: .14em; }
+  .side .brand small { color: var(--ink-3); font-size: 10.5px; letter-spacing: .32em; }
+  .side .grp { font-size: 10.5px; letter-spacing: .3em; color: var(--ink-3); padding: 13px 12px 4px; font-family: var(--serif); }
+  .side a {
+    display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: var(--r-md);
+    color: var(--ink-2); text-decoration: none; font-size: 13.5px; transition: all .18s;
+  }
+  .side a:hover { background: rgba(251,246,233,.9); color: var(--ink); transform: translateX(3px); }
+  .side a.on { background: var(--card); color: var(--ink); font-weight: 700; box-shadow: var(--shadow); }
+  .side a.on::after { content: "✦"; margin-left: auto; color: var(--brass); font-size: 11px; }
+  .side .note {
+    margin: 14px 6px; padding: 12px 14px; background: #fdf3dc; border: 1.5px dashed var(--candle);
+    border-radius: var(--r-md); font-size: 11.5px; color: #7a5b23; transform: rotate(-.6deg);
+  }
+  .side .foot { margin-top: auto; padding: 12px; text-align: center; font-size: 11px; color: var(--ink-3); }
+  .side .foot .okdot { color: var(--forest); }
+
+  /* ═══════════ 主区 ═══════════ */
+  .main { flex: 1; min-width: 0; padding: 30px 40px 80px; max-width: 1180px; }
+  .masthead { text-align: left; margin-bottom: 30px; display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; flex-wrap: wrap; }
+  .masthead .eyebrow { font-family: var(--serif); color: var(--seal); font-size: 12px; letter-spacing: .34em; margin-bottom: 6px; }
+  .masthead h1 { font-family: var(--serif); font-size: 30px; font-weight: 900; letter-spacing: .08em; }
+  .masthead h1::after { content: ""; display: block; width: 64px; height: 3px; margin-top: 8px; background: linear-gradient(90deg, var(--brass), transparent); border-radius: 2px; }
+  .masthead p { color: var(--ink-2); font-size: 12.5px; margin-top: 8px; }
+  .masthead .ops { display: flex; gap: 10px; }
+
+  /* 按钮：圆润 + 柔和底影 */
+  .btn {
+    display: inline-flex; align-items: center; gap: 7px; padding: 9px 20px;
+    font-size: 13px; font-weight: 700; border-radius: 999px;
+    background: var(--card); color: var(--ink); border: 1.5px solid var(--line);
+    box-shadow: 0 2px 0 rgba(64,52,42,.12); transition: all .18s cubic-bezier(.34,1.56,.64,1);
+  }
+  .btn:hover { transform: translateY(-2px); box-shadow: 0 5px 0 rgba(64,52,42,.12); border-color: var(--brass); }
+  .btn:active { transform: translateY(0); box-shadow: 0 1px 0 rgba(64,52,42,.12); }
+  .btn.primary { background: linear-gradient(160deg, #b4553f, var(--seal)); color: #f9efdd; border-color: #8c3527; text-shadow: 0 1px 2px rgba(0,0,0,.2); }
+  .btn.primary:hover { filter: brightness(1.06); }
+  .btn.gold { background: linear-gradient(160deg, #f0bc5e, var(--candle)); color: #4a3413; border-color: #cf8f2c; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+  .btn.sm { padding: 5px 14px; font-size: 12px; }
+
+  /* 徽章：印章贴纸 */
+  .tag {
+    display: inline-flex; align-items: center; gap: 4px; padding: 2px 11px; font-size: 10.5px;
+    font-weight: 700; border-radius: 999px; border: 1.5px solid; white-space: nowrap; letter-spacing: .04em;
+  }
+  .tag.story { color: var(--seal); border-color: rgba(160,61,45,.5); background: rgba(160,61,45,.08); }
+  .tag.free  { color: var(--forest); border-color: rgba(91,115,80,.5); background: rgba(91,115,80,.09); }
+  .tag.tac   { color: #8c6220; border-color: rgba(168,123,47,.55); background: rgba(232,163,61,.14); }
+  .tag.nar   { color: var(--sky); border-color: rgba(107,130,153,.5); background: rgba(107,130,153,.1); }
+  .tag.live  { color: #fff; background: var(--forest); border-color: var(--forest); }
+  .tag.alert { color: #fff; background: var(--seal); border-color: var(--seal); }
+
+  /* 会话卡片：手札页签 */
+  .grid-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; margin-bottom: 46px; }
+  .scard {
+    background: var(--card); border: 1.5px solid var(--line); border-radius: var(--r-lg);
+    padding: 20px 22px 16px; cursor: pointer; position: relative; box-shadow: var(--shadow);
+    transition: transform .2s cubic-bezier(.34,1.56,.64,1), box-shadow .2s;
+  }
+  .scard::before { /* 装订线 */
+    content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 4px;
+    border-radius: 0 4px 4px 0; background: var(--line);
+  }
+  .scard:hover { transform: translateY(-4px) rotate(-.3deg); box-shadow: 0 5px 0 rgba(64,52,42,.1), 0 20px 36px -14px rgba(64,52,42,.35); }
+  .scard.sel { border-color: var(--brass); }
+  .scard.sel::before { background: linear-gradient(180deg, var(--candle), var(--brass)); }
+  .scard .no { position: absolute; top: -9px; right: 16px; background: var(--page); border: 1.5px solid var(--line); border-radius: 999px; font-family: var(--serif); font-size: 10px; color: var(--ink-3); padding: 1px 10px; letter-spacing: .12em; }
+  .scard h3 { font-family: var(--serif); font-size: 17.5px; font-weight: 900; letter-spacing: .04em; margin-bottom: 4px; }
+  .scard .sub { font-size: 12px; color: var(--ink-2); margin-bottom: 13px; }
+  .scard .sub i { font-style: normal; color: var(--brass); }
+  .scard .tags { display: flex; gap: 6px; flex-wrap: wrap; }
+  .scard .footrow { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; padding-top: 10px; border-top: 1.5px dashed var(--line); font-size: 11px; color: var(--ink-3); }
+  .avatars { display: flex; }
+  .avatars i {
+    width: 27px; height: 27px; margin-left: -8px; border-radius: 50%; border: 2.5px solid var(--card);
+    display: grid; place-items: center; font-size: 11px; font-style: normal; color: #fff; font-weight: 700;
+    box-shadow: 0 2px 5px rgba(64,52,42,.25);
+  }
+  .avatars i:first-child { margin-left: 0; }
+
+  /* 分区标题 */
+  .sect { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+  .sect .diamond { color: var(--seal); font-size: 13px; }
+  .sect h2 { font-family: var(--serif); font-size: 18px; font-weight: 900; letter-spacing: .1em; }
+  .sect .rule { flex: 1; border-top: 1.5px dashed var(--line); }
+
+  .cols { display: grid; grid-template-columns: 1.25fr 1fr; gap: 22px; margin-bottom: 46px; }
+  .panel { background: var(--card); border: 1.5px solid var(--line); border-radius: var(--r-lg); padding: 22px 24px; box-shadow: var(--shadow); }
+  .panel > .ph { display: flex; align-items: baseline; gap: 10px; border-bottom: 1.5px solid var(--line); padding-bottom: 11px; margin-bottom: 15px; flex-wrap: wrap; }
+  .panel > .ph h3 { font-family: var(--serif); font-size: 16.5px; font-weight: 900; }
+  .panel > .ph .right { margin-left: auto; display: flex; gap: 6px; }
+
+  /* 表格：手抄记录 */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th { font-family: var(--serif); text-align: left; font-size: 11px; letter-spacing: .12em; color: var(--seal); padding: 6px 10px; border-bottom: 2px solid var(--line); }
+  tbody td { padding: 8px 10px; border-bottom: 1px dashed var(--line); color: var(--ink-2); }
+  tbody tr { transition: background .15s; border-radius: 8px; }
+  tbody tr:hover { background: rgba(232,163,61,.1); }
+  tbody td b { color: var(--ink); font-family: var(--serif); }
+  .lv { font-family: var(--serif); font-weight: 900; color: var(--brass); font-size: 15px; }
+  .petal { letter-spacing: 2px; font-size: 11px; color: var(--candle); }
+  .petal .off { color: var(--line); }
+
+  /* 表单：信笺 */
+  .field { margin-bottom: 16px; }
+  .field label { display: block; font-family: var(--serif); font-size: 12.5px; font-weight: 700; margin-bottom: 6px; }
+  .input, select.input {
+    width: 100%; padding: 10px 14px; font-size: 13.5px; color: var(--ink);
+    background: var(--page); border: 1.5px solid var(--line); border-radius: var(--r-md);
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .input::placeholder { color: var(--ink-3); font-style: italic; }
+  .input:hover { border-color: var(--brass); }
+  .input:focus { border-color: var(--seal); box-shadow: 0 0 0 3px rgba(160,61,45,.14); background: #fffaf0; }
+  .input:disabled { opacity: .5; cursor: not-allowed; }
+  .seg { display: flex; gap: 9px; }
+  .seg button {
+    flex: 1; padding: 10px 6px; font-size: 12.5px; font-weight: 700; border-radius: var(--r-md);
+    background: var(--page); border: 1.5px solid var(--line); color: var(--ink-2);
+    transition: all .18s cubic-bezier(.34,1.56,.64,1);
+  }
+  .seg button:hover { border-color: var(--brass); transform: translateY(-1px); }
+  .seg button.on { background: rgba(160,61,45,.09); border-color: var(--seal); color: var(--seal); box-shadow: 0 2px 0 rgba(160,61,45,.2); }
+  .check { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--ink-2); cursor: pointer; }
+  .check input { width: 16px; height: 16px; accent-color: var(--seal); cursor: pointer; }
+  .hint { font-size: 11px; color: var(--ink-3); margin-top: 5px; font-style: italic; }
+
+  /* 状态区 */
+  .states { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 46px; }
+  .empty-box { text-align: center; padding: 8px 4px 2px; }
+  .empty-box .wax {
+    width: 58px; height: 58px; margin: 0 auto 12px; border-radius: 50%;
+    border: 2px dashed var(--ink-3); display: grid; place-items: center; font-size: 22px; opacity: .65;
+  }
+  .empty-box p { font-family: var(--serif); font-weight: 900; font-size: 15px; }
+  .empty-box span { font-size: 11.5px; color: var(--ink-3); display: block; margin: 5px 0 13px; }
+  .quill { font-family: var(--serif); font-size: 13px; color: var(--ink-2); margin-bottom: 10px; }
+  .quill .dot { display: inline-block; animation: q 1.5s infinite; }
+  .quill .dot:nth-child(2) { animation-delay: .2s } .quill .dot:nth-child(3) { animation-delay: .4s }
+  @keyframes q { 0%,100% { opacity: .25 } 50% { opacity: 1 } }
+  .skl { height: 12px; border-radius: 999px; background: var(--page); border: 1px solid var(--line); margin-bottom: 10px; overflow: hidden; position: relative; }
+  .skl::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(232,163,61,.3), transparent); animation: wax 1.6s infinite; }
+  @keyframes wax { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+  .errbox { border: 1.5px solid rgba(160,61,45,.55); background: #f9e8e0; border-radius: var(--r-md); overflow: hidden; }
+  .errbox .eh { background: rgba(160,61,45,.14); color: var(--seal); font-family: var(--serif); font-weight: 900; font-size: 12.5px; letter-spacing: .08em; padding: 8px 14px; display: flex; gap: 8px; align-items: center; }
+  .errbox .eb { padding: 12px 14px; font-size: 12.5px; color: #6e3a2c; }
+  .errbox .act { display: flex; gap: 8px; margin-top: 10px; }
+
+  /* 状态栏 */
+  .statusbar {
+    border: 1.5px solid var(--line); border-radius: 999px; background: var(--card); box-shadow: var(--shadow);
+    padding: 9px 22px; display: flex; gap: 22px; flex-wrap: wrap; font-size: 11.5px; color: var(--ink-3);
+  }
+  .statusbar b { color: var(--ink-2); }
+  .statusbar .ok { color: var(--forest); font-weight: 700; }
+
+  /* 设计说明 */
+  .spec { border-top: 1.5px dashed var(--line); margin-top: 52px; padding-top: 24px; font-size: 12.5px; color: var(--ink-2); }
+  .spec h3 { font-family: var(--serif); font-size: 14px; font-weight: 900; color: var(--ink); margin-bottom: 12px; }
+  .spec dl { display: grid; grid-template-columns: 120px 1fr; gap: 6px 18px; margin-bottom: 16px; }
+  .spec dt { color: var(--ink-3); font-family: var(--serif); font-weight: 700; }
+  .swatches { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+  .sw { width: 70px; }
+  .sw i { display: block; height: 34px; border-radius: 8px; border: 1.5px solid var(--line); }
+  .sw span { font-size: 9.5px; color: var(--ink-3); font-family: "JetBrains Mono", monospace; }
+
+  /* ═══════════ 动效增强（演示） ═══════════ */
+  /* 烛火光晕 + 暖尘漂浮 */
+  .candle-glow { position: fixed; top: -200px; left: 50%; translate: -50% 0; width: 960px; height: 460px; pointer-events: none; z-index: 0;
+    background: radial-gradient(ellipse at center, rgba(232,163,61,.22), transparent 65%); animation: flicker 3.6s ease-in-out infinite; }
+  @keyframes flicker { 0%,100% { opacity: .8; scale: 1; } 40% { opacity: 1; scale: 1.05; } 62% { opacity: .68; scale: .98; } 80% { opacity: .92; } }
+  .dust { position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: .5;
+    background-image: radial-gradient(rgba(168,123,47,.4) 1px, transparent 1.7px), radial-gradient(rgba(160,61,45,.22) 1.2px, transparent 2px);
+    background-size: 210px 210px, 330px 330px; animation: ember 34s linear infinite; }
+  @keyframes ember { to { background-position: 60px -420px, -90px -660px; } }
+
+  /* 滚动显现（用独立 translate 属性，不与卡片 hover transform 冲突） */
+  .rv { opacity: 0; translate: 0 20px; transition: opacity .6s ease, translate .6s cubic-bezier(.34,1.3,.64,1); }
+  .rv.in { opacity: 1; translate: 0 0; }
+
+  /* 选中手札的火漆印（盖印动效） */
+  .wax-mini { position: absolute; top: -15px; left: 14px; width: 46px; height: 46px; border-radius: 50%; z-index: 3;
+    background: radial-gradient(circle at 35% 30%, #c05a44, var(--seal) 62%, #7c2d20); color: #f9efdd;
+    display: grid; place-items: center; font-family: var(--serif); font-weight: 900; font-size: 15px;
+    box-shadow: 0 3px 9px rgba(124,45,32,.45), inset 0 2px 3px rgba(255,255,255,.28);
+    transform: rotate(-12deg); animation: stamp .5s cubic-bezier(.34,1.56,.64,1) .5s backwards; }
+  @keyframes stamp { from { opacity: 0; transform: scale(1.9) rotate(-48deg); } to { opacity: 1; transform: scale(1) rotate(-12deg); } }
+
+  /* 续写现场：叙述 + 对话气泡 + 选项 */
+  .chatlog { margin-bottom: 46px; }
+  .narr { font-family: var(--serif); font-size: 14.5px; line-height: 2; color: var(--ink); background: var(--page); border: 1.5px solid var(--line); border-radius: var(--r-md); padding: 15px 20px; }
+  .narr::first-letter { font-size: 2.3em; font-weight: 900; color: var(--seal); float: left; line-height: 1; padding: 5px 9px 0 0; }
+  .bubble { display: flex; gap: 12px; margin-top: 15px; align-items: flex-start; }
+  .bubble .ava { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 14px; flex-shrink: 0; border: 2px solid var(--card); box-shadow: 0 2px 6px rgba(64,52,42,.3); }
+  .bubble .bub { background: #fffdf6; border: 1.5px solid var(--line); border-radius: 4px 18px 18px 18px; padding: 10px 17px; box-shadow: var(--shadow); max-width: 580px; }
+  .bubble .bub .who { font-family: var(--serif); font-size: 11px; color: var(--brass); font-weight: 700; letter-spacing: .12em; margin-bottom: 2px; }
+  .bubble .bub p { font-family: var(--serif); font-size: 14px; line-height: 1.8; }
+  .bubble.me { flex-direction: row-reverse; }
+  .bubble.me .bub { border-radius: 18px 4px 18px 18px; background: #f4ecd7; }
+  .bubble.me .who { text-align: right; color: var(--ink-3); }
+  .choices-c { margin-top: 17px; display: flex; flex-direction: column; gap: 9px; }
+  .choice-c { text-align: left; display: flex; align-items: center; gap: 11px; background: var(--card); border: 1.5px solid var(--line); border-radius: var(--r-md); padding: 11px 16px; font-size: 13.5px; font-family: var(--serif); color: var(--ink); box-shadow: 0 2px 0 rgba(64,52,42,.1); transition: all .18s cubic-bezier(.34,1.56,.64,1); }
+  .choice-c:hover, .choice-c:focus-visible { border-color: var(--seal); background: #fffdf6; transform: translateX(5px); }
+  .choice-c .num { font-family: var(--serif); font-weight: 900; color: var(--seal); border: 1.5px solid currentColor; border-radius: 50%; width: 23px; height: 23px; display: grid; place-items: center; font-size: 11px; flex-shrink: 0; }
+  .choice-c .dc { margin-left: auto; font-family: var(--sans); font-size: 10px; color: var(--brass); border: 1px dashed var(--brass); border-radius: 999px; padding: 1px 9px; white-space: nowrap; }
+
+  /* 减弱动效偏好（无障碍兜底） */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+    .rv { opacity: 1 !important; translate: 0 0 !important; }
+  }
+
+  /* ═══════════ 响应式 ═══════════ */
+  @media (max-width: 900px) {
+    .cols, .states { grid-template-columns: 1fr; }
+    .main { padding: 22px 18px 60px; }
+  }
+  @media (max-width: 720px) {
+    .app { flex-direction: column; }
+    .side { width: 100%; flex-direction: row; align-items: center; border-right: none; border-bottom: 2px dashed var(--line); padding: 10px 14px; overflow-x: auto; gap: 4px; }
+    .side .brand { border: none; padding: 0 10px 0 0; margin: 0; display: flex; align-items: center; gap: 8px; }
+    .side .brand .seal { width: 30px; height: 30px; font-size: 13px; margin: 0; }
+    .side .brand h1 { font-size: 14px; white-space: nowrap; } .side .brand small { display: none; }
+    .side .grp, .side .foot, .side .note, .side a.on::after { display: none; }
+    .side a { white-space: nowrap; padding: 8px 11px; }
+    .grid-cards { grid-template-columns: 1fr; }
+    .masthead h1 { font-size: 23px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="preview-banner">
+  <strong>风格 C · 酒馆手札</strong>
+  <span class="kw">关键词：<b>羊皮纸</b> · <b>衬线书法感</b> · <b>火漆印章</b> · <b>圆润卡片+弹性微动效</b> · <b>叙事沉浸</b> · 贴合「酒馆」之名</span>
+  <nav>
+    <a href="01-arknights-industrial.html">A 机能</a>
+    <a href="02-prts-holo-terminal.html">B 全息</a>
+    <a href="03-tavern-journal.html" class="on">C 手札</a>
+    <a href="04-neon-pop-event.html">D 撞色</a>
+  </nav>
+</div>
+
+<div class="app">
+  <!-- 侧边导航 -->
+  <aside class="side">
+    <div class="brand">
+      <div class="seal">酒</div>
+      <h1>方舟酒馆</h1>
+      <small>TAVERN JOURNAL</small>
+    </div>
+    <div class="grp">— 旅途 —</div>
+    <a href="#">◀ 主菜单</a>
+    <a href="#" class="on">🏛️ 会话大厅</a>
+    <a href="#">🎭 角色</a>
+    <div class="grp">— 收藏 —</div>
+    <a href="#">📖 世界书</a>
+    <a href="#">🗂️ 内容中心</a>
+    <a href="#">📘 文档</a>
+    <div class="grp">— 杂务 —</div>
+    <a href="#">⚙️ 设置</a>
+    <div class="note">📌 便签：备用 LLM 端点出了点状况，已自动改用本地模型续写。</div>
+    <div class="foot"><span class="okdot">●</span> 炉火正旺 · 后端已连接</div>
+  </aside>
+
+  <!-- 主内容 -->
+  <main class="main">
+    <div class="masthead">
+      <div>
+        <p class="eyebrow">第 三 卷 · 旅 人 札 记</p>
+        <h1>会话大厅</h1>
+        <p>三份旅途手札静候翻阅 · 最近停在「风雪过境 · 圣山之路」</p>
+      </div>
+      <div class="ops">
+        <button class="btn">✉ 导入存档</button>
+        <button class="btn gold">✒ 新建会话</button>
+      </div>
+    </div>
+
+    <!-- 会话卡片 -->
+    <div class="grid-cards">
+      <article class="scard sel" tabindex="0">
+        <span class="no">札 · 壹</span>
+        <span class="wax-mini">续</span>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+          <h3>风雪过境 · 圣山之路</h3>
+          <div class="avatars"><i style="background:#8fa8bf">雪</i><i style="background:#b093c7">崖</i><i style="background:#5b6b7c">博</i></div>
+        </div>
+        <p class="sub">与 <i>初雪 · 崖心 · 博士</i> 同行 —— 圣山山路，大雪，黄昏</p>
+        <div class="tags"><span class="tag story">剧情</span><span class="tag tac">战术战斗</span><span class="tag nar">谢拉格设定集</span></div>
+        <div class="footrow"><span>已书 47 轮 · 约 12.4k 言</span><span>2 小时前</span></div>
+      </article>
+
+      <article class="scard" tabindex="0">
+        <span class="no">札 · 贰</span>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+          <h3>罗德岛茶话会</h3>
+          <div class="avatars"><i style="background:#c7a45f">临</i><i style="background:#7c9bb5">佐</i></div>
+        </div>
+        <p class="sub">与 <i>临光 · 佐菲娅</i> 闲谈 —— 罗德岛本舰，晴，午后</p>
+        <div class="tags"><span class="tag free">自由</span><span class="tag nar">叙事战斗</span><span class="tag live">进行中</span></div>
+        <div class="footrow"><span>已书 12 轮 · 约 3.1k 言</span><span>昨天</span></div>
+      </article>
+
+      <article class="scard" tabindex="0">
+        <span class="no">札 · 叁</span>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+          <h3>废弃区块遭遇战</h3>
+          <div class="avatars"><i style="background:#8a8f98">德</i></div>
+        </div>
+        <p class="sub">与 <i>德克萨斯</i> 突围 —— 切城废墟，阴，战至半途</p>
+        <div class="tags"><span class="tag story">剧情</span><span class="tag tac">战术战斗</span><span class="tag alert">⚔ 战斗中</span></div>
+        <div class="footrow"><span>第 6 / 12 回合 · 8.9k 言</span><span>3 天前</span></div>
+      </article>
+    </div>
+
+    <div class="sect"><span class="diamond">❖</span><h2>同行者小传 · 初雪</h2><span class="rule"></span></div>
+    <div class="cols">
+      <!-- 属性表 -->
+      <section class="panel">
+        <div class="ph"><h3>初雪 <span style="font-size:11px;color:var(--ink-3);font-weight:400">恩雅 · 希瓦艾什</span></h3><span class="right"><span class="tag nar">辅助</span><span class="tag story">喀兰贸易</span><span class="tag free">埃拉菲亚</span></span></div>
+        <table>
+          <thead><tr><th>禀赋</th><th>评语</th><th>值</th><th>印象</th></tr></thead>
+          <tbody>
+            <tr><td><b>情绪稳定性</b></td><td>卓越</td><td class="lv">玖</td><td><span class="petal">✿✿✿✿<span class="off">✿</span></span></td></tr>
+            <tr><td><b>源石技艺适应性</b></td><td>卓越</td><td class="lv">玖</td><td><span class="petal">✿✿✿✿<span class="off">✿</span></span></td></tr>
+            <tr><td><b>魅力</b></td><td>优良</td><td class="lv">捌</td><td><span class="petal">✿✿✿✿<span class="off">✿</span></span></td></tr>
+            <tr><td><b>战场机动</b></td><td>标准</td><td class="lv">陆</td><td><span class="petal">✿✿✿<span class="off">✿✿</span></span></td></tr>
+            <tr><td><b>战术规划</b></td><td>标准</td><td class="lv">陆</td><td><span class="petal">✿✿✿<span class="off">✿✿</span></span></td></tr>
+            <tr><td><b>物理强度</b></td><td>普通</td><td class="lv">肆</td><td><span class="petal">✿✿<span class="off">✿✿✿</span></span></td></tr>
+          </tbody>
+        </table>
+        <div style="display:flex;gap:9px;margin-top:18px;flex-wrap:wrap">
+          <button class="btn sm primary">翻阅卡池（14 张）</button>
+          <button class="btn sm">修订角色卡</button>
+          <button class="btn sm" disabled>请离编队</button>
+        </div>
+      </section>
+
+      <!-- 表单 -->
+      <section class="panel">
+        <div class="ph"><h3>起一份新手札</h3></div>
+        <div class="field">
+          <label for="sname">手札题名</label>
+          <input id="sname" class="input" placeholder="例：风雪过境 · 其二">
+        </div>
+        <div class="field">
+          <label for="plot">所属篇章</label>
+          <select id="plot" class="input">
+            <option>风雪过境（主线 · 谢拉格）</option>
+            <option>长夜临光（支线 · 卡西米尔）</option>
+            <option>不入篇章（自由模式）</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>战斗如何演绎</label>
+          <div class="seg">
+            <button type="button" class="on">⚔ 排兵布阵</button>
+            <button type="button">📜 口述裁定</button>
+          </div>
+          <p class="hint">一旦落笔便不可涂改——排兵布阵为战棋玩法，口述裁定为 LLM 叙事裁定。</p>
+        </div>
+        <div class="field">
+          <label class="check"><input type="checkbox" checked> 随身携带「明日方舟整合设定集」</label>
+        </div>
+        <div style="display:flex;gap:9px;justify-content:flex-end;flex-wrap:wrap">
+          <button class="btn">搁笔</button>
+          <button class="btn gold">落笔成篇</button>
+          <button class="btn primary" disabled>研墨中…</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="sect"><span class="diamond">❖</span><h2>组件状态</h2><span class="rule"></span></div>
+    <div class="states">
+      <section class="panel">
+        <div class="ph"><h3>空状态 · 记忆</h3></div>
+        <div class="empty-box">
+          <div class="wax">🕯️</div>
+          <p>此页尚是空白</p>
+          <span>再聊几轮，酒馆会替你们记下这段交情</span>
+          <button class="btn sm">记忆是何物？</button>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="ph"><h3>加载状态 · 续写</h3></div>
+        <p class="quill">初雪提笔欲言<span class="dot">。</span><span class="dot">。</span><span class="dot">。</span></p>
+        <div class="skl" style="width:90%"></div>
+        <div class="skl" style="width:100%"></div>
+        <div class="skl" style="width:58%"></div>
+        <p style="font-size:11px;color:var(--ink-3);font-style:italic">墨迹未干 · 1.2 秒</p>
+      </section>
+      <section class="panel" style="padding:0;border:none;background:none;box-shadow:none">
+        <div class="errbox">
+          <div class="eh">⚠ 驿马延误 · LLM 降级</div>
+          <div class="eb">
+            <b>远途信使未能抵达（DeepSeek · 429）</b><br>
+            已改由本地誊写人（Ollama）代笔，半分钟后重新派遣信使。
+            <div class="act">
+              <button class="btn sm">查看日志</button>
+              <button class="btn sm primary">换回信使</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="candle-glow"></div>
+    <div class="dust"></div>
+    <div class="sect"><span class="diamond">❖</span><h2>续写现场 · 对话气泡</h2><span class="rule"></span></div>
+    <section class="panel chatlog">
+      <p class="narr">风雪在山口打着旋，钟声从很远的地方传来。初雪停下脚步，回过头——圣女的披风上落满了雪，她的声音却仍像炉边的话语。</p>
+      <div class="bubble">
+        <span class="ava" style="background:#8fa8bf">雪</span>
+        <div class="bub"><div class="who">初雪 · 耶拉冈德圣女</div><p>「风雪大了。博士，请靠紧我一些——愿耶拉冈德庇护你。」</p></div>
+      </div>
+      <div class="bubble me">
+        <span class="ava" style="background:#5b6b7c">博</span>
+        <div class="bub"><div class="who">博士</div><p>「你呢？你冷吗？」</p></div>
+      </div>
+      <div class="choices-c">
+        <button class="choice-c"><span class="num">壹</span>「雪停之后，再告诉我大典的事吧。」</button>
+        <button class="choice-c"><span class="num">贰</span>轻声安慰她<span class="dc">检定 · 情绪稳定性 DC12</span></button>
+        <button class="choice-c"><span class="num">叁</span>保持沉默，望向圣山之巅</button>
+      </div>
+    </section>
+
+    <script>
+    // 滚动显现（IntersectionObserver，尊重减弱动效偏好）
+    (function () {
+      var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (reduce) return;
+      var targets = Array.prototype.slice.call(
+        document.querySelectorAll('.masthead, .scard, .cols > *, .states > *, .chatlog, .statusbar'));
+      targets.forEach(function (t) { t.classList.add('rv'); });
+      // 同组卡片错峰入场
+      document.querySelectorAll('.grid-cards .scard').forEach(function (c, i) { c.style.transitionDelay = (i * 80) + 'ms'; });
+      var io = new IntersectionObserver(function (es) {
+        es.forEach(function (e) {
+          if (!e.isIntersecting) return;
+          e.target.classList.add('in');
+          // 入场结束后清错峰延迟，避免拖累 hover 反馈
+          e.target.addEventListener('transitionend', function () { e.target.style.transitionDelay = ''; }, { once: true });
+          io.unobserve(e.target);
+        });
+      }, { threshold: .1 });
+      targets.forEach(function (t) { io.observe(t); });
+    })();
+    </script>
+
+    <footer class="statusbar">
+      <span><b class="ok">●</b> 炉火正旺 · 后端已连接</span>
+      <span>信使 <b>DeepSeek-V3 · 234ms</b></span>
+      <span>誊写人 <b>Ollama · qwen2.5:14b</b></span>
+      <span style="margin-left:auto" class="mono">方舟酒馆 · v0.1.0</span>
+    </footer>
+
+    <!-- 设计说明 -->
+    <div class="spec">
+      <h3>设计令牌速览（供评审，非应用 UI）</h3>
+      <div class="swatches">
+        <div class="sw"><i style="background:#ece1c9"></i><span>parch</span></div>
+        <div class="sw"><i style="background:#fbf6e9"></i><span>card</span></div>
+        <div class="sw"><i style="background:#40342a"></i><span>ink</span></div>
+        <div class="sw"><i style="background:#a03d2d"></i><span>seal</span></div>
+        <div class="sw"><i style="background:#e8a33d"></i><span>candle</span></div>
+        <div class="sw"><i style="background:#5b7350"></i><span>forest</span></div>
+      </div>
+      <dl>
+        <dt>字体</dt><dd>Noto Serif SC（标题/数值汉字化）+ Noto Sans SC 正文；斜体占位符、手写感批注</dd>
+        <dt>造型语言</dt><dd>12–18px 大圆角、虚线缝合边、卡片左侧「装订线」、火漆圆章、弹性贝塞尔动效（.34,1.56,.64,1）</dd>
+        <dt>色彩策略</dt><dd>羊皮纸暖底 + 火漆红（主行动）+ 烛火金（创建/积极）+ 森绿/天蓝做语义区分</dd>
+        <dt>文案策略</dt><dd>界面文案全部「手札化」（会话=札、LLM=信使/誊写人），沉浸感来自文案与视觉协同</dd>
+        <dt>交互反馈</dt><dd>hover 浮起 4px + 微倾斜；focus-visible 火漆红描边；disabled 45% 透明</dd>
+        <dt>落地难度</dt><dd>★★☆ 中：纯 CSS 可达；但需为浅色主题单独维护一套暖色系（现有 light 覆盖是冷灰系），且文案拟物化需产品认可</dd>
+      </dl>
+    </div>
+  </main>
+</div>
+</body>
+</html>

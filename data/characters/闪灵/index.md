@@ -1,13 +1,17 @@
 ---
 attributes:
   情绪稳定性: 9
-  战场机动: 6
+  战场机动: 8
   战斗技巧: 7
   战术规划: 9
   源石技艺适应性: 9
   物理强度: 5
   生理耐受: 6
   魅力: 8
+# 演示调参：攻击数值 ×2（派生 patk 24 → 48、matk 36 → 72）
+combat_stats:
+  patk: 48
+  matk: 72
 card_face: char_147_shining_summer#1b.png
 card_face_crop_h: 42.764407320319854
 card_face_crop_w: 82.32148409161572

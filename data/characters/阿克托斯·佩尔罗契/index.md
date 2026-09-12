@@ -1,13 +1,17 @@
 ---
 attributes:
   情绪稳定性: 6
-  战场机动: 7
+  战场机动: 8
   战斗技巧: 9
   战术规划: 5
   源石技艺适应性: 3
   物理强度: 9
   生理耐受: 9
   魅力: 6
+# 演示调参：攻击数值 ×2（派生 patk 36 → 72、matk 16 → 32）
+combat_stats:
+  patk: 72
+  matk: 32
 class: 近卫
 faction: 佩尔罗契家族
 imports:

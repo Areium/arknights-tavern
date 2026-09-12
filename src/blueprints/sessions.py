@@ -31,7 +31,7 @@ def _load_plot_opening(session, plot_id: str):
 
     从 index.md frontmatter 读取所有开场字段。
     """
-    from session_overlay import _resolve_plot_dir, _read_plot_file
+    from session_overlay import _read_plot_file
 
     try:
         result = _read_plot_file(plot_id)

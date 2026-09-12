@@ -1,0 +1,32 @@
+[
+  {
+    "label": "当前用法 client.post()+iter_lines (thinking=on)",
+    "first_chunk_ms": 7140,
+    "total_ms": 7140,
+    "chunks": 523,
+    "reasoning_chunks": 221,
+    "content_chunks": 300,
+    "content_chars": 464,
+    "content_stream_span_ms": 0
+  },
+  {
+    "label": "正确用法 client.stream() (thinking=on)",
+    "first_chunk_ms": 531,
+    "total_ms": 52578,
+    "chunks": 4097,
+    "reasoning_chunks": 4095,
+    "content_chunks": 0,
+    "content_chars": 0,
+    "content_stream_span_ms": 52047
+  },
+  {
+    "label": "正确用法 client.stream() (thinking=off)",
+    "first_chunk_ms": 516,
+    "total_ms": 5297,
+    "chunks": 543,
+    "reasoning_chunks": 252,
+    "content_chunks": 289,
+    "content_chars": 467,
+    "content_stream_span_ms": 4781
+  }
+]

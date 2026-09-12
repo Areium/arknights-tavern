@@ -15,9 +15,7 @@ import random
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFilter
-
-import frontmatter
+from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parent.parent
 BG_ROOT = ROOT / "data" / "combat" / "backgrounds"

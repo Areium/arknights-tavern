@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import logging
-import re
 
 from .base import HookContext, NarrativeHook
 from services.dice import DiceSystem

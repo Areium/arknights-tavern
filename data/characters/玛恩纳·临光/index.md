@@ -1,13 +1,17 @@
 ---
 attributes:
   情绪稳定性: 9
-  战场机动: 7
+  战场机动: 8
   战斗技巧: 9
   战术规划: 8
   源石技艺适应性: 6
   物理强度: 9
   生理耐受: 8
   魅力: 7
+# 演示调参：攻击数值 ×2（派生 patk 36 → 72、matk 28 → 56）
+combat_stats:
+  patk: 72
+  matk: 56
 class: 近卫
 faction: 临光家族
 imports:

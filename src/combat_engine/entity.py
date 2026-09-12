@@ -16,9 +16,8 @@ Stat conversion: 1-10 roleplay attributes → combat numbers.
     Personal AP = 1 + floor((mobility - 3) / 3)
 """
 
-from dataclasses import dataclass, field
-from typing import Optional
-import random
+from dataclasses import dataclass, field, fields
+import copy
 import math
 
 
@@ -98,13 +97,17 @@ class CombatUnit:
         "evade": 0, "blind": 0,
     })
 
+    action_slots: int = 1
+    power_tier: str = ""
+    role: str = ""
+    threat_points: int = 0
+
+    def __post_init__(self):
+        self.action_slots = max(0, int(self.action_slots))
+
     @property
     def is_alive(self) -> bool:
         return self.hp > 0
-
-    @property
-    def is_player(self) -> bool:
-        return self.team == "player"
 
     @property
     def mobility(self) -> int:
@@ -119,15 +122,21 @@ class CombatUnit:
         if shield > 0:
             absorbed = min(shield, amount)
             self.status["shield"] = shield - absorbed
+            remaining = absorbed
+            for layer in sorted(self.status.get("shield_layers", []),
+                                key=lambda layer: layer["duration"]):
+                used = min(layer["value"], remaining)
+                layer["value"] -= used
+                remaining -= used
             amount -= absorbed
-        actual = min(amount, self.hp)
+        actual = min(amount, max(0, self.hp))
         self.hp -= actual
         return actual
 
     def heal(self, amount: int) -> int:
         """Restore HP, return actual HP gained."""
         old = self.hp
-        self.hp = min(self.hp + amount, self.max_hp)
+        self.hp = min(self.hp + max(0, amount), self.max_hp)
         return self.hp - old
 
     def reset_ap(self):
@@ -135,10 +144,17 @@ class CombatUnit:
 
     # ── Status effects ──
 
-    def apply_status(self, kind: str, value: int = 0) -> None:
-        """施加状态：shield 累加，其余取 max（刷新持续时间）。"""
+    def apply_status(self, kind: str, value: int = 0,
+                     duration: int | None = None) -> None:
+        """Stack shields with independent expiry; refresh other status durations."""
         if kind == "shield":
-            self.status["shield"] = self.status.get("shield", 0) + max(0, int(value))
+            value = max(0, int(value))
+            if duration is not None and int(duration) <= 0:
+                return
+            self.status["shield"] = self.status.get("shield", 0) + value
+            if value and duration is not None:
+                self.status.setdefault("shield_layers", []).append(
+                    {"value": value, "duration": int(duration)})
         else:
             self.status[kind] = max(self.status.get(kind, 0), max(0, int(value)))
 
@@ -155,12 +171,25 @@ class CombatUnit:
                 self.status[kind] = 0
                 cleared += 1
         self.status["burn_damage"] = 0
+        self.status.pop("burn_source", None)
         return cleared
 
     def tick_status(self) -> None:
-        """每回合开始递减持续型状态（shield/burn_damage 不衰减）。"""
+        """Tick durations and expire only the unabsorbed portion of timed shields."""
         for kind in ("slow", "bind", "weaken", "strengthen", "silence", "burn", "taunt", "evade", "blind"):
             self.status[kind] = max(0, self.status.get(kind, 0) - 1)
+        if not self.status["burn"]:
+            self.status["burn_damage"] = 0
+            self.status.pop("burn_source", None)
+        layers = []
+        for layer in self.status.get("shield_layers", []):
+            layer["duration"] -= 1
+            if layer["duration"] <= 0:
+                self.status["shield"] = max(0, self.status.get("shield", 0) - layer["value"])
+            elif layer["value"] > 0:
+                layers.append(layer)
+        if "shield_layers" in self.status:
+            self.status["shield_layers"] = layers
 
     def status_amount(self, kind: str) -> int:
         return int(self.status.get(kind, 0) or 0)
@@ -201,6 +230,21 @@ class CombatUnit:
         max_ap = 1 + math.floor((MOB - 3) / 3)
         max_ap = max(1, min(max_ap, 4))
 
+        # 可选覆盖：角色卡 frontmatter `combat_stats`（与敌人卡同格式）直接指定最终
+        # 战斗数值，未声明的字段继续沿用属性派生结果。
+        overrides = meta.get("combat_stats", {}) or {}
+        if overrides:
+            max_hp = int(overrides.get("hp", max_hp))
+            patk = float(overrides.get("patk", patk))
+            matk = float(overrides.get("matk", matk))
+            heal = float(overrides.get("heal", heal))
+            defense = int(overrides.get("defense", defense))
+            resist = int(overrides.get("resist", resist))
+            spd = float(overrides.get("spd", spd))
+            hit = int(overrides.get("hit", hit))
+            eva = int(overrides.get("eva", eva))
+            max_ap = max(1, min(int(overrides.get("max_ap", max_ap)), 4))
+
         # Card face URL
         skin_url = ""
         skin_crop = None
@@ -232,6 +276,10 @@ class CombatUnit:
             attributes=a,
             skin_url=skin_url,
             skin_crop=skin_crop,
+            action_slots=overrides.get("action_slots", meta.get("action_slots", 1)),
+            power_tier=meta.get("power_tier", ""),
+            role=meta.get("role", ""),
+            threat_points=meta.get("threat_points", 0),
         )
 
     @classmethod
@@ -241,7 +289,9 @@ class CombatUnit:
                      spd: float = 8, hit: int = 4, eva: int = 4,
                      max_ap: int = 3,
                      ai_behavior: str = "aggressive",
-                     ai_skills: list = None) -> "CombatUnit":
+                     ai_skills: list = None, action_slots: int = 1,
+                     power_tier: str = "", role: str = "",
+                     threat_points: int = 0) -> "CombatUnit":
         """Quick enemy creation with explicit stats."""
         return cls(
             unit_id=name,
@@ -255,6 +305,8 @@ class CombatUnit:
             DEF=defense, RES=resist,
             SPD=spd, HIT=hit, EVA=eva,
             AP=max_ap, MAX_AP=max_ap,
+            action_slots=action_slots, power_tier=power_tier,
+            role=role, threat_points=threat_points,
         )
 
     def to_dict(self) -> dict:
@@ -266,12 +318,24 @@ class CombatUnit:
             "ai_behavior": self.ai_behavior,
             "ai_skills": list(self.ai_skills),
             "hp": self.hp, "max_hp": self.max_hp,
-            "PATK": self.PATK, "MATK": self.MATK,
+            "PATK": self.PATK, "MATK": self.MATK, "HEAL": self.HEAL,
+            "attributes": copy.deepcopy(self.attributes),
+            "action_slots": self.action_slots,
+            "power_tier": self.power_tier,
+            "role": self.role,
+            "threat_points": self.threat_points,
             "DEF": self.DEF, "RES": self.RES,
             "SPD": self.SPD, "HIT": self.HIT, "EVA": self.EVA,
             "AP": self.AP, "MAX_AP": self.MAX_AP,
             "pos": list(self.pos),
-            "status": dict(self.status),
+            "status": copy.deepcopy(self.status),
             "skin_url": self.skin_url,
-            "skin_crop": self.skin_crop,
+            "skin_crop": copy.deepcopy(self.skin_crop),
         }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "CombatUnit":
+        values = {f.name: copy.deepcopy(data[f.name]) for f in fields(cls)
+                  if f.name in data}
+        values["pos"] = tuple(data.get("pos", (-1, -1)))
+        return cls(**values)

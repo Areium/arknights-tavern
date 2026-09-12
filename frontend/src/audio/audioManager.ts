@@ -331,8 +331,8 @@ class AudioManager {
       loop.volume = this.settings.bgmVolume;
       this.elementGains.set(intro, 1);
       this.elementGains.set(loop, 1);
-      intro.src = `${base}/api/assets/audio/bgm/combat_intro.wav`;
-      loop.src = `${base}/api/assets/audio/bgm/combat_loop.wav`;
+      intro.src = `${base}/api/assets/audio/bgm/combat_intro.mp3`;
+      loop.src = `${base}/api/assets/audio/bgm/combat_loop.mp3`;
       loop.loop = true;
       intro.onended = () => { this.bgmPhase = "loop"; loop.play().catch(() => { /* 缺失静音 */ }); };
       this.bgmIntro = intro;

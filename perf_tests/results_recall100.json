@@ -1,0 +1,168 @@
+{
+  "total": 14,
+  "recall": "12/12",
+  "recall_rate": 1.0,
+  "false_positive": 0,
+  "all_ok": true,
+  "retry_count": 0,
+  "degraded_final": 0,
+  "cases": [
+    {
+      "narrative": "训练场的警报骤然响起。三名整合运动士兵从侧门涌入",
+      "expected_combat": true,
+      "triggered": true,
+      "encounter_id": "初遇整合运动",
+      "encounter_valid": true,
+      "ok": true,
+      "degraded": false,
+      "retried": false,
+      "finish_reason": "stop"
+    },
+    {
+      "narrative": "车队在山道遭遇伏击。雪坡上十几支弩箭同时射出，两",
+      "expected_combat": true,
+      "triggered": true,
+      "encounter_id": "enc_snow_convoy",
+      "encounter_valid": true,
+      "ok": true,
+      "degraded": false,
+      "retried": false,
+      "finish_reason": "stop"
+    },
+    {
+      "narrative": "竞技场通道里，三名无胄盟刺客从阴影中现身，匕首的",
+      "expected_combat": true,
+      "triggered": true,
+      "encounter_id": "enc_defense",
+      "encounter_valid": true,
+      "ok": true,
+      "degraded": false,
+      "retried": false,
+      "finish_reason": "stop"
+    },
+    {
+      "narrative": "博士推开会议室的门，两名戴兜帽的整合运动感染者正",
+      "expected_combat": true,
+      "triggered": true,
+      "encounter_id": "初遇整合运动",
+      "encounter_valid": true,
+      "ok": true,
+      "degraded": false,
+      "retried": false,
+      "finish_reason": "stop"
+    },
+    {
+      "narrative": "雨夜，罗德岛车队在峡谷地段遭遇伏击，三名整合运动",
+      "expected_combat": true,
+      "triggered": true,
+      "encounter_id": "enc_snow_convoy",
+      "encounter_valid": true,
+      "ok": true,
+      "degraded": false,
+      "retried": false,
+      "finish_reason": "stop"
+    },
+    {
+      "narrative": "竞技场地牢的铁门被撞开，数十名被囚的感染者骑士冲",
+      "expected_combat": true,
+      "triggered": true,
+      "encounter_id": "初遇整合运动",
+      "encounter_valid": true,
+      "ok": true,
+      "degraded": false,
+      "retried": false,
+      "finish_reason": "stop"
+    },
+    {
+      "narrative": "喀兰贸易大楼的会客室突然传来爆炸声，浓烟从走廊尽",
+      "expected_combat": true,
+      "triggered": true,
+      "encounter_id": "enc_defense",
+      "encounter_valid": true,
+      "ok": true,
+      "degraded": false,
+      "retried": false,
+      "finish_reason": "stop"
+    },
+    {
+      "narrative": "训练场的模拟战进入第二场：血骑士单枪匹马站在场地",
+      "expected_combat": true,
+      "triggered": true,
+      "encounter_id": "enc_training",
+      "encounter_valid": true,
+      "ok": true,
+      "degraded": false,
+      "retried": false,
+      "finish_reason": "stop"
+    },
+    {
+      "narrative": "码头集装箱区，一道寒光贴着阴影掠过——无胄盟的狙",
+      "expected_combat": true,
+      "triggered": true,
+      "encounter_id": "初遇整合运动",
+      "encounter_valid": true,
+      "ok": true,
+      "degraded": false,
+      "retried": false,
+      "finish_reason": "stop"
+    },
+    {
+      "narrative": "圣山山路的岔口，一队山雪鬼巡逻兵拦住了博士一行的",
+      "expected_combat": true,
+      "triggered": true,
+      "encounter_id": "enc_festival_eve",
+      "encounter_valid": true,
+      "ok": true,
+      "degraded": false,
+      "retried": false,
+      "finish_reason": "stop"
+    },
+    {
+      "narrative": "庆典广场的人群忽然骚动，一名感染者引爆了随身携带",
+      "expected_combat": true,
+      "triggered": true,
+      "encounter_id": "enc_festival_uprising",
+      "encounter_valid": true,
+      "ok": true,
+      "degraded": false,
+      "retried": false,
+      "finish_reason": "stop"
+    },
+    {
+      "narrative": "罗德岛走廊的通风口突然被顶开，两只猎犬型的源石生",
+      "expected_combat": true,
+      "triggered": true,
+      "encounter_id": "enc_defense",
+      "encounter_valid": true,
+      "ok": true,
+      "degraded": false,
+      "retried": false,
+      "finish_reason": "stop"
+    },
+    {
+      "narrative": "雪山大典的观礼台上，银灰与阿克托斯迎面而立，气氛",
+      "expected_combat": false,
+      "triggered": false,
+      "encounter_id": null,
+      "encounter_valid": true,
+      "ok": true,
+      "degraded": false,
+      "retried": false,
+      "finish_reason": "stop"
+    },
+    {
+      "narrative": "食堂里，两名干员因为训练场使用时间争执起来，声音",
+      "expected_combat": false,
+      "triggered": false,
+      "encounter_id": null,
+      "encounter_valid": true,
+      "ok": true,
+      "degraded": false,
+      "retried": false,
+      "finish_reason": "stop"
+    }
+  ],
+  "finish_counter": {
+    "stop": 14
+  }
+}

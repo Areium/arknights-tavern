@@ -4,7 +4,6 @@ Scene blueprint — 场景角色/物品/覆盖管理。
 
 import logging
 import os
-from pathlib import Path
 from flask import Blueprint, jsonify, request, send_from_directory, abort
 
 from shared.helpers import json_error

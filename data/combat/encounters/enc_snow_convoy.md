@@ -4,6 +4,11 @@ name: "商会车队遇袭"
 summary: "喀兰贸易商队在雪道上遭遇山雪鬼武装与雪原爪兽的伏击，博士初次见识谢拉格的武力冲突。"
 category: "story"
 difficulty: 1
+encounter_type: "teaching"
+recommended_power_tier: "T0"
+target_rounds: 2
+threat_budget: 2.6
+balance_version: 1
 grid_size: 7
 background: "snow_mountain"
 deploy_zones:
@@ -48,16 +53,16 @@ approaches:
 waves:
   - enemies:
       - enemy: "山雪鬼"
-        count: 3
-        positions: [[3, 3], [4, 3], [5, 3]]
+        count: 1
+        positions: [[3, 3]]
       - enemy: "雪原爪兽"
-        count: 2
-        positions: [[3, 4], [4, 4]]
+        count: 1
+        positions: [[3, 4]]
 conditions:
-  max_rounds: 30
+  max_rounds: 6
   escape_enabled: true
 rewards:
-  xp: 100
+  xp: 16
   items: ["源石碎片"]
   unlock: []
 trigger_plot: ""

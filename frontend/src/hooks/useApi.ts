@@ -6,6 +6,7 @@
 
 import { useMemo } from "react";
 import { getBaseUrl } from "../utils/baseUrl";
+import type { CombatSettlementDTO } from "../types";
 
 async function uploadMultipart(path: string, fields: Record<string, string>, file: File): Promise<any> {
   const base = await getBaseUrl();
@@ -52,7 +53,9 @@ async function request<T>(
       } catch {
         message = body;
       }
-      throw new Error(message || `HTTP ${res.status}`);
+      const err = new Error(message || `HTTP ${res.status}`) as Error & { status?: number };
+      err.status = res.status;
+      throw err;
     }
 
     return res.json();
@@ -613,10 +616,23 @@ export function useApi() {
       rounds: number;
       character_stats: Record<string, any>;
     }) =>
-      request<any>(`/api/sessions/${sessionId}/combat/complete`, {
+      request<{
+        message: string;
+        history: any[];
+        settlement: CombatSettlementDTO;
+        rewards: { xp: number; items: string[]; level_ups: any[]; card_choices?: any[] };
+        auto_narrate_action: string;
+      }>(`/api/sessions/${sessionId}/combat/complete`, {
         method: "POST",
         body: JSON.stringify(data),
       }),
+
+    /** 生成/读取本场战斗的结算数据（幂等，胜利后自动调用） */
+    combatSettlement: (sessionId: string) =>
+      request<{ ok: boolean; settlement: CombatSettlementDTO | null; winner?: string; message?: string }>(
+        `/api/sessions/${sessionId}/combat/settlement`,
+        { method: "POST" },
+      ),
 
     combatAbandon: (sessionId: string) =>
       request<{ message: string; auto_narrate_action: string }>(
@@ -650,6 +666,11 @@ export function useApi() {
       request<any>(`/api/combat/test/${testId}/end-turn`, {
         method: "POST",
       }),
+
+    combatTestDelete: (testId: string) =>
+      request<{ ok: boolean }>(`/api/combat/test/${testId}`, {
+        method: "DELETE",
+      }),
   }), []);
 }
 
@@ -678,34 +699,6 @@ export function createSSE(
   }
 ): { close: () => void } {
   return connectSSE(path, "GET", undefined, handlers);
-}
-
-/**
- * 创建 POST SSE 连接 — 发送 JSON body，以流式读取 SSE 响应
- */
-export function createPostSSE(
-  path: string,
-  body: Record<string, any>,
-  handlers: {
-    onText?: (token: string) => void;
-    onReasoning?: (token: string) => void;
-    onSceneEvent?: (event: any) => void;
-    onMemoryEvent?: (event: any) => void;
-    onChoice?: (options: string[]) => void;
-    onDialogueSegments?: (segments: { type: string; text: string; speaker?: string }[]) => void;
-    onTokenUsage?: (usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }) => void;
-    onCombatTrigger?: (data: { encounter_id: string; session_id: string }) => void;
-    onCombatBriefing?: (data: { encounter_id: string; session_id: string; name: string; approaches: { id: string; label: string; hint: string; kind: "combat" | "check" | "avoid" }[] }) => void;
-    onAttributeRoll?: (data: {
-      attribute: string; character: string; roll: number;
-      modifier: number; total: number; dc: number;
-      success: boolean; text: string; source: string; stream_id: string;
-    }) => void;
-    onError?: (message: string) => void;
-    onDone?: () => void;
-  }
-): { close: () => void } {
-  return connectSSE(path, "POST", body, handlers);
 }
 
 /**

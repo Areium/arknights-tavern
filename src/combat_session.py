@@ -11,7 +11,6 @@ import os
 import sys
 import time
 import random
-from typing import Optional
 
 # Ensure project root and src/ are importable
 _src_dir = os.path.dirname(os.path.abspath(__file__))
@@ -24,7 +23,7 @@ from combat_engine.entity import CombatUnit
 from combat_engine.card import Card, CardPool
 from combat_engine.card_data import get_starting_deck
 from combat_engine.engine import CombatEngine, CombatEvent
-from combat_engine.grid import resolve_targets, range_between, TOTAL_ROWS, TOTAL_COLS, ENEMY_COL_START
+from combat_engine.grid import TOTAL_ROWS, TOTAL_COLS, ENEMY_COL_START
 from combat_data_loader import CombatDataLoader
 
 logger = logging.getLogger(__name__)
@@ -123,7 +122,6 @@ class CombatSession:
             # Load cards: use the class engine pool. Character-specific cards in
             # combat.json are narrative cards (0 damage / narrative SP cost), not
             # combat-engine cards — they belong to the story layer, not the engine.
-            char_name = meta.get("name", "")
             cards = get_starting_deck(char_class, count=7)
             if not cards:
                 cards = get_starting_deck("辅助", count=7)
@@ -493,6 +491,10 @@ class CombatSession:
                 "status": dict(u.status),
                 "skin_url": u.skin_url,
                 "skin_crop": self._refresh_skin_crop(u),
+                "action_slots": u.action_slots,
+                "power_tier": u.power_tier,
+                "role": u.role,
+                "threat_points": u.threat_points,
             })
 
         # Shared hand — always available from shared pool
@@ -533,6 +535,7 @@ class CombatSession:
             "background_url": self._background_url,
             "shared_ap": e.shared_ap,
             "shared_ap_max": e.SHARED_AP_MAX,
+            "balance_version": getattr(e, "balance_version", 0),
             "max_rounds": e.max_rounds,
             "escape_enabled": e.escape_enabled,
             "wave_num": e.wave_num,
@@ -584,6 +587,7 @@ class CombatSession:
             "escape_enabled": self.engine.escape_enabled if self.engine else False,
             "shared_ap": self.engine.shared_ap if self.engine else 0,
             "shared_ap_max": self.engine.SHARED_AP_MAX if self.engine else 2,
+            "engine": self.engine.to_dict() if self.engine else None,
             "engine_state": {
                 "round_num": self.engine.state.round_num,
                 "phase": self.engine.state.phase,
@@ -608,7 +612,22 @@ class CombatSession:
         cs._enemy_scale = data.get("enemy_scale", 1.0)
         cs._character_metas = data.get("character_metas", [])
 
-        # Reconstruct engine
+        # 优先用引擎级快照恢复（含 balance_version 迁移、行动槽、遥测、
+        # 待入场波次与护盾层）；旧格式存档回退到字段级重建。
+        engine_snapshot = data.get("engine")
+        if engine_snapshot:
+            cs.engine = CombatEngine.from_dict(engine_snapshot)
+            cs.engine.max_rounds = int(data.get("max_rounds", cs.engine.max_rounds) or cs.engine.max_rounds)
+            cs.engine.escape_enabled = bool(data.get("escape_enabled", cs.engine.escape_enabled))
+            # Re-resolve background (location context is not persisted; the
+            # encounter-level field or the default background still applies).
+            if cs._encounter_id:
+                encounter = cs.loader.load_encounter(cs._encounter_id)
+                cs._background_url = cs.loader.resolve_background(
+                    encounter, session_dir=cs._session_dir, session_id=cs.session_id)
+            return cs
+
+        # Reconstruct engine (legacy path)
         from combat_engine.engine import CombatState
         engine = CombatEngine()
         es = data.get("engine_state", {})

@@ -37,6 +37,9 @@ _DEFAULT_CONFIG = {
     "ollama_url": "http://localhost:11434",
     "ollama_model": ModelConfig.model,
     "theme": "dark",
+    # UI 皮肤：default（默认）/ prts（PRTS 全息终端）/ tavern（酒馆手札）。
+    # 皮肤是自带完整色板的独立主题，激活时前端禁用明暗切换。
+    "skin": "default",
     "provider": "auto",
     "enable_thinking": False,
     "reasoning_effort": "medium",
@@ -117,7 +120,6 @@ class LLMBackendManager:
         self._fallback: Optional[LLMEndpoint] = None
         self._all_endpoints: list[LLMEndpoint] = []
         self._lock = threading.Lock()
-        self._last_fail_time: float = 0.0
         self._endpoint_fail_time: dict[str, float] = {}
         self._verified_at: dict[str, float] = {}  # 端点最近一次健康检查通过时间
         self._detected = False
@@ -362,8 +364,8 @@ class LLMBackendManager:
 
             try:
                 llm = self._instantiate(ep)
-                test = llm.chat([{"role": "user", "content": "."}], max_tokens=1)
                 # 能返回即视为健康（错误不再伪装成文本，直接抛 LLMError）
+                llm.chat([{"role": "user", "content": "."}], max_tokens=1)
                 self._verified_at[ep.id] = now
                 return llm, ep.id
             except LLMError:
@@ -382,7 +384,6 @@ class LLMBackendManager:
             except Exception:
                 pass
 
-        self._last_fail_time = now
         return None, ""
 
     def mark_endpoint_failed(self, endpoint_id: str):
@@ -390,14 +391,6 @@ class LLMBackendManager:
         self._endpoint_fail_time[endpoint_id] = time.time()
         logger.warning("LLM 端点 %s 标记失败，%ss 内降级到备用后端",
                        endpoint_id, 30.0)
-
-    def get_llm_for_endpoint(self, endpoint_id: str) -> ApiLLM | LocalLLM | None:
-        """为指定端点创建 LLM 实例（前端手动选择时用）。"""
-        self._ensure_detected()
-        for ep in self._all_endpoints:
-            if ep.id == endpoint_id and ep.available:
-                return self._instantiate(ep)
-        return None
 
     def _instantiate(self, ep: LLMEndpoint) -> ApiLLM | LocalLLM:
         """根据端点类型创建 LLM 实例（真实失败经 on_failure 标记端点降级）。"""
@@ -434,11 +427,6 @@ class LLMBackendManager:
             "available": self._primary is not None and self._primary.available,
         }
 
-    def is_available(self) -> bool:
-        """是否有至少一个可用后端。"""
-        self._ensure_detected()
-        return any(ep.available for ep in self._all_endpoints)
-
     # ── 配置管理 ──
 
     def get_config(self) -> dict:
@@ -452,6 +440,7 @@ class LLMBackendManager:
             "ollama_url": merged.get("ollama_url", ""),
             "ollama_model": merged.get("ollama_model", ""),
             "theme": merged.get("theme", "dark"),
+            "skin": merged.get("skin", "default"),
             "provider": merged.get("provider", "auto"),
             "enable_thinking": merged.get("enable_thinking", False),
             "reasoning_effort": merged.get("reasoning_effort", "medium"),
@@ -486,6 +475,9 @@ class LLMBackendManager:
             merged["ollama_model"] = data["ollama_model"]
         if "theme" in data:
             merged["theme"] = data["theme"]
+        if "skin" in data:
+            skin = str(data["skin"]).strip().lower()
+            merged["skin"] = skin if skin in ("default", "prts", "tavern") else "default"
         if "auto_generate_choices" in data:
             merged["auto_generate_choices"] = bool(data["auto_generate_choices"])
         if "choice_count" in data:

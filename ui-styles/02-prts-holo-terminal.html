@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>风格 B · PRTS 全息终端 — Arknights Tavern UI 预览</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  /* ═══════════ 设计令牌：PRTS 全息终端 ═══════════ */
+  :root {
+    --abyss: #04070d;           /* 深空底 */
+    --panel: rgba(13, 26, 43, .66);
+    --panel-solid: #0b1524;
+    --line: rgba(56, 189, 248, .22);
+    --line-strong: rgba(56, 189, 248, .45);
+    --holo: #38bdf8;            /* 全息青 */
+    --holo-dim: #7dd3fc;
+    --gold: #f0c060;            /* 战备金（沿用战斗金） */
+    --alert: #fb5e5e;
+    --ok: #3ddc97;
+    --text: #dce8f2;
+    --text-2: #8ca3b8;
+    --text-3: #54687c;
+    --display: "Orbitron", "Noto Sans SC", sans-serif;
+    --mono: "JetBrains Mono", monospace;
+    --r: 4px;
+    --glow-c: 0 0 18px rgba(56,189,248,.35);
+    --glow-g: 0 0 18px rgba(240,192,96,.3);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { font-size: 14px; }
+  body {
+    font-family: "Noto Sans SC", sans-serif; color: var(--text); line-height: 1.6;
+    background:
+      radial-gradient(900px 500px at 85% -10%, rgba(56,189,248,.10), transparent 60%),
+      radial-gradient(700px 420px at 8% 110%, rgba(240,192,96,.06), transparent 60%),
+      var(--abyss);
+    -webkit-font-smoothing: antialiased; min-height: 100vh;
+  }
+  /* 网格地平线 + 扫描线覆盖 */
+  body::before {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background:
+      linear-gradient(rgba(56,189,248,.05) 1px, transparent 1px) 0 0 / 100% 36px,
+      linear-gradient(90deg, rgba(56,189,248,.05) 1px, transparent 1px) 0 0 / 36px 100%;
+    mask-image: radial-gradient(ellipse at 50% 30%, black 30%, transparent 75%);
+  }
+  body::after {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 60;
+    background: repeating-linear-gradient(0deg, rgba(255,255,255,.022) 0 1px, transparent 1px 3px);
+  }
+  button { font-family: inherit; cursor: pointer; }
+  input, select { font-family: inherit; outline: none; }
+  :focus-visible { outline: 2px solid var(--holo); outline-offset: 2px; box-shadow: var(--glow-c); }
+  .mono { font-family: var(--mono); }
+  .orb { font-family: var(--display); letter-spacing: .12em; }
+
+  /* ═══════════ 预览横幅 ═══════════ */
+  .preview-banner {
+    background: #02040a; border-bottom: 1px solid var(--line-strong);
+    color: var(--text); padding: 6px 20px; min-height: 44px; display: flex; align-items: center;
+    gap: 18px; flex-wrap: wrap; font-size: 12px; position: sticky; top: 0; z-index: 100;
+  }
+  .preview-banner strong { font-family: var(--display); font-size: 12.5px; letter-spacing: .1em; color: var(--holo); text-shadow: 0 0 12px rgba(56,189,248,.6); }
+  .preview-banner .kw { color: var(--text-3); }
+  .preview-banner .kw b { color: var(--gold); font-weight: 500; }
+  .preview-banner nav { margin-left: auto; display: flex; gap: 2px; }
+  .preview-banner nav a { color: var(--text-3); text-decoration: none; padding: 4px 10px; border: 1px solid transparent; }
+  .preview-banner nav a:hover { color: var(--holo-dim); border-color: var(--line); }
+  .preview-banner nav a.on { color: var(--holo); border-color: var(--line-strong); background: rgba(56,189,248,.08); }
+
+  .app { display: flex; min-height: calc(100vh - 45px); position: relative; z-index: 1; }
+
+  /* ═══════════ 侧边导航：终端菜单 ═══════════ */
+  .side {
+    width: 216px; flex-shrink: 0; border-right: 1px solid var(--line);
+    background: rgba(6, 12, 21, .8); backdrop-filter: blur(6px);
+    display: flex; flex-direction: column; padding: 18px 0 0;
+  }
+  .side .brand { padding: 0 18px 16px; border-bottom: 1px solid var(--line); }
+  .side .brand .orb { color: var(--holo); font-size: 15px; font-weight: 700; text-shadow: 0 0 14px rgba(56,189,248,.55); }
+  .side .brand small { display: block; color: var(--text-3); font-size: 10px; letter-spacing: .3em; margin-top: 3px; }
+  .side nav { padding: 12px 10px; display: flex; flex-direction: column; gap: 3px; }
+  .side .grp { font-size: 10px; letter-spacing: .28em; color: var(--text-3); padding: 12px 10px 5px; }
+  .side a {
+    display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 13px;
+    color: var(--text-2); text-decoration: none; border: 1px solid transparent; border-radius: var(--r);
+    transition: all .15s; position: relative;
+  }
+  .side a::before { content: "▸"; color: transparent; transition: color .15s; font-size: 10px; }
+  .side a:hover { color: var(--text); background: rgba(56,189,248,.06); border-color: var(--line); }
+  .side a.on { color: var(--holo); background: rgba(56,189,248,.1); border-color: var(--line-strong); box-shadow: inset 0 0 18px rgba(56,189,248,.08); }
+  .side a.on::before { color: var(--holo); }
+  .side a .code { margin-left: auto; font-family: var(--mono); font-size: 9px; color: var(--text-3); }
+  .side .sys {
+    margin: 12px; padding: 12px; border: 1px solid var(--line); border-radius: var(--r);
+    background: rgba(251, 94, 94, .05); font-size: 11px; color: var(--text-2);
+  }
+  .side .sys b { color: var(--alert); font-family: var(--mono); font-size: 10px; letter-spacing: .15em; display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+  .side .sys b::before { content: ""; width: 7px; height: 7px; background: var(--alert); border-radius: 50%; box-shadow: 0 0 8px var(--alert); animation: pulse 1.4s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+  .side .foot { margin-top: auto; border-top: 1px solid var(--line); padding: 10px 18px; font-size: 10.5px; color: var(--text-3); font-family: var(--mono); display: flex; gap: 8px; align-items: center; }
+  .side .foot .okdot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+
+  /* ═══════════ 主区 ═══════════ */
+  .main { flex: 1; min-width: 0; padding: 26px 34px 70px; max-width: 1220px; }
+  .masthead { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 28px; flex-wrap: wrap; }
+  .masthead .sys-tag { font-family: var(--mono); font-size: 10px; color: var(--holo); letter-spacing: .25em; border: 1px solid var(--line-strong); padding: 3px 10px; display: inline-block; margin-bottom: 10px; background: rgba(56,189,248,.06); }
+  .masthead h1 { font-family: var(--display); font-size: 24px; font-weight: 700; letter-spacing: .1em; color: #fff; text-shadow: 0 0 22px rgba(56,189,248,.45); }
+  .masthead p { font-size: 12px; color: var(--text-2); margin-top: 4px; }
+  .masthead .ops { display: flex; gap: 10px; }
+
+  /* 按钮：终端指令风 */
+  .btn {
+    display: inline-flex; align-items: center; gap: 7px; padding: 8px 16px;
+    font-size: 12.5px; font-weight: 500; border-radius: var(--r);
+    background: rgba(56,189,248,.07); color: var(--holo-dim); border: 1px solid var(--line-strong);
+    transition: all .15s; letter-spacing: .03em;
+  }
+  .btn:hover { background: rgba(56,189,248,.16); color: #fff; box-shadow: var(--glow-c); }
+  .btn:active { transform: translateY(1px); }
+  .btn.primary { background: rgba(240,192,96,.14); border-color: rgba(240,192,96,.55); color: var(--gold); }
+  .btn.primary:hover { background: rgba(240,192,96,.26); color: #ffe3a3; box-shadow: var(--glow-g); }
+  .btn.danger { background: rgba(251,94,94,.08); border-color: rgba(251,94,94,.4); color: #ff9b9b; }
+  .btn.danger:hover { background: rgba(251,94,94,.2); box-shadow: 0 0 14px rgba(251,94,94,.3); }
+  .btn:disabled { opacity: .35; cursor: not-allowed; box-shadow: none; }
+  .btn.sm { padding: 4px 11px; font-size: 11.5px; }
+
+  /* 徽章 */
+  .tag {
+    display: inline-flex; align-items: center; gap: 5px; padding: 1px 9px; font-size: 10.5px;
+    border-radius: 3px; border: 1px solid var(--line-strong); color: var(--holo-dim);
+    background: rgba(56,189,248,.07); white-space: nowrap; letter-spacing: .04em;
+  }
+  .tag::before { content: ""; width: 5px; height: 5px; background: currentColor; border-radius: 1px; opacity: .9; }
+  .tag.story { color: var(--gold); border-color: rgba(240,192,96,.45); background: rgba(240,192,96,.08); }
+  .tag.free  { color: #c4b5fd; border-color: rgba(167,139,250,.4); background: rgba(167,139,250,.08); }
+  .tag.live  { color: var(--ok); border-color: rgba(61,220,151,.4); background: rgba(61,220,151,.07); }
+  .tag.alert { color: var(--alert); border-color: rgba(251,94,94,.45); background: rgba(251,94,94,.08); }
+
+  /* 会话卡片：全息面板 + 角括号 */
+  .grid-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 16px; margin-bottom: 42px; }
+  .scard {
+    position: relative; background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--r); padding: 18px 20px 14px; cursor: pointer;
+    backdrop-filter: blur(8px); transition: border-color .18s, box-shadow .18s, transform .18s;
+  }
+  /* 四角括号 */
+  .scard::before, .scard::after,
+  .scard .ck::before, .scard .ck::after {
+    content: ""; position: absolute; width: 12px; height: 12px; border: 1.5px solid var(--holo); opacity: .55; transition: opacity .18s;
+  }
+  .scard::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+  .scard::after { top: -1px; right: -1px; border-left: none; border-bottom: none; }
+  .scard .ck::before { bottom: -1px; left: -1px; border-right: none; border-top: none; }
+  .scard .ck::after { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+  .scard:hover { border-color: var(--line-strong); box-shadow: var(--glow-c), inset 0 0 26px rgba(56,189,248,.05); transform: translateY(-2px); }
+  .scard:hover::before, .scard:hover::after, .scard:hover .ck::before, .scard:hover .ck::after { opacity: 1; }
+  .scard.sel { border-color: rgba(240,192,96,.6); box-shadow: var(--glow-g); }
+  .scard.sel::before, .scard.sel::after, .scard.sel .ck::before, .scard.sel .ck::after { border-color: var(--gold); opacity: 1; }
+  .scard .sid { font-family: var(--mono); font-size: 9.5px; color: var(--text-3); letter-spacing: .18em; display: flex; justify-content: space-between; margin-bottom: 8px; }
+  .scard h3 { font-size: 16px; font-weight: 700; color: #fff; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .scard .sub { font-size: 12px; color: var(--text-2); margin-bottom: 12px; }
+  .scard .tags { display: flex; gap: 6px; flex-wrap: wrap; }
+  .scard .footrow { display: flex; justify-content: space-between; margin-top: 13px; padding-top: 9px; border-top: 1px dashed var(--line); font-size: 10.5px; color: var(--text-3); font-family: var(--mono); }
+  .avatars { display: flex; }
+  .avatars i {
+    width: 24px; height: 24px; margin-left: -7px; border-radius: 50%; border: 1.5px solid var(--abyss);
+    display: grid; place-items: center; font-size: 10px; font-style: normal; color: #fff; font-weight: 700;
+    box-shadow: 0 0 8px rgba(56,189,248,.3);
+  }
+  .avatars i:first-child { margin-left: 0; }
+
+  /* 分区标题 */
+  .sect { display: flex; align-items: center; gap: 12px; margin-bottom: 15px; }
+  .sect .tick { font-family: var(--mono); color: var(--holo); font-size: 11px; letter-spacing: .2em; }
+  .sect h2 { font-size: 15px; font-weight: 700; letter-spacing: .12em; color: #fff; }
+  .sect .rule { flex: 1; height: 1px; background: linear-gradient(90deg, var(--line-strong), transparent); }
+
+  .cols { display: grid; grid-template-columns: 1.25fr 1fr; gap: 18px; margin-bottom: 42px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 18px 20px; backdrop-filter: blur(8px); }
+  .panel > .ph { display: flex; align-items: baseline; gap: 10px; border-bottom: 1px solid var(--line); padding-bottom: 10px; margin-bottom: 13px; }
+  .panel > .ph h3 { font-size: 14.5px; font-weight: 700; color: #fff; letter-spacing: .06em; }
+  .panel > .ph .mono { color: var(--text-3); font-size: 9.5px; letter-spacing: .15em; }
+  .panel > .ph .right { margin-left: auto; display: flex; gap: 6px; }
+
+  /* 表格：终端读数 */
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  thead th {
+    text-align: left; font-family: var(--mono); font-weight: 600; font-size: 10px; letter-spacing: .18em;
+    color: var(--holo); padding: 6px 10px; border-bottom: 1px solid var(--line-strong); white-space: nowrap;
+  }
+  tbody td { padding: 7px 10px; border-bottom: 1px solid rgba(56,189,248,.09); color: var(--text-2); }
+  tbody tr { transition: background .12s; }
+  tbody tr:hover { background: rgba(56,189,248,.06); }
+  tbody td b { color: var(--text); font-weight: 500; }
+  .lv { font-family: var(--display); font-weight: 700; color: var(--gold); font-size: 13px; text-shadow: 0 0 10px rgba(240,192,96,.4); }
+  .meter { width: 90px; height: 5px; background: rgba(56,189,248,.12); border-radius: 2px; overflow: hidden; }
+  .meter i { display: block; height: 100%; background: linear-gradient(90deg, #0e7490, var(--holo)); box-shadow: 0 0 8px rgba(56,189,248,.6); }
+
+  /* 表单：控制台输入 */
+  .field { margin-bottom: 15px; }
+  .field label { display: flex; justify-content: space-between; font-size: 12px; font-weight: 500; color: var(--text); margin-bottom: 6px; }
+  .field label .mono { color: var(--text-3); font-size: 9.5px; letter-spacing: .15em; }
+  .input, select.input {
+    width: 100%; padding: 9px 12px; font-size: 13px; color: var(--text);
+    background: rgba(4, 10, 18, .7); border: 1px solid var(--line-strong); border-radius: var(--r);
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .input::placeholder { color: var(--text-3); }
+  .input:hover { border-color: var(--holo); }
+  .input:focus { border-color: var(--holo); box-shadow: 0 0 0 1px var(--holo), var(--glow-c); }
+  .input:disabled { opacity: .4; cursor: not-allowed; }
+  select.input option { background: var(--panel-solid); }
+  .seg { display: flex; gap: 8px; }
+  .seg button {
+    flex: 1; padding: 9px 6px; font-size: 12.5px; border-radius: var(--r);
+    background: rgba(56,189,248,.05); border: 1px solid var(--line); color: var(--text-2); transition: all .15s;
+  }
+  .seg button:hover { border-color: var(--line-strong); color: var(--text); }
+  .seg button.on { border-color: rgba(240,192,96,.6); color: var(--gold); background: rgba(240,192,96,.1); box-shadow: var(--glow-g); }
+  .check { display: flex; align-items: center; gap: 9px; font-size: 12.5px; color: var(--text-2); cursor: pointer; }
+  .check input { width: 15px; height: 15px; accent-color: var(--holo); cursor: pointer; }
+  .hint { font-size: 11px; color: var(--text-3); margin-top: 5px; }
+
+  /* 状态区 */
+  .states { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 42px; }
+  .empty-box { text-align: center; padding: 10px 4px 4px; }
+  .empty-box .radar {
+    width: 62px; height: 62px; margin: 0 auto 12px; border-radius: 50%;
+    border: 1px solid var(--line-strong); position: relative; overflow: hidden;
+    background: radial-gradient(circle, rgba(56,189,248,.12), transparent 70%);
+  }
+  .empty-box .radar::before { content: ""; position: absolute; inset: 0; background: conic-gradient(from 0deg, rgba(56,189,248,.5), transparent 60deg); animation: sweep 2.4s linear infinite; }
+  @keyframes sweep { to { transform: rotate(360deg); } }
+  .empty-box p { font-weight: 700; color: var(--text); font-size: 13.5px; }
+  .empty-box span { font-size: 11px; color: var(--text-3); display: block; margin: 4px 0 12px; }
+  .skl { height: 11px; border-radius: 2px; background: rgba(56,189,248,.1); margin-bottom: 9px; overflow: hidden; position: relative; }
+  .skl::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(56,189,248,.35), transparent); animation: stream 1.4s infinite; }
+  @keyframes stream { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+  .streamline { font-family: var(--mono); font-size: 10.5px; color: var(--holo); }
+  .streamline .cursor { display: inline-block; width: 7px; height: 12px; background: var(--holo); vertical-align: -2px; animation: pulse .9s steps(2) infinite; }
+  .errbox { border: 1px solid rgba(251,94,94,.5); border-radius: var(--r); background: rgba(251,94,94,.07); box-shadow: 0 0 20px rgba(251,94,94,.12); }
+  .errbox .eh { font-family: var(--mono); font-size: 10.5px; letter-spacing: .18em; color: var(--alert); border-bottom: 1px solid rgba(251,94,94,.3); padding: 8px 12px; display: flex; gap: 8px; align-items: center; }
+  .errbox .eh::before { content: ""; width: 8px; height: 8px; background: var(--alert); border-radius: 50%; box-shadow: 0 0 10px var(--alert); animation: pulse 1.2s infinite; }
+  .errbox .eb { padding: 12px; font-size: 12.5px; color: #f0c4c4; }
+  .errbox .eb b { color: #ffb4b4; }
+  .errbox .act { display: flex; gap: 8px; margin-top: 10px; }
+
+  /* 状态栏 */
+  .statusbar {
+    border: 1px solid var(--line); border-radius: var(--r); background: rgba(6,12,21,.8);
+    padding: 8px 16px; display: flex; gap: 22px; flex-wrap: wrap; font-family: var(--mono);
+    font-size: 10.5px; color: var(--text-3); letter-spacing: .06em;
+  }
+  .statusbar b { color: var(--text); font-weight: 600; }
+  .statusbar .ok { color: var(--ok); text-shadow: 0 0 8px rgba(61,220,151,.5); }
+  .statusbar .warn { color: var(--gold); }
+
+  /* 设计说明 */
+  .spec { border-top: 1px solid var(--line); margin-top: 48px; padding-top: 22px; font-size: 12px; color: var(--text-2); }
+  .spec h3 { font-size: 13px; color: #fff; margin-bottom: 12px; letter-spacing: .1em; }
+  .spec dl { display: grid; grid-template-columns: 120px 1fr; gap: 6px 18px; margin-bottom: 16px; }
+  .spec dt { color: var(--text-3); font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em; }
+  .swatches { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+  .sw { width: 72px; }
+  .sw i { display: block; height: 34px; border-radius: 3px; border: 1px solid var(--line-strong); }
+  .sw span { font-size: 9px; color: var(--text-3); font-family: var(--mono); }
+
+  /* ═══════════ 动效增强（演示） ═══════════ */
+  /* 开机序列：面板错峰入场（backwards 填充，避免锁定 hover 变换） */
+  @keyframes boot-in { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+  .side, .masthead, .grid-cards > *, .cols > *, .states > *, .livewrap, .statusbar { animation: boot-in .55s cubic-bezier(.2,.7,.25,1) backwards; }
+  .masthead { animation-delay: .06s; }
+  .grid-cards > *:nth-child(1) { animation-delay: .14s; }
+  .grid-cards > *:nth-child(2) { animation-delay: .2s; }
+  .grid-cards > *:nth-child(3) { animation-delay: .26s; }
+  .cols > *:nth-child(1) { animation-delay: .32s; }
+  .cols > *:nth-child(2) { animation-delay: .38s; }
+  .states > *:nth-child(1) { animation-delay: .44s; }
+  .states > *:nth-child(2) { animation-delay: .5s; }
+  .states > *:nth-child(3) { animation-delay: .56s; }
+  .livewrap { animation-delay: .3s; }
+  .statusbar { animation-delay: .62s; }
+
+  /* 全屏扫描光束 + 漂浮微尘 */
+  .scanbeam { position: fixed; left: 0; right: 0; top: -140px; height: 140px; pointer-events: none; z-index: 40;
+    background: linear-gradient(180deg, transparent, rgba(56,189,248,.05) 42%, rgba(56,189,248,.13) 50%, rgba(56,189,248,.05) 58%, transparent);
+    animation: beam 8s linear infinite; }
+  @keyframes beam { to { transform: translateY(calc(100vh + 280px)); } }
+  .dust { position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: .55;
+    background-image: radial-gradient(rgba(56,189,248,.35) 1px, transparent 1.6px), radial-gradient(rgba(240,192,96,.28) 1px, transparent 1.6px);
+    background-size: 190px 190px, 280px 280px; animation: drift 30s linear infinite; }
+  @keyframes drift { to { background-position: 190px -380px, -280px -560px; } }
+
+  /* 标题故障闪烁（悬停） */
+  .masthead h1:hover { animation: glitch .28s steps(2) infinite; }
+  @keyframes glitch {
+    0% { text-shadow: 0 0 22px rgba(56,189,248,.45), 2px 0 rgba(240,192,96,.75), -2px 0 rgba(56,189,248,.75); }
+    50% { text-shadow: 0 0 22px rgba(56,189,248,.45), -2px 0 rgba(240,192,96,.75), 2px 0 rgba(56,189,248,.75); }
+    100% { text-shadow: 0 0 22px rgba(56,189,248,.45), 1px 1px rgba(240,192,96,.75), -1px -1px rgba(56,189,248,.75); }
+  }
+
+  /* 实时叙述流终端 */
+  .livewrap { margin-bottom: 42px; }
+  .liveterm { background: rgba(4,10,18,.88); border: 1px solid var(--line-strong); border-radius: var(--r); padding: 16px 18px 14px; font-family: var(--mono); font-size: 12.5px; line-height: 2; box-shadow: inset 0 0 40px rgba(56,189,248,.04); }
+  .liveterm .ln { color: var(--text-2); word-break: break-all; }
+  .liveterm .ln b { color: var(--holo); font-weight: 600; }
+  .liveterm .ln.gold { color: var(--gold); }
+  .liveterm .ln.gold b { color: #ffe3a3; }
+  .liveterm .ln.ok { color: var(--ok); }
+  .liveterm .ln.ok b { color: #8ef0c0; }
+  .liveterm .cur { display: inline-block; width: 8px; height: 14px; margin-left: 2px; vertical-align: -2px; background: var(--holo); box-shadow: 0 0 8px var(--holo); animation: pulse .85s steps(2) infinite; }
+  .choices { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; opacity: 0; translate: 0 10px; transition: opacity .4s ease, translate .4s cubic-bezier(.2,.7,.25,1); }
+  .choices.show { opacity: 1; translate: 0 0; }
+  .choice { display: flex; align-items: center; gap: 11px; text-align: left; background: rgba(56,189,248,.05); border: 1px solid var(--line); color: var(--text); padding: 10px 14px; border-radius: var(--r); font-size: 13px; transition: border-color .15s, background .15s, box-shadow .15s; }
+  .choice:hover, .choice:focus-visible { border-color: var(--holo); background: rgba(56,189,248,.12); box-shadow: var(--glow-c); }
+  .choice .key { font-family: var(--mono); font-size: 11px; color: var(--holo); border: 1px solid var(--line-strong); border-radius: 3px; padding: 1px 7px; flex-shrink: 0; }
+  .choice .dc { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--gold); letter-spacing: .08em; white-space: nowrap; }
+
+  /* 状态栏均衡器（流式输出指示） */
+  .eq { display: inline-flex; align-items: flex-end; gap: 2.5px; height: 12px; vertical-align: -1px; }
+  .eq i { width: 3px; background: var(--ok); transform-origin: bottom; animation: eq 1s ease-in-out infinite; box-shadow: 0 0 6px rgba(61,220,151,.6); }
+  .eq i:nth-child(1) { height: 45%; }
+  .eq i:nth-child(2) { height: 90%; animation-delay: .18s; }
+  .eq i:nth-child(3) { height: 60%; animation-delay: .36s; }
+  .eq i:nth-child(4) { height: 75%; animation-delay: .5s; }
+  @keyframes eq { 50% { transform: scaleY(.3); } }
+
+  /* 减弱动效偏好（无障碍兜底） */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+
+  /* ═══════════ 响应式 ═══════════ */
+  @media (max-width: 900px) {
+    .cols, .states { grid-template-columns: 1fr; }
+    .main { padding: 20px 18px 56px; }
+  }
+  @media (max-width: 720px) {
+    .app { flex-direction: column; }
+    .side { width: 100%; flex-direction: row; align-items: center; border-right: none; border-bottom: 1px solid var(--line); padding: 8px 12px; overflow-x: auto; }
+    .side .brand { border: none; padding: 0 12px 0 0; white-space: nowrap; }
+    .side .brand small { display: none; }
+    .side nav { flex-direction: row; padding: 0; gap: 2px; }
+    .side .grp, .side .sys, .side .foot, .side a .code, .side a::before { display: none; }
+    .side a { white-space: nowrap; padding: 7px 10px; }
+    .grid-cards { grid-template-columns: 1fr; }
+    .masthead h1 { font-size: 19px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="preview-banner">
+  <strong>风格 B · PRTS 全息终端</strong>
+  <span class="kw">关键词：<b>深空蓝黑</b> · <b>全息青辉光</b> · <b>扫描线</b> · <b>Orbitron 数值</b> · <b>角括号面板</b> · 罗德岛舰载系统</span>
+  <nav>
+    <a href="01-arknights-industrial.html">A 机能</a>
+    <a href="02-prts-holo-terminal.html" class="on">B 全息</a>
+    <a href="03-tavern-journal.html">C 手札</a>
+    <a href="04-neon-pop-event.html">D 撞色</a>
+  </nav>
+</div>
+
+<div class="app">
+  <!-- 侧边导航 -->
+  <aside class="side">
+    <div class="brand"><span class="orb">PRTS</span><small>ARKNIGHTS TAVERN OS</small></div>
+    <nav>
+      <div class="grp">PLAY</div>
+      <a href="#">◀ 主菜单 <span class="code">MENU</span></a>
+      <a href="#" class="on">🏛️ 会话大厅 <span class="code">ARCH</span></a>
+      <a href="#">🎭 角色 <span class="code">OPS</span></a>
+      <div class="grp">ASSETS</div>
+      <a href="#">📖 世界书 <span class="code">LORE</span></a>
+      <a href="#">🗂️ 内容中心 <span class="code">HUB</span></a>
+      <a href="#">📘 文档 <span class="code">DOCS</span></a>
+      <div class="grp">SYSTEM</div>
+      <a href="#">⚙️ 设置 <span class="code">CFG</span></a>
+    </nav>
+    <div class="sys"><b>SYS.WARN</b>备用端点异常 · LLM 已降级至本地模型</div>
+    <div class="foot"><span class="okdot"></span>CORE LINK :5000</div>
+  </aside>
+
+  <!-- 主内容 -->
+  <main class="main">
+    <div class="masthead">
+      <div>
+        <span class="sys-tag">SESSION ARCHIVE // 03 RECORDS</span>
+        <h1>会话大厅</h1>
+        <p>最近同步「风雪过境 · 圣山之路」 · 2 小时前</p>
+      </div>
+      <div class="ops">
+        <button class="btn">⟲ 导入存档</button>
+        <button class="btn primary">＋ 新建会话</button>
+      </div>
+    </div>
+
+    <!-- 会话卡片 -->
+    <div class="grid-cards">
+      <article class="scard sel" tabindex="0"><i class="ck"></i>
+        <div class="sid"><span>SID-0x01 · KJERAG</span><span>MAIN</span></div>
+        <h3>风雪过境 · 圣山之路
+          <span class="avatars"><i style="background:#8fa8bf">雪</i><i style="background:#b093c7">崖</i><i style="background:#5b6b7c">博</i></span>
+        </h3>
+        <p class="sub">初雪 · 崖心 · 博士 —— 圣山山路 / 大雪 / 黄昏</p>
+        <div class="tags"><span class="tag story">剧情</span><span class="tag">战术战斗</span><span class="tag">谢拉格设定集</span></div>
+        <div class="footrow"><span>ROUND 47 · 12.4K TOK</span><span>2H AGO</span></div>
+      </article>
+
+      <article class="scard" tabindex="0"><i class="ck"></i>
+        <div class="sid"><span>SID-0x02 · RHODES</span><span>FREE</span></div>
+        <h3>罗德岛茶话会
+          <span class="avatars"><i style="background:#c7a45f">临</i><i style="background:#7c9bb5">佐</i></span>
+        </h3>
+        <p class="sub">临光 · 佐菲娅 —— 罗德岛本舰 / 晴 / 午后</p>
+        <div class="tags"><span class="tag free">自由</span><span class="tag">叙事战斗</span><span class="tag live">进行中</span></div>
+        <div class="footrow"><span>ROUND 12 · 3.1K TOK</span><span>1D AGO</span></div>
+      </article>
+
+      <article class="scard" tabindex="0"><i class="ck"></i>
+        <div class="sid"><span>SID-0x03 · CHERNOBOG</span><span>COMBAT</span></div>
+        <h3>废弃区块遭遇战
+          <span class="avatars"><i style="background:#8a8f98">德</i></span>
+        </h3>
+        <p class="sub">德克萨斯 —— 切城废墟 / 阴 / 战斗中断</p>
+        <div class="tags"><span class="tag story">剧情</span><span class="tag">战术战斗</span><span class="tag alert">⚔ 战斗中</span></div>
+        <div class="footrow"><span>TURN 6/12 · 8.9K TOK</span><span>3D AGO</span></div>
+      </article>
+    </div>
+
+    <div class="sect"><span class="tick">[DOSSIER]</span><h2>干员档案 · 初雪</h2><span class="rule"></span></div>
+    <div class="cols">
+      <section class="panel">
+        <div class="ph"><h3>初雪 <span style="color:var(--text-3);font-weight:400;font-size:11px">ENYA SILVERASH</span></h3><span class="right"><span class="tag">辅助</span><span class="tag">喀兰贸易</span><span class="tag">埃拉菲亚</span></span></div>
+        <table>
+          <thead><tr><th>ATTR</th><th>评级</th><th>VAL</th><th style="width:30%">SYNC</th></tr></thead>
+          <tbody>
+            <tr><td><b>情绪稳定性</b></td><td>卓越</td><td class="lv">09</td><td><div class="meter"><i style="width:90%"></i></div></td></tr>
+            <tr><td><b>源石技艺适应性</b></td><td>卓越</td><td class="lv">09</td><td><div class="meter"><i style="width:90%"></i></div></td></tr>
+            <tr><td><b>魅力</b></td><td>优良</td><td class="lv">08</td><td><div class="meter"><i style="width:80%"></i></div></td></tr>
+            <tr><td><b>战场机动</b></td><td>标准</td><td class="lv">06</td><td><div class="meter"><i style="width:60%"></i></div></td></tr>
+            <tr><td><b>战术规划</b></td><td>标准</td><td class="lv">06</td><td><div class="meter"><i style="width:60%"></i></div></td></tr>
+            <tr><td><b>物理强度</b></td><td>普通</td><td class="lv">04</td><td><div class="meter"><i style="width:40%"></i></div></td></tr>
+          </tbody>
+        </table>
+        <div style="display:flex;gap:9px;margin-top:16px;flex-wrap:wrap">
+          <button class="btn sm primary">查看卡池 [14]</button>
+          <button class="btn sm">编辑角色卡</button>
+          <button class="btn sm danger">移出编队</button>
+        </div>
+      </section>
+
+      <!-- 表单 -->
+      <section class="panel">
+        <div class="ph"><h3>新建会话</h3><span class="mono">NEW.SESSION</span></div>
+        <div class="field">
+          <label for="sname">会话名称 <span class="mono">TITLE</span></label>
+          <input id="sname" class="input" placeholder="例：风雪过境 · 其二">
+        </div>
+        <div class="field">
+          <label for="plot">绑定剧情 <span class="mono">PLOT</span></label>
+          <select id="plot" class="input">
+            <option>风雪过境（主线 · 谢拉格）</option>
+            <option>长夜临光（支线 · 卡西米尔）</option>
+            <option>不绑定剧情（自由模式）</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>战斗模式 <span class="mono">COMBAT.MODE</span></label>
+          <div class="seg">
+            <button type="button" class="on">⚔ 战术 · 战棋</button>
+            <button type="button">📜 叙事 · 文字</button>
+          </div>
+          <p class="hint">// 创建后不可更改。战术 = 7×7 网格 + 卡牌；叙事 = LLM 裁定。</p>
+        </div>
+        <div class="field">
+          <label class="check"><input type="checkbox" checked> 绑定默认世界书「明日方舟整合设定集」</label>
+        </div>
+        <div style="display:flex;gap:9px;justify-content:flex-end;flex-wrap:wrap">
+          <button class="btn">取消</button>
+          <button class="btn primary">创建会话</button>
+          <button class="btn" disabled>同步中…</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="sect"><span class="tick">[STATES]</span><h2>组件状态</h2><span class="rule"></span></div>
+    <div class="states">
+      <section class="panel">
+        <div class="ph"><h3>空状态</h3><span class="mono">MEMORY.NULL</span></div>
+        <div class="empty-box">
+          <div class="radar"></div>
+          <p>暂无记忆</p>
+          <span>对话轮次积累后将自动生成语义记忆</span>
+          <button class="btn sm">了解记忆机制</button>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="ph"><h3>加载状态</h3><span class="mono">STREAMING</span></div>
+        <p class="streamline" style="margin-bottom:12px">&gt; 初雪正在回应<span class="cursor"></span></p>
+        <div class="skl" style="width:92%"></div>
+        <div class="skl" style="width:100%"></div>
+        <div class="skl" style="width:61%"></div>
+        <p style="font-family:var(--mono);font-size:10px;color:var(--text-3)">TTFT 1.2S · CHUNK 128</p>
+      </section>
+      <section class="panel" style="padding:0;border:none;background:none;backdrop-filter:none">
+        <div class="errbox">
+          <div class="eh">ERR.LLM.FALLBACK</div>
+          <div class="eb">
+            <b>主端点请求失败（DeepSeek · 429）</b><br>
+            已自动切换至备用端点 Ollama 本地模型，冷却 30s 后重试主端点。
+            <div class="act">
+              <button class="btn sm">查看日志</button>
+              <button class="btn sm danger">手动切换</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="dust"></div>
+    <div class="scanbeam"></div>
+    <div class="sect"><span class="tick">[LIVE]</span><h2>实时叙述流</h2><span class="rule"></span></div>
+    <div class="livewrap">
+      <div class="liveterm">
+        <div class="ln"><b>&gt; [BEAT]</b> 圣山山路 · 17:42 · 大雪 → 暴雪</div>
+        <div class="ln"><b>&gt; [ENV]</b> 能见度下降 · 风声掩盖了远处的钟声</div>
+        <div class="ln gold">&gt; [初雪] <span class="live-text" data-text="「风雪大了。博士，请靠紧我一些——愿耶拉冈德庇护你。」"></span><span class="cur"></span></div>
+        <div class="ln ok">&gt; [ROLL] 情绪稳定性 d20(14)+2 = <b>16</b> ≥ DC12 —— 成功</div>
+        <div class="ln"><b>&gt; [TOK]</b> <span data-count="128">0</span> TOK/S · TTFT 1.2S · CHUNKED STREAM</div>
+      </div>
+      <div class="choices" id="liveChoices">
+        <button class="choice"><span class="key">F1</span>「雪停之后，再告诉我大典的事吧。」</button>
+        <button class="choice"><span class="key">F2</span>轻声安慰她<span class="dc">检定 · 情绪稳定性 DC12</span></button>
+        <button class="choice"><span class="key">F3</span>保持沉默，望向圣山之巅</button>
+      </div>
+    </div>
+
+    <script>
+    (function () {
+      var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      // 标题解码
+      var t = document.querySelector('.masthead h1');
+      if (t && !reduce) {
+        var fin = t.textContent.trim(), pool = 'アイウエオカサタナ01#%&/△▲';
+        var f = 0, total = fin.length * 3 + 6;
+        var iv = setInterval(function () {
+          f++; var out = '';
+          for (var i = 0; i < fin.length; i++) out += f > i * 3 + 4 ? fin[i] : pool[Math.random() * pool.length | 0];
+          t.textContent = out;
+          if (f >= total) { t.textContent = fin; clearInterval(iv); }
+        }, 45);
+      }
+
+      // 数字滚动
+      document.querySelectorAll('[data-count]').forEach(function (el) {
+        var end = +el.dataset.count;
+        if (reduce) { el.textContent = end; return; }
+        var t0 = performance.now(), dur = 1100;
+        requestAnimationFrame(function step(now) {
+          var p = Math.min(1, (now - t0) / dur);
+          el.textContent = Math.round(end * (1 - Math.pow(1 - p, 3)));
+          if (p < 1) requestAnimationFrame(step);
+        });
+      });
+
+      // 打字机 + 选项浮现
+      var lt = document.querySelector('.live-text'), ch = document.getElementById('liveChoices');
+      if (lt && ch) {
+        var txt = lt.dataset.text;
+        if (reduce) { lt.textContent = txt; ch.classList.add('show'); }
+        else {
+          var i = 0;
+          setTimeout(function type() {
+            lt.textContent = txt.slice(0, ++i);
+            if (i < txt.length) setTimeout(type, 55); else ch.classList.add('show');
+          }, 1100);
+        }
+      }
+
+      // 卡片磁吸微倾（仅精确指针设备）
+      if (!reduce && matchMedia('(pointer:fine)').matches) {
+        document.querySelectorAll('.scard').forEach(function (card) {
+          card.addEventListener('mousemove', function (e) {
+            var r = card.getBoundingClientRect();
+            var x = (e.clientX - r.left) / r.width - .5, y = (e.clientY - r.top) / r.height - .5;
+            card.style.transform = 'translateY(-3px) perspective(720px) rotateX(' + (-y * 5).toFixed(2) + 'deg) rotateY(' + (x * 6).toFixed(2) + 'deg)';
+          });
+          card.addEventListener('mouseleave', function () { card.style.transform = ''; });
+        });
+      }
+    })();
+    </script>
+
+    <footer class="statusbar">
+      <span><b class="ok">● ONLINE</b> CORE</span>
+      <span>LLM <b>DeepSeek-V3</b> 234MS</span>
+      <span class="eq"><i></i><i></i><i></i><i></i></span>
+      <span class="warn">FALLBACK → Ollama qwen2.5:14b</span>
+      <span style="margin-left:auto">PRTS // ARKNIGHTS TAVERN v0.1.0</span>
+    </footer>
+
+    <!-- 设计说明 -->
+    <div class="spec">
+      <h3>设计令牌速览（供评审，非应用 UI）</h3>
+      <div class="swatches">
+        <div class="sw"><i style="background:#04070d"></i><span>abyss</span></div>
+        <div class="sw"><i style="background:#0b1524"></i><span>panel</span></div>
+        <div class="sw"><i style="background:#38bdf8"></i><span>holo #38bdf8</span></div>
+        <div class="sw"><i style="background:#f0c060"></i><span>gold #f0c060</span></div>
+        <div class="sw"><i style="background:#fb5e5e"></i><span>alert</span></div>
+        <div class="sw"><i style="background:#3ddc97"></i><span>ok</span></div>
+      </div>
+      <dl>
+        <dt>字体</dt><dd>Orbitron 标题/数值（项目已引入）+ Noto Sans SC 正文 + JetBrains Mono 系统读数</dd>
+        <dt>造型语言</dt><dd>4px 微圆角、四角括号面板、半透明 + backdrop-blur、辉光 box-shadow、扫描线纹理</dd>
+        <dt>色彩策略</dt><dd>全息青为系统色，战备金为用户行为色（沿用项目 combat gold #f0c060），语义色仅用于状态</dd>
+        <dt>间距 / 密度</dt><dd>介于 A 与后台之间；读数区紧凑，操作区留白</dd>
+        <dt>交互反馈</dt><dd>hover 辉光渐强 + 角括号点亮；focus-visible 青光描边；disabled 35% 透明</dd>
+        <dt>落地难度</dt><dd>★★☆ 中低：与现有深色体系同源（surface/combat 色板直接复用），扫描线与辉光是纯 CSS；注意 backdrop-blur 在 Pixi 画布重叠区的性能</dd>
+      </dl>
+    </div>
+  </main>
+</div>
+</body>
+</html>

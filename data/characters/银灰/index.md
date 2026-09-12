@@ -1,13 +1,17 @@
 ---
 attributes:
   情绪稳定性: 8
-  战场机动: 7
+  战场机动: 8
   战斗技巧: 8
   战术规划: 9
   源石技艺适应性: 5
   物理强度: 7
   生理耐受: 7
   魅力: 9
+# 演示调参：攻击数值 ×2（派生 patk 30 → 60、matk 28 → 56）
+combat_stats:
+  patk: 60
+  matk: 56
 card_face: char_172_svrash_snow#1b.png
 card_face_crop_h: 62.33766233766233
 card_face_crop_w: 80

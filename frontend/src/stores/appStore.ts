@@ -6,6 +6,9 @@ import type { BackendStatus, Session, LLMStatus, CombatStateDTO, ChatMessage, Co
 
 type Theme = "dark" | "light";
 
+/** UI 皮肤：default = 现有主题（受明暗切换控制）；prts/tavern = 独立色板皮肤（接管明暗） */
+export type SkinId = "default" | "prts" | "tavern";
+
 export interface CombatContext {
   state: CombatStateDTO | null;
   uiMode: "VIEWING" | "TARGETING";
@@ -17,8 +20,14 @@ export interface CombatContext {
 
 type ViewName = "home" | "chat" | "sessions" | "documents" | "settings" | "combat" | "index" | "worldbook" | "content" | "docs" | "characters";
 
-/** 内容中心内部 Tab（统一管理：文档/世界书/索引/资产/卡牌） */
-export type ContentHubTab = "docs" | "worldbook" | "index" | "images" | "cards";
+/** 内容中心内部 Tab（统一管理：文档/索引/资产/卡牌；世界书为上一级独立入口，不在此重复） */
+export type ContentHubTab = "docs" | "index" | "images" | "cards";
+
+/** 最小化对话框的恢复入口信息（key = 对话框 id） */
+export interface MinimizedDialogEntry {
+  title: string;
+  restore: () => void;
+}
 
 interface AppState {
   // 视图
@@ -29,7 +38,7 @@ interface AppState {
   contentHubTab: ContentHubTab;
   setContentHubTab: (tab: ContentHubTab) => void;
 
-  // 内容中心：跳转并选中指定世界书（统一检索结果点击）
+  // 内容中心检索命中世界书 → 跳转上一级「世界书」页并选中该书
   worldbookJumpId: string | null;
   setWorldbookJumpId: (id: string | null) => void;
 
@@ -41,6 +50,10 @@ interface AppState {
   theme: Theme;
   setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
+
+  // 皮肤（独立色板主题；非 default 时接管明暗切换）
+  skin: SkinId;
+  setSkin: (skin: SkinId) => void;
 
   // 后端连接
   backend: BackendStatus;
@@ -113,6 +126,10 @@ interface AppState {
   pendingBriefing: CombatBriefingDTO | null;
   setPendingBriefing: (data: CombatBriefingDTO | null) => void;
 
+  // 对话框最小化：key = 对话框 id，多个对话框各自独立、互不干扰
+  minimizedDialogs: Record<string, MinimizedDialogEntry>;
+  setMinimizedDialog: (id: string, entry: MinimizedDialogEntry | null) => void;
+
   // 按会话存储的消息/流式状态（跨会话切换保留）
   sessionMessages: Record<string, ChatMessage[]>;
   sessionStreaming: Record<string, boolean>;
@@ -137,7 +154,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   contentHubTab: "docs",
   setContentHubTab: (tab) => set({ contentHubTab: tab }),
 
-  // 内容中心：世界书跳转
+  // 内容中心检索 → 上一级「世界书」页跳转
   worldbookJumpId: null,
   setWorldbookJumpId: (id) => set({ worldbookJumpId: id }),
 
@@ -149,6 +166,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   theme: "dark",
   setTheme: (theme) => set({ theme }),
   toggleTheme: () => set((state) => ({ theme: state.theme === "dark" ? "light" : "dark" })),
+
+  // 皮肤
+  skin: "default",
+  setSkin: (skin) => set({ skin }),
 
   // 后端
   backend: { status: "connecting", url: "" },
@@ -253,6 +274,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   // 战前简报
   pendingBriefing: null,
   setPendingBriefing: (data) => set({ pendingBriefing: data }),
+
+  // 对话框最小化
+  minimizedDialogs: {},
+  setMinimizedDialog: (id, entry) => set((state) => {
+    const next = { ...state.minimizedDialogs };
+    if (entry) next[id] = entry; else delete next[id];
+    return { minimizedDialogs: next };
+  }),
 
   // ── 按会话存储的消息/流式状态 ──
   sessionMessages: {},

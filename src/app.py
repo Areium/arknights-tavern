@@ -4,7 +4,7 @@ Arknight-txt API 服务 (Phase 2 重构版 — Blueprint 架构)
 架构：
 - Flask app factory 模式：create_app() 创建并配置 app 实例
 - Manager 层：全局共享（LLMBackendManager, WikiManager, DocumentManager, SessionManager）
-- Blueprint 层：按功能域拆分路由（sessions, chat, scene, combat, documents, index, llm, wiki, environment, assets, legacy, memories, status）
+- Blueprint 层：按功能域拆分路由（sessions, chat, scene, combat, documents, index, llm, wiki, environment, assets, worldbook, memories, status）
 - Service 层：业务逻辑抽取到 services/ 目录
 """
 

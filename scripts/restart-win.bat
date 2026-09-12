@@ -1,47 +1,34 @@
 @echo off
+rem Keep the console at UTF-8 so the PowerShell banner and the CJK output of
+rem child processes render correctly. This is safe ONLY because this file is
+rem pure ASCII: cmd.exe mis-parses batch files when `chcp 65001` is combined
+rem with multi-byte characters in the same file (comment fragments get
+rem executed as commands).
 chcp 65001 >nul
-set "ROOT=%~dp0.."
-pushd "%ROOT%"
+rem ============================================================
+rem  Arknights Tavern - one-window restart launcher
+rem
+rem  KEEP THIS FILE ASCII-ONLY (English comments and messages).
+rem
+rem  Why: a batch file that mixes `chcp 65001` with multi-byte
+rem  (CJK) text makes cmd.exe re-seek the script at a wrong byte
+rem  offset after the codepage change; it then executes fragments
+rem  of comment lines as commands, e.g.
+rem      '...' is not recognized as an internal or external command
+rem  All logic and all CJK output live in restart-win.ps1.
+rem
+rem  Arguments are forwarded to restart-win.ps1, e.g.
+rem      restart-win.bat -BackendPort 5001
+rem ============================================================
+setlocal
+set "PS1=%~dp0restart-win.ps1"
 
-echo ============================================
-echo   Arknights Tavern — 重启前后端
-echo ============================================
-echo.
-
-echo [1/3] 正在停止旧进程...
-
-:: 杀掉占用 5000 端口 (Flask) 的进程
-for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr ":5000.*LISTENING"') do (
-    taskkill /F /PID %%a >nul 2>&1
-    echo   已停止 PID %%a ^(Flask :5000^)
+if not exist "%PS1%" (
+    echo [ERROR] restart-win.ps1 not found: "%PS1%"
+    pause
+    exit /b 1
 )
 
-:: 杀掉占用 5173 端口 (Vite) 的进程
-for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr ":5173.*LISTENING"') do (
-    taskkill /F /PID %%a >nul 2>&1
-    echo   已停止 PID %%a ^(Vite :5173^)
-)
-
-:: 额外清理旧 Python 进程
-taskkill /F /IM python.exe >nul 2>&1
-
-echo   旧进程已清理
-echo.
-
-echo [2/3] 启动 Flask 后端...
-start "Flask Backend" cmd /k "cd /d "%ROOT%" && python src/app.py"
-echo   Flask 已在新窗口启动 ^(http://127.0.0.1:5000^)
-
-echo.
-echo [3/3] 启动 Vite 前端...
-start "Vite Frontend" cmd /k "cd /d "%ROOT%\frontend" && npm run dev"
-echo   Vite 已在新窗口启动 ^(http://localhost:5173^)
-
-echo.
-echo ============================================
-echo   启动完成！等待窗口加载后访问：
-echo     http://localhost:5173
-echo ============================================
-echo.
-
-popd
+powershell -NoProfile -ExecutionPolicy Bypass -File "%PS1%" %*
+set "RC=%ERRORLEVEL%"
+endlocal & exit /b %RC%

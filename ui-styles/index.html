@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Arknights Tavern · UI 风格预览索引</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "Noto Sans SC", -apple-system, sans-serif; background: #141412; color: #e8e4d8; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 60px 20px; }
+  h1 { font-size: 24px; font-weight: 900; letter-spacing: .1em; margin-bottom: 8px; }
+  .sub { color: #8a8578; font-size: 13px; margin-bottom: 44px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; max-width: 1160px; width: 100%; }
+  a.card {
+    display: block; text-decoration: none; color: inherit; border-radius: 14px; overflow: hidden;
+    border: 1px solid #33312c; background: #1d1b18; transition: transform .15s, border-color .15s;
+  }
+  a.card:hover { transform: translateY(-4px); border-color: #6e6b62; }
+  .sw { height: 90px; display: flex; }
+  .sw i { flex: 1; }
+  .bd { padding: 16px 18px 18px; }
+  .bd .no { font-family: monospace; font-size: 10px; color: #6e6b62; letter-spacing: .2em; }
+  .bd h2 { font-size: 16.5px; font-weight: 900; margin: 4px 0 6px; }
+  .bd p { font-size: 12px; color: #a8a294; line-height: 1.6; }
+  .bd .go { margin-top: 12px; font-size: 12px; color: #d8d4c6; font-weight: 700; }
+  .note { margin-top: 40px; font-size: 11.5px; color: #6e6b62; text-align: center; line-height: 1.8; }
+</style>
+</head>
+<body>
+  <h1>ARKNIGHTS TAVERN · UI 风格预览</h1>
+  <p class="sub">四版游戏向风格方向 · 双击打开 · 内容为真实业务数据示例 · 均支持响应式断点</p>
+  <div class="grid">
+    <a class="card" href="01-arknights-industrial.html">
+      <div class="sw"><i style="background:#e8e6e0"></i><i style="background:#161513"></i><i style="background:#ff8a00"></i><i style="background:#ffd400"></i></div>
+      <div class="bd">
+        <span class="no">STYLE A</span>
+        <h2>方舟机能</h2>
+        <p>黑白灰硬边几何、斜切角、警戒条纹、安全橙。最贴明日方舟原作气质的档案终端风。</p>
+        <div class="go">打开预览 →</div>
+      </div>
+    </a>
+    <a class="card" href="02-prts-holo-terminal.html">
+      <div class="sw"><i style="background:#04070d"></i><i style="background:#0b1524"></i><i style="background:#38bdf8"></i><i style="background:#f0c060"></i></div>
+      <div class="bd">
+        <span class="no">STYLE B</span>
+        <h2>PRTS 全息终端</h2>
+        <p>深空蓝黑、全息青辉光、扫描线、Orbitron 数值。罗德岛舰载系统界面，与现有深色体系同源。</p>
+        <div class="go">打开预览 →</div>
+      </div>
+    </a>
+    <a class="card" href="03-tavern-journal.html">
+      <div class="sw"><i style="background:#ece1c9"></i><i style="background:#40342a"></i><i style="background:#a03d2d"></i><i style="background:#e8a33d"></i></div>
+      <div class="bd">
+        <span class="no">STYLE C</span>
+        <h2>酒馆手札</h2>
+        <p>羊皮纸、衬线、火漆印章、圆润卡片与弹性微动效。叙事沉浸向，贴合「酒馆」之名。</p>
+        <div class="go">打开预览 →</div>
+      </div>
+    </a>
+    <a class="card" href="04-neon-pop-event.html">
+      <div class="sw"><i style="background:#f2efe7"></i><i style="background:#101010"></i><i style="background:#ffe500"></i><i style="background:#ff2e88"></i></div>
+      <div class="bd">
+        <span class="no">STYLE D</span>
+        <h2>音律撞色</h2>
+        <p>粗描边贴纸、硬投影、酸性黄×品红撞色、倾斜构图。游戏活动页式的高能量平面风。</p>
+        <div class="go">打开预览 →</div>
+      </div>
+    </a>
+  </div>
+  <p class="note">本目录为一次性预览稿，不接入项目构建 · 确认方向后将选中风格的令牌迁移至 tailwind.config.js 与 style.css</p>
+</body>
+</html>

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useApi } from "../hooks/useApi";
 import { useAppStore } from "../stores/appStore";
 import type { IndexOverview, IndexDocSummary, SessionIndexConfig, IndexVerifyResult } from "../types";
+import { useDialogMinimize } from "../hooks/useDialogMinimize";
 
 const CATEGORY_LABELS: Record<string, string> = {
   characters: "角色",
@@ -55,6 +56,9 @@ export default function IndexManager() {
   const [verifyResult, setVerifyResult] = useState<IndexVerifyResult | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [fixingVerify, setFixingVerify] = useState<string | null>(null);
+
+  // 最小化：与关闭独立，最小化后结果与滚动位置保留
+  const verifyDialog = useDialogMinimize("index-verify", "依赖完整性验证", !!verifyResult);
 
   const toastTimer = useRef<ReturnType<typeof setTimeout>>();
 
@@ -1191,16 +1195,35 @@ export default function IndexManager() {
 
       {/* ── Verify results modal ── */}
       {verifyResult && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60" onClick={closeVerifyModal}>
+        <div className={`fixed inset-0 z-40 flex items-center justify-center bg-black/60 ${verifyDialog.minimizedClass}`} onClick={closeVerifyModal}>
           <div
-            className="bg-gray-800 border border-gray-600 rounded-lg shadow-xl w-[640px] max-h-[80vh] flex flex-col"
+            ref={verifyDialog.containerRef}
+            tabIndex={-1}
+            className="bg-gray-800 border border-gray-600 rounded-lg shadow-xl w-[640px] max-h-[80vh] flex flex-col outline-none"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700 shrink-0">
               <h3 className="text-sm font-medium text-gray-200">
                 {activeSource !== "global" ? "会话依赖完整性验证" : "依赖完整性验证"}
               </h3>
-              <button onClick={closeVerifyModal} className="text-gray-500 hover:text-gray-300 text-sm">✕</button>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={verifyDialog.minimize}
+                  className="text-gray-500 hover:text-gray-300 text-sm px-1"
+                  title="最小化（保留验证结果）"
+                  aria-label="最小化对话框"
+                >
+                  —
+                </button>
+                <button
+                  onClick={closeVerifyModal}
+                  className="text-gray-500 hover:text-gray-300 text-sm px-1"
+                  title="关闭"
+                  aria-label="关闭对话框"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
             <div className="p-4 overflow-y-auto space-y-3">
               {activeSource !== "global" && (

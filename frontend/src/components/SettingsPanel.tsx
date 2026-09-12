@@ -1,10 +1,33 @@
 import { useState, useEffect, useCallback } from "react";
 import { audioManager } from "../audio/audioManager";
-import { useAppStore } from "../stores/appStore";
+import { useAppStore, type SkinId } from "../stores/appStore";
 import { useApi } from "../hooks/useApi";
 
+/** 皮肤清单：id 与后端 config.skin 白名单一致；swatch 用真实色值（行内样式），
+    保证在任意皮肤下都能看到各皮肤本来的配色。 */
+const SKINS: { id: SkinId; name: string; desc: string; swatch: string[] }[] = [
+  {
+    id: "default",
+    name: "默认",
+    desc: "现有界面，可自由切换明暗",
+    swatch: ["#0f1117", "#1a1d27", "#f59e0b"],
+  },
+  {
+    id: "prts",
+    name: "PRTS 全息终端",
+    desc: "深空底 · 全息青 · 静态扫描线",
+    swatch: ["#04070d", "#0b1524", "#38bdf8", "#f0c060"],
+  },
+  {
+    id: "tavern",
+    name: "酒馆手札",
+    desc: "羊皮纸 · 墨水棕 · 火漆红",
+    swatch: ["#ece1c9", "#fbf6e9", "#a03d2d", "#e8a33d"],
+  },
+];
+
 export default function SettingsPanel() {
-  const { llmStatus, theme, toggleTheme, setEditBeforeSend, setDialogueBubbleMode } = useAppStore();
+  const { llmStatus, theme, toggleTheme, skin, setSkin, setEditBeforeSend, setDialogueBubbleMode } = useAppStore();
   const api = useApi();
   const [switching, setSwitching] = useState<string | null>(null);
   const [bgmMuteOnBlur, setBgmMuteOnBlurState] = useState(audioManager.getSettings().bgmMuteOnBlur);
@@ -173,6 +196,17 @@ export default function SettingsPanel() {
     }
   };
 
+  const handleSkinChange = async (next: SkinId) => {
+    if (next === skin) return;
+    setSkin(next); // 立即更新 UI
+    // 异步持久化到后端配置文件（静默，与 handleToggleTheme 一致）
+    try {
+      await api.updateLLMConfig({ skin: next });
+    } catch {
+      /* 非关键 */
+    }
+  };
+
   const handleToggleBgmMuteOnBlur = () => {
     const v = !bgmMuteOnBlur;
     setBgmMuteOnBlurState(v);
@@ -195,19 +229,72 @@ export default function SettingsPanel() {
       {/* 主题切换 */}
       <section className="card">
         <h3 className="panel-title">外观</h3>
-        <div className="flex items-center justify-between">
+
+        {/* 皮肤选择 */}
+        <div>
+          <p className="text-sm font-medium">界面皮肤</p>
+          <p className="text-xs text-gray-500 mt-0.5 mb-3">
+            皮肤自带完整色板；激活后明暗开关交由皮肤接管
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            {SKINS.map((s) => {
+              const active = skin === s.id;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => handleSkinChange(s.id)}
+                  aria-pressed={active}
+                  title={s.desc}
+                  className={`text-left rounded-lg border p-2.5 transition-colors ${
+                    active
+                      ? "border-amber-500 bg-amber-500/20"
+                      : "border-gray-700 bg-gray-800/50 hover:border-gray-600"
+                  }`}
+                >
+                  {/* 色板条（真实色值，不随皮肤变化） */}
+                  <div className="flex h-4 rounded overflow-hidden mb-2">
+                    {s.swatch.map((c) => (
+                      <div key={c} className="flex-1" style={{ backgroundColor: c }} />
+                    ))}
+                  </div>
+                  <p className="text-xs font-semibold">{s.name}</p>
+                  <p className="text-[10px] text-gray-500 mt-0.5 leading-snug">{s.desc}</p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 明暗切换：皮肤激活时置灰 */}
+        <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-700">
           <div>
             <p className="text-sm font-medium">
-              {theme === "dark" ? "深色模式" : "浅色模式"}
+              {skin !== "default"
+                ? "明暗模式（由皮肤接管）"
+                : theme === "dark"
+                  ? "深色模式"
+                  : "浅色模式"}
             </p>
             <p className="text-xs text-gray-500 mt-0.5">
-              {theme === "dark" ? "护眼暗色界面" : "明亮清晰界面"}
+              {skin !== "default"
+                ? "当前皮肤自带完整色板，如需切换明暗请先选回「默认」"
+                : theme === "dark"
+                  ? "护眼暗色界面"
+                  : "明亮清晰界面"}
             </p>
           </div>
           <button
             onClick={handleToggleTheme}
+            disabled={skin !== "default"}
+            aria-disabled={skin !== "default"}
+            title={skin !== "default" ? "皮肤激活时明暗开关不可用" : undefined}
             className={`relative w-12 h-6 rounded-full transition-colors duration-200 ${
-              theme === "dark" ? "bg-blue-600" : "bg-gray-300"
+              skin !== "default"
+                ? "bg-gray-600 opacity-50 cursor-not-allowed"
+                : theme === "dark"
+                  ? "bg-blue-600"
+                  : "bg-gray-300"
             }`}
           >
             <span

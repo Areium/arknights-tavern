@@ -12,8 +12,6 @@
 
 from __future__ import annotations
 
-import random
-
 
 # 遭遇战未定义 approaches 时的兜底（保证所有遭遇战都能选择打法）
 DEFAULT_APPROACHES: list[dict] = [

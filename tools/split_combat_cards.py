@@ -1,7 +1,6 @@
 """Split combat sections from character index.md to combat.md."""
 import re
 import os
-import sys
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CHAR_DIR = os.path.join(BASE, "data", "characters")

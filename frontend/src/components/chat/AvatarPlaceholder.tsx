@@ -50,7 +50,7 @@ export default function AvatarPlaceholder({ name, size = "sm", sessionId }: Avat
       <img
         src={src}
         alt={name}
-        className={`${sizeClass} rounded-full object-cover flex-shrink-0`}
+        className={`dlg-ava ${sizeClass} rounded-full object-cover flex-shrink-0`}
         onError={() => {
           if (useSession && sessionId) {
             // 会话覆盖 URL 失败 → 回退全局头像

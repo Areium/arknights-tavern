@@ -40,13 +40,13 @@ export default function DialogueBubble({ text, speaker, color, sessionId }: Dial
 
       <div className="flex flex-col max-w-[75%]">
         {speaker && (
-          <span className="text-sm font-bold mb-0.5 ml-1" style={nameStyle}>
+          <span className="dlg-name text-sm font-bold mb-0.5 ml-1" style={nameStyle}>
             {speaker}
           </span>
         )}
 
         <div
-          className="border rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm leading-relaxed text-gray-100"
+          className="dlg-bubble border rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm leading-relaxed text-gray-100"
           style={{
             backgroundColor: isUnknown ? "rgba(55, 65, 81, 0.4)" : bubbleBg,
             borderColor: isUnknown ? "rgba(75, 85, 99, 0.3)" : bubbleBorder,

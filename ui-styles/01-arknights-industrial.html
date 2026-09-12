@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>风格 A · 方舟机能 RHODES INDUSTRIAL — Arknights Tavern UI 预览</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700;800&family=Noto+Sans+SC:wght@400;500;700;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  /* ═══════════ 设计令牌：方舟机能 ═══════════ */
+  :root {
+    --concrete: #e8e6e0;        /* 混凝土底 */
+    --paper: #f4f2ec;
+    --panel: #ffffff;
+    --ink: #161513;             /* 近黑 */
+    --ink-2: #4a4741;
+    --ink-3: #8a8578;
+    --line: #161513;            /* 结构线 = 纯黑 2px */
+    --hairline: #cfccc2;
+    --safety: #ff8a00;          /* 安全橙：唯一主强调 */
+    --hazard: #ffd400;          /* 警戒黄：条纹/高亮块 */
+    --alert: #d62f2f;
+    --ok: #1e8e4e;
+    --mono: "JetBrains Mono", monospace;
+    --chamfer: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { font-size: 14px; }
+  body {
+    font-family: "Inter", "Noto Sans SC", sans-serif; color: var(--ink); line-height: 1.55;
+    background:
+      linear-gradient(rgba(22,21,19,.045) 1px, transparent 1px) 0 0 / 100% 28px,
+      linear-gradient(90deg, rgba(22,21,19,.045) 1px, transparent 1px) 0 0 / 28px 100%,
+      var(--concrete);
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font-family: inherit; cursor: pointer; }
+  input, select { font-family: inherit; outline: none; }
+  :focus-visible { outline: 3px solid var(--safety); outline-offset: 1px; }
+  ::selection { background: var(--hazard); color: var(--ink); }
+  .mono { font-family: var(--mono); }
+  .en { font-family: "Inter", sans-serif; font-weight: 800; letter-spacing: .22em; text-transform: uppercase; font-size: 10px; }
+
+  /* ═══════════ 预览横幅 ═══════════ */
+  .preview-banner {
+    background: var(--ink); color: #f4f2ec; padding: 6px 20px; min-height: 44px;
+    display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+    font-size: 12px; position: sticky; top: 0; z-index: 100;
+    border-bottom: 4px solid var(--safety);
+  }
+  .preview-banner strong { font-size: 13px; font-weight: 900; letter-spacing: .04em; }
+  .preview-banner .kw { color: #a8a294; }
+  .preview-banner .kw b { color: var(--hazard); font-weight: 500; }
+  .preview-banner nav { margin-left: auto; display: flex; gap: 2px; }
+  .preview-banner nav a { color: #a8a294; text-decoration: none; padding: 4px 10px; }
+  .preview-banner nav a:hover { color: #fff; background: #33312c; }
+  .preview-banner nav a.on { color: var(--ink); background: var(--hazard); font-weight: 700; }
+
+  /* ═══════════ 布局 ═══════════ */
+  .app { display: flex; min-height: calc(100vh - 48px); }
+
+  /* 侧边导航：白底黑边硬块 */
+  .side {
+    width: 220px; flex-shrink: 0; background: var(--paper);
+    border-right: 2px solid var(--ink); display: flex; flex-direction: column;
+  }
+  .side .brand { padding: 18px 16px 14px; border-bottom: 2px solid var(--ink); }
+  .side .brand .en { color: var(--ink-3); display: block; margin-bottom: 2px; }
+  .side .brand h1 { font-size: 17px; font-weight: 900; letter-spacing: .02em; }
+  .side .brand h1 i { font-style: normal; color: var(--safety); }
+  .side nav { padding: 10px 0; display: flex; flex-direction: column; }
+  .side .grp { padding: 12px 16px 4px; color: var(--ink-3); }
+  .side a {
+    display: flex; align-items: center; gap: 9px; padding: 9px 16px;
+    color: var(--ink-2); text-decoration: none; font-size: 13.5px; font-weight: 500;
+    border-left: 4px solid transparent; position: relative; transition: background .1s, color .1s;
+  }
+  .side a:hover { background: #e3e0d6; color: var(--ink); }
+  .side a.on { background: var(--ink); color: #f4f2ec; border-left-color: var(--safety); font-weight: 700; }
+  .side a.on .en { color: var(--hazard); }
+  .side a .en { margin-left: auto; color: var(--ink-3); font-size: 9px; }
+  .side .alert-chip {
+    margin: 12px 14px; padding: 9px 12px; background: var(--ink); color: #f4f2ec;
+    clip-path: var(--chamfer); font-size: 11.5px; display: flex; gap: 8px; align-items: center;
+  }
+  .side .alert-chip .dot { width: 8px; height: 8px; background: var(--alert); animation: blink 1.2s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: .2; } }
+  .side .foot { margin-top: auto; border-top: 2px solid var(--ink); padding: 10px 16px; font-size: 11px; color: var(--ink-2); display: flex; align-items: center; gap: 8px; }
+  .side .foot .okdot { width: 8px; height: 8px; background: var(--ok); }
+
+  /* 主区 */
+  .main { flex: 1; min-width: 0; padding: 26px 34px 70px; max-width: 1220px; }
+
+  /* 大标题区：黑底标题块 + 英文装饰 */
+  .masthead { display: flex; align-items: stretch; gap: 0; margin-bottom: 8px; flex-wrap: wrap; }
+  .masthead .title-block {
+    background: var(--ink); color: #f4f2ec; padding: 16px 26px 14px; clip-path: var(--chamfer);
+    display: flex; flex-direction: column; justify-content: center;
+  }
+  .masthead .title-block .en { color: var(--hazard); }
+  .masthead .title-block h1 { font-size: 26px; font-weight: 900; letter-spacing: .06em; line-height: 1.2; }
+  .masthead .ops { margin-left: auto; display: flex; gap: 10px; align-items: flex-end; }
+  .mast-sub { color: var(--ink-2); font-size: 12.5px; margin-bottom: 30px; display: flex; gap: 14px; align-items: center; }
+  .mast-sub .slash { color: var(--safety); font-weight: 800; }
+
+  /* 按钮：硬边 + 斜切 */
+  .btn {
+    display: inline-flex; align-items: center; gap: 7px; padding: 9px 18px;
+    font-size: 13px; font-weight: 700; letter-spacing: .04em;
+    background: var(--panel); color: var(--ink); border: 2px solid var(--ink);
+    clip-path: var(--chamfer); transition: background .12s, color .12s, transform .1s;
+  }
+  .btn:hover { background: var(--hazard); }
+  .btn:active { transform: translate(1px, 1px); }
+  .btn.primary { background: var(--ink); color: #f4f2ec; }
+  .btn.primary:hover { background: var(--safety); color: var(--ink); }
+  .btn.accent { background: var(--safety); color: var(--ink); }
+  .btn.accent:hover { background: var(--hazard); }
+  .btn.danger { background: var(--panel); color: var(--alert); border-color: var(--alert); }
+  .btn.danger:hover { background: var(--alert); color: #fff; }
+  .btn:disabled { opacity: .38; cursor: not-allowed; transform: none; }
+  .btn.sm { padding: 5px 12px; font-size: 12px; }
+
+  /* 徽章：斜切小硬块 */
+  .tag {
+    display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px;
+    font-size: 10.5px; font-weight: 700; letter-spacing: .05em;
+    border: 1.5px solid var(--ink); background: var(--panel); color: var(--ink-2);
+    clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 7px, 100% 100%, 0 100%);
+    white-space: nowrap;
+  }
+  .tag.story { background: var(--ink); color: var(--hazard); }
+  .tag.free  { background: var(--hazard); color: var(--ink); }
+  .tag.tac   { background: var(--safety); color: var(--ink); border-color: var(--safety); }
+  .tag.nar   { background: var(--panel); }
+  .tag.live  { background: var(--ok); color: #fff; border-color: var(--ok); }
+  .tag.alert { background: var(--alert); color: #fff; border-color: var(--alert); }
+
+  /* 会话卡片：档案卡 */
+  .grid-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 18px; margin-bottom: 44px; }
+  .scard {
+    background: var(--panel); border: 2px solid var(--ink); clip-path: var(--chamfer);
+    padding: 0; cursor: pointer; position: relative; transition: transform .12s, box-shadow .12s;
+  }
+  .scard:hover { transform: translate(-2px, -2px); box-shadow: 5px 5px 0 var(--ink); }
+  .scard.sel { box-shadow: 5px 5px 0 var(--safety); }
+  .scard.sel::after { content: ""; position: absolute; inset: 0; pointer-events: none; border: 2px solid var(--safety); clip-path: var(--chamfer); }
+  .scard .head { display: flex; align-items: center; border-bottom: 2px solid var(--ink); }
+  .scard .no {
+    background: var(--ink); color: var(--hazard); font-family: var(--mono); font-weight: 700;
+    padding: 8px 12px; font-size: 13px;
+  }
+  .scard .head .en { padding: 0 12px; color: var(--ink-3); }
+  .scard .body { padding: 14px 16px 12px; }
+  .scard h3 { font-size: 16.5px; font-weight: 900; letter-spacing: .02em; margin-bottom: 4px; }
+  .scard .sub { font-size: 12px; color: var(--ink-2); margin-bottom: 12px; }
+  .scard .tags { display: flex; gap: 6px; flex-wrap: wrap; }
+  .scard .footrow {
+    display: flex; justify-content: space-between; align-items: center;
+    border-top: 1.5px dashed var(--hairline); margin-top: 12px; padding-top: 9px;
+    font-size: 11px; color: var(--ink-3);
+  }
+  .scard .hazard-strip { height: 6px; background: repeating-linear-gradient(-45deg, var(--ink) 0 7px, var(--hazard) 7px 14px); }
+  .avatars { display: flex; }
+  .avatars i {
+    width: 26px; height: 26px; margin-left: -8px; border: 2px solid var(--panel);
+    display: grid; place-items: center; font-size: 11px; font-style: normal; color: #fff; font-weight: 700;
+    clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); /* 六边形 */
+  }
+  .avatars i:first-child { margin-left: 0; }
+
+  /* 分区标题 */
+  .sect { display: flex; align-items: center; gap: 12px; margin: 0 0 16px; }
+  .sect .bar { width: 10px; height: 22px; background: var(--safety); }
+  .sect h2 { font-size: 17px; font-weight: 900; letter-spacing: .05em; }
+  .sect .en { color: var(--ink-3); }
+
+  /* 双栏 */
+  .cols { display: grid; grid-template-columns: 1.25fr 1fr; gap: 22px; margin-bottom: 44px; }
+  .panel { background: var(--panel); border: 2px solid var(--ink); clip-path: var(--chamfer); padding: 20px 22px; }
+  .panel > .ph { display: flex; align-items: baseline; gap: 10px; border-bottom: 2px solid var(--ink); padding-bottom: 10px; margin-bottom: 14px; }
+  .panel > .ph h3 { font-size: 15.5px; font-weight: 900; }
+  .panel > .ph .en { color: var(--ink-3); }
+  .panel > .ph .right { margin-left: auto; }
+
+  /* 表格：黑表头 + 斑马纹 */
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  thead th {
+    background: var(--ink); color: #f4f2ec; font-weight: 700; text-align: left;
+    padding: 7px 10px; font-size: 11px; letter-spacing: .06em; white-space: nowrap;
+  }
+  thead th .en { color: var(--hazard); font-size: 8.5px; display: block; }
+  tbody td { padding: 7px 10px; border-bottom: 1px solid var(--hairline); color: var(--ink-2); }
+  tbody tr:nth-child(even) { background: #f2f0e9; }
+  tbody tr:hover { background: #fdf3d9; }
+  tbody td b { color: var(--ink); }
+  .lv { font-family: var(--mono); font-weight: 700; color: var(--ink); }
+  .pip { display: inline-block; width: 34px; height: 5px; background: #d8d5cb; position: relative; }
+  .pip i { position: absolute; inset: 0; right: auto; background: var(--safety); }
+
+  /* 表单 */
+  .field { margin-bottom: 15px; }
+  .field label { display: flex; justify-content: space-between; font-size: 12px; font-weight: 700; margin-bottom: 5px; }
+  .field label .en { color: var(--ink-3); }
+  .input, select.input {
+    width: 100%; padding: 9px 12px; font-size: 13px; color: var(--ink);
+    background: var(--paper); border: 2px solid var(--ink); border-radius: 0;
+    transition: box-shadow .1s, background .1s;
+  }
+  .input::placeholder { color: var(--ink-3); }
+  .input:focus { background: #fff; box-shadow: 4px 4px 0 var(--safety); }
+  .input:disabled { background: #dcd9d0; color: var(--ink-3); border-color: var(--ink-3); cursor: not-allowed; }
+  .seg { display: flex; border: 2px solid var(--ink); }
+  .seg button {
+    flex: 1; padding: 9px 6px; font-size: 12.5px; font-weight: 700; background: var(--panel);
+    border: none; color: var(--ink-2); transition: background .1s;
+  }
+  .seg button + button { border-left: 2px solid var(--ink); }
+  .seg button.on { background: var(--ink); color: var(--hazard); }
+  .seg button:not(.on):hover { background: var(--hazard); color: var(--ink); }
+  .check { display: flex; align-items: center; gap: 9px; font-size: 12.5px; color: var(--ink-2); cursor: pointer; font-weight: 500; }
+  .check input { width: 16px; height: 16px; accent-color: var(--safety); cursor: pointer; }
+  .hint { font-size: 11px; color: var(--ink-3); margin-top: 5px; }
+
+  /* 状态区 */
+  .states { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-bottom: 44px; }
+  .empty-box { text-align: center; padding: 8px 6px 4px; }
+  .empty-box .stamp {
+    width: 64px; height: 64px; margin: 0 auto 10px; border: 2.5px solid var(--ink-3); border-radius: 50%;
+    display: grid; place-items: center; color: var(--ink-3); font-weight: 900; font-size: 12px;
+    transform: rotate(-8deg); letter-spacing: .1em;
+  }
+  .empty-box p { font-weight: 900; font-size: 14px; margin-bottom: 2px; }
+  .empty-box span { font-size: 11.5px; color: var(--ink-3); display: block; margin-bottom: 12px; }
+  .loadbox .scanline { height: 10px; background: repeating-linear-gradient(-45deg, var(--ink) 0 6px, var(--hazard) 6px 12px); margin-bottom: 12px; animation: slide 1s linear infinite; background-size: 200% 100%; }
+  @keyframes slide { to { background-position: -24px 0; } }
+  .skl { height: 12px; background: #dcd9d0; margin-bottom: 9px; position: relative; overflow: hidden; }
+  .skl::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.8), transparent); animation: sweep 1.3s infinite; }
+  @keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+  .errbox { border: 2px solid var(--alert); background: #fdecec; }
+  .errbox .eh { background: var(--alert); color: #fff; font-weight: 900; font-size: 12px; letter-spacing: .1em; padding: 5px 10px; display: flex; gap: 8px; align-items: center; }
+  .errbox .eb { padding: 11px 12px; font-size: 12.5px; color: #6b1414; }
+  .errbox .eb b { color: var(--alert); }
+  .errbox .act { display: flex; gap: 8px; margin-top: 9px; }
+
+  /* 状态栏 */
+  .statusbar {
+    background: var(--ink); color: #b7b2a4; padding: 9px 16px; display: flex; gap: 24px; flex-wrap: wrap;
+    font-size: 11.5px; clip-path: polygon(0 0, 100% 0, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+  }
+  .statusbar b { color: #f4f2ec; }
+  .statusbar .ok { color: #5bd68a; }
+  .statusbar .warn { color: var(--hazard); }
+
+  /* 设计说明 */
+  .spec { border-top: 2px solid var(--ink); margin-top: 50px; padding-top: 22px; font-size: 12px; color: var(--ink-2); }
+  .spec h3 { font-size: 14px; font-weight: 900; color: var(--ink); margin-bottom: 12px; }
+  .spec dl { display: grid; grid-template-columns: 120px 1fr; gap: 6px 18px; margin-bottom: 16px; }
+  .spec dt { color: var(--ink-3); font-weight: 700; }
+  .swatches { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+  .sw { width: 72px; }
+  .sw i { display: block; height: 34px; border: 2px solid var(--ink); }
+  .sw span { font-size: 9.5px; color: var(--ink-3); font-family: var(--mono); }
+
+  /* ═══════════ 响应式 ═══════════ */
+  @media (max-width: 900px) {
+    .cols, .states { grid-template-columns: 1fr; }
+    .main { padding: 20px 18px 56px; }
+  }
+  @media (max-width: 720px) {
+    .app { flex-direction: column; }
+    .side { width: 100%; flex-direction: row; align-items: stretch; border-right: none; border-bottom: 2px solid var(--ink); overflow-x: auto; }
+    .side .brand { border-bottom: none; border-right: 2px solid var(--ink); padding: 10px 14px; display: flex; align-items: center; }
+    .side .brand .en { display: none; }
+    .side .brand h1 { font-size: 14px; white-space: nowrap; }
+    .side nav { flex-direction: row; padding: 0; align-items: center; }
+    .side .grp, .side .foot, .side .alert-chip, .side a .en { display: none; }
+    .side a { white-space: nowrap; border-left: none; border-bottom: 3px solid transparent; padding: 12px 14px; }
+    .side a.on { border-bottom-color: var(--safety); }
+    .grid-cards { grid-template-columns: 1fr; }
+    .masthead .title-block h1 { font-size: 20px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="preview-banner">
+  <strong>风格 A · 方舟机能</strong>
+  <span class="kw">关键词：<b>硬边斜切</b> · <b>警戒条纹</b> · <b>黑白灰+安全橙</b> · <b>档案编号</b> · <b>英文装饰字</b> · 明日方舟原作气质</span>
+  <nav>
+    <a href="01-arknights-industrial.html" class="on">A 机能</a>
+    <a href="02-prts-holo-terminal.html">B 全息</a>
+    <a href="03-tavern-journal.html">C 手札</a>
+    <a href="04-neon-pop-event.html">D 撞色</a>
+  </nav>
+</div>
+
+<div class="app">
+  <!-- 侧边导航 -->
+  <aside class="side">
+    <div class="brand">
+      <span class="en">Arknights Tavern</span>
+      <h1>方舟<i>酒馆</i></h1>
+    </div>
+    <nav>
+      <div class="grp en">Play // 游玩</div>
+      <a href="#">◀ 主菜单 <span class="en">Menu</span></a>
+      <a href="#" class="on">🏛️ 会话大厅 <span class="en">Archive</span></a>
+      <a href="#">🎭 角色 <span class="en">Ops</span></a>
+      <div class="grp en">Assets // 资产</div>
+      <a href="#">📖 世界书 <span class="en">Lore</span></a>
+      <a href="#">🗂️ 内容中心 <span class="en">Hub</span></a>
+      <a href="#">📘 文档 <span class="en">Docs</span></a>
+      <div class="grp en">System // 系统</div>
+      <a href="#">⚙️ 设置 <span class="en">Config</span></a>
+    </nav>
+    <div class="alert-chip"><span class="dot"></span>LLM 备用端点异常 · 已降级</div>
+    <div class="foot"><span class="okdot"></span>后端已连接 <span class="mono" style="margin-left:auto">:5000</span></div>
+  </aside>
+
+  <!-- 主内容 -->
+  <main class="main">
+    <div class="masthead">
+      <div class="title-block">
+        <span class="en">Session Archive // 会话档案</span>
+        <h1>会话大厅</h1>
+      </div>
+      <div class="ops">
+        <button class="btn">导入存档</button>
+        <button class="btn accent">＋ 新建会话</button>
+      </div>
+    </div>
+    <p class="mast-sub"><span class="mono">ARCHIVE: 3</span><span class="slash">//</span>最近游玩「风雪过境 · 圣山之路」<span class="slash">//</span><span class="mono">2H AGO</span></p>
+
+    <!-- 会话卡片 -->
+    <div class="grid-cards">
+      <article class="scard sel" tabindex="0">
+        <div class="head"><span class="no">No.01</span><span class="en">Kjerag // Main Story</span></div>
+        <div class="body">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+            <h3>风雪过境 · 圣山之路</h3>
+            <div class="avatars"><i style="background:#8fa8bf">雪</i><i style="background:#b093c7">崖</i><i style="background:#5b6b7c">博</i></div>
+          </div>
+          <p class="sub">初雪 · 崖心 · 博士 —— 圣山山路 / 大雪 / 黄昏</p>
+          <div class="tags"><span class="tag story">剧情</span><span class="tag tac">战术战斗</span><span class="tag nar">谢拉格设定集</span></div>
+          <div class="footrow"><span class="mono">ROUND 47 · 12.4K TOK</span><span>2 小时前</span></div>
+        </div>
+        <div class="hazard-strip"></div>
+      </article>
+
+      <article class="scard" tabindex="0">
+        <div class="head"><span class="no">No.02</span><span class="en">Rhodes Island // Free</span></div>
+        <div class="body">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+            <h3>罗德岛茶话会</h3>
+            <div class="avatars"><i style="background:#c7a45f">临</i><i style="background:#7c9bb5">佐</i></div>
+          </div>
+          <p class="sub">临光 · 佐菲娅 —— 罗德岛本舰 / 晴 / 午后</p>
+          <div class="tags"><span class="tag free">自由</span><span class="tag nar">叙事战斗</span><span class="tag live">进行中</span></div>
+          <div class="footrow"><span class="mono">ROUND 12 · 3.1K TOK</span><span>昨天</span></div>
+        </div>
+      </article>
+
+      <article class="scard" tabindex="0">
+        <div class="head"><span class="no">No.03</span><span class="en">Reunion // Combat</span></div>
+        <div class="body">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+            <h3>废弃区块遭遇战</h3>
+            <div class="avatars"><i style="background:#8a8f98">德</i></div>
+          </div>
+          <p class="sub">德克萨斯 —— 切城废墟 / 阴 / 战斗中断</p>
+          <div class="tags"><span class="tag story">剧情</span><span class="tag tac">战术战斗</span><span class="tag alert">⚔ 战斗中</span></div>
+          <div class="footrow"><span class="mono">TURN 6/12 · 8.9K TOK</span><span>3 天前</span></div>
+        </div>
+      </article>
+    </div>
+
+    <div class="sect"><span class="bar"></span><h2>干员整备</h2><span class="en">Operator Dossier // 初雪</span></div>
+    <div class="cols">
+      <!-- 属性表 -->
+      <section class="panel">
+        <div class="ph"><h3>初雪</h3><span class="en">Enya Silverash</span><span class="right tags"><span class="tag nar">辅助</span><span class="tag nar">喀兰贸易</span><span class="tag nar">埃拉菲亚</span></span></div>
+        <table>
+          <thead>
+            <tr><th>属性<span class="en">Attr</span></th><th>评级<span class="en">Rate</span></th><th>指数<span class="en">Val</span></th><th style="width:26%">熟练<span class="en">Bar</span></th></tr>
+          </thead>
+          <tbody>
+            <tr><td><b>情绪稳定性</b></td><td>卓越</td><td class="lv">09</td><td><span class="pip"><i style="width:90%"></i></span></td></tr>
+            <tr><td><b>源石技艺适应性</b></td><td>卓越</td><td class="lv">09</td><td><span class="pip"><i style="width:90%"></i></span></td></tr>
+            <tr><td><b>魅力</b></td><td>优良</td><td class="lv">08</td><td><span class="pip"><i style="width:80%"></i></span></td></tr>
+            <tr><td><b>战场机动</b></td><td>标准</td><td class="lv">06</td><td><span class="pip"><i style="width:60%"></i></span></td></tr>
+            <tr><td><b>战术规划</b></td><td>标准</td><td class="lv">06</td><td><span class="pip"><i style="width:60%"></i></span></td></tr>
+            <tr><td><b>物理强度</b></td><td>普通</td><td class="lv">04</td><td><span class="pip"><i style="width:40%"></i></span></td></tr>
+          </tbody>
+        </table>
+        <div style="display:flex;gap:9px;margin-top:16px;flex-wrap:wrap">
+          <button class="btn sm primary">查看卡池 <span class="mono">[14]</span></button>
+          <button class="btn sm">编辑角色卡</button>
+          <button class="btn sm danger">移出编队</button>
+        </div>
+      </section>
+
+      <!-- 表单 -->
+      <section class="panel">
+        <div class="ph"><h3>新建会话</h3><span class="en">New Session</span></div>
+        <div class="field">
+          <label for="sname">会话名称 <span class="en">Title</span></label>
+          <input id="sname" class="input" placeholder="例：风雪过境 · 其二">
+        </div>
+        <div class="field">
+          <label for="plot">绑定剧情 <span class="en">Plot</span></label>
+          <select id="plot" class="input">
+            <option>风雪过境（主线 · 谢拉格）</option>
+            <option>长夜临光（支线 · 卡西米尔）</option>
+            <option>不绑定剧情（自由模式）</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>战斗模式 <span class="en">Combat // 创建后不可更改</span></label>
+          <div class="seg">
+            <button type="button" class="on">⚔ 战术 · 战棋</button>
+            <button type="button">📜 叙事 · 文字</button>
+          </div>
+          <p class="hint">战术模式启用 7×7 网格与卡牌；叙事模式由 LLM 裁定结果。</p>
+        </div>
+        <div class="field">
+          <label class="check"><input type="checkbox" checked> 绑定默认世界书「明日方舟整合设定集」</label>
+        </div>
+        <div style="display:flex;gap:9px;justify-content:flex-end;flex-wrap:wrap">
+          <button class="btn">取消</button>
+          <button class="btn accent">创建会话</button>
+          <button class="btn primary" disabled>创建中…</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="sect"><span class="bar"></span><h2>组件状态</h2><span class="en">Component States</span></div>
+    <div class="states">
+      <section class="panel">
+        <div class="ph"><h3>空状态</h3><span class="en">Empty // 记忆</span></div>
+        <div class="empty-box">
+          <div class="stamp">NULL</div>
+          <p>暂无记忆</p>
+          <span>对话轮次积累后将自动生成语义记忆</span>
+          <button class="btn sm">了解记忆机制</button>
+        </div>
+      </section>
+      <section class="panel loadbox">
+        <div class="ph"><h3>加载状态</h3><span class="en">Streaming</span></div>
+        <div class="scanline"></div>
+        <div class="skl" style="width:92%"></div>
+        <div class="skl" style="width:100%"></div>
+        <div class="skl" style="width:61%"></div>
+        <p style="font-size:11.5px;color:var(--ink-3)">初雪正在回应… <span class="mono">TTFT 1.2S</span></p>
+      </section>
+      <section class="panel" style="padding:0;border:none;background:none;clip-path:none">
+        <div class="errbox">
+          <div class="eh">⚠ ALERT // LLM 降级</div>
+          <div class="eb">
+            <b>主端点请求失败（DeepSeek · 429）</b><br>
+            已自动切换至备用端点 Ollama 本地模型，冷却 30s 后重试主端点。
+            <div class="act">
+              <button class="btn sm">查看日志</button>
+              <button class="btn sm danger">手动切换</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- 状态栏 -->
+    <footer class="statusbar">
+      <span><b class="ok">● ONLINE</b> 后端已连接</span>
+      <span>LLM <b>DeepSeek-V3</b> <span class="mono">234MS</span></span>
+      <span class="warn">备用降级中 · Ollama qwen2.5:14b</span>
+      <span style="margin-left:auto" class="mono">ARKNIGHTS TAVERN v0.1.0 // ELECTRON</span>
+    </footer>
+
+    <!-- 设计说明 -->
+    <div class="spec">
+      <h3>设计令牌速览（供评审，非应用 UI）</h3>
+      <div class="swatches">
+        <div class="sw"><i style="background:#e8e6e0"></i><span>concrete</span></div>
+        <div class="sw"><i style="background:#ffffff"></i><span>panel #fff</span></div>
+        <div class="sw"><i style="background:#161513"></i><span>ink #161513</span></div>
+        <div class="sw"><i style="background:#ff8a00"></i><span>safety #ff8a00</span></div>
+        <div class="sw"><i style="background:#ffd400"></i><span>hazard #ffd400</span></div>
+        <div class="sw"><i style="background:#d62f2f"></i><span>alert #d62f2f</span></div>
+      </div>
+      <dl>
+        <dt>字体</dt><dd>Noto Sans SC 900 粗标题 + Inter 800 英文装饰（字距 .22em 大写）+ JetBrains Mono 编号数值</dd>
+        <dt>造型语言</dt><dd>0 圆角，一律 clip-path 斜切角（14px）；2px 纯黑结构线；警戒条纹与六边形头像作 IP 符号</dd>
+        <dt>间距节奏</dt><dd>卡片内 14–22px，区间 30–44px；密而不挤的「档案墙」观感</dd>
+        <dt>阴影</dt><dd>无模糊阴影，只用 5px 硬投影（hover 时浮出），符合硬 surfaces 世界观</dd>
+        <dt>交互反馈</dt><dd>hover 黄底/硬投影位移；focus-visible 3px 安全橙描边；disabled 38% 透明</dd>
+        <dt>落地难度</dt><dd>★★☆ 中：clip-path、警戒条纹均为纯 CSS；但项目现有 12px 圆角体系需整体替换，浅色模式下琥珀色按钮体系改为黑块</dd>
+      </dl>
+    </div>
+  </main>
+</div>
+</body>
+</html>

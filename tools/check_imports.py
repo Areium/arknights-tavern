@@ -34,9 +34,9 @@ print(f"  Depth 2 (摘要): {len(depth2)}")
 
 total_chars = sum(len(v["content"]) for v in result.values())
 print(f"\n总字符数: {total_chars:,} → 预估 ~{total_chars // 2:,} tokens (中文)")
-print(f"\n重复检查: visited 集天然去重，无重复文档。")
+print("\n重复检查: visited 集天然去重，无重复文档。")
 
 # Check: would combat.md appear in the catalog?
-print(f"\n=== combat.md 是否在 Wiki 目录中? ===")
+print("\n=== combat.md 是否在 Wiki 目录中? ===")
 combat_in_catalog = wm._catalog.get("characters/临光/combat")
 print(f"  characters/临光/combat: {'存在' if combat_in_catalog else '不存在（正确——不在预加载链中）'}")

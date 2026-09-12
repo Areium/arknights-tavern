@@ -62,25 +62,6 @@ export interface DocumentCategory {
   refs: string[];
 }
 
-/** 文档信息 */
-export interface DocumentInfo {
-  category_id: string;
-  id: string;
-  title: string;
-  hash: string;
-  mtime: number;
-  summary: string;
-}
-
-/** 文档内容 */
-export interface DocumentContent {
-  metadata: Record<string, any>;
-  content: string;
-  hash: string;
-  path: string;
-  filepath: string;
-}
-
 /** 文档树节点（来自后端） */
 export interface DocTreeNode {
   name: string;
@@ -98,26 +79,6 @@ export interface DocTreeCategory {
   category: string;
   category_info: DocumentCategory;
   children: DocTreeNode[];
-}
-
-/** 移动/重命名操作结果 */
-export interface MoveResult {
-  old_path: string;
-  new_path: string;
-  category: string;
-}
-
-/** SSE 事件 */
-export interface SSEEvent {
-  type: "text" | "scene_event" | "choice" | "heartbeat" | "error" | "done" | "meta" | "combat_trigger" | "combat_briefing";
-  data: Record<string, any>;
-}
-
-/** 群聊回复 */
-export interface GroupChatResponse {
-  character: string;
-  response: string;
-  env_updates: Record<string, any>;
 }
 
 /** Electron API （通过 preload 暴露） */
@@ -314,7 +275,23 @@ export interface PlayerPoolDTO {
   exhaust: CardDTO[];
 }
 
-/** 敌人意图（ROUND_START 计算，供玩家读取敌方计划） */
+/** 敌人意图的单段动作（v1：精英/Boss 每轮可有多个动作） */
+export interface EnemyIntentActionDTO {
+  type: "attack" | "heavy" | "aoe" | "move" | "defend";
+  label: string;
+  card_id: string;
+  card_name: string;
+  target_id: string;
+  target_name: string;
+  damage_min: number | null;
+  damage_max: number | null;
+}
+
+/** 敌人意图（ROUND_START 计算，供玩家读取敌方计划）
+ *
+ * v1（balance_version 1）起包含行动槽与多段动作计划：首段动作同时平铺在
+ * 顶层字段（向后兼容旧组件），完整计划见 `actions`。
+ */
 export interface EnemyIntentDTO {
   type: "attack" | "heavy" | "aoe" | "move" | "defend";
   label: string;
@@ -324,6 +301,12 @@ export interface EnemyIntentDTO {
   card_name: string;
   damage_min: number | null;
   damage_max: number | null;
+  /** 该敌人每轮行动槽数（普通 1，精英/Boss 2） */
+  action_slots?: number;
+  /** 每轮计划：预告与执行使用同一计划 */
+  actions?: EnemyIntentActionDTO[];
+  /** 计划生成时的剩余 AP */
+  ap?: number;
 }
 
 /** 战前打法（Approach）选项 */
@@ -379,6 +362,74 @@ export interface CombatEventDTO {
   data: Record<string, any>;
 }
 
+// ── 战斗结算（胜负判定成立后自动进入） ──
+
+/** 单次升级记录 */
+export interface LevelUpDTO {
+  level: number;
+  attribute: string;
+  value: number;
+  delta: number;
+}
+
+/** 升级导致的属性变化 */
+export interface AttributeChangeDTO {
+  name: string;
+  before: number;
+  after: number;
+  delta: number;
+}
+
+/** 单个参战角色的结算条目 */
+export interface CharacterSettlementDTO {
+  name: string;
+  in_battle: boolean;
+  alive: boolean;
+  xp_gained: number;
+  level_before: number;
+  level_after: number;
+  level_delta: number;
+  xp_before: number;
+  xp_after: number;
+  /** 升级前等级升到下一级所需经验 */
+  xp_needed_before: number;
+  /** 结算后等级升到下一级所需经验 */
+  xp_needed: number;
+  level_ups: LevelUpDTO[];
+  attribute_changes: AttributeChangeDTO[];
+  /** 属性已满值 → 无法继续成长 */
+  capped: boolean;
+  cap_reason: string;
+}
+
+/** 结算奖励汇总 */
+export interface SettlementRewardsDTO {
+  xp_total: number;
+  enemy_xp: number;
+  items: { name: string; count: number }[];
+  cards: CardDTO[];
+  /** 遭遇声明但尚未接入的奖励字段（如 unlock） */
+  unwired: string[];
+  xp_formula: string;
+}
+
+/** 战斗结算 DTO（GET/POST /combat/settlement、SSE battle_end.data.settlement） */
+export interface CombatSettlementDTO {
+  settlement_id: string;
+  encounter_id: string;
+  encounter_name: string;
+  winner: string;
+  rounds: number;
+  reward_mult: number;
+  victory: boolean;
+  characters: CharacterSettlementDTO[];
+  rewards: SettlementRewardsDTO;
+  has_reward: boolean;
+  /** 无经验无奖励时的明确提示文案 */
+  empty_message: string | null;
+  created_at: number;
+}
+
 declare global {
   interface Window {
     electronAPI?: ElectronAPI;
@@ -405,23 +456,6 @@ export interface IndexOverviewCategory {
 export interface IndexOverview {
   categories: IndexOverviewCategory[];
   hierarchy: { level: number; label: string; categories: string[] }[];
-}
-
-export interface IndexGraphNode {
-  id: string;
-  category: string;
-  name: string;
-  level: number;
-}
-
-export interface IndexGraphEdge {
-  source: string;
-  target: string;
-}
-
-export interface IndexGraph {
-  nodes: IndexGraphNode[];
-  edges: IndexGraphEdge[];
 }
 
 export interface SessionIndexConfig {

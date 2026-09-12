@@ -5,6 +5,7 @@
   "ollama_url": "http://localhost:11434",
   "ollama_model": "mbenhamd/qwen2.5-7b-instruct-cline-128k-q8_0:latest",
   "theme": "dark",
+  "skin": "default",
   "auto_generate_choices": false,
   "choice_count": 3,
   "memory_interval": 5,
