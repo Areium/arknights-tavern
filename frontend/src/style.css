@@ -231,6 +231,92 @@ html.light .md-pre-block {
 /* ── 文字通用补充 ── */
 html.light .text-amber-100\/70 { color: rgba(120,53,15,0.85); }
 
+/* ── 浅色主题覆盖补全（对照 scripts/gen_skin_utils.py 扫描的 272 个 token 审计）──
+   只补「原始深色值压在浅底上会破损」的 token，原始值本就可用的彩色点缀不重复覆盖：
+   1) 深色半透明灰阶（bg-gray-800/90 系列）在白底上是灰泥色涂抹 → 映射白/浅灰玻璃；
+   2) 浅色文字（text-sky-200 / cyan-200 / violet-200 / red-300 / green-100 等）
+      在白底对比不足 2:1 → 压深到同族深色（与已被覆盖的实底文字档位对齐）；
+   3) 图章配色对：bg-green-800/90 + text-green-100、bg-red-800/90 + text-red-100
+      成对映射（浅底深字），bg-emerald-800/40 软化为苔绿淡彩；
+   4) hover:text-* 浅色系在白底上悬停即隐形 → 压深；hover:bg-gray-* → 浅灰反馈。
+   作用域说明：light 与皮肤互斥（skin=default 且 theme=light 才激活），激活时与
+   既有浅色块一样全局生效（含战斗页）——本补全沿用该既有语义，不改变边界。 */
+html.light .bg-gray-800\/30 { background-color: rgba(255,255,255,0.3); }
+html.light .bg-gray-800\/40 { background-color: rgba(255,255,255,0.4); }
+html.light .bg-gray-800\/60 { background-color: rgba(255,255,255,0.6); }
+html.light .bg-gray-800\/80 { background-color: rgba(255,255,255,0.8); }
+html.light .bg-gray-800\/95 { background-color: rgba(255,255,255,0.95); }
+html.light .bg-gray-850\/30 { background-color: rgba(229,231,235,0.3); }
+html.light .bg-gray-900\/30 { background-color: rgba(249,250,251,0.4); }
+html.light .bg-gray-900\/50 { background-color: rgba(249,250,251,0.6); }
+html.light .bg-gray-900\/98 { background-color: rgba(249,250,251,0.99); }
+html.light .bg-gray-700\/60 { background-color: rgba(243,244,246,0.8); }
+html.light .bg-gray-600\/20 { background-color: rgba(209,213,219,0.3); }
+html.light .bg-gray-600\/50 { background-color: rgba(209,213,219,0.6); }
+html.light .bg-gray-600\/70 { background-color: rgba(209,213,219,0.8); }
+html.light .border-gray-400 { border-color: rgb(209 213 219); }
+html.light .border-gray-600\/50 { border-color: rgba(209,213,219,0.6); }
+html.light .border-gray-700\/30 { border-color: rgba(209,213,219,0.5); }
+html.light .border-gray-700\/40 { border-color: rgba(209,213,219,0.6); }
+html.light .border-gray-700\/50 { border-color: rgba(209,213,219,0.7); }
+html.light .border-gray-700\/60 { border-color: rgba(209,213,219,0.8); }
+html.light .border-gray-900 { border-color: rgb(243 244 246); }
+html.light .hover\:bg-gray-500:hover { background-color: rgb(156 163 175); }
+html.light .hover\:bg-gray-600:hover { background-color: rgb(209 213 219); }
+html.light .hover\:bg-gray-600\/60:hover { background-color: rgba(209,213,219,0.8); }
+html.light .hover\:bg-gray-700:hover { background-color: rgb(229 231 235); }
+html.light .hover\:bg-gray-700\/40:hover { background-color: rgba(229,231,235,0.7); }
+html.light .hover\:bg-gray-700\/50:hover { background-color: rgba(229,231,235,0.7); }
+html.light .hover\:bg-gray-800:hover { background-color: rgb(243 244 246); }
+html.light .hover\:bg-gray-800\/60:hover { background-color: rgba(243,244,246,0.8); }
+html.light .hover\:border-gray-600:hover { border-color: rgb(209 213 219); }
+html.light .hover\:text-gray-200:hover { color: rgb(55 65 81); }
+html.light .hover\:text-gray-300:hover { color: rgb(75 85 99); }
+html.light .hover\:text-gray-400:hover { color: rgb(107 114 128); }
+html.light .bg-cyan-600\/20 { background-color: rgba(207,250,254,0.5); }
+html.light .bg-cyan-700\/40 { background-color: rgba(165,243,252,0.5); }
+html.light .border-cyan-500\/30 { border-color: rgba(8,145,178,0.3); }
+html.light .text-violet-200 { color: rgb(91 33 182); }
+html.light .text-violet-300 { color: rgb(109 40 217); }
+html.light .bg-violet-600\/20 { background-color: rgba(221,214,254,0.45); }
+html.light .bg-violet-700\/30 { background-color: rgba(221,214,254,0.55); }
+html.light .bg-violet-700\/50 { background-color: rgba(196,181,253,0.5); }
+html.light .hover\:bg-violet-700\/50:hover { background-color: rgba(196,181,253,0.6); }
+html.light .hover\:bg-violet-700\/60:hover { background-color: rgba(196,181,253,0.7); }
+html.light .border-violet-500\/30 { border-color: rgba(124,58,237,0.3); }
+html.light .text-purple-500 { color: rgb(126 34 206); }
+html.light .bg-emerald-500\/70 { background-color: rgba(167,243,208,0.8); }
+html.light .bg-emerald-600\/10 { background-color: rgba(209,250,229,0.4); }
+html.light .hover\:bg-emerald-800\/70:hover { background-color: rgba(209,250,229,0.8); }
+html.light .border-emerald-500\/50 { border-color: rgba(5,150,105,0.4); }
+html.light .text-green-100 { color: rgb(20 83 45); }
+html.light .text-green-200 { color: rgb(22 101 52); }
+html.light .bg-green-600\/20 { background-color: rgba(187,247,208,0.4); }
+html.light .bg-green-800\/90 { background-color: rgb(220 252 231); }
+html.light .text-red-100 { color: rgb(127 29 29); }
+html.light .text-red-400\/80 { color: rgba(185,28,28,0.85); }
+html.light .bg-red-900\/20 { background-color: rgba(254,226,226,0.4); }
+html.light .hover\:text-red-300:hover { color: rgb(185 28 28); }
+html.light .hover\:text-red-400:hover { color: rgb(153 27 27); }
+html.light .text-amber-600 { color: rgb(146 64 14); }
+html.light .text-amber-100\/90 { color: rgba(120,53,15,0.95); }
+html.light .text-amber-200\/70 { color: rgba(146,64,14,0.9); }
+html.light .text-amber-200\/90 { color: rgba(146,64,14,0.95); }
+html.light .text-amber-300\/80 { color: rgba(180,83,9,0.9); }
+html.light .text-amber-300\/90 { color: rgba(180,83,9,0.95); }
+html.light .text-amber-400\/70 { color: rgba(161,98,7,0.95); }
+html.light .text-amber-400\/80 { color: rgb(161 98 7); }
+html.light .text-amber-500\/60 { color: rgba(133,77,14,0.9); }
+html.light .text-amber-500\/70 { color: rgba(133,77,14,0.95); }
+html.light .text-amber-500\/80 { color: rgb(133 77 14); }
+html.light .hover\:text-amber-200:hover { color: rgb(146 64 14); }
+html.light .hover\:text-amber-300:hover { color: rgb(180 83 9); }
+html.light .text-orange-400\/70 { color: rgba(194,65,12,0.9); }
+html.light .text-blue-400\/70 { color: rgba(37,99,235,0.9); }
+html.light .hover\:text-blue-300:hover { color: rgb(29 78 216); }
+html.light .hover\:text-cyan-300:hover { color: rgb(14 116 144); }
+html.light .hover\:text-green-400:hover { color: rgb(21 128 61); }
+
 /* ═══════════════════════════════════════
    战斗系统样式
    ═══════════════════════════════════════ */
