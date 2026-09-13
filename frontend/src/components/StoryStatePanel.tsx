@@ -1,8 +1,9 @@
 /**
  * 剧情进度面板 — 状态显示 + 关键节点回档。
  *
- * - 状态显示：玩家当前处于节点结构（章节/节拍）中的什么位置，路线图各节点状态。
- * - 回档：列出玩家经历过的关键节点（含轮次区间），可回档并恢复到该节点时的状态。
+ * - 状态显示：玩家当前处于剧情树（LLM 生成的节点结构）中的什么位置；
+ * - 剧情树：以缩进展示生成出来的节点（可分叉、可多层），当前节点高亮；
+ * - 回档：对经历过的树节点回档，恢复到该节点时的状态（树保留，其它分支仍可走）。
  *
  * 仅在剧情模式且有剧情绑定时显示。
  */
@@ -30,6 +31,8 @@ export default function StoryStatePanel() {
   const [rollingBack, setRollingBack] = useState<string | null>(null);
   const [showRoadmap, setShowRoadmap] = useState(false);
   const [showStates, setShowStates] = useState(false);
+  const [showTree, setShowTree] = useState(true);
+  const [showHistory, setShowHistory] = useState(true);
 
   const load = useCallback(async () => {
     if (!activeSessionId || chatMode !== "story") {
@@ -125,6 +128,10 @@ export default function StoryStatePanel() {
   }
 
   const history = state.node_history || [];
+  const tree = state.tree;
+  const treeNodes = tree?.has_tree ? tree.nodes : [];
+  const treeCurrent = tree?.current_node || null;
+  const onPath = new Set(tree?.path || []);
   const charStates = state.character_states || {};
   const charNames = Object.keys(charStates).filter(
     (n) => (charStates[n]?.conditions || []).length > 0
@@ -156,7 +163,19 @@ export default function StoryStatePanel() {
           </span>
         </div>
         <div className="text-[11px] text-amber-200/90">
-          当前节点：{beat ? `${beat.idx + 1}/${beat.total} · ${beat.summary || beat.id}` : "—"}
+          {treeCurrent ? (
+            <>
+              当前节点：{treeCurrent.title || treeCurrent.id}
+              <span className="text-gray-500">
+                {" "}（深度 {treeCurrent.depth}
+                {treeCurrent.round_start != null
+                  ? ` · 第 ${treeCurrent.round_start}–${treeCurrent.round_end} 轮`
+                  : ""}）
+              </span>
+            </>
+          ) : (
+            <>当前节点：{beat ? `${beat.idx + 1}/${beat.total} · ${beat.summary || beat.id}` : "—"}</>
+          )}
         </div>
         {/* 章节内进度条 */}
         <div className="h-1 rounded-full bg-gray-700/50 overflow-hidden">
@@ -165,26 +184,100 @@ export default function StoryStatePanel() {
             style={{ width: `${chapterProgress}%` }}
           />
         </div>
-        {beat && beat.narrations_on_beat > 0 && (
+        {!treeCurrent && beat && beat.narrations_on_beat > 0 && (
           <div className="text-[10px] text-gray-500">
             本节点已进行 {beat.narrations_on_beat} 轮叙述
           </div>
         )}
       </div>
 
-      {/* ── 关键节点回档 ── */}
-      <div className="space-y-1">
-        <button
-          onClick={() => setShowRoadmap((v) => !v)}
-          className="w-full flex items-center justify-between text-[10px] text-gray-500 hover:text-gray-300 transition-colors px-1"
-        >
-          <span>关键节点回档（{history.length}）</span>
-          <span>{showRoadmap ? "▲" : "▼"}</span>
-        </button>
-        {history.length === 0 && (
-          <div className="text-[11px] text-gray-600 px-1">尚无已记录节点</div>
-        )}
-        {history.map((n) => (
+      {/* ── 剧情树（LLM 生成的节点结构，可分叉/多层） ── */}
+      {treeNodes.length > 0 && (
+        <div className="space-y-1">
+          <button
+            onClick={() => setShowTree((v) => !v)}
+            className="w-full flex items-center justify-between text-[10px] text-gray-500 hover:text-gray-300 transition-colors px-1"
+          >
+            <span>剧情树（{treeNodes.length} 节点）</span>
+            <span>{showTree ? "▲" : "▼"}</span>
+          </button>
+          {showTree &&
+            treeNodes.map((n) => {
+              const isCurrent = n.id === tree?.current_id;
+              const isOnPath = onPath.has(n.id);
+              return (
+                <div
+                  key={n.id}
+                  style={{ marginLeft: n.depth * 12 }}
+                  className={`flex items-center gap-2 rounded-md border px-2 py-1.5 ${
+                    isCurrent
+                      ? "border-amber-500/50 bg-amber-500/10"
+                      : isOnPath
+                      ? "border-gray-600/50"
+                      : "border-gray-700/40"
+                  }`}
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                      isCurrent
+                        ? "bg-amber-400 animate-pulse"
+                        : n.has_state
+                        ? "bg-emerald-500/70"
+                        : "bg-gray-600/70"
+                    }`}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div
+                      className={`text-[11px] truncate ${
+                        isCurrent ? "text-amber-200 font-medium" : "text-gray-300"
+                      }`}
+                    >
+                      {n.title || n.id}
+                      {isCurrent && (
+                        <span className="ml-1 text-[9px] px-1 rounded bg-amber-600/40 text-amber-200">
+                          当前
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[10px] text-gray-600 truncate">
+                      {n.branch_label && n.branch_label !== "开始"
+                        ? `分支「${n.branch_label}」`
+                        : "起点"}
+                      {n.has_state && n.round_start != null
+                        ? ` · 第 ${n.round_start}–${n.round_end} 轮`
+                        : ""}
+                    </div>
+                  </div>
+                  {n.has_state && !isCurrent && (
+                    <button
+                      onClick={() => handleRollback(n.id, n.round_end ?? 0, n.title || n.id)}
+                      disabled={rollingBack !== null}
+                      className="text-[10px] px-2 py-1 rounded bg-blue-600/20 text-blue-300
+                                 hover:bg-blue-600/40 transition-colors disabled:opacity-40 shrink-0"
+                    >
+                      {rollingBack === n.id ? "回档中..." : "回档"}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+        </div>
+      )}
+
+      {/* ── 关键节点回档（旧会话无剧情树时回退） ── */}
+      {treeNodes.length === 0 && (
+        <div className="space-y-1">
+          <button
+            onClick={() => setShowHistory((v) => !v)}
+            className="w-full flex items-center justify-between text-[10px] text-gray-500 hover:text-gray-300 transition-colors px-1"
+          >
+            <span>关键节点回档（{history.length}）</span>
+            <span>{showHistory ? "▲" : "▼"}</span>
+          </button>
+          {showHistory && history.length === 0 && (
+            <div className="text-[11px] text-gray-600 px-1">尚无已记录节点</div>
+          )}
+          {showHistory && history.map((n) => (
           <div
             key={`${n.node_id}-${n.round_end}`}
             className="flex items-center gap-2 rounded-md border border-gray-700/40 px-2 py-1.5"
@@ -200,7 +293,7 @@ export default function StoryStatePanel() {
             </div>
             <button
               onClick={() =>
-                handleRollback(n.node_id, n.round_end, beatLabel[n.node_id] || n.node_id)
+                handleRollback(n.node_id, n.round_end ?? 0, beatLabel[n.node_id] || n.node_id)
               }
               disabled={rollingBack !== null}
               className="text-[10px] px-2 py-1 rounded bg-blue-600/20 text-blue-300
@@ -209,10 +302,20 @@ export default function StoryStatePanel() {
               {rollingBack === n.node_id ? "回档中..." : "回档"}
             </button>
           </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
-      {/* ── 路线图 ── */}
+      {/* ── 作者节拍骨架（路线图，作为剧情树之外的参考） ── */}
+      {roads.length > 0 && (
+        <button
+          onClick={() => setShowRoadmap((v) => !v)}
+          className="w-full flex items-center justify-between text-[10px] text-gray-500 hover:text-gray-300 transition-colors px-1"
+        >
+          <span>作者节拍骨架</span>
+          <span>{showRoadmap ? "▲" : "▼"}</span>
+        </button>
+      )}
       {showRoadmap && (
         <div className="space-y-2 border-t border-gray-700/40 pt-2">
           {roads.map((r) => {

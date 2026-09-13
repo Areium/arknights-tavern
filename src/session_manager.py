@@ -543,12 +543,30 @@ class Session:
     def rollback_to_node(self, node_id: str) -> dict:
         """回档到某个已记录的关键节点，并恢复该节点时的全部状态。
 
-        与 rollback_to_round 的区别：除截断叙述历史/回忆外，还从节点快照
-        恢复 beat_state、角色状态、任务状态、环境与剧情日志（时间旅行语义）。
+        优先按「剧情树节点」处理（LLM 生成的新节点，树上回档）：设置 current_id、
+        恢复角色/任务/环境/剧情日志/节拍，并截断叙述历史。树本身保留，因此回档后
+        仍可重新走其它分支。若节点不在树上，则回退到旧的节点快照机制。
 
         Raises:
             ValueError: 节点无快照或不在当前剧情结构中。
         """
+        tree_node = self.overlay.get_tree_node(node_id) if self.overlay else None
+        if tree_node is not None:
+            st = tree_node.get("state") or {}
+            if not st:
+                raise ValueError(f"节点尚无状态快照，无法回档: {node_id}")
+            target_round = int(st.get("round_end") or 0)
+            base = self.rollback_to_round(target_round)
+            restored = self.overlay.rollback_to_tree_node(node_id)
+            self.reload_environment_from_overlay()
+            return {
+                **base,
+                "node_id": node_id,
+                "round_range": [st.get("round_start"), target_round],
+                "restored": restored,
+                "story_state": self.overlay.build_story_state(),
+            }
+
         snap = self.overlay.get_node_snapshot(node_id)
         if snap is None:
             raise ValueError(f"未找到节点快照: {node_id}")

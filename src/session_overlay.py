@@ -14,6 +14,7 @@ import json
 import os
 import re
 import copy
+import hashlib
 import logging
 from pathlib import Path
 
@@ -533,6 +534,9 @@ class SessionOverlay:
         else:
             narrative_text = ""
 
+        # 剧情树根节点（入口）——无论是否有节拍骨架都先建好
+        self.init_story_tree(plot_id)
+
         if not narrative_text:
             logger.debug("剧情 %s 无节拍数据，跳过文档初始化", plot_id)
             self._narrative_beats = []
@@ -716,9 +720,67 @@ class SessionOverlay:
     def build_branch_context(self) -> str:
         """构建注入 Call 2 的「玩家当前节点状态」文本块。
 
-        包含：当前节拍 id/内容摘录/揭示信息 + 后续 5 个节拍 id+概要（跨章节）+
-        章节标题 + 本 beat 的作者手写选项方向。供 LLM 生成有根的后续分支。
+        树模式下以**当前剧情树节点**为准（标题/概要/内容/已走路径/已探索分支），
+        使 LLM 生成的下一步分支建立在玩家真实所处的位置上；无树时回退到
+        作者节拍骨架（兼容旧会话）。
         """
+        tree_ctx = self._build_tree_branch_context()
+        if tree_ctx:
+            return tree_ctx
+        return self._build_beat_branch_context()
+
+    def _build_tree_branch_context(self) -> str:
+        """树模式的分支上下文（当前节点 + 已走路径 + 已探索分支 + 作者方向）。"""
+        tree = self.get_story_tree()
+        nodes = tree.get("nodes", {})
+        cur = nodes.get(tree.get("current_id") or "")
+        if not cur:
+            return ""
+
+        lines = ["<current_node>"]
+        lines.append(f"节点标题：{cur.get('title') or '未命名'}")
+        if cur.get("intent"):
+            lines.append(f"进入方式：{cur['intent']}")
+        if cur.get("summary"):
+            lines.append(f"节点概要：{cur['summary']}")
+        if cur.get("content"):
+            lines.append(f"节点内容：{cur['content'][:400]}")
+
+        # 已走路径（祖先链）——保证新节点与来路连续
+        chain: list[str] = []
+        nid = cur.get("parent_id")
+        seen: set[str] = set()
+        while nid and nid in nodes and nid not in seen:
+            seen.add(nid)
+            chain.append(nodes[nid].get("title") or nid)
+            nid = nodes[nid].get("parent_id")
+        chain.reverse()
+        if chain:
+            lines.append("已走路径：" + " → ".join(chain))
+
+        # 已探索过的分支（其子节点已存在）——提示 LLM 给出新方向
+        taken = [b.get("label") for b in cur.get("branches", [])
+                 if b.get("child_id") in (cur.get("children") or [])]
+        if taken:
+            lines.append("已探索过的分支（请给出不同的新方向）：" + "；".join(t for t in taken if t))
+
+        authored = self.get_authored_branches()
+        if authored:
+            authored_txt = "；".join(
+                f"{b['label']}（{b['intent']}）" if b.get("intent") else b["label"]
+                for b in authored
+            )
+            lines.append(f"作者预设方向参考：{authored_txt}")
+
+        lines.append(
+            "说明：请基于当前节点与世界观，推导玩家接下来可以走向的 2-4 个不同方向；"
+            "每个方向都会被展开成一个**新的剧情节点**（不必局限于既有节拍）。"
+        )
+        lines.append("</current_node>")
+        return "\n".join(lines)
+
+    def _build_beat_branch_context(self) -> str:
+        """旧会话回退：以作者节拍骨架为上下文。"""
         beats = self._ensure_narrative_beats()
         bs = self._data.get("beat_state", {})
         if not beats or not bs:
@@ -739,7 +801,6 @@ class SessionOverlay:
         if reveals:
             lines.append(f"已揭示信息：{reveals[:200]}")
 
-        # 后续节拍候选（跨章节，最多 5 个）——供 target_beat_id 选择
         flat = [(c, b) for c, ch in enumerate(beats) for b in ch.get("beats", [])]
         cur_pos = next(
             (p for p, (c, b) in enumerate(flat) if c == ci and b["id"] == current["id"]),
@@ -753,7 +814,6 @@ class SessionOverlay:
                 next_infos.append(f"{label} — {(b.get('summary') or '')[:50]}")
         if next_infos:
             lines.append("后续节拍候选：" + "；".join(next_infos))
-            lines.append("说明：不同意图的分支可指向不同的候选节拍；都不贴切则 target_beat_id 填 null。")
 
         authored = self.get_authored_branches()
         if authored:
@@ -789,6 +849,322 @@ class SessionOverlay:
             if authored:
                 return list(authored)
         return []
+
+    # ── 动态剧情树（LLM 生成的新节点，树状结构） ──
+    #
+    # 与「作者节拍骨架」不同：树上的节点不是剧情文件里写死的节拍，而是每一轮
+    # 由 LLM 依据「当前节点 + 世界书背景」现场生成的场景节点。玩家选择一个分支
+    # 就生成/复用一个子节点，于是结构自然长成树（可分叉、可多层展开）。
+    # 每个节点内嵌该时刻的状态快照，使「位置显示 / 逐节点状态记录 / 回档」在
+    # 树上依然成立。
+
+    def _tree_node_id(self, parent_id: str, branch_label: str) -> str:
+        """由（父节点, 分支标签）确定性子节点 id。
+
+        同一父节点下重复走同一分支会命中同一节点（复访而非重复建点），
+        这样结构保持为树，而不是每次选择都无限膨胀。
+        """
+        key = f"{parent_id}|{branch_label}".encode("utf-8")
+        return "n_" + hashlib.sha1(key).hexdigest()[:10]
+
+    def _ensure_story_tree(self) -> dict:
+        """读取剧情树；不存在则按 plot_id 惰性创建（恢复会话同样适用）。"""
+        tree = self._data.get("story_tree")
+        if isinstance(tree, dict) and isinstance(tree.get("nodes"), dict) and tree["nodes"]:
+            return tree
+        return self.init_story_tree(self._data.get("plot_id") or "")
+
+    def init_story_tree(self, plot_id: str) -> dict:
+        """创建剧情树根节点（入口），仅在无树时执行。
+
+        根节点由作者提供的开场（opening_scene / 首个节拍）播种——它是入口，
+        其后的所有节点都由 LLM 生成。
+        """
+        tree = self._data.get("story_tree")
+        if isinstance(tree, dict) and tree.get("nodes"):
+            return tree
+
+        title = self._data.get("plot_name") or plot_id or "序章"
+        summary = self._data.get("plot_overview") or ""
+        content = ""
+        if plot_id:
+            result = _read_plot_file(plot_id)
+            if result:
+                meta, _body = result
+                title = meta.get("name", title) or title
+                summary = summary or meta.get("summary", "")
+                content = (meta.get("opening_scene") or "").strip()
+        if not content:
+            beats = self._ensure_narrative_beats()
+            if beats and beats[0].get("beats"):
+                b0 = beats[0]["beats"][0]
+                title = beats[0].get("title") or title
+                summary = summary or b0.get("summary", "")
+                content = b0.get("content", "")
+
+        root = {
+            "id": "n_root",
+            "parent_id": None,
+            "depth": 0,
+            "title": (title or "序章")[:40],
+            "summary": (summary or "")[:120],
+            "content": (content or "")[:800],
+            "intent": "起点",
+            "branch_label": "开始",
+            "created_round": 0,
+            "children": [],
+            "branches": [],
+            "state": None,
+        }
+        tree = {"version": 1, "root_id": "n_root", "current_id": "n_root",
+                "nodes": {"n_root": root}}
+        self._data["story_tree"] = tree
+        self._save()
+        logger.info("会话 %s: 剧情树已初始化（根节点来自剧情入口 %s）",
+                    self.session_id, plot_id or "-")
+        return tree
+
+    def get_story_tree(self) -> dict:
+        """剧情树原始结构（无则返回空树）。"""
+        tree = self._data.get("story_tree")
+        if isinstance(tree, dict) and isinstance(tree.get("nodes"), dict):
+            return tree
+        return {"version": 1, "root_id": "", "current_id": "", "nodes": {}}
+
+    def get_tree_node(self, node_id: str) -> dict | None:
+        return self.get_story_tree().get("nodes", {}).get(node_id)
+
+    def get_current_tree_node(self) -> dict | None:
+        tree = self.get_story_tree()
+        return tree.get("nodes", {}).get(tree.get("current_id") or "")
+
+    def _tree_state_snapshot(self, round_num: int, prev: dict | None = None) -> dict:
+        """节点状态快照：角色/任务/环境/节拍 + 轮次区间 + 剧情日志长度。"""
+        return {
+            "round_start": int((prev or {}).get("round_start") or round_num),
+            "round_end": int(round_num),
+            "narration_round": int(self._data.get("narration_round", 0)),
+            "plot_log_len": len(self._plot_log_entries()),
+            "environment": copy.deepcopy(self._data.get("environment", {})),
+            "character_states": copy.deepcopy(self._data.get("character_states", {})),
+            "quest_states": copy.deepcopy(self._data.get("quest_states", {})),
+            "beat_state": copy.deepcopy(self._data.get("beat_state", {})),
+        }
+
+    def _attach_tree_branches(self, node: dict, branches: list[dict] | None) -> None:
+        """把 LLM 给出的分支挂到节点上，并预算出各自的子节点 id。"""
+        out: list[dict] = []
+        for i, b in enumerate(branches or []):
+            label = str(b.get("label") or "").strip()
+            if not label:
+                continue
+            out.append({
+                "id": b.get("id") or f"tb_{i + 1}",
+                "label": label[:30],
+                "intent": (b.get("intent") or None),
+                "source": b.get("source") or "llm",
+                "child_id": self._tree_node_id(node["id"], label),
+            })
+        node["branches"] = out
+
+    def commit_tree_step(self, *, narrative: str = "", summary: str = "",
+                         title: str = "", branches: list[dict] | None = None,
+                         branch: dict | None = None,
+                         round_num: int | None = None) -> dict:
+        """把本轮叙述落成一棵树节点，并推进 current_id。
+
+        - 首轮（无节点状态）：本轮叙述填充根节点；
+        - 本轮玩家选了分支（branch 非空）：在父节点下生成/复用子节点并进入；
+        - 否则：停留在当前节点内，更新其内容与可选分支。
+
+        节点标题/概要/内容/分支均来自 LLM（title/summary/narrative/branches），
+        因此生成的是**新节点结果**，而不是从作者节拍里挑落点。
+        """
+        tree = self._ensure_story_tree()
+        nodes = tree["nodes"]
+        if round_num is None:
+            round_num = int(self._data.get("narration_round", 0))
+        round_num = int(round_num)
+
+        cur = nodes.get(tree.get("current_id") or "")
+
+        if cur is None or not cur.get("state"):
+            # 首轮：根节点
+            node = nodes.get(tree.get("root_id") or "n_root")
+            if node is None:
+                node = self.init_story_tree(self._data.get("plot_id") or "")
+                nodes = self.get_story_tree()["nodes"]
+                node = nodes["n_root"]
+            if narrative:
+                node["content"] = narrative[:800]
+            if summary:
+                node["summary"] = summary[:120]
+            if title:
+                node["title"] = title[:40]
+            self._attach_tree_branches(node, branches)
+            node["state"] = self._tree_state_snapshot(round_num, node.get("state"))
+            tree["current_id"] = node["id"]
+        elif branch:
+            # 玩家选了分支 → 生成/复用一个子节点
+            label = str(branch.get("label") or "").strip() or "分支"
+            child_id = self._tree_node_id(cur["id"], label)
+            child = nodes.get(child_id)
+            if child is None:
+                child = {
+                    "id": child_id,
+                    "parent_id": cur["id"],
+                    "depth": int(cur.get("depth", 0)) + 1,
+                    "title": (title or label)[:40],
+                    "summary": (summary or "")[:120],
+                    "content": (narrative or "")[:800],
+                    "intent": (branch.get("intent") or "").strip(),
+                    "branch_label": label[:30],
+                    "created_round": round_num,
+                    "children": [],
+                    "branches": [],
+                    "state": None,
+                }
+                nodes[child_id] = child
+                cur.setdefault("children", [])
+                if child_id not in cur["children"]:
+                    cur["children"].append(child_id)
+                logger.info("会话 %s: 剧情树新增节点 %s（深度 %d，来自分支「%s」）",
+                            self.session_id, child_id, child["depth"], label)
+            else:
+                # 复访：刷新内容
+                if narrative:
+                    child["content"] = narrative[:800]
+                if summary:
+                    child["summary"] = summary[:120]
+                if title:
+                    child["title"] = title[:40]
+            self._attach_tree_branches(child, branches)
+            child["state"] = self._tree_state_snapshot(round_num, child.get("state"))
+            tree["current_id"] = child_id
+            node = child
+        else:
+            # 同一节点内继续
+            node = cur
+            if narrative:
+                node["content"] = narrative[:800]
+            if summary:
+                node["summary"] = summary[:120]
+            if title:
+                node["title"] = title[:40]
+            self._attach_tree_branches(node, branches)
+            node["state"] = self._tree_state_snapshot(round_num, node.get("state"))
+
+        self._data["story_tree"] = tree
+        self._save()
+        return node
+
+    def build_tree_state(self) -> dict:
+        """剧情树视图：节点列表（含深度/父子/状态）+ 当前路径 + 当前节点的可走分支。"""
+        tree = self.get_story_tree()
+        nodes = tree.get("nodes", {})
+        if not nodes:
+            return {"has_tree": False, "nodes": [], "root_id": "", "current_id": "", "path": []}
+
+        current_id = tree.get("current_id") or ""
+        path: list[str] = []
+        nid = current_id
+        seen: set[str] = set()
+        while nid and nid in nodes and nid not in seen:
+            seen.add(nid)
+            path.append(nid)
+            nid = nodes[nid].get("parent_id")
+        path.reverse()
+
+        out = []
+        for nid, n in nodes.items():
+            st = n.get("state") or {}
+            if nid == current_id:
+                state = "current"
+            elif nid in path:
+                state = "path"
+            else:
+                state = "visited"
+            branches = []
+            for b in n.get("branches", []):
+                branches.append({**b, "taken": b.get("child_id") in (n.get("children") or [])})
+            out.append({
+                "id": nid,
+                "parent_id": n.get("parent_id"),
+                "depth": int(n.get("depth", 0)),
+                "title": n.get("title", ""),
+                "summary": n.get("summary", ""),
+                "intent": n.get("intent", ""),
+                "branch_label": n.get("branch_label", ""),
+                "children": list(n.get("children", [])),
+                "branches": branches,
+                "round_start": st.get("round_start"),
+                "round_end": st.get("round_end"),
+                "has_state": bool(st),
+                "state": state,
+            })
+        # 按深度 + 创建顺序稳定排序，便于前端缩进渲染
+        out.sort(key=lambda x: (x["depth"], x["id"]))
+        current = next((x for x in out if x["id"] == current_id), None)
+        return {
+            "has_tree": True,
+            "root_id": tree.get("root_id", ""),
+            "current_id": current_id,
+            "path": path,
+            "nodes": out,
+            "current_node": current,
+        }
+
+    def rollback_to_tree_node(self, node_id: str) -> dict:
+        """回档到剧情树上的某个节点，恢复该节点时刻的全部状态。
+
+        树本身保留（不删后续节点），因此回档后仍可重新走其它分支。
+        """
+        tree = self.get_story_tree()
+        nodes = tree.get("nodes", {})
+        node = nodes.get(node_id)
+        if node is None:
+            raise ValueError(f"剧情树中不存在节点: {node_id}")
+        st = node.get("state") or {}
+        if not st:
+            raise ValueError(f"节点尚无状态快照，无法回档: {node_id}")
+
+        tree["current_id"] = node_id
+        self._data["story_tree"] = tree
+        if "character_states" in st:
+            self._data["character_states"] = copy.deepcopy(st["character_states"])
+        if "quest_states" in st:
+            self._data["quest_states"] = copy.deepcopy(st["quest_states"])
+        if "environment" in st:
+            self._data["environment"] = copy.deepcopy(st["environment"])
+        if st.get("beat_state"):
+            self._data["beat_state"] = copy.deepcopy(st["beat_state"])
+        self._data["narration_round"] = int(st.get("round_end") or 0)
+        self._save()
+        try:
+            self._rewrite_plot_state()
+        except Exception:
+            logger.warning("剧情树回档后重写 plot_state 失败", exc_info=True)
+
+        # 剧情日志截断到该节点时刻
+        log_len = int(st.get("plot_log_len") or 0)
+        entries = self._plot_log_entries()[:log_len]
+        content = _PLOT_LOG_HEADER + "\n".join(entries)
+        if entries:
+            content += "\n"
+        self.write_session_doc("plot_log.md", content)
+
+        # 恢复该节点的可选分支，回档后可继续走别的分支
+        self.set_emitted_branches(node.get("branches", []))
+
+        logger.info("会话 %s: 剧情树回档 → %s（第%d轮）",
+                    self.session_id, node_id, st.get("round_end", 0))
+        return {
+            "node_id": node_id,
+            "round_start": int(st.get("round_start") or 0),
+            "round_end": int(st.get("round_end") or 0),
+            "depth": int(node.get("depth", 0)),
+            "title": node.get("title", ""),
+        }
 
     # ── 节点历史（每节点状态快照，用于记录/回档） ──
 
@@ -966,14 +1342,25 @@ class SessionOverlay:
     # ── 状态展示（当前位置） ──
 
     def build_story_state(self) -> dict:
-        """构建剧情状态视图：当前章节/节拍位置 + 节拍路线图 + 已完成 + 待生效分支。
+        """构建剧情状态视图：剧情树（LLM 生成节点）+ 作者节拍骨架 + 角色状态。
 
-        无剧情返回 {"has_plot": False, "roads": []}。
+        无剧情返回 {"has_plot": False, "roads": [], "tree": {...}}。
         """
+        tree = self.build_tree_state()
         beats = self._ensure_narrative_beats()
         bs = self._data.get("beat_state", {})
         if not beats or not bs:
-            return {"has_plot": False, "roads": []}
+            # 无作者骨架：至少返回剧情树（LLM 生成结构独立于作者骨架成立）
+            return {
+                "has_plot": bool(tree.get("has_tree")),
+                "plot_id": self._data.get("plot_id", ""),
+                "plot_name": self._data.get("plot_name", ""),
+                "roads": [],
+                "tree": tree,
+                "character_states": self._data.get("character_states", {}),
+                "quest_states": self._data.get("quest_states", {}),
+                "node_history": self._tree_node_history(tree),
+            }
 
         ci = bs.get("chapter_idx", 0)
         bi = bs.get("beat_idx", 0)
@@ -1037,16 +1424,34 @@ class SessionOverlay:
             },
             "beat": beat_info,
             "roads": roads,
+            "tree": tree,
             "completed_beats": list(bs.get("completed_beats", [])),
             "pending_branch": self.get_pending_branch(),
             "character_states": self._data.get("character_states", {}),
             "quest_states": self._data.get("quest_states", {}),
-            "node_history": [
+            "node_history": self._tree_node_history(tree) or [
                 {"node_id": n.get("node_id"), "round_start": n.get("round_start"),
                  "round_end": n.get("round_end")}
                 for n in self.get_node_history()
             ],
         }
+
+    @staticmethod
+    def _tree_node_history(tree: dict) -> list[dict]:
+        """从剧情树导出「经历过的节点」列表（回档点），按轮次排序。"""
+        out = []
+        for n in tree.get("nodes", []) if tree else []:
+            if not n.get("has_state"):
+                continue
+            out.append({
+                "node_id": n["id"],
+                "title": n.get("title", ""),
+                "depth": n.get("depth", 0),
+                "round_start": n.get("round_start"),
+                "round_end": n.get("round_end"),
+            })
+        out.sort(key=lambda x: (x.get("round_start") or 0, x["node_id"]))
+        return out
 
     def _rewrite_plot_state(self):
         """从当前内存状态重写 plot_state.md。

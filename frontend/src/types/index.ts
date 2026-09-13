@@ -120,6 +120,33 @@ export interface StoryRoad {
   beats: StoryBeatNode[];
 }
 
+/** 剧情树节点（LLM 现场生成的场景节点；节点内容非作者节拍骨架） */
+export interface StoryTreeNode {
+  id: string;
+  parent_id: string | null;
+  depth: number;
+  title: string;
+  summary: string;
+  intent?: string;
+  branch_label?: string;
+  children: string[];
+  branches: (BranchChoice & { child_id?: string; taken?: boolean })[];
+  round_start?: number | null;
+  round_end?: number | null;
+  has_state: boolean;
+  state: "current" | "path" | "visited";
+}
+
+/** 剧情树视图（GET /story-state 的 tree 字段） */
+export interface StoryTreeDTO {
+  has_tree: boolean;
+  root_id: string;
+  current_id: string;
+  path?: string[];
+  nodes: StoryTreeNode[];
+  current_node?: StoryTreeNode | null;
+}
+
 /** 剧情状态 DTO（GET /story-state） */
 export interface StoryStateDTO {
   has_plot: boolean;
@@ -130,11 +157,16 @@ export interface StoryStateDTO {
     idx: number; total: number; id: string; summary: string; narrations_on_beat: number;
   } | null;
   roads: StoryRoad[];
+  /** 动态剧情树（LLM 生成的节点结构） */
+  tree?: StoryTreeDTO;
   completed_beats?: string[];
   pending_branch?: any;
   character_states?: Record<string, any>;
   quest_states?: Record<string, any>;
-  node_history?: { node_id: string; round_start: number; round_end: number }[];
+  node_history?: {
+    node_id: string; title?: string; depth?: number;
+    round_start: number | null; round_end: number | null;
+  }[];
   combat_nodes?: Record<string, any>;
 }
 
