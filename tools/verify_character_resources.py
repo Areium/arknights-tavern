@@ -173,6 +173,13 @@ def collect(book: str) -> dict:
             "spine_variant": variant or "",
             "spine_registered": variant is not None,
             "spine_registered_ok": bool(variant) and _variant_files_exist(d, variant),
+            # Spine 只在「战斗角色（有 combat.json）」或「已有 spine 素材」时才必需：
+            # 纯叙事/世界书角色不进战斗，不需要动画资源。
+            "has_combat": (d / "combat.json").is_file(),
+            "spine_required": (d / "combat.json").is_file() or spine_variants > 0,
+            # 卡面可解析：card_face 字段命中 → skin → avatar（find_card_face_path 的回退链）
+            "card_face_resolvable": (ptr["card_face"]["resolves"] or bool(skin)
+                                     or bool(avatar)),
             "pointers": ptr,
             # card_face/ 有图但字段未设 → 文件就位却不会被 find_card_face_path 读取
             "card_face_dead": bool(card) and not ptr["card_face"]["set"],
@@ -201,15 +208,17 @@ def main() -> int:
     covered = [r for r in rows if r["has_entry"]]
     missing_entries = [r["name"] for r in rows if not r["has_entry"]]
 
-    # ── 2. 立绘 ──
+    # ── 2. 立绘（avatar + skin；卡面由 find_card_face_path 回退到 default_skin）──
     art_missing = [r["name"] for r in rows
-                   if not (r["avatar"] and r["skin"] and r["card_face"])]
+                   if not (r["avatar"] and r["skin"] and r["card_face_resolvable"])]
     art_missing_hard = [n for n in art_missing if n not in NO_SKIN_EXCEPTIONS]
     placeholders = [r["name"] for r in rows if r["placeholder"]]
+    card_face_dirs = [r["name"] for r in rows if r["card_face"]]
 
-    # ── 3. Spine ──
+    # ── 3. Spine（仅战斗角色 / 已有素材的角色必需）──
+    spine_required = [r for r in rows if r["spine_required"]]
     spine_ok = [r["name"] for r in rows if r["spine_ok"]]
-    spine_missing = [r["name"] for r in rows if not r["spine_ok"]]
+    spine_missing = [r["name"] for r in spine_required if not r["spine_ok"]]
     spine_missing_hard = [n for n in spine_missing if n not in NO_SPINE_EXCEPTIONS]
 
     # ── 4. 世界书归属 ──
@@ -253,9 +262,10 @@ def main() -> int:
         "portraits": {
             "complete": total - len(art_missing), "total": total,
             "missing": art_missing, "placeholders": placeholders,
+            "card_face_dirs": len(card_face_dirs),
         },
         "spine": {
-            "complete": len(spine_ok), "total": total,
+            "complete": len(spine_ok), "required": len(spine_required), "total": total,
             "missing": spine_missing, "exceptions": sorted(NO_SPINE_EXCEPTIONS),
         },
         "attribution": {
@@ -291,14 +301,17 @@ def main() -> int:
     if missing_entries:
         print(f"    缺条目：{missing_entries}")
 
-    print(f"[2] 立绘（avatar+skin+card_face）：{total - len(art_missing)}/{total} "
+    print(f"[2] 立绘（avatar + skin）：{total - len(art_missing)}/{total} "
           f"{'PASS' if checks['portraits'] else 'FAIL'}")
     if art_missing:
         print(f"    缺立绘：{art_missing}")
     if placeholders:
         print(f"    占位图（待美术替换）：{placeholders}")
+    print(f"    独立 card_face/ 目录：{len(card_face_dirs)}/{total}"
+          f"（其余走 find_card_face_path → default_skin 回退）")
 
-    print(f"[3] Spine（完整 Front/Back 三件套）：{len(spine_ok)}/{total} "
+    print(f"[3] Spine（完整 Front/Back 三件套，仅战斗角色必需）："
+          f"{len(spine_ok)}/{len(spine_required)} 必需 "
           f"{'PASS' if checks['spine'] else 'FAIL'}")
     if spine_missing:
         print(f"    缺 Spine：{spine_missing}")
