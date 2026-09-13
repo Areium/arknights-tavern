@@ -30,7 +30,7 @@ html.skin-prts {
   --p-text-2: #8ca3b8;
   --p-text-3: #54687c;
   --p-display: "Orbitron", "Noto Sans SC", sans-serif;
-
+  --p-mono: "JetBrains Mono", "SF Mono", Consolas, monospace;
   /* ── 剧情节点图色板（style.css 的 --ng-* 默认是通用深色，与全息青主题不搭）──
      五类节点各取皮肤同族的色：plot=全息青、chapter=靛青、beat=OK 绿、
      combat=警报红、note=战备金；画布/卡片底色走面板色，连线用低饱和青。
@@ -397,6 +397,119 @@ html.skin-prts body {
   .text-black { color: #02040a; }
   /* ═══ 工具类覆盖结束 ═══ */
 
+  /* ── 通用按钮族（机甲 HUD 化） ─────────────────────────────────────────
+     · 统一切角（右上/左下 9px 切角）+ 细描边 + 多层 inset box-shadow 描边；
+     · .btn-primary / .btn-danger 渐变实底 + ::after 扫光 + active 下沉 + disabled 降饱和；
+     · 用 :where() 把 .btn-ghost / .btn-hero 显式排除（二者常与 .btn 同现，需保留既有观感）。
+     特异度自证：@scope 会给内部选择器隐式加 :scope 前缀（:scope 即作用域根、也就是
+    带皮肤类的 html 元素本身），故内部选择器若再写「html 元素 + 皮肤类」前缀，就变成
+    :scope html … 的后代链 —— 根不可能是自身的后代，永远无法命中。改用 body 前缀
+    （body 是作用域根的真实后代）：body .btn-primary = (0,1,1) 高于生成区
+    .bg-blue-600 / .text-white (0,1,0)；body .btn-primary:hover = (0,2,1) 高于
+    .hover\:bg-blue-500:hover (0,2,0)，故底色/文字/悬停稳定生效。 */
+  body .btn:where(:not(.btn-ghost):not(.btn-hero)),
+  body .btn-primary,
+  body .btn-danger {
+    position: relative;
+    clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 9px 100%, 0 calc(100% - 9px));
+    border: 1px solid var(--p-line);
+    box-shadow:
+      inset 0 0 0 1px rgba(56, 189, 248, 0.12),
+      inset 0 1px 0 rgba(255, 255, 255, 0.16),
+      inset 0 -1px 0 rgba(56, 189, 248, 0.12);
+  }
+  body .btn-primary {
+    background-color: transparent;
+    background-image: linear-gradient(135deg, #7dd3fc 0%, #38bdf8 55%, #0284c7 100%);
+    color: #04070d;
+    border-color: rgba(56, 189, 248, 0.60);
+    box-shadow:
+      inset 0 0 0 1px rgba(56, 189, 248, 0.25),
+      inset 0 1px 0 rgba(255, 255, 255, 0.30);
+    overflow: hidden;
+    transition: filter 0.2s ease, box-shadow 0.2s ease, transform 0.1s ease;
+  }
+  body .btn-danger {
+    background-color: transparent;
+    background-image: linear-gradient(135deg, #fb5e5e 0%, #dc2626 55%, #991b1b 100%);
+    color: #fdecec;
+    border-color: rgba(251, 94, 94, 0.60);
+    box-shadow:
+      inset 0 0 0 1px rgba(251, 94, 94, 0.25),
+      inset 0 1px 0 rgba(255, 255, 255, 0.22);
+    overflow: hidden;
+    transition: filter 0.2s ease, box-shadow 0.2s ease, transform 0.1s ease;
+  }
+  body .btn-primary::after,
+  body .btn-danger::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    pointer-events: none;
+    background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.38) 50%, transparent 70%);
+    transform: translateX(-100%);
+    transition: transform 0.55s ease;
+  }
+  body .btn-primary:hover::after,
+  body .btn-danger:hover::after {
+    transform: translateX(100%);
+  }
+  body .btn-primary:hover,
+  body .btn-danger:hover {
+    filter: brightness(1.07);
+  }
+  body .btn-primary:active,
+  body .btn-danger:active {
+    transform: translateY(1px);
+  }
+  body .btn-primary:disabled,
+  body .btn-danger:disabled {
+    filter: saturate(0.35) brightness(0.9);
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  /* ── 卡片四角括号（corner brackets，仅四角 L 形半描边，hover 点亮） ──── */
+  body .card {
+    position: relative;
+    --card-corner: var(--p-line-strong);
+  }
+  body .card:hover { --card-corner: var(--p-holo); }
+  body .card::before,
+  body .card::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-repeat: no-repeat;
+    transition: filter 0.2s ease;
+  }
+  body .card::before {
+    background-image:
+      linear-gradient(var(--card-corner), var(--card-corner)),
+      linear-gradient(var(--card-corner), var(--card-corner)),
+      linear-gradient(var(--card-corner), var(--card-corner)),
+      linear-gradient(var(--card-corner), var(--card-corner));
+    background-size: 12px 1px, 1px 12px, 12px 1px, 1px 12px;
+    background-position: left top, left top, right bottom, right bottom;
+  }
+  body .card::after {
+    background-image:
+      linear-gradient(var(--card-corner), var(--card-corner)),
+      linear-gradient(var(--card-corner), var(--card-corner)),
+      linear-gradient(var(--card-corner), var(--card-corner)),
+      linear-gradient(var(--card-corner), var(--card-corner));
+    background-size: 12px 1px, 1px 12px, 12px 1px, 1px 12px;
+    background-position: right top, right top, left bottom, left bottom;
+  }
+  body .card:hover::before,
+  body .card:hover::after {
+    filter: brightness(1.6);
+  }
+
   /* ── Markdown 渲染 ────────────────────────────────────────────────────── */
   .md-code-inline {
     background-color: rgba(56, 189, 248, 0.10);
@@ -408,6 +521,27 @@ html.skin-prts body {
     border-color: rgba(56, 189, 248, 0.22);
   }
 
+  /* ── Markdown 表格 ──────────────────────────────────────────────────── */
+  body .prose-sm table thead th {
+    font-family: var(--p-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.04em;
+    color: var(--p-holo);
+    border-bottom: 2px solid var(--p-line-strong);
+  }
+  body .prose-sm table td {
+    font-variant-numeric: tabular-nums;
+  }
+  body .prose-sm table tbody tr:hover {
+    background-color: rgba(56, 189, 248, 0.08);
+  }
+
+  /* ── 原生 select 下拉（option 用下沉面 / 正文色） ────────────────────── */
+  body select.input option {
+    background-color: var(--p-sunken);
+    color: var(--p-text);
+  }
+
   /* ── 徽章 ─────────────────────────────────────────────────────────────── */
   .badge-story { background: rgba(240, 192, 96, 0.14); color: #f0c060; border-color: rgba(240, 192, 96, 0.30); }
   .badge-free { background: rgba(167, 139, 250, 0.14); color: #c4b5fd; border-color: rgba(167, 139, 250, 0.30); }
@@ -415,6 +549,21 @@ html.skin-prts body {
   .badge-narrative { background: rgba(56, 189, 248, 0.14); color: #7dd3fc; border-color: rgba(56, 189, 248, 0.30); }
   .badge-wb { background: rgba(61, 220, 151, 0.12); color: #3ddc97; border-color: rgba(61, 220, 151, 0.28); }
   .badge-plot { background: rgba(240, 192, 96, 0.08); color: #dfa63a; border-color: rgba(240, 192, 96, 0.20); }
+
+  /* ── 徽章前导小方块 + 等宽数字（.badge-* 均共享 .badge 基底） ────────── */
+  body .badge {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.03em;
+  }
+  body .badge::before {
+    content: "";
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    background: currentColor;
+    border-radius: 1px;
+    flex-shrink: 0;
+  }
 
   /* ── 角色头像 / 详情区块 / 数值格 ─────────────────────────────────────── */
   .char-avatar {
@@ -428,6 +577,14 @@ html.skin-prts body {
   .stat-cell {
     background: rgba(6, 12, 22, 0.7);
     border-color: rgba(56, 189, 248, 0.18);
+  }
+
+  /* ── 等宽数字：数值格（tabular-nums 使数字等宽对齐，末行数值加适度字距） ── */
+  body .stat-cell {
+    font-variant-numeric: tabular-nums;
+  }
+  body .stat-cell > div:last-child {
+    letter-spacing: 0.02em;
   }
 
   /* ── 新建向导 ─────────────────────────────────────────────────────────── */
@@ -578,6 +735,42 @@ html.skin-prts body {
   .home-audio-btn:hover { background: rgba(56, 189, 248, 0.12); }
   .home-vol-slider { accent-color: var(--p-holo); }
 
+  /* ── 启动闪屏（splash，PRTS 全息终端语言，与 tavern 的暖色对称） ──────── */
+  body .home-splash {
+    background:
+      radial-gradient(1000px 500px at 50% 34%, rgba(56, 189, 248, 0.12), transparent 60%),
+      radial-gradient(700px 420px at 50% 78%, rgba(240, 192, 96, 0.05), transparent 60%),
+      rgba(4, 7, 13, 0.90);
+    backdrop-filter: blur(8px);
+  }
+  body .home-splash-logo {
+    animation: none;
+    border: 1px solid rgba(56, 189, 248, 0.40);
+    box-shadow: none;
+    clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+    filter: drop-shadow(0 0 18px rgba(56, 189, 248, 0.45));
+  }
+  body .home-splash-title {
+    background: linear-gradient(120deg, #bae6fd 0%, #38bdf8 45%, #bae6fd 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    text-shadow: 0 2px 24px rgba(56, 189, 248, 0.30);
+  }
+  body .home-splash-press {
+    color: rgba(125, 211, 252, 0.85);
+  }
+
+  /* ── 状态点（home-status dot，PRTS 语义色 + 柔和外发光） ─────────────── */
+  body .home-status .dot.ok {
+    background: var(--p-ok);
+    box-shadow: 0 0 8px rgba(61, 220, 151, 0.70);
+  }
+  body .home-status .dot.bad {
+    background: var(--p-alert);
+    box-shadow: 0 0 8px rgba(251, 94, 94, 0.70);
+  }
+
   /* ── 对话气泡（chat 页） ──────────────────────────────────────────────
      注意：DialogueBubble 的气泡底色/描边、说话人姓名色都是「按角色色号计算的
      行内样式」（inline style），优先级高于任何类选择器。因此这里刻意只覆盖
@@ -597,11 +790,34 @@ html.skin-prts body {
   .dlg-ava { box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.40); }
 }
 
+/* ── 战斗页氛围层泄漏修复（V1，纯 CSS :has() 门控，不动 @scope 行） ────────
+   body 是 .bg-combat-bg 的祖先，@scope 的 to 边界排除不了祖先，故第 71-94 行的
+   body::before（网格）/ body::after（扫描线）在战斗页仍会渲染。用 :has() 检测
+   html.skin-prts 是否包含 .bg-combat-bg：是则隐藏这两个氛围层；非战斗页不含该
+   类，氛围层照常存在。门控选择器 html.skin-prts:has(.bg-combat-bg) body::before 的特异度为 (0,2,3)（html / body / ::before 三个元素级 + .skin-prts / :has 两个类级），高于 @scope 内 body::before（隐式 :scope 计为作用域根 html.skin-prts 的 (0,1,1) 后合计 (0,1,3)），故能稳定压过。 */
+html.skin-prts:has(.bg-combat-bg) body::before,
+html.skin-prts:has(.bg-combat-bg) body::after {
+  display: none;
+}
+
 /* ── 无障碍兜底：本皮肤全部氛围为静态，若系统偏好减弱动效则进一步压平 ────── */
 @media (prefers-reduced-motion: reduce) {
   html.skin-prts body::before,
   html.skin-prts body::after {
     animation: none !important;
+    transition: none !important;
+  }
+  /* 按钮扫光 / 卡片角标点亮 / 按钮悬停下沉：压平为无过渡 */
+  html.skin-prts .btn-primary::after,
+  html.skin-prts .btn-danger::after {
+    transition: none !important;
+  }
+  html.skin-prts .card::before,
+  html.skin-prts .card::after {
+    transition: none !important;
+  }
+  html.skin-prts .btn-primary,
+  html.skin-prts .btn-danger {
     transition: none !important;
   }
 }
