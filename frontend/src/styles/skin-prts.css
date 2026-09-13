@@ -31,6 +31,8 @@ html.skin-prts {
   --p-text-3: #54687c;
   --p-display: "Orbitron", "Noto Sans SC", sans-serif;
   --p-mono: "JetBrains Mono", "SF Mono", Consolas, monospace;
+  --p-cut: 9px;                                  /* 按钮切角尺寸 */
+  --p-ease: cubic-bezier(0.22, 1, 0.36, 1);      /* 扫光缓动（预览稿 --ease-out） */
   /* ── 剧情节点图色板（style.css 的 --ng-* 默认是通用深色，与全息青主题不搭）──
      五类节点各取皮肤同族的色：plot=全息青、chapter=靛青、beat=OK 绿、
      combat=警报红、note=战备金；画布/卡片底色走面板色，连线用低饱和青。
@@ -117,8 +119,9 @@ html.skin-prts body {
   .input::placeholder { color: #54687c; }
   .input:focus { border-color: var(--p-holo); box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.28); }
 
-  .btn-ghost { color: #8ca3b8; }
-  .btn-ghost:hover { background-color: rgba(56, 189, 248, 0.10); color: #dce8f2; }
+  /* 复选框 focus 光环：.checkbox 用 @apply focus:ring-blue-500（ring 不在生成器
+     前缀内），覆盖 --tw-ring-color 变量即可换色，无需动 box-shadow 结构。 */
+  .checkbox:focus { --tw-ring-color: rgba(56, 189, 248, 0.55); }
 
   .panel-title { color: #6f849a; }
 
@@ -131,6 +134,7 @@ html.skin-prts body {
   .bg-gray-600\/20 { background-color: rgba(84, 104, 124, 0.2); }
   .bg-gray-600\/50 { background-color: rgba(84, 104, 124, 0.5); }
   .hover\:bg-gray-600\/60:hover { background-color: rgba(84, 104, 124, 0.6); }
+  .bg-gray-600\/70 { background-color: rgba(84, 104, 124, 0.7); }
   .hover\:bg-gray-700:hover { background-color: #122032; }
   .bg-gray-700 { background-color: #122032; }
   .bg-gray-700\/30 { background-color: rgba(18, 32, 50, 0.3); }
@@ -153,6 +157,7 @@ html.skin-prts body {
   .bg-gray-850\/30 { background-color: rgba(6, 12, 22, 0.3); }
   .bg-gray-900 { background-color: #04070d; }
   .bg-gray-900\/30 { background-color: rgba(4, 7, 13, 0.3); }
+  .bg-gray-900\/40 { background-color: rgba(4, 7, 13, 0.4); }
   .bg-gray-900\/50 { background-color: rgba(4, 7, 13, 0.5); }
   .bg-gray-900\/60 { background-color: rgba(4, 7, 13, 0.6); }
   .bg-gray-900\/95 { background-color: rgba(4, 7, 13, 0.95); }
@@ -164,10 +169,12 @@ html.skin-prts body {
   .border-gray-600\/50 { border-color: rgba(56, 189, 248, 0.5); }
   .border-gray-700 { border-color: rgba(56,189,248,.22); }
   .border-gray-700\/30 { border-color: rgba(56, 189, 248, 0.3); }
+  .border-gray-700\/40 { border-color: rgba(56, 189, 248, 0.4); }
   .border-gray-700\/50 { border-color: rgba(56, 189, 248, 0.5); }
   .border-gray-700\/60 { border-color: rgba(56, 189, 248, 0.6); }
   .border-gray-700\/70 { border-color: rgba(56, 189, 248, 0.7); }
   .border-gray-800 { border-color: rgba(56,189,248,.14); }
+  .border-gray-800\/80 { border-color: rgba(56, 189, 248, 0.8); }
   .border-gray-900 { border-color: rgba(56,189,248,.10); }
   .placeholder-gray-500 { color: #6f849a; }
   .text-gray-100 { color: #dce8f2; }
@@ -177,8 +184,6 @@ html.skin-prts body {
   .text-gray-300 { color: #a8bdd1; }
   .text-gray-400 { color: #8ca3b8; }
   .hover\:text-gray-400:hover { color: #8ca3b8; }
-  /* 500/600 原为 #6f849a / #54687c，压在深空底上只有 5.2 / 3.5:1，600 读不清；
-     提亮一档并保持 500 比 600 亮。 */
   .text-gray-500 { color: #7f96ac; }
   .text-gray-600 { color: #6f849a; }
   .placeholder\:text-gray-600::placeholder { color: #6f849a; }
@@ -196,9 +201,12 @@ html.skin-prts body {
   .bg-amber-500 { background-color: #c68d26; }
   .bg-amber-500\/5 { background-color: rgba(198, 141, 38, 0.05); }
   .hover\:bg-amber-500\/10:hover { background-color: rgba(198, 141, 38, 0.1); }
+  .bg-amber-500\/10 { background-color: rgba(198, 141, 38, 0.1); }
   .bg-amber-500\/20 { background-color: rgba(198, 141, 38, 0.2); }
+  .bg-amber-500\/70 { background-color: rgba(198, 141, 38, 0.7); }
   .hover\:bg-amber-500\/80:hover { background-color: rgba(198, 141, 38, 0.8); }
   .bg-amber-600 { background-color: #a97419; }
+  .hover\:bg-amber-600:hover { background-color: #a97419; }
   .bg-amber-600\/5 { background-color: rgba(169, 116, 25, 0.05); }
   .bg-amber-600\/15 { background-color: rgba(169, 116, 25, 0.15); }
   .bg-amber-600\/20 { background-color: rgba(169, 116, 25, 0.2); }
@@ -206,7 +214,9 @@ html.skin-prts body {
   .bg-amber-600\/30 { background-color: rgba(169, 116, 25, 0.3); }
   .hover\:bg-amber-600\/30:hover { background-color: rgba(169, 116, 25, 0.3); }
   .hover\:bg-amber-600\/40:hover { background-color: rgba(169, 116, 25, 0.4); }
+  .bg-amber-600\/40 { background-color: rgba(169, 116, 25, 0.4); }
   .bg-amber-600\/80 { background-color: rgba(169, 116, 25, 0.8); }
+  .bg-amber-700 { background-color: #a97419; }
   .bg-amber-700\/30 { background-color: rgba(169, 116, 25, 0.3); }
   .hover\:bg-amber-700\/50:hover { background-color: rgba(169, 116, 25, 0.5); }
   .bg-amber-700\/50 { background-color: rgba(169, 116, 25, 0.5); }
@@ -217,16 +227,20 @@ html.skin-prts body {
   .border-amber-500\/40 { border-color: rgba(198, 141, 38, 0.4); }
   .focus\:border-amber-500\/50:focus { border-color: rgba(198, 141, 38, 0.5); }
   .border-amber-500\/50 { border-color: rgba(198, 141, 38, 0.5); }
+  .hover\:border-amber-500\/60:hover { border-color: rgba(198, 141, 38, 0.6); }
   .border-amber-600\/30 { border-color: rgba(169, 116, 25, 0.3); }
   .border-amber-600\/40 { border-color: rgba(169, 116, 25, 0.4); }
+  .border-amber-600\/50 { border-color: rgba(169, 116, 25, 0.5); }
   .border-amber-600\/60 { border-color: rgba(169, 116, 25, 0.6); }
   .border-amber-700\/20 { border-color: rgba(169, 116, 25, 0.2); }
   .border-amber-700\/30 { border-color: rgba(169, 116, 25, 0.3); }
+  .border-amber-700\/40 { border-color: rgba(169, 116, 25, 0.4); }
   .text-amber-100 { color: #f7e3b8; }
   .text-amber-100\/90 { color: rgba(247, 227, 184, 0.9); }
   .text-amber-200 { color: #f4d99c; }
   .hover\:text-amber-200:hover { color: #f4d99c; }
   .text-amber-200\/70 { color: rgba(244, 217, 156, 0.7); }
+  .text-amber-200\/90 { color: rgba(244, 217, 156, 0.9); }
   .text-amber-300 { color: #f0c060; }
   .hover\:text-amber-300:hover { color: #f0c060; }
   .text-amber-300\/80 { color: rgba(240, 192, 96, 0.8); }
@@ -271,20 +285,27 @@ html.skin-prts body {
   .hover\:bg-red-700\/50:hover { background-color: rgba(220, 38, 38, 0.5); }
   .bg-red-700\/80 { background-color: rgba(220, 38, 38, 0.8); }
   .bg-red-700\/90 { background-color: rgba(220, 38, 38, 0.9); }
+  .bg-red-800 { background-color: #b91c1c; }
   .bg-red-800\/30 { background-color: rgba(185, 28, 28, 0.3); }
   .hover\:bg-red-800\/50:hover { background-color: rgba(185, 28, 28, 0.5); }
   .bg-red-800\/50 { background-color: rgba(185, 28, 28, 0.5); }
+  .bg-red-800\/90 { background-color: rgba(185, 28, 28, 0.9); }
   .bg-red-900\/20 { background-color: rgba(127, 29, 29, 0.2); }
   .bg-red-900\/30 { background-color: rgba(127, 29, 29, 0.3); }
+  .bg-red-950\/40 { background-color: rgba(127, 29, 29, 0.4); }
   .border-red-500\/40 { border-color: rgba(248, 113, 113, 0.4); }
   .border-red-700\/30 { border-color: rgba(220, 38, 38, 0.3); }
   .border-red-700\/40 { border-color: rgba(220, 38, 38, 0.4); }
   .border-red-800\/40 { border-color: rgba(185, 28, 28, 0.4); }
+  .border-red-800\/60 { border-color: rgba(185, 28, 28, 0.6); }
   .border-red-900\/40 { border-color: rgba(127, 29, 29, 0.4); }
+  .text-red-100 { color: #fecaca; }
+  .text-red-200 { color: #fecaca; }
   .text-red-300 { color: #fca5a5; }
   .hover\:text-red-300:hover { color: #fca5a5; }
   .text-red-400 { color: #fb5e5e; }
   .hover\:text-red-400:hover { color: #fb5e5e; }
+  .text-red-400\/80 { color: rgba(251, 94, 94, 0.8); }
   .text-red-500 { color: #f87171; }
 
   /* ── blue ── */
@@ -316,11 +337,15 @@ html.skin-prts body {
   .border-blue-600\/60 { border-color: rgba(2, 132, 199, 0.6); }
   .border-blue-700\/30 { border-color: rgba(3, 105, 161, 0.3); }
   .text-blue-200 { color: #bae6fd; }
-  .text-blue-300 { color: #7dd3fc; }
   .hover\:text-blue-300:hover { color: #7dd3fc; }
+  .text-blue-300 { color: #7dd3fc; }
   .text-blue-400 { color: #38bdf8; }
   .text-blue-400\/70 { color: rgba(56, 189, 248, 0.7); }
-  .text-blue-500 { color: #0ea5e9; }
+
+  /* ── sky ── */
+  .bg-sky-700\/25 { background-color: rgba(2, 132, 199, 0.25); }
+  .border-sky-500\/40 { border-color: rgba(14, 165, 233, 0.4); }
+  .text-sky-200 { color: #38bdf8; }
 
   /* ── cyan ── */
   .bg-cyan-600\/20 { background-color: rgba(2, 132, 199, 0.2); }
@@ -342,18 +367,25 @@ html.skin-prts body {
   .bg-green-700\/50 { background-color: rgba(4, 120, 87, 0.5); }
   .bg-green-700\/90 { background-color: rgba(4, 120, 87, 0.9); }
   .bg-green-800\/50 { background-color: rgba(4, 120, 87, 0.5); }
+  .bg-green-800\/90 { background-color: rgba(4, 120, 87, 0.9); }
   .hover\:border-green-700\/50:hover { border-color: rgba(4, 120, 87, 0.5); }
+  .text-green-100 { color: #a7f3d0; }
   .text-green-200 { color: #a7f3d0; }
   .text-green-300 { color: #86efac; }
   .text-green-400 { color: #3ddc97; }
   .hover\:text-green-400:hover { color: #3ddc97; }
 
   /* ── emerald ── */
+  .bg-emerald-500 { background-color: #10b981; }
   .bg-emerald-500\/20 { background-color: rgba(16, 185, 129, 0.2); }
+  .bg-emerald-500\/70 { background-color: rgba(16, 185, 129, 0.7); }
   .bg-emerald-600\/10 { background-color: rgba(5, 150, 105, 0.1); }
   .bg-emerald-600\/20 { background-color: rgba(5, 150, 105, 0.2); }
   .hover\:bg-emerald-600\/40:hover { background-color: rgba(5, 150, 105, 0.4); }
+  .bg-emerald-800\/40 { background-color: rgba(4, 120, 87, 0.4); }
+  .hover\:bg-emerald-800\/70:hover { background-color: rgba(4, 120, 87, 0.7); }
   .border-emerald-500\/50 { border-color: rgba(16, 185, 129, 0.5); }
+  .border-emerald-600\/50 { border-color: rgba(5, 150, 105, 0.5); }
   .text-emerald-300 { color: #86efac; }
   .text-emerald-400 { color: #3ddc97; }
 
@@ -397,79 +429,128 @@ html.skin-prts body {
   .text-black { color: #02040a; }
   /* ═══ 工具类覆盖结束 ═══ */
 
-  /* ── 通用按钮族（机甲 HUD 化） ─────────────────────────────────────────
-     · 统一切角（右上/左下 9px 切角）+ 细描边 + 多层 inset box-shadow 描边；
-     · .btn-primary / .btn-danger 渐变实底 + ::after 扫光 + active 下沉 + disabled 降饱和；
-     · 用 :where() 把 .btn-ghost / .btn-hero 显式排除（二者常与 .btn 同现，需保留既有观感）。
-     特异度自证：@scope 会给内部选择器隐式加 :scope 前缀（:scope 即作用域根、也就是
-    带皮肤类的 html 元素本身），故内部选择器若再写「html 元素 + 皮肤类」前缀，就变成
-    :scope html … 的后代链 —— 根不可能是自身的后代，永远无法命中。改用 body 前缀
-    （body 是作用域根的真实后代）：body .btn-primary = (0,1,1) 高于生成区
-    .bg-blue-600 / .text-white (0,1,0)；body .btn-primary:hover = (0,2,1) 高于
-    .hover\:bg-blue-500:hover (0,2,0)，故底色/文字/悬停稳定生效。 */
-  body .btn:where(:not(.btn-ghost):not(.btn-hero)),
+  /* ── 通用按钮族（PRTS 全息风格） ─────────────────────────────────────────
+     设计基准：ui-styles/06-prts-hud-upgrade-preview.html 的 after 态。
+     · 切角统一取左上 / 右下（clip-path 会连同 border / box-shadow 一起裁剪，
+       因此外发光用 drop-shadow() 滤镜 —— 滤镜在裁剪之后合成，光晕贴着切角轮廓）；
+     · .btn-primary / .btn-danger：深色渐变实底 + 浅字 + 斜切扫光（::before），
+       hover 点亮双层光晕，active 下沉缩压，disabled 去饱和且隐藏扫光；
+     · .btn-ghost：透明底 + 角标括号（::before/::after L 形，hover 点亮）；
+     · .btn-hero：切角 + 光晕，保留自身渐变底。
+     用 :where() 把 .btn-ghost / .btn-hero 从 .btn 基础形里排除（二者有专属块）。
+     组件里 .btn-primary 等不与 .btn 同现（style.css @apply 合成），故基础形只
+     覆盖「裸 .btn + 工具类底色」的按钮。
+     特异度自证：@scope 内选择器被隐式加 :scope 前缀，写「html + 皮肤类」前缀
+     等价于 :scope html …（根不可能是自身的后代，永不命中），必须用 body 前缀：
+     body .btn-primary (0,1,1) 压过生成区 .bg-blue-600 / .text-white (0,1,0)；
+     body .btn-primary:hover (0,2,1) 压过 .hover\:bg-blue-500:hover (0,2,0)。 */
+  body .btn:where(:not(.btn-ghost):not(.btn-hero)) {
+    position: relative;
+    border-radius: 0;
+    clip-path: polygon(var(--p-cut) 0, 100% 0, 100% calc(100% - var(--p-cut)), calc(100% - var(--p-cut)) 100%, 0 100%, 0 var(--p-cut));
+    border: 1px solid var(--p-line);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), inset 0 -1px 0 rgba(56, 189, 248, 0.10);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    transition: border-color 0.15s ease, filter 0.2s ease, transform 0.12s ease;
+  }
+  body .btn:where(:not(.btn-ghost):not(.btn-hero)):hover {
+    border-color: var(--p-line-strong);
+  }
+
   body .btn-primary,
   body .btn-danger {
     position: relative;
-    clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 9px 100%, 0 calc(100% - 9px));
-    border: 1px solid var(--p-line);
-    box-shadow:
-      inset 0 0 0 1px rgba(56, 189, 248, 0.12),
-      inset 0 1px 0 rgba(255, 255, 255, 0.16),
-      inset 0 -1px 0 rgba(56, 189, 248, 0.12);
+    border: none;
+    border-radius: 0;
+    overflow: hidden;
+    background-color: transparent;
+    clip-path: polygon(var(--p-cut) 0, 100% 0, 100% calc(100% - var(--p-cut)), calc(100% - var(--p-cut)) 100%, 0 100%, 0 var(--p-cut));
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    transition: filter 0.2s ease, transform 0.12s ease;
   }
   body .btn-primary {
-    background-color: transparent;
-    background-image: linear-gradient(135deg, #7dd3fc 0%, #38bdf8 55%, #0284c7 100%);
-    color: #04070d;
-    border-color: rgba(56, 189, 248, 0.60);
-    box-shadow:
-      inset 0 0 0 1px rgba(56, 189, 248, 0.25),
-      inset 0 1px 0 rgba(255, 255, 255, 0.30);
-    overflow: hidden;
-    transition: filter 0.2s ease, box-shadow 0.2s ease, transform 0.1s ease;
+    background-image: linear-gradient(160deg, #0ea5e9 0%, #0284c7 55%, #0369a1 100%);
+    color: #eaf4fc;
+    filter: drop-shadow(0 0 1px rgba(56, 189, 248, 0.4)) drop-shadow(0 2px 10px rgba(56, 189, 248, 0.28));
   }
   body .btn-danger {
-    background-color: transparent;
-    background-image: linear-gradient(135deg, #fb5e5e 0%, #dc2626 55%, #991b1b 100%);
+    background-image: linear-gradient(160deg, #fb5e5e 0%, #dc2626 55%, #991b1b 100%);
     color: #fdecec;
-    border-color: rgba(251, 94, 94, 0.60);
-    box-shadow:
-      inset 0 0 0 1px rgba(251, 94, 94, 0.25),
-      inset 0 1px 0 rgba(255, 255, 255, 0.22);
-    overflow: hidden;
-    transition: filter 0.2s ease, box-shadow 0.2s ease, transform 0.1s ease;
+    filter: drop-shadow(0 0 1px rgba(251, 94, 94, 0.4)) drop-shadow(0 2px 10px rgba(251, 94, 94, 0.28));
   }
-  body .btn-primary::after,
-  body .btn-danger::after {
+  /* 斜切扫光：高光窄条 hover 时横穿一次（skew 后宽度的 440% 位移保证完全穿出） */
+  body .btn-primary::before,
+  body .btn-danger::before {
     content: "";
     position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 0;
-    width: 100%;
+    top: -30%;
+    bottom: -30%;
+    left: -35%;
+    width: 36%;
     pointer-events: none;
-    background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.38) 50%, transparent 70%);
-    transform: translateX(-100%);
-    transition: transform 0.55s ease;
+    background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+    transform: skewX(-18deg);
+    opacity: 0;
+    transition: transform 0.45s var(--p-ease), opacity 0.2s ease;
   }
-  body .btn-primary:hover::after,
-  body .btn-danger:hover::after {
-    transform: translateX(100%);
+  body .btn-primary:hover {
+    filter: brightness(1.06) drop-shadow(0 0 2px rgba(56, 189, 248, 0.55)) drop-shadow(0 5px 18px rgba(56, 189, 248, 0.45));
   }
-  body .btn-primary:hover,
   body .btn-danger:hover {
-    filter: brightness(1.07);
+    filter: brightness(1.06) drop-shadow(0 0 2px rgba(251, 94, 94, 0.55)) drop-shadow(0 5px 18px rgba(251, 94, 94, 0.45));
+  }
+  body .btn-primary:hover::before,
+  body .btn-danger:hover::before {
+    opacity: 1;
+    transform: skewX(-18deg) translateX(440%);
   }
   body .btn-primary:active,
   body .btn-danger:active {
-    transform: translateY(1px);
+    transform: translateY(1px) scale(0.985);
+    filter: brightness(0.95);
   }
   body .btn-primary:disabled,
   body .btn-danger:disabled {
-    filter: saturate(0.35) brightness(0.9);
-    opacity: 0.6;
+    opacity: 0.38;
+    filter: grayscale(0.6);
     cursor: not-allowed;
+  }
+  body .btn-primary:disabled::before,
+  body .btn-danger:disabled::before {
+    display: none;
+  }
+
+  /* ghost：透明底 + 全息角标括号（L 形四分之一角，hover 点亮） */
+  body .btn-ghost {
+    position: relative;
+    border-radius: 3px;
+    border-color: rgba(56, 189, 248, 0.30);
+    background-color: rgba(56, 189, 248, 0.03);
+    color: #8ca3b8;
+  }
+  body .btn-ghost::before,
+  body .btn-ghost::after {
+    content: "";
+    position: absolute;
+    width: 9px;
+    height: 9px;
+    border: 0 solid var(--p-holo);
+    opacity: 0.55;
+    transition: opacity 0.15s ease;
+    pointer-events: none;
+  }
+  body .btn-ghost::before { top: -1px; left: -1px; border-top-width: 1.5px; border-left-width: 1.5px; }
+  body .btn-ghost::after { bottom: -1px; right: -1px; border-bottom-width: 1.5px; border-right-width: 1.5px; }
+  body .btn-ghost:hover {
+    background-color: rgba(56, 189, 248, 0.12);
+    color: #dce8f2;
+    border-color: rgba(56, 189, 248, 0.55);
+  }
+  body .btn-ghost:hover::before,
+  body .btn-ghost:hover::after {
+    opacity: 1;
   }
 
   /* ── 卡片四角括号（corner brackets，仅四角 L 形半描边，hover 点亮） ──── */
@@ -653,12 +734,16 @@ html.skin-prts body {
   .btn-hero {
     background: linear-gradient(135deg, #7dd3fc 0%, #38bdf8 55%, #0284c7 100%);
     color: #04070d;
-    box-shadow: 0 4px 18px -6px rgba(56, 189, 248, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.30);
+    border-radius: 0;
+    clip-path: polygon(var(--p-cut) 0, 100% 0, 100% calc(100% - var(--p-cut)), calc(100% - var(--p-cut)) 100%, 0 100%, 0 var(--p-cut));
+    box-shadow: none;
+    filter: drop-shadow(0 0 2px rgba(56, 189, 248, 0.4)) drop-shadow(0 3px 14px rgba(56, 189, 248, 0.3));
+    transition: filter 0.2s ease, transform 0.12s ease;
   }
   .btn-hero:hover {
-    filter: brightness(1.08);
-    box-shadow: 0 6px 24px -6px rgba(56, 189, 248, 0.70), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+    filter: brightness(1.08) drop-shadow(0 0 3px rgba(56, 189, 248, 0.55)) drop-shadow(0 5px 20px rgba(56, 189, 248, 0.45));
   }
+  .btn-hero:active { transform: translateY(1px); }
 
   .session-card {
     background: linear-gradient(150deg, rgba(11, 21, 36, 0.95), rgba(7, 14, 25, 0.95));
@@ -677,6 +762,8 @@ html.skin-prts body {
 
   /* ── 主页主菜单 ───────────────────────────────────────────────────────── */
   .home-menu-root { background-color: var(--p-abyss); }
+  /* style.css 的 logo 光晕是琥珀系，PRTS 换成全息青 */
+  body .home-menu-logo { box-shadow: 0 0 30px rgba(56, 189, 248, 0.30); }
   .home-menu-vignette {
     background:
       radial-gradient(120% 90% at 50% 30%, rgba(4, 7, 13, 0) 0%, rgba(4, 7, 13, 0.55) 62%, rgba(2, 4, 10, 0.92) 100%),
@@ -807,9 +894,13 @@ html.skin-prts:has(.bg-combat-bg) body::after {
     animation: none !important;
     transition: none !important;
   }
-  /* 按钮扫光 / 卡片角标点亮 / 按钮悬停下沉：压平为无过渡 */
-  html.skin-prts .btn-primary::after,
-  html.skin-prts .btn-danger::after {
+  /* 按钮扫光 / ghost 角标 / 卡片角标点亮 / 按钮悬停下沉：压平为无过渡 */
+  html.skin-prts .btn-primary::before,
+  html.skin-prts .btn-danger::before {
+    transition: none !important;
+  }
+  html.skin-prts .btn-ghost::before,
+  html.skin-prts .btn-ghost::after {
     transition: none !important;
   }
   html.skin-prts .card::before,
@@ -817,7 +908,9 @@ html.skin-prts:has(.bg-combat-bg) body::after {
     transition: none !important;
   }
   html.skin-prts .btn-primary,
-  html.skin-prts .btn-danger {
+  html.skin-prts .btn-danger,
+  html.skin-prts .btn-hero,
+  html.skin-prts .btn {
     transition: none !important;
   }
 }

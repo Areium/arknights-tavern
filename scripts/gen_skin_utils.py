@@ -17,6 +17,9 @@
    text-gray-100">` 的类写在 frontend/index.html 里 —— body 规则必须写成
    `html.skin-x body`(0,2,1) 且放在 @scope 之外（见 _promote 说明 / CSS 内注释）。
 2. 扫描范围必须包含 frontend/index.html，否则 bg-surface-* 全漏。
+   combat 目录默认排除（战斗页不换肤），但 PlotGraphPage / GraphCanvas 渲染在
+   ContentHub 的「剧情图」Tab 下、不在 .bg-combat-bg 子树内，必须纳入扫描，
+   否则该页的页面 chrome 在皮肤下留默认深色。
 
 用法
 ----
@@ -113,7 +116,9 @@ TAVERN_ACCENT = {
     "rose": {400: "#a03d2d", 500: "#b04a38"},
     "pink": {400: "#a03d2d"},
     "blue": {200: "#35566b", 300: "#3f6a83", 400: "#6b8299", 500: "#557089", 600: "#3f6a83", 700: "#35566b"},
-    "sky": {400: "#6b8299", 500: "#557089", 600: "#3f6a83"},
+    # sky 的 200/700 与 500 对齐 400：原 skin-tavern 生成区内的手写补漏值
+    # （#334e63 保羊皮纸可读性、#6b8299 与 t-sky 变量一致）已并入调色板。
+    "sky": {200: "#334e63", 400: "#6b8299", 500: "#6b8299", 600: "#3f6a83", 700: "#6b8299"},
     "cyan": {200: "#35566b", 300: "#3f6a83", 400: "#6b8299", 500: "#557089", 600: "#3f6a83", 700: "#35566b"},
     "indigo": {400: "#6b8299", 500: "#557089"},
     "green": {200: "#4a6040", 300: "#4f6545", 400: "#5b7350", 500: "#5b7350", 600: "#4a6040", 700: "#3f5237"},
@@ -132,6 +137,25 @@ TAVERN_SURFACE = {"dark": "#ece1c9", "card": "#fbf6e9", "border": "#d8c9a8", "ho
 PRTS_SPECIAL = {"white": "#eaf4fc", "black": "#02040a"}
 TAVERN_SPECIAL = {"white": "#fbf6e9", "black": "#d8c9a8"}
 
+# 手调对比度覆盖：调色板是 bg/text/border 共用的，但部分「文字色」压在皮肤底色上
+# 不达 4.5:1，需要按 (skin, prefix, family, shade) 精确覆盖（此前手改在生成区内，
+# 重跑即丢 —— 现收编进脚本，保证重跑可复现）。带 alpha 的 token 仍按
+# with_alpha(覆盖值, alpha) 派生。
+COLOR_OVERRIDES = {
+    # PRTS：深空底上 gray-500/600 文字提亮一档（保持 500 亮于 600 的层次）
+    ("prts", "text", "gray", 500): "#7f96ac",
+    ("prts", "text", "gray", 600): "#6f849a",
+    # tavern：羊皮纸上灰阶 500/600 与琥珀系文字压深到墨水层次
+    ("tavern", "text", "gray", 500): "#665644",
+    ("tavern", "text", "gray", 600): "#5b4c3e",
+    ("tavern", "text", "amber", 100): "#4e350c",
+    ("tavern", "text", "amber", 200): "#5c3f10",
+    ("tavern", "text", "amber", 300): "#6b4a16",
+    ("tavern", "text", "amber", 400): "#7d5a1c",
+    ("tavern", "text", "amber", 500): "#6b4a16",
+    ("tavern", "text", "amber", 600): "#5c3f10",
+}
+
 ORDER = ["gray", "surface", "amber", "yellow", "orange", "red", "rose", "pink",
          "blue", "sky", "cyan", "indigo", "green", "emerald", "teal", "lime",
          "violet", "purple", "fuchsia", "white", "black"]
@@ -142,6 +166,11 @@ TITLES = {
 
 BEGIN = "  /* ═══ 工具类覆盖（由 scripts/gen_skin_utils.py 生成，勿手改） ═══ */"
 END = "  /* ═══ 工具类覆盖结束 ═══ */"
+
+# combat 目录默认排除（战斗页不换肤，根在 .bg-combat-bg 子树内，@scope 已隔离）；
+# 例外：剧情图页（PlotGraphPage）被 ContentHub「剧情图」Tab 引用，渲染在换肤
+# DOM 内，GraphCanvas 仅被它使用 —— 这两个文件必须参与扫描。
+COMBAT_INCLUDE_FILES = {"PlotGraphPage.tsx", "GraphCanvas.tsx"}
 
 
 def hex_to_rgb(h):
@@ -165,6 +194,10 @@ def with_alpha(color, alpha):
 
 
 def resolve(skin, prefix, fam, shade, alpha):
+    ov = COLOR_OVERRIDES.get((skin, prefix, fam, shade))
+    if ov is not None:
+        return with_alpha(ov, alpha) if alpha else ov
+
     is_prts = skin == "prts"
     gray = PRTS_GRAY if is_prts else TAVERN_GRAY
     border_gray = PRTS_BORDER_GRAY if is_prts else TAVERN_BORDER_GRAY
@@ -200,7 +233,10 @@ def scan_used():
     for dirpath, dirnames, filenames in os.walk(SRC):
         dirnames[:] = [d for d in dirnames if d not in ("node_modules", "dist")]
         if os.path.join("components", "combat") in dirpath:
-            continue  # 战斗页不换肤
+            # 战斗页不换肤；但剧情图两文件挂在 ContentHub 下、渲染在换肤 DOM 内
+            targets += [os.path.join(dirpath, f) for f in filenames
+                        if f in COMBAT_INCLUDE_FILES]
+            continue
         targets += [os.path.join(dirpath, f) for f in filenames if f.endswith((".tsx", ".ts"))]
 
     for path in targets:

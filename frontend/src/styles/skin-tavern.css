@@ -101,6 +101,10 @@ html.skin-tavern body {
   .input::placeholder { color: #9c8b74; }
   .input:focus { border-color: var(--t-seal); box-shadow: 0 0 0 1px rgba(160, 61, 45, 0.25); }
 
+  /* 复选框 focus 光环：.checkbox 用 @apply focus:ring-blue-500（ring 不在生成器
+     前缀内），覆盖 --tw-ring-color 变量即可换色。 */
+  .checkbox:focus { --tw-ring-color: rgba(160, 61, 45, 0.45); }
+
   .btn-ghost { color: #6d5c4b; }
   .btn-ghost:hover { background-color: rgba(160, 61, 45, 0.08); color: #40342a; }
 
@@ -115,6 +119,7 @@ html.skin-tavern body {
   .bg-gray-600\/20 { background-color: rgba(168, 152, 128, 0.2); }
   .bg-gray-600\/50 { background-color: rgba(168, 152, 128, 0.5); }
   .hover\:bg-gray-600\/60:hover { background-color: rgba(168, 152, 128, 0.6); }
+  .bg-gray-600\/70 { background-color: rgba(168, 152, 128, 0.7); }
   .hover\:bg-gray-700:hover { background-color: #f3ead7; }
   .bg-gray-700 { background-color: #f3ead7; }
   .bg-gray-700\/30 { background-color: rgba(243, 234, 215, 0.3); }
@@ -137,8 +142,6 @@ html.skin-tavern body {
   .bg-gray-850\/30 { background-color: rgba(247, 240, 221, 0.3); }
   .bg-gray-900 { background-color: #ece1c9; }
   .bg-gray-900\/30 { background-color: rgba(236, 225, 201, 0.3); }
-  /* 补漏：此前没有 /40 映射，回落到 Tailwind 默认 rgb(17 19 24 / 0.4)，
-     压在羊皮纸上变成泥色调 #8d8676 —— 剧情 Tab 条上的文字因此只有 1.18:1。 */
   .bg-gray-900\/40 { background-color: rgba(236, 225, 201, 0.4); }
   .bg-gray-900\/50 { background-color: rgba(236, 225, 201, 0.5); }
   .bg-gray-900\/60 { background-color: rgba(236, 225, 201, 0.6); }
@@ -151,10 +154,12 @@ html.skin-tavern body {
   .border-gray-600\/50 { border-color: rgba(184, 163, 124, 0.5); }
   .border-gray-700 { border-color: #d8c9a8; }
   .border-gray-700\/30 { border-color: rgba(216, 201, 168, 0.3); }
+  .border-gray-700\/40 { border-color: rgba(216, 201, 168, 0.4); }
   .border-gray-700\/50 { border-color: rgba(216, 201, 168, 0.5); }
   .border-gray-700\/60 { border-color: rgba(216, 201, 168, 0.6); }
   .border-gray-700\/70 { border-color: rgba(216, 201, 168, 0.7); }
   .border-gray-800 { border-color: #e0d3b5; }
+  .border-gray-800\/80 { border-color: rgba(224, 211, 181, 0.8); }
   .border-gray-900 { border-color: #cbb894; }
   .placeholder-gray-500 { color: #8a7862; }
   .text-gray-100 { color: #40342a; }
@@ -164,8 +169,6 @@ html.skin-tavern body {
   .text-gray-300 { color: #5b4c3e; }
   .text-gray-400 { color: #6d5c4b; }
   .hover\:text-gray-400:hover { color: #6d5c4b; }
-  /* 500/600 原为 #8a7862 / #a89880，压在羊皮纸(#ece1c9)上只有 2.9 / 1.9:1，
-     提示文字读不清；压深到与墨水层次一致的棕。 */
   .text-gray-500 { color: #665644; }
   .text-gray-600 { color: #5b4c3e; }
   .placeholder\:text-gray-600::placeholder { color: #5b4c3e; }
@@ -183,9 +186,12 @@ html.skin-tavern body {
   .bg-amber-500 { background-color: #8a6420; }
   .bg-amber-500\/5 { background-color: rgba(138, 100, 32, 0.05); }
   .hover\:bg-amber-500\/10:hover { background-color: rgba(138, 100, 32, 0.1); }
+  .bg-amber-500\/10 { background-color: rgba(138, 100, 32, 0.1); }
   .bg-amber-500\/20 { background-color: rgba(138, 100, 32, 0.2); }
+  .bg-amber-500\/70 { background-color: rgba(138, 100, 32, 0.7); }
   .hover\:bg-amber-500\/80:hover { background-color: rgba(138, 100, 32, 0.8); }
   .bg-amber-600 { background-color: #7a5718; }
+  .hover\:bg-amber-600:hover { background-color: #7a5718; }
   .bg-amber-600\/5 { background-color: rgba(122, 87, 24, 0.05); }
   .bg-amber-600\/15 { background-color: rgba(122, 87, 24, 0.15); }
   .bg-amber-600\/20 { background-color: rgba(122, 87, 24, 0.2); }
@@ -193,7 +199,9 @@ html.skin-tavern body {
   .bg-amber-600\/30 { background-color: rgba(122, 87, 24, 0.3); }
   .hover\:bg-amber-600\/30:hover { background-color: rgba(122, 87, 24, 0.3); }
   .hover\:bg-amber-600\/40:hover { background-color: rgba(122, 87, 24, 0.4); }
+  .bg-amber-600\/40 { background-color: rgba(122, 87, 24, 0.4); }
   .bg-amber-600\/80 { background-color: rgba(122, 87, 24, 0.8); }
+  .bg-amber-700 { background-color: #7a5718; }
   .bg-amber-700\/30 { background-color: rgba(122, 87, 24, 0.3); }
   .hover\:bg-amber-700\/50:hover { background-color: rgba(122, 87, 24, 0.5); }
   .bg-amber-700\/50 { background-color: rgba(122, 87, 24, 0.5); }
@@ -204,40 +212,32 @@ html.skin-tavern body {
   .border-amber-500\/40 { border-color: rgba(138, 100, 32, 0.4); }
   .focus\:border-amber-500\/50:focus { border-color: rgba(138, 100, 32, 0.5); }
   .border-amber-500\/50 { border-color: rgba(138, 100, 32, 0.5); }
+  .hover\:border-amber-500\/60:hover { border-color: rgba(138, 100, 32, 0.6); }
   .border-amber-600\/30 { border-color: rgba(122, 87, 24, 0.3); }
   .border-amber-600\/40 { border-color: rgba(122, 87, 24, 0.4); }
+  .border-amber-600\/50 { border-color: rgba(122, 87, 24, 0.5); }
   .border-amber-600\/60 { border-color: rgba(122, 87, 24, 0.6); }
   .border-amber-700\/20 { border-color: rgba(122, 87, 24, 0.2); }
   .border-amber-700\/30 { border-color: rgba(122, 87, 24, 0.3); }
+  .border-amber-700\/40 { border-color: rgba(122, 87, 24, 0.4); }
   .text-amber-100 { color: #4e350c; }
-  .text-amber-100\/90 { color: rgba(78, 53, 12, 0.92); }
+  .text-amber-100\/90 { color: rgba(78, 53, 12, 0.9); }
   .text-amber-200 { color: #5c3f10; }
   .hover\:text-amber-200:hover { color: #5c3f10; }
-  .text-amber-200\/70 { color: rgba(92, 63, 16, 0.78); }
-  /* 300 原为 #8f6220：在羊皮纸(#ece1c9)上只有 2.9:1、压在琥珀激活底上 3.15:1，
-     且该亮度在任何浅底上都到不了 4.5，必须压深。 */
+  .text-amber-200\/70 { color: rgba(92, 63, 16, 0.7); }
+  .text-amber-200\/90 { color: rgba(92, 63, 16, 0.9); }
   .text-amber-300 { color: #6b4a16; }
   .hover\:text-amber-300:hover { color: #6b4a16; }
-  .text-amber-300\/80 { color: rgba(107, 74, 22, 0.86); }
-  .text-amber-300\/90 { color: rgba(107, 74, 22, 0.93); }
+  .text-amber-300\/80 { color: rgba(107, 74, 22, 0.8); }
+  .text-amber-300\/90 { color: rgba(107, 74, 22, 0.9); }
   .text-amber-400 { color: #7d5a1c; }
-  .text-amber-400\/70 { color: rgba(168, 123, 47, 0.7); }
-  .text-amber-400\/80 { color: rgba(168, 123, 47, 0.8); }
+  .text-amber-400\/70 { color: rgba(125, 90, 28, 0.7); }
+  .text-amber-400\/80 { color: rgba(125, 90, 28, 0.8); }
   .text-amber-500 { color: #6b4a16; }
-  .text-amber-500\/60 { color: rgba(107, 74, 22, 0.7); }
-  .text-amber-500\/70 { color: rgba(107, 74, 22, 0.78); }
-  .text-amber-500\/80 { color: rgba(107, 74, 22, 0.86); }
+  .text-amber-500\/60 { color: rgba(107, 74, 22, 0.6); }
+  .text-amber-500\/70 { color: rgba(107, 74, 22, 0.7); }
+  .text-amber-500\/80 { color: rgba(107, 74, 22, 0.8); }
   .text-amber-600 { color: #5c3f10; }
-
-  /* ── sky → 旧蓝（补漏：此前无映射，激活的剧情 Tab 用 Tailwind 浅蓝 #bae6fd，
-        压在浅蓝底上只有 1.48:1）── */
-  .text-sky-200 { color: #334e63; }
-  .bg-sky-700\/25 { background-color: rgba(107, 130, 153, 0.22); }
-  .border-sky-500\/40 { border-color: rgba(107, 130, 153, 0.5); }
-
-  /* ── emerald → 苔绿（补漏：此前无映射，「保存」按钮回落到 Tailwind 深绿 40%）── */
-  .bg-emerald-800\/40 { background-color: rgba(91, 115, 80, 0.18); }
-  .border-emerald-600\/50 { border-color: rgba(91, 115, 80, 0.45); }
 
   /* ── yellow ── */
   .border-yellow-500\/60 { border-color: rgba(168, 123, 47, 0.6); }
@@ -270,20 +270,27 @@ html.skin-tavern body {
   .hover\:bg-red-700\/50:hover { background-color: rgba(140, 58, 44, 0.5); }
   .bg-red-700\/80 { background-color: rgba(140, 58, 44, 0.8); }
   .bg-red-700\/90 { background-color: rgba(140, 58, 44, 0.9); }
+  .bg-red-800 { background-color: #7c2d20; }
   .bg-red-800\/30 { background-color: rgba(124, 45, 32, 0.3); }
   .hover\:bg-red-800\/50:hover { background-color: rgba(124, 45, 32, 0.5); }
   .bg-red-800\/50 { background-color: rgba(124, 45, 32, 0.5); }
+  .bg-red-800\/90 { background-color: rgba(124, 45, 32, 0.9); }
   .bg-red-900\/20 { background-color: rgba(107, 38, 24, 0.2); }
   .bg-red-900\/30 { background-color: rgba(107, 38, 24, 0.3); }
+  .bg-red-950\/40 { background-color: rgba(107, 38, 24, 0.4); }
   .border-red-500\/40 { border-color: rgba(176, 74, 56, 0.4); }
   .border-red-700\/30 { border-color: rgba(140, 58, 44, 0.3); }
   .border-red-700\/40 { border-color: rgba(140, 58, 44, 0.4); }
   .border-red-800\/40 { border-color: rgba(124, 45, 32, 0.4); }
+  .border-red-800\/60 { border-color: rgba(124, 45, 32, 0.6); }
   .border-red-900\/40 { border-color: rgba(107, 38, 24, 0.4); }
+  .text-red-100 { color: #8c3a2c; }
+  .text-red-200 { color: #8c3a2c; }
   .text-red-300 { color: #a03d2d; }
   .hover\:text-red-300:hover { color: #a03d2d; }
   .text-red-400 { color: #8c3a2c; }
   .hover\:text-red-400:hover { color: #8c3a2c; }
+  .text-red-400\/80 { color: rgba(140, 58, 44, 0.8); }
   .text-red-500 { color: #b04a38; }
 
   /* ── blue ── */
@@ -315,11 +322,15 @@ html.skin-tavern body {
   .border-blue-600\/60 { border-color: rgba(63, 106, 131, 0.6); }
   .border-blue-700\/30 { border-color: rgba(53, 86, 107, 0.3); }
   .text-blue-200 { color: #35566b; }
-  .text-blue-300 { color: #3f6a83; }
   .hover\:text-blue-300:hover { color: #3f6a83; }
+  .text-blue-300 { color: #3f6a83; }
   .text-blue-400 { color: #6b8299; }
   .text-blue-400\/70 { color: rgba(107, 130, 153, 0.7); }
-  .text-blue-500 { color: #557089; }
+
+  /* ── sky ── */
+  .bg-sky-700\/25 { background-color: rgba(107, 130, 153, 0.25); }
+  .border-sky-500\/40 { border-color: rgba(107, 130, 153, 0.4); }
+  .text-sky-200 { color: #334e63; }
 
   /* ── cyan ── */
   .bg-cyan-600\/20 { background-color: rgba(63, 106, 131, 0.2); }
@@ -341,18 +352,25 @@ html.skin-tavern body {
   .bg-green-700\/50 { background-color: rgba(63, 82, 55, 0.5); }
   .bg-green-700\/90 { background-color: rgba(63, 82, 55, 0.9); }
   .bg-green-800\/50 { background-color: rgba(63, 82, 55, 0.5); }
+  .bg-green-800\/90 { background-color: rgba(63, 82, 55, 0.9); }
   .hover\:border-green-700\/50:hover { border-color: rgba(63, 82, 55, 0.5); }
+  .text-green-100 { color: #4a6040; }
   .text-green-200 { color: #4a6040; }
   .text-green-300 { color: #4f6545; }
   .text-green-400 { color: #5b7350; }
   .hover\:text-green-400:hover { color: #5b7350; }
 
   /* ── emerald ── */
+  .bg-emerald-500 { background-color: #5b7350; }
   .bg-emerald-500\/20 { background-color: rgba(91, 115, 80, 0.2); }
+  .bg-emerald-500\/70 { background-color: rgba(91, 115, 80, 0.7); }
   .bg-emerald-600\/10 { background-color: rgba(74, 96, 64, 0.1); }
   .bg-emerald-600\/20 { background-color: rgba(74, 96, 64, 0.2); }
   .hover\:bg-emerald-600\/40:hover { background-color: rgba(74, 96, 64, 0.4); }
+  .bg-emerald-800\/40 { background-color: rgba(63, 82, 55, 0.4); }
+  .hover\:bg-emerald-800\/70:hover { background-color: rgba(63, 82, 55, 0.7); }
   .border-emerald-500\/50 { border-color: rgba(91, 115, 80, 0.5); }
+  .border-emerald-600\/50 { border-color: rgba(74, 96, 64, 0.5); }
   .text-emerald-300 { color: #4f6545; }
   .text-emerald-400 { color: #5b7350; }
 
@@ -406,6 +424,67 @@ html.skin-tavern body {
     color: #4a3d31;
     border-color: #d8c9a8;
   }
+
+  /* ── Markdown 表格（与 PRTS 皮肤对齐的表头/悬停处理，衬线 + 黄铜） ────── */
+  body .prose-sm table thead th {
+    font-family: var(--t-serif);
+    color: #6b4a16;
+    border-bottom: 2px solid rgba(168, 123, 47, 0.5);
+  }
+  body .prose-sm table tbody tr:hover { background-color: rgba(168, 123, 47, 0.08); }
+
+  /* ── 通用按钮族（手札风：黄铜 / 火漆实底，软按压，不做 HUD 切角） ────────
+     此前无手写块，.btn-primary/.btn-danger 靠生成区回落成灰蓝 + 纸白字，
+     与 .btn-hero（火漆红渐变）观感脱节；现给足专属底色与按压层次。
+     特异度：body 前缀 (0,1,1) 压过生成区 .bg-blue-600 / .text-white (0,1,0)，
+     body .btn-primary:hover (0,2,1) 压过 .hover\:bg-blue-500:hover (0,2,0)。 */
+  body .btn-primary {
+    background-color: transparent;
+    background-image: linear-gradient(160deg, #a87b2f 0%, #8a6420 60%, #7a5718 100%);
+    color: #f9efdd;
+    border-color: rgba(122, 87, 24, 0.55);
+    box-shadow: 0 2px 0 rgba(74, 53, 12, 0.35), 0 6px 16px -8px rgba(122, 87, 24, 0.5);
+    transition: filter 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
+  }
+  body .btn-primary:hover {
+    filter: brightness(1.06);
+    box-shadow: 0 2px 0 rgba(74, 53, 12, 0.4), 0 8px 20px -8px rgba(122, 87, 24, 0.6);
+  }
+  body .btn-primary:active {
+    transform: translateY(1px);
+    box-shadow: 0 1px 0 rgba(74, 53, 12, 0.35), 0 4px 12px -8px rgba(122, 87, 24, 0.5);
+  }
+  body .btn-primary:disabled {
+    opacity: 0.45;
+    filter: saturate(0.5);
+    cursor: not-allowed;
+  }
+  body .btn-danger {
+    background-color: transparent;
+    background-image: linear-gradient(160deg, #b04a38 0%, #a03d2d 60%, #7c2d20 100%);
+    color: #f9efdd;
+    border-color: rgba(124, 45, 32, 0.6);
+    box-shadow: 0 2px 0 rgba(74, 26, 16, 0.4), 0 6px 16px -8px rgba(160, 61, 45, 0.55);
+    transition: filter 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
+  }
+  body .btn-danger:hover {
+    filter: brightness(1.06);
+    box-shadow: 0 2px 0 rgba(74, 26, 16, 0.45), 0 8px 20px -8px rgba(160, 61, 45, 0.65);
+  }
+  body .btn-danger:active {
+    transform: translateY(1px);
+    box-shadow: 0 1px 0 rgba(74, 26, 16, 0.4), 0 4px 12px -8px rgba(160, 61, 45, 0.55);
+  }
+  body .btn-danger:disabled {
+    opacity: 0.45;
+    filter: saturate(0.5);
+    cursor: not-allowed;
+  }
+
+  /* ── 生成区补漏：调色板无法表达「按 shade 改 alpha」的软化 ──────────────
+     「保存」类苔绿实底按钮 bg-emerald-800/40，按字面 40% 压在羊皮纸上过重
+     （生成区已按最近档位回落为 rgba(63,82,55,.4)），手动软化到苔绿 18%。 */
+  .bg-emerald-800\/40 { background-color: rgba(91, 115, 80, 0.18); }
 
   /* ── 徽章 ─────────────────────────────────────────────────────────────── */
   .badge-story { background: rgba(232, 163, 61, 0.22); color: #7d5618; border-color: rgba(168, 123, 47, 0.40); }
@@ -620,6 +699,10 @@ html.skin-tavern body {
 @media (prefers-reduced-motion: reduce) {
   html.skin-tavern body::before {
     animation: none !important;
+    transition: none !important;
+  }
+  html.skin-tavern .btn-primary,
+  html.skin-tavern .btn-danger {
     transition: none !important;
   }
 }
