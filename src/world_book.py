@@ -23,6 +23,7 @@
 """
 
 import copy
+import hashlib
 import json
 import logging
 import random
@@ -43,6 +44,10 @@ _PACKS_DIR = _PROJECT_ROOT / "data" / "packs"
 # 未显式配置全局默认书时，按此顺序回退到已安装且启用的预装包（无则跳过）
 _PACK_FALLBACK_IDS = ["arknights"]
 
+# 旧安装副本刷新前的留存后缀：`<id>.json.pre-refresh.bak`
+# （不以 .json 结尾，避免被 list_books 当成一本书；去掉后缀即可还原）
+_PACK_BACKUP_SUFFIX = ".pre-refresh.bak"
+
 # 支持探测的来源格式标签
 SOURCE_V1 = "sillytavern_v1"
 SOURCE_V2 = "sillytavern_v2"
@@ -50,6 +55,26 @@ SOURCE_CARD = "character_card"
 SOURCE_JSONL = "chat_backup_jsonl"
 SOURCE_MANUAL = "manual"
 SOURCE_PREINSTALLED = "preinstalled"
+
+
+def _pack_rev(data: dict) -> str:
+    """整合包内容指纹（版本号）。
+
+    只覆盖影响注入结果的字段（id / name / entries），忽略 created_at / updated_at /
+    source / pack_rev 这类易变字段——否则每次重新生成分发包都会「看起来变了」，
+    导致每次启动都白刷一遍。
+    """
+    payload = json.dumps(
+        {
+            "id": data.get("id", ""),
+            "name": data.get("name", ""),
+            "entries": data.get("entries", []),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
 @dataclass
@@ -509,12 +534,15 @@ class WorldBook:
 
     source: "preinstalled"（随程序分发的整合包安装副本）| "imported"（用户导入/新建）
     enabled: 书级启用开关，停用的书不参与解析。
+    pack_rev: 预装包内容指纹（安装/刷新时写入）。用于判断安装副本是否落后于分发源；
+              随书持久化，这样用户在界面上编辑预装书后不会被下次启动误判成「旧版本」而覆盖。
     所有书统一管理、统一可写；预装包删除后可从分发源一键重装。
     """
 
     def __init__(self, book_id: str, name: str = "", entries: list = None,
                  source_format: str = SOURCE_MANUAL, budget_tokens: int = 0,
-                 source: str = "imported", enabled: bool = True):
+                 source: str = "imported", enabled: bool = True,
+                 pack_rev: str = ""):
         self.id = book_id
         self.name = name or book_id
         self.source_format = source_format
@@ -527,12 +555,13 @@ class WorldBook:
         self.enabled = bool(enabled)
         self.created_at = time.time()
         self.updated_at = time.time()
+        self.pack_rev = str(pack_rev or "")
         self.entries: list[WorldBookEntry] = list(entries or [])
 
     # ── 序列化 ──
 
     def to_dict(self) -> dict:
-        return {
+        data = {
             "id": self.id,
             "name": self.name,
             "source_format": self.source_format,
@@ -543,6 +572,10 @@ class WorldBook:
             "updated_at": self.updated_at,
             "entries": [e.to_dict() for e in self.entries],
         }
+        # 仅预装包携带指纹，用户导入/新建的书序列化形态保持不变
+        if self.pack_rev:
+            data["pack_rev"] = self.pack_rev
+        return data
 
     @staticmethod
     def from_dict(data: dict) -> "WorldBook":
@@ -553,6 +586,7 @@ class WorldBook:
             budget_tokens=int(data.get("budget_tokens", 0)),
             source=str(data.get("source", "imported")),
             enabled=bool(data.get("enabled", True)),
+            pack_rev=str(data.get("pack_rev", "")),
         )
         book.created_at = float(data.get("created_at", time.time()))
         book.updated_at = float(data.get("updated_at", time.time()))
@@ -700,7 +734,16 @@ class WorldBookManager:
     # ── 整合包安装 ──
 
     def _ensure_packs_installed(self):
-        """首次启动：把 data/packs/ 下的整合包安装到 data/worldbooks/（已存在则跳过）。"""
+        """启动时把 data/packs/ 下的整合包安装/刷新到 data/worldbooks/。
+
+        按内容指纹（`pack_rev`）判断版本，而不是「存在就跳过」：
+
+        - 目标不存在 → 安装（source=preinstalled，写入指纹）
+        - 目标存在、source=preinstalled、指纹落后 → 刷新为新版本；
+          刷新前把旧副本留存为 `<id>.json.pre-refresh.bak`（用户对预装书的编辑可恢复）
+        - 目标存在、内容其实与分发源一致（旧副本只是缺 pack_rev 字段）→ 只补指纹，不动数据
+        - 目标存在但 source 非 preinstalled（用户导入/自建的同名书）→ 不动
+        """
         if not self._packs_dir.is_dir():
             return
         for path in sorted(self._packs_dir.glob("*.json")):
@@ -710,18 +753,63 @@ class WorldBookManager:
                 book_id = str(data.get("id", "")).strip()
                 if not book_id:
                     continue
-                target = self._path(book_id)
-                if target.is_file():
-                    continue
                 data["source"] = SOURCE_PREINSTALLED
                 data.setdefault("enabled", True)
-                target.write_text(
-                    json.dumps(data, ensure_ascii=False, indent=2) + "\n",
-                    encoding="utf-8",
-                )
-                logger.info("已安装预装整合包: %s (%s)", data.get("name", book_id), book_id)
+                rev = _pack_rev(data)
+                target = self._path(book_id)
+
+                if not target.is_file():
+                    self._write_pack(target, data, rev)
+                    logger.info("已安装预装整合包: %s (%s)", data.get("name", book_id), book_id)
+                    continue
+
+                old = self._read_json(target)
+                if old is None:
+                    self._write_pack(target, data, rev)
+                    logger.warning("预装整合包副本无法解析，已按分发源重装: %s", book_id)
+                    continue
+                if str(old.get("source") or "") not in (SOURCE_PREINSTALLED, "builtin"):
+                    continue  # 同名用户书，不覆盖
+                if str(old.get("pack_rev") or "") == rev:
+                    continue  # 已是最新
+                if _pack_rev(old) == rev:
+                    # 内容一致，只是旧副本没有指纹字段 → 补上即可，不改数据、不留备份
+                    self._write_pack(target, {**old, "source": SOURCE_PREINSTALLED}, rev)
+                    continue
+
+                backup = target.with_name(target.name + _PACK_BACKUP_SUFFIX)
+                try:
+                    backup.write_bytes(target.read_bytes())
+                except OSError as e:
+                    logger.warning("留存旧副本失败 %s: %s", backup.name, e)
+                self._write_pack(target, data, rev)
+                logger.info("已刷新预装整合包: %s (%s) → %d 条；旧副本留存于 %s",
+                            data.get("name", book_id), book_id,
+                            len(data.get("entries", [])), backup.name)
             except Exception as e:
                 logger.warning("安装整合包 %s 失败: %s", path.name, e)
+
+    @staticmethod
+    def _read_json(path: Path) -> Optional[dict]:
+        """读 JSON 对象；解析失败或不是对象时返回 None。"""
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return None
+        return data if isinstance(data, dict) else None
+
+    def _write_pack(self, target: Path, data: dict, rev: str):
+        """把整合包内容写入安装副本（统一补 source/enabled/pack_rev）。"""
+        payload = dict(data)
+        payload["source"] = SOURCE_PREINSTALLED
+        payload.setdefault("enabled", True)
+        payload["pack_rev"] = rev
+        self._cache.pop(target.stem, None)
+        target.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
     def is_preinstalled(self, book_id: str) -> bool:
         """该书是否存在分发源（可一键重装）。"""
@@ -879,10 +967,8 @@ class WorldBookManager:
             data = json.load(f)
         data["source"] = SOURCE_PREINSTALLED
         data.setdefault("enabled", True)
-        self._cache.pop(book_id, None)
-        with open(self._path(book_id), "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-            f.write("\n")
+        # 同时写入内容指纹，避免下次启动被判定为「落后」再刷一遍
+        self._write_pack(self._path(book_id), data, _pack_rev(data))
         book = self.load(book_id)
         logger.info("已重装预装整合包: %s (%s)", book.name, book_id)
         return book
