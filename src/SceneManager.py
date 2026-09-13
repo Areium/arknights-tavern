@@ -17,6 +17,7 @@ def _empty_extraction_result() -> dict:
         "combat": None,
         "choices": None,
         "branches": None,
+        "node_title": None,
         "summary": None,
         "environment": None,
         "usage": None,
@@ -63,9 +64,20 @@ def _parse_extraction_json(text: str, valid_beat_ids=None) -> dict:
         "combat": _normalize_combat_field(data.get("combat_trigger")),
         "choices": _normalize_choices_field(data.get("choices")),
         "branches": _normalize_branches_field(data.get("branches"), valid_beat_ids),
+        "node_title": _normalize_node_title_field(data.get("node_title")),
         "summary": _normalize_summary_field(data.get("summary")),
         "environment": _normalize_environment_field(data.get("environment")),
     }
+
+
+def _normalize_node_title_field(title) -> str | None:
+    """规范化剧情节点标题（LLM 为新生成的场景节点起的名）。"""
+    if not title or not isinstance(title, str):
+        return None
+    title = title.strip().strip("《》\"'")
+    if not title:
+        return None
+    return title[:20]
 
 
 def _normalize_combat_field(combat_data) -> dict | None:
@@ -580,6 +592,7 @@ speaker 必须从场景角色列表选择，无法判断时用 null
   "combat_trigger": null,
   "choices": null,
   "branches": null,
+  "node_title": null,
   "summary": null,
   "environment": null
 }
@@ -588,7 +601,8 @@ speaker 必须从场景角色列表选择，无法判断时用 null
 - beat_complete: boolean，场景是否自然结束
 - combat_trigger: null 或 {"encounter_id": "遭遇ID", "params": null}
 - choices: null 或字符串数组（每个选项不超过15个汉字，与 branches 的 label 对应）
-- branches: null 或对象数组，每项 {"label": "≤15字行动文本", "intent": "方向标签或null", "target_beat_id": "后续节拍id或null"}
+- branches: null 或对象数组，每项 {"label": "≤15字行动文本", "intent": "方向标签或null", "target_beat_id": "后续节拍id或null（null 表示开启全新节点）"}
+- node_title: null 或字符串（当前场景/节点的简短标题，不超过8个汉字）
 - summary: null 或字符串（不超过50个汉字，只写事实不写评价）
 - environment: null 或对象，可包含 location（地点名）、weather（天气）、time（时段）、atmosphere（氛围字符串或字符串数组）；只填写叙述中明确出现变化的内容
 </output_format>"""
@@ -616,6 +630,12 @@ speaker 必须从场景角色列表选择，无法判断时用 null
             "  如果有，将变化内容填入 environment 对象；没有则 environment 为 null。\n"
             "  只提取叙述中明确写出的内容，不要推测。"
         ]
+
+        if branch_context:
+            tasks.append(
+                "- 为这段叙述所呈现的场景起一个简短标题（不超过8个汉字，如「废墟遭遇」「酒馆密谈」），\n"
+                "  填入 node_title 字段；若场景没有明确主题则填 null。"
+            )
 
         if beat_state_active:
             tasks.append(

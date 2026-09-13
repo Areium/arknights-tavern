@@ -241,6 +241,32 @@ def _record_node_snapshot(session):
         logger.warning("记录节点快照失败", exc_info=True)
 
 
+def _commit_tree_step(session, narrative: str, summary: str,
+                      title: str | None, branches: list[dict] | None,
+                      branch: dict | None) -> None:
+    """把本轮叙述落成剧情树上的一个节点（节点内容由 LLM 生成）。
+
+    节点标题/概要/内容/分支都取自 LLM 输出（title/summary/narrative/branches），
+    因此产出的是**新的剧情节点**，而非从作者节拍骨架里挑一个落点。玩家本轮若
+    选择了某个分支（branch 非空），则在其父节点下生成/复用子节点并进入——于是
+    结构自然长成树（可分叉、可多层展开）。
+    """
+    overlay = getattr(session, "overlay", None)
+    if overlay is None or not hasattr(overlay, "commit_tree_step"):
+        return
+    try:
+        overlay.commit_tree_step(
+            narrative=narrative,
+            summary=summary or "",
+            title=title or "",
+            branches=branches or [],
+            branch=branch,
+            round_num=session.narration_count,
+        )
+    except Exception:
+        logger.warning("剧情树提交失败", exc_info=True)
+
+
 # ── Blueprint 注册 ──
 
 def register(app, managers):
@@ -454,6 +480,7 @@ def register(app, managers):
                 dialogue_segments = None
                 inline_choices = None
                 inline_branches = None
+                node_title = None
                 plot_summary = None
                 marker_env = None
                 for event_type, data in session.scene_manager.narrate_stream(
@@ -513,6 +540,7 @@ def register(app, managers):
                         yield f"data: {json.dumps({'type': 'combat_briefing', 'data': briefing}, ensure_ascii=False)}\n\n"
                     inline_choices = markers.get("choices")
                     inline_branches = markers.get("branches")
+                    node_title = markers.get("node_title")
                     plot_summary = markers.get("summary")
                     marker_env = markers.get("environment")
 
@@ -562,6 +590,14 @@ def register(app, managers):
                 branches = _build_branches(session, inline_branches)
                 if branches and session.overlay:
                     session.overlay.set_emitted_branches(branches)
+
+                # 剧情树：把本轮 LLM 生成的内容落成一个新节点，并推进 current_id
+                if session.mode == "story":
+                    _commit_tree_step(
+                        session, narrative,
+                        plot_summary or narrative[:120].replace('\n', ' '),
+                        node_title, branches, selected_branch,
+                    )
 
                 yield f"data: {json.dumps({'type': 'choice', 'data': {'options': options, 'branches': branches, 'stream_id': stream_id}}, ensure_ascii=False)}\n\n"
 
@@ -685,6 +721,7 @@ def register(app, managers):
             # 两阶段提取：从叙事文本中提取标记（Call 2）
             inline_choices = None
             inline_branches = None
+            node_title = None
             plot_summary = None
             combat_briefing = None
             marker_env = None
@@ -707,6 +744,7 @@ def register(app, managers):
                 )
                 inline_choices = markers.get("choices")
                 inline_branches = markers.get("branches")
+                node_title = markers.get("node_title")
                 plot_summary = markers.get("summary")
                 marker_env = markers.get("environment")
 
@@ -736,6 +774,14 @@ def register(app, managers):
             if branches and session.overlay:
                 session.overlay.set_emitted_branches(branches)
             response_extra["branches"] = branches
+
+            # 剧情树：把本轮 LLM 生成的内容落成一个新节点，并推进 current_id
+            if session.mode == "story":
+                _commit_tree_step(
+                    session, narrative,
+                    plot_summary or narrative[:120].replace('\n', ' '),
+                    node_title, branches, selected_branch,
+                )
 
             if dialogue_segments:
                 response_extra["dialogue_segments"] = dialogue_segments
