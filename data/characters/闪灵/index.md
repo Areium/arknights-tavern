@@ -18,6 +18,7 @@ card_face_crop_w: 82.32148409161572
 card_face_crop_x: 10.829101461291325
 card_face_crop_y: 21.81430549966149
 class: 医疗
+default_skin: char_147_shining_2b.png
 faction: 罗德岛
 imports:
 - classes/医疗

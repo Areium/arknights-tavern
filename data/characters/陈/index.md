@@ -14,6 +14,7 @@ combat_stats:
   matk: 52
 card_face: char_010_chen_2b.png
 class: 近卫
+default_skin: char_010_chen_2b.png
 faction: 龙门
 imports:
 - classes/近卫

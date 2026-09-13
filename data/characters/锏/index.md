@@ -14,6 +14,7 @@ combat_stats:
   matk: 44
 card_face: char_4116_blkkgt_2b.png
 class: 近卫
+default_skin: char_4116_blkkgt_2b.png
 faction: 喀兰贸易
 imports:
 - classes/近卫

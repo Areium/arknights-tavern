@@ -14,6 +14,7 @@ combat_stats:
   matk: 36
 card_face: char_265_sophia_2b.png
 class: 先锋
+default_skin: char_265_sophia_2b.png
 faction: 临光家族
 imports:
 - classes/先锋

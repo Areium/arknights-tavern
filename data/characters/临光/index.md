@@ -14,6 +14,7 @@ combat_stats:
   matk: 44
 card_face: char_148_nearl_2b.png
 class: 重装
+default_skin: char_148_nearl_2b.png
 faction: 临光家族
 imports:
 - classes/重装

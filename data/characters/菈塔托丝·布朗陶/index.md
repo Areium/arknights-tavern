@@ -14,6 +14,7 @@ combat_stats:
   matk: 44
 card_face: placeholder_skin.png
 class: 重装
+default_skin: placeholder_skin.png
 faction: 布朗陶家族
 imports:
 - races/埃拉菲亚

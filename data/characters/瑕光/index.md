@@ -14,6 +14,7 @@ combat_stats:
   matk: 56
 card_face: char_423_blemsh_2b.png
 class: 重装
+default_skin: char_423_blemsh_2b.png
 faction: 临光家族
 imports:
 - classes/重装

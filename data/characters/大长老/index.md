@@ -14,6 +14,7 @@ combat_stats:
   matk: 68
 card_face: placeholder_skin.png
 class: 术师
+default_skin: placeholder_skin.png
 faction: 谢拉格
 imports:
 - races/埃拉菲亚

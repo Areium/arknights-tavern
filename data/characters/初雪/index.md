@@ -14,6 +14,7 @@ combat_stats:
   matk: 60
 card_face: char_174_slbell_2b.png
 class: 辅助
+default_skin: char_174_slbell_2b.png
 faction: 喀兰贸易
 imports:
 - classes/辅助

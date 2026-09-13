@@ -14,6 +14,7 @@ combat_stats:
   matk: 56
 card_face: char_4064_mlynar_2b.png
 class: 近卫
+default_skin: char_4064_mlynar_2b.png
 faction: 临光家族
 imports:
 - classes/近卫

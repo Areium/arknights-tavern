@@ -14,6 +14,7 @@ combat_stats:
   matk: 44
 card_face: char_102_texas_2b.png
 class: 先锋
+default_skin: char_102_texas_2b.png
 faction: 罗德岛
 imports:
 - classes/先锋

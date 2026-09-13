@@ -18,6 +18,7 @@ card_face_crop_w: 80
 card_face_crop_x: 11.1093282406583
 card_face_crop_y: 12.265549047068763
 class: 术师
+default_skin: char_002_amiya_2b.png
 faction: 罗德岛
 imports:
 - classes/术师

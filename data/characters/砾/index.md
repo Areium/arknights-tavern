@@ -14,6 +14,7 @@ combat_stats:
   matk: 44
 card_face: char_237_gravel_2b.png
 class: 特种
+default_skin: char_237_gravel_2b.png
 faction: 罗德岛
 imports:
 - classes/特种

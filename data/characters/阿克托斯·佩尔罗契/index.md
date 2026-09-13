@@ -14,6 +14,7 @@ combat_stats:
   matk: 32
 card_face: placeholder_skin.png
 class: 近卫
+default_skin: placeholder_skin.png
 faction: 佩尔罗契家族
 imports:
 - races/埃拉菲亚

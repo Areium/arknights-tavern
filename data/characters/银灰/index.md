@@ -18,6 +18,7 @@ card_face_crop_w: 80
 card_face_crop_x: 11.989843507099181
 card_face_crop_y: 3.244061358891914
 class: 近卫
+default_skin: char_172_svrash_2b.png
 faction: 维多利亚
 imports:
 - classes/近卫
