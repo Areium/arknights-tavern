@@ -119,8 +119,8 @@
 - `components/AssetManager.tsx` — 资产目录：图片上传/裁剪/默认图，实体显示上级目录与来源世界书（frontmatter `worldbook_id`），按书筛选与归类
 - `components/CardManager.tsx` — 卡牌管理：角色/职业卡牌编辑（CardEditor），条目显示所属世界书，按书筛选
 - `components/WorldBookManager.tsx` — 世界书管理：导入（文件/粘贴，支持角色卡 PNG/JSON 连带导入角色 + 内嵌世界书）、分类图谱 / 条目正文切换、条目编辑器、会话绑定、酒馆格式导出
-- `components/WorldBookDependencyPage.tsx` / `WorldBookScopeManager.tsx` — 世界书分类与依赖工作台：节点目录、上下文属性、固定导入底栏、策略草稿与只读预览、按条目元数据的自动分类入口；`WorldBookScopePreview.tsx` 同时用于创建向导
-- `components/WorldBookGraphCanvas.tsx` / `utils/worldbookGraph.ts` / `utils/worldbookDependency.ts` — Neo4j 风格圆形节点图：分类归属与有向依赖、拖动/平移/缩放、关系高亮、确定性布局及大书显示限额；节点角色分类（导入源/固定/中转/叶子/未配置）与按遍历深度展开的依赖树视图；复用内容中心 `--ng-*` 配色，不修改战斗画布
+- `components/WorldBookDependencyPage.tsx` / `WorldBookScopeManager.tsx` — 世界书分类与依赖工作台：节点目录、上下文属性、固定导入底栏、策略草稿与只读预览、按条目元数据的自动分类入口、批量选中与整类操作栏；`WorldBookScopePreview.tsx` 同时用于创建向导
+- `components/WorldBookGraphCanvas.tsx` / `utils/worldbookGraph.ts` / `utils/worldbookDependency.ts` / `utils/worldbookBatch.ts` — Neo4j 风格圆形节点图：分类归属与有向依赖、拖动/平移/缩放、多选与框选、关系高亮、确定性布局及大书显示限额；节点角色分类（导入源/固定/中转/叶子/未配置）与按遍历深度展开的依赖树视图；批量策略变换（固定导入 / 导入源 / 建边 / 清边 / 移入分类）是纯函数，只改草稿不写盘；复用内容中心 `--ng-*` 配色，不修改战斗画布
 - `components/SettingsPanel.tsx` — LLM 配置/主题/叙述选项
 
 ### 3.5 状态与数据获取

@@ -6,11 +6,12 @@ import {
 import {
   DEPENDENCY_ROLES, ROLE_GLYPHS, ROLE_HINTS, ROLE_LABELS, layoutDependencyTree,
 } from "../utils/worldbookDependency";
+import { pickedInRect, type BatchRect } from "../utils/worldbookBatch";
 import WorldBookGraphIcon from "./WorldBookGraphIcon";
 
 type Camera = { x: number; y: number; zoom: number };
 type Gesture = {
-  kind: "pan" | "node";
+  kind: "pan" | "node" | "marquee";
   pointerId: number;
   startX: number;
   startY: number;
@@ -22,6 +23,8 @@ export type TreeViewOptions = { depthLimit: number; collapsed: Set<string>; show
 export type GraphColoring = "kind" | "role";
 const KINDS = { worldview: "世界观", character: "角色", other: "其他" };
 const clampZoom = (value: number) => Math.max(0.15, Math.min(2.5, value));
+/** 批量连线时最多画这么多条待定边，避免上百个源把画布糊住。 */
+const PENDING_EDGE_LIMIT = 12;
 
 function boundsFor(graph: WorldBookGraphData, positions: Record<string, GraphPoint>, pad = 55) {
   const points = graph.nodes.flatMap((node) => positions[node.id] ? [{ ...positions[node.id], radius: node.radius }] : []);
@@ -34,19 +37,24 @@ function boundsFor(graph: WorldBookGraphData, positions: Record<string, GraphPoi
   };
 }
 
-export default function WorldBookGraphCanvas({ graph, view, selectedId, selectedEdgeId, linkFromUid, busy, coloring, tree,
-  onToggleCollapse, onSelectNode, onSelectEdge, onLinkStart, onCancelLink, onClear, onDropEntry,
+export default function WorldBookGraphCanvas({ graph, view, selectedId, selectedEdgeId, linkFromUids, pickedIds, busy, coloring, tree,
+  onToggleCollapse, onSelectNode, onPickMany, onSelectEdge, onLinkStart, onCancelLink, onClear, onDropEntry,
 }: {
   graph: WorldBookGraphData;
   view: "taxonomy" | "dependencies" | "tree";
   selectedId: string | null;
   selectedEdgeId: string | null;
-  linkFromUid: string | null;
+  /** 批量连线的来源条目 UID；非空时进入「点击目标建立依赖」模式。 */
+  linkFromUids: string[] | null;
+  /** 批量选中的条目 UID。 */
+  pickedIds: string[];
   busy: boolean;
   coloring: GraphColoring;
   tree: TreeViewOptions | null;
   onToggleCollapse: (uid: string) => void;
-  onSelectNode: (node: WorldBookGraphNode) => void;
+  /** additive 为 true 表示 Ctrl / Shift 点击：加入或移出批量选择。 */
+  onSelectNode: (node: WorldBookGraphNode, additive: boolean) => void;
+  onPickMany: (uids: string[], additive: boolean) => void;
   onSelectEdge: (id: string) => void;
   onLinkStart: (uid: string) => void;
   onCancelLink: () => void;
@@ -55,12 +63,14 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
 }) {
   const viewport = useRef<HTMLDivElement>(null);
   const gesture = useRef<Gesture | null>(null);
+  const marqueeRef = useRef<BatchRect | null>(null);
   const id = useId().replace(/:/g, "");
   const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, zoom: 1 });
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [cursor, setCursor] = useState<GraphPoint | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [marquee, setMarquee] = useState<BatchRect | null>(null);
   const [layoutVersion, setLayoutVersion] = useState(0);
   const dependencyView = view !== "taxonomy";
   // 依赖树只画条目：层级语义由 depth 承担，分类归属交给「分类结构」视图与节点目录。
@@ -91,10 +101,15 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
   const fittedSize = useRef("");
   const autoFit = useRef(true);
   const nodeMap = useMemo(() => new Map(graph.nodes.map((node) => [node.id, node])), [graph.nodes]);
+  const pickedSet = useMemo(() => new Set(pickedIds), [pickedIds]);
+  const linkSources = linkFromUids || [];
+  const visibleEntryUids = useMemo(() => graph.nodes
+    .filter((node) => node.kind === "entry" && positions[node.id])
+    .map((node) => node.refId), [graph.nodes, positions]);
   const cameraRef = useRef(camera);
   cameraRef.current = camera;
   const bounds = useMemo(() => boundsFor(graph, positions), [graph, positions]);
-  const activeId = linkFromUid ? entryNodeId(linkFromUid) : hoverId || selectedId;
+  const activeId = linkSources.length ? entryNodeId(linkSources[0]) : hoverId || selectedId;
   const related = useMemo(() => {
     if (!activeId && !selectedEdgeId) return null;
     const result = new Set(activeId ? [activeId] : []);
@@ -185,15 +200,18 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
     if (event.button !== 0 && event.button !== 1) return;
     event.preventDefault(); event.stopPropagation();
     viewport.current?.focus({ preventScroll: true });
-    if (node && linkFromUid) { onSelectNode(node); return; }
-    gesture.current = { kind: node ? "node" : "pan", pointerId: event.pointerId,
-      startX: event.clientX, startY: event.clientY, origin: node ? positions[node.id] : { x: camera.x, y: camera.y },
-      nodeId: node?.id, moved: false,
+    if (node && linkSources.length) { onSelectNode(node, false); return; }
+    // 空白处 Shift / Alt 拖拽 = 框选；普通拖拽仍然是平移。
+    const marqueeMode = !node && (event.shiftKey || event.altKey);
+    const origin = node ? positions[node.id] : marqueeMode ? worldPoint(event) : { x: camera.x, y: camera.y };
+    gesture.current = { kind: node ? "node" : marqueeMode ? "marquee" : "pan", pointerId: event.pointerId,
+      startX: event.clientX, startY: event.clientY, origin, nodeId: node?.id, moved: false,
     };
+    if (marqueeMode) { marqueeRef.current = { left: origin.x, top: origin.y, right: origin.x, bottom: origin.y }; setMarquee(marqueeRef.current); }
     viewport.current?.setPointerCapture(event.pointerId);
   };
   const move = (event: React.PointerEvent) => {
-    if (linkFromUid) setCursor(worldPoint(event));
+    if (linkSources.length) setCursor(worldPoint(event));
     const current = gesture.current;
     if (!current || current.pointerId !== event.pointerId) return;
     const dx = event.clientX - current.startX, dy = event.clientY - current.startY;
@@ -201,7 +219,11 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
     autoFit.current = false;
     current.moved = true; setDragging(true);
     if (current.kind === "pan") setCamera((cam) => ({ ...cam, x: current.origin.x + dx, y: current.origin.y + dy }));
-    else setPositions((next) => ({ ...next, [current.nodeId!]: {
+    else if (current.kind === "marquee") {
+      const point = worldPoint(event);
+      marqueeRef.current = { left: current.origin.x, top: current.origin.y, right: point.x, bottom: point.y };
+      setMarquee(marqueeRef.current);
+    } else setPositions((next) => ({ ...next, [current.nodeId!]: {
       x: current.origin.x + dx / camera.zoom, y: current.origin.y + dy / camera.zoom,
     } }));
   };
@@ -211,8 +233,18 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
     gesture.current = null; setDragging(false);
     if (viewport.current?.hasPointerCapture(event.pointerId)) viewport.current.releasePointerCapture(event.pointerId);
     if (!cancelled && !current.moved) {
-      if (current.nodeId) { const node = nodeMap.get(current.nodeId); if (node) onSelectNode(node); }
-      else { onClear(); onCancelLink(); }
+      if (current.nodeId) {
+        const node = nodeMap.get(current.nodeId);
+        if (node) onSelectNode(node, event.ctrlKey || event.metaKey || event.shiftKey);
+      } else if (current.kind !== "marquee") { onClear(); onCancelLink(); }
+    }
+    if (current.kind === "marquee") {
+      const box = marqueeRef.current;
+      marqueeRef.current = null; setMarquee(null);
+      // 位移过小的一下 Shift 点击不当作框选，避免无意义的状态写入。
+      if (!cancelled && box && (Math.abs(box.right - box.left) > 2 || Math.abs(box.bottom - box.top) > 2)) {
+        onPickMany(pickedInRect(graph.nodes, positions, box), true);
+      }
     }
   };
   const centerSelected = () => {
@@ -220,7 +252,6 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
     const point = selectedId ? positions[selectedId] : null;
     if (point) setCamera((current) => ({ ...current, x: size.width / 2 - point.x * current.zoom, y: size.height / 2 - point.y * current.zoom }));
   };
-  const linkSource = linkFromUid ? positions[entryNodeId(linkFromUid)] : null;
   // Small graphs stay readable at fit-to-view zoom. Dense graphs reveal entry
   // labels on focus instead of rendering hundreds of illegible tiny captions.
   const visualScale = Math.max(1, Math.min(1.7, 1 / camera.zoom));
@@ -231,7 +262,7 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
       ? { title: "分类结构", detail: `${graph.nodes.filter((node) => node.kind === "category").length} 分类 · ${graph.entryCount} 条目` }
       : { title: "关系网络", detail: `${graph.nodes.filter((node) => node.kind === "category").length} 分类 · ${graph.entryCount} 条目` };
 
-  return <div ref={viewport} className={"wbg-canvas" + (dragging ? " is-dragging" : "") + (linkFromUid ? " is-linking" : "")
+  return <div ref={viewport} className={"wbg-canvas" + (dragging ? " is-dragging" : "") + (linkSources.length ? " is-linking" : "")
     + (coloring === "role" && dependencyView ? " is-role-coloring" : "") + (treeLayout ? " is-tree" : "")}
     role="region" aria-label={view === "taxonomy" ? "世界书分类图画布" : view === "tree" ? "世界书依赖树画布" : "世界书依赖图画布"} tabIndex={0}
     style={{ backgroundPosition: `${camera.x}px ${camera.y}px`, backgroundSize: `${28 * camera.zoom}px ${28 * camera.zoom}px` }}
@@ -291,12 +322,18 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
             {dependency && !treeLayout && (active || graph.entryCount < 24) && <text className="wbg-edge-label" x={geometry.label.x} y={geometry.label.y - 9 / camera.zoom} style={{ fontSize: 10 / Math.min(1, camera.zoom) }}>依赖</text>}
           </g>;
         })}
-        {linkSource && cursor && <path className="wbg-pending-edge" d={worldBookEdgeGeometry(linkSource, cursor, 25 * visualScale, 0).path} markerEnd={`url(#${id}-active)`} />}
+        {!!linkSources.length && cursor && linkSources.slice(0, PENDING_EDGE_LIMIT).map((uid) => {
+          const point = positions[entryNodeId(uid)];
+          return point ? <path key={uid} className="wbg-pending-edge" d={worldBookEdgeGeometry(point, cursor, 25 * visualScale, 0).path} markerEnd={`url(#${id}-active)`} /> : null;
+        })}
+        {marquee && <rect className="wbg-marquee" x={Math.min(marquee.left, marquee.right)} y={Math.min(marquee.top, marquee.bottom)}
+          width={Math.abs(marquee.right - marquee.left)} height={Math.abs(marquee.bottom - marquee.top)} vectorEffect="non-scaling-stroke" />}
         {graph.nodes.map((node) => {
           const point = positions[node.id];
           if (!point) return null;
           const selected = selectedId === node.id;
-          const linking = linkFromUid === node.refId && node.kind === "entry";
+          const linking = node.kind === "entry" && linkSources.includes(node.refId);
+          const picked = node.kind === "entry" && pickedSet.has(node.refId);
           const chars = Array.from(node.label);
           const shortLabel = chars.length > 13 ? chars.slice(0, 12).join("") + "…" : node.label;
           const scale = visualScale;
@@ -318,10 +355,10 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
           const roleText = role ? ROLE_LABELS[role] : KINDS[node.scopeType];
           return <g key={node.id} transform={`translate(${point.x},${point.y})`} data-wbg-node={node.id} data-wbg-kind={node.scopeType}
             data-wbg-role={role} data-wbg-depth={node.treeDepth}
-            className={`wbg-node wbg-node-${node.kind}${selected ? " is-selected" : ""}${linking ? " is-source" : ""}${related && !related.has(node.id) && !linkFromUid ? " is-muted" : ""}${node.disabled ? " is-disabled" : ""}${node.inCycle ? " is-cycle" : ""}${node.unreached ? " is-unreached" : ""}`}
-            tabIndex={0} role="button" aria-label={`${node.kind === "category" ? "选择分类" : "选择节点"} ${node.label}${role ? "（" + roleText + "）" : ""}`} aria-pressed={selected}
+            className={`wbg-node wbg-node-${node.kind}${selected ? " is-selected" : ""}${linking ? " is-source" : ""}${picked ? " is-picked" : ""}${related && !related.has(node.id) && !linkSources.length ? " is-muted" : ""}${node.disabled ? " is-disabled" : ""}${node.inCycle ? " is-cycle" : ""}${node.unreached ? " is-unreached" : ""}`}
+            tabIndex={0} role="button" aria-label={`${node.kind === "category" ? "选择分类" : "选择节点"} ${node.label}${role ? "（" + roleText + "）" : ""}${picked ? "，已批量选中" : ""}`} aria-pressed={selected || picked}
             onPointerDown={(event) => begin(event, node)} onPointerEnter={() => !dragging && setHoverId(node.id)} onPointerLeave={() => setHoverId(null)}
-            onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); onSelectNode(node); } }}>
+            onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); onSelectNode(node, event.ctrlKey || event.metaKey || event.shiftKey); } }}>
             <title>{node.label + " · " + (node.kind === "category" ? "分类" : roleText)
               + (node.fixed ? " · 固定导入" : "") + (node.sourceDepth !== undefined ? ` · 导入源 / 预算深度 ${node.sourceDepth}` : "")
               + (node.treeDepth !== undefined ? ` · 第 ${node.treeDepth} 层 · 剩余 ${node.remaining}` : "")
@@ -339,6 +376,7 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
             {node.sourceDepth !== undefined && <g className="wbg-source-badge" transform={`translate(${node.radius - 2},${-node.radius + 2})`}><circle r="10" /><text y="3.5">{node.sourceDepth}</text></g>}
             {showLabel && <text className="wbg-node-label" y={node.radius + 23} style={{ fontSize: (node.kind === "category" ? 13 : 12) / Math.min(1, scale * camera.zoom) }}>{shortLabel}</text>}
             {showLabel && caption && <text className="wbg-node-caption" y={node.radius + 39}>{caption}</text>}
+            {picked && <g className="wbg-pick-badge" transform={`translate(${node.radius - 3},${node.radius - 3})`}><circle r="8.5" /><path d="M-4 0.5l2.6 2.6 5-5.4" /></g>}
             {showHandle && <g className={"wbg-collapse-handle" + (folded ? " is-collapsed" : "")} role="button" tabIndex={0}
               aria-label={(folded ? "展开 " : "折叠 ") + node.label + " 的下游 " + childUids.length + " 个节点"}
               transform={`translate(${node.radius + 15},0)`}
@@ -347,7 +385,7 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
               <circle r="9" /><path d={"M-3.5 0H3.5" + (folded ? "M0-3.5V3.5" : "")} />
               <text y="21">{childUids.length}{folded ? " 未展开" : ""}</text>
             </g>}
-            {dependencyView && node.kind === "entry" && selected && !busy && !linkFromUid &&
+            {dependencyView && node.kind === "entry" && selected && !busy && !linkSources.length &&
               <g className="wbg-link-handle" role="button" tabIndex={0} aria-label={`从 ${node.label} 添加依赖`} transform={`translate(${node.radius + 17},${showHandle ? 26 : 0})`}
                 onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onLinkStart(node.refId); }}
                 onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); onLinkStart(node.refId); } }}>
@@ -366,7 +404,10 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
       {treeLayout && treeLayout.hidden > 0 && <span className="wbg-warning">层级上限或折叠隐藏 {treeLayout.hidden} 个节点</span>}
       {treeLayout && treeLayout.hasDeeper && <span className="wbg-warning">还有更深的层级未展开</span>}
     </div>
-    {linkFromUid && <div className="wbg-link-banner" role="status" data-wbg-control><WorldBookGraphIcon name="link" /> 点击目标条目建立依赖 <button onClick={onCancelLink}>取消 · Esc</button></div>}
+    {!!linkSources.length && <div className="wbg-link-banner" role="status" data-wbg-control><WorldBookGraphIcon name="link" />
+      {linkSources.length > 1 ? ` 点击目标条目，为 ${linkSources.length} 个条目建立依赖 ` : " 点击目标条目建立依赖 "}
+      <button onClick={onCancelLink}>取消 · Esc</button></div>}
+    {!!pickedIds.length && <div className="wbg-pick-hint" role="status" data-wbg-control>已批量选中 {pickedIds.length} 个条目 · Ctrl/Shift 点击可增减</div>}
     {!graph.nodes.length && <div className="wbg-empty"><WorldBookGraphIcon name="graph" size={42} /><strong>暂无匹配的节点</strong><p>试试清空搜索或切换分类；也可以从节点目录中选择条目。</p></div>}
     {view === "tree" && !!graph.nodes.length && !treeLayout?.visible && !treeLayout?.bands.length && <div className="wbg-empty">
       <WorldBookGraphIcon name="graph" size={42} /><strong>还没有可展开的导入源</strong>
@@ -391,10 +432,12 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
         <span className="wbg-control-divider" />
         <button aria-label="适应全部节点" title="适应全部节点（0）" onClick={() => fitPositions(positions)}><WorldBookGraphIcon name="fit" /></button>
         <button aria-label="定位选中节点" title="定位选中节点" disabled={!selectedId} onClick={centerSelected}>◎</button>
+        <button aria-label="全选可见条目" title="全选可见条目（并入当前批量选择）" disabled={!visibleEntryUids.length}
+          onClick={() => onPickMany(visibleEntryUids, true)}>▣</button>
         <button aria-label={treeLayout ? "重置依赖树布局" : "重新布局图谱"} title={treeLayout ? "重置布局（清除手动拖动，不改变策略）" : "重新布局（仅调整视图，不改变分类与依赖）"} onClick={() => setLayoutVersion((value) => value + 1)}><WorldBookGraphIcon name="layout" /></button>
       </div>
     </div>
-    <span className="wbg-gesture-hint" data-wbg-control>{treeLayout ? "点击 ⊕ 折叠分支 · 拖动节点 · 空白平移 · 滚轮缩放" : "拖动节点 · 空白平移 · 滚轮缩放"}</span>
+    <span className="wbg-gesture-hint" data-wbg-control>{treeLayout ? "点击 ⊕ 折叠分支 · " : ""}拖动节点 · Shift 拖拽框选 · Ctrl/Shift 点击多选 · 空白平移 · 滚轮缩放</span>
     {visibleCount > 4 && <svg className="wbg-minimap" aria-label="图谱缩略图" viewBox={`${bounds.left} ${bounds.top} ${bounds.width} ${bounds.height}`} data-wbg-control>
       {graph.edges.map((edge) => positions[edge.from] && positions[edge.to] ? <line key={edge.id} x1={positions[edge.from].x} y1={positions[edge.from].y} x2={positions[edge.to].x} y2={positions[edge.to].y} /> : null)}
       {graph.nodes.map((node) => positions[node.id] ? <circle key={node.id} cx={positions[node.id].x} cy={positions[node.id].y} r={node.kind === "category" ? 12 : 6} data-wbg-kind={node.scopeType} data-wbg-role={node.role} /> : null)}

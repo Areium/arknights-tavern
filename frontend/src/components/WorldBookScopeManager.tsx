@@ -9,6 +9,9 @@ import {
   type DependencyRole,
 } from "../utils/worldbookDependency";
 import WorldBookGraphCanvas, { type GraphColoring } from "./WorldBookGraphCanvas";
+import {
+  batchAddEdges, batchFixed, batchMove, batchRemoveEdges, batchSource, categoryEntryUids, knownUids,
+} from "../utils/worldbookBatch";
 import WorldBookGraphIcon from "./WorldBookGraphIcon";
 import WorldBookScopePreview from "./WorldBookScopePreview";
 import "../styles/worldbook-graph.css";
@@ -50,7 +53,13 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
   const [assignment, setAssignment] = useState({ category_id: "unclassified", character_id: "" });
   const [characters, setCharacters] = useState<Array<{ id: string; name?: string; title?: string }> | null>(null);
   const [edgeTo, setEdgeTo] = useState("");
-  const [linkFrom, setLinkFrom] = useState<string | null>(null);
+  const [linkFrom, setLinkFrom] = useState<string[] | null>(null);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [batchDepth, setBatchDepth] = useState(1);
+  const [batchTarget, setBatchTarget] = useState("");
+  const [batchCategory, setBatchCategory] = useState("unclassified");
+  const [rowMenu, setRowMenu] = useState<string | null>(null);
+  const [batchNote, setBatchNote] = useState("");
   const [depth, setDepth] = useState(1);
   const [roster, setRoster] = useState<string[]>([]);
   const [preview, setPreview] = useState<WorldBookScopePreviewDTO | null>(null);
@@ -88,6 +97,7 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
   }), [detail, policy, view, categoryId, query, connectedOnly, focusedUid, roleFilter, isDependency]);
   const model = graph.tree;
   const role = focused ? model?.roles.get(focused.uid) || "orphan" : null;
+  const pickedSet = useMemo(() => new Set(picked), [picked]);
   const treeNode = focused ? model?.byUid.get(focused.uid) : undefined;
   const treeDepthLimit = treeDepth ?? (model ? defaultTreeDepthLimit(model) : 0);
   const treeOptions = useMemo(() => (treeView && model
@@ -115,16 +125,36 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
     setRoster([]); setEdgeTo(""); setLinkFrom(null); setPanel(null); setSelectedEdge(null);
     setQuery(""); setConnectedOnly(false); setRoleFilter([]); setCollapsed(new Set()); setTreeDepth(null); setShowLoose(false);
     setClassification(null); setClassifyError("");
+    setPicked([]); setBatchNote(""); setLinkFrom(null); setRowMenu(null); setBatchTarget("");
   }, [detail.id]);
   useEffect(() => {
     setSelection(null); setSelectedEdge(null); setCategoryDraft(null); setLinkFrom(null); setPanel(null);
-    setCollapsed(new Set()); setTreeDepth(null);
+    setCollapsed(new Set()); setTreeDepth(null); setRowMenu(null); setBatchNote("");
     setColoring(view === "taxonomy" ? "kind" : "role");
   }, [view]);
   useEffect(() => {
     setAssignment({ category_id: focused?.category_id || "unclassified", character_id: focused?.character_id || "" });
     setEdgeTo(""); setDepth(1);
   }, [focused]);
+  // 书重新加载后（条目被删/被改动），把批量选择与批量目标里的陈旧 UID 清掉。
+  useEffect(() => {
+    setPicked((current) => {
+      const next = current.filter((uid) => byUid.has(uid));
+      return next.length === current.length ? current : next;
+    });
+    setBatchTarget((current) => (current && !byUid.has(current) ? "" : current));
+  }, [byUid]);
+  // 分类行菜单：点空白处或 Esc 关闭，避免菜单一直挂在目录上。
+  useEffect(() => {
+    if (!rowMenu) return;
+    const close = (event: MouseEvent) => {
+      if (!(event.target as Element).closest(".wbg-tree-row")) setRowMenu(null);
+    };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") setRowMenu(null); };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", escape);
+    return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", escape); };
+  }, [rowMenu]);
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
   useEffect(() => {
@@ -189,6 +219,15 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
     setLinkFrom(null); setEdgeTo("");
     return true;
   };
+  /** 批量连线：为整批来源（或整批目标）一次建立依赖，重复与自环直接跳过。 */
+  const addEdgesFrom = (fromUids: string[], to: string) => {
+    if (busy || !byUid.has(to)) return;
+    const { policy: next, added, skipped } = batchAddEdges(policy, detail, fromUids, to, "to");
+    if (!added.length) { setError(`没有新增依赖：${skipped} 条已存在或指向自身。`); }
+    else { setError(""); setPolicy(next); }
+    setBatchNote(added.length ? `已为 ${added.length} 个条目建立依赖${skipped ? `，跳过 ${skipped} 条（已存在或自环）` : ""}。` : "");
+    setLinkFrom(null); setEdgeTo("");
+  };
   const removeEdge = (from: string, to: string) => {
     setPolicy((current) => ({ ...current, dependency_edges: current.dependency_edges.filter((edge) => edge.from_uid !== from || edge.to_uid !== to) }));
     setSelectedEdge(null);
@@ -201,14 +240,88 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
     setSelection({ kind: "category", id }); setSelectedEdge(null); setPanel("inspector");
     setCategoryDraft(category && category.id !== "unclassified" ? { ...category } : null);
     setDeleteTarget("unclassified");
+    setRowMenu(null);
   };
-  const selectNode = (node: WorldBookGraphNode) => {
+  const selectNode = (node: WorldBookGraphNode, additive = false) => {
     if (linkFrom) {
       if (node.kind !== "entry") { setError("依赖的目标必须是条目节点，分类只用于组织条目。"); return; }
-      if (!addEdge(linkFrom, node.refId)) return;
+      addEdgesFrom(linkFrom, node.refId);
+      return;
+    }
+    if (additive && node.kind === "entry") {
+      // Ctrl / Shift 点击：只增删批量选择，不抢走属性栏的主选择。
+      setPicked((current) => current.includes(node.refId)
+        ? current.filter((uid) => uid !== node.refId) : [...current, node.refId]);
+      setBatchNote("");
+      return;
     }
     if (node.kind === "entry") inspectEntry(node.refId);
     else inspectCategory(node.refId);
+  };
+  const pickMany = (uids: string[], additive: boolean) => {
+    setBatchNote("");
+    setPicked((current) => (additive ? [...new Set([...current, ...knownUids(detail, uids)])] : knownUids(detail, uids)));
+  };
+  const pickCategory = (categoryId: string) => {
+    const uids = categoryEntryUids(detail, categoryId);
+    setPicked(uids); setBatchNote(`已选中「${categoryName(categoryId)}」下的 ${uids.length} 个条目。`);
+    setRowMenu(null);
+  };
+  const categoryName = (categoryId: string) => categories.find((category) => category.id === categoryId)?.name || categoryId;
+  /** 整类设为导入源 / 固定导入：一次改动整棵子树下的条目。 */
+  const sourceCategory = (categoryId: string) => {
+    const uids = categoryEntryUids(detail, categoryId);
+    if (!uids.length) { setBatchNote(`「${categoryName(categoryId)}」下没有条目。`); setRowMenu(null); return; }
+    setPolicy(batchSource(policy, detail, uids, batchDepth));
+    setBatchNote(`已将「${categoryName(categoryId)}」下的 ${uids.length} 个条目设为导入源（深度 ${batchDepth}）。`);
+    setRowMenu(null);
+  };
+  const fixedCategory = (categoryId: string) => {
+    const uids = categoryEntryUids(detail, categoryId);
+    if (!uids.length) { setBatchNote(`「${categoryName(categoryId)}」下没有条目。`); setRowMenu(null); return; }
+    setPolicy(batchFixed(policy, detail, uids, true));
+    setBatchNote(`已将「${categoryName(categoryId)}」下的 ${uids.length} 个条目设为固定导入。`);
+    setRowMenu(null);
+  };
+  // ── 批量操作：全部只改策略草稿，照常走「保存策略」落盘 ──
+  const runBatchFixed = (on: boolean) => {
+    const next = batchFixed(policy, detail, picked, on);
+    setPolicy(next);
+    setBatchNote(next === policy ? "所选条目已处于该状态。" : on ? `已将 ${picked.length} 个条目设为固定导入。` : `已取消 ${picked.length} 个条目的固定导入。`);
+  };
+  const runBatchSource = (maxDepth: number | null) => {
+    const next = batchSource(policy, detail, picked, maxDepth);
+    setPolicy(next);
+    setBatchNote(maxDepth === null ? `已取消 ${picked.length} 个条目的导入源。` : `已将 ${picked.length} 个条目设为导入源（深度 ${maxDepth}）。`);
+  };
+  const runBatchLink = (direction: "to" | "from") => {
+    if (!batchTarget) { setError("请先选择批量依赖的目标条目。"); return; }
+    const { policy: next, added, skipped } = batchAddEdges(policy, detail, picked, batchTarget, direction);
+    if (!added.length) { setError(`没有新增依赖：${skipped} 条已存在或指向自身。`); return; }
+    setError(""); setPolicy(next);
+    setBatchNote(direction === "to"
+      ? `已建立 ${added.length} 条依赖：所选 → ${label(batchTarget)}。`
+      : `已建立 ${added.length} 条依赖：${label(batchTarget)} → 所选。`);
+  };
+  const runBatchUnlink = (uids: string[], scope: string) => {
+    const { policy: next, removed } = batchRemoveEdges(policy, detail, uids);
+    setPolicy(next);
+    setBatchNote(removed ? `已清除 ${scope} 的 ${removed} 条依赖边。` : `${scope}没有可清除的依赖边。`);
+  };
+  const runBatchMove = async () => {
+    const moves = batchMove(detail, picked, batchCategory);
+    if (!Object.keys(moves).length) return;
+    if (await run(() => api.updateWorldbookTaxonomy(detail.id, categories, moves, detail.import_config?.revision))) {
+      setBatchNote(`已将 ${Object.keys(moves).length} 个条目移入「${categories.find((category) => category.id === batchCategory)?.name || batchCategory}」。`);
+      setPicked([]);
+    }
+  };
+  const startBatchLink = (uids: string[], origin: string) => {
+    const targets = knownUids(detail, uids);
+    if (!targets.length) { setError("没有可连线的条目。"); return; }
+    setLinkFrom(targets); setError("");
+    setPanel(null); setRowMenu(null);
+    setBatchNote(`已进入连线模式（${origin}）：在图中点击目标条目即可建立依赖。`);
   };
   const newCategory = () => {
     const parentId = categoryId && categoryId !== "unclassified" ? categoryId : null;
@@ -338,6 +451,47 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
       </div>
     </div>}
     {error && <div role="alert" className="wbg-notice wbg-error"><span>{error}</span><button onClick={() => { if (!dirty || window.confirm("重新加载会丢弃未保存策略，继续吗？")) void onChanged(); }}>重新加载</button><button aria-label="关闭错误提示" onClick={() => setError("")}>×</button></div>}
+    {!!picked.length && <div className="wbg-toolbar wbg-batch-bar" aria-label="批量操作">
+      <span className="wbg-batch-count"><WorldBookGraphIcon name="tag" size={13} />已选 <b>{picked.length}</b> 个条目</span>
+      {isDependency ? <>
+        <button className="wbg-button wbg-button-quiet" disabled={busy} onClick={() => runBatchFixed(true)}>固定导入</button>
+        <button className="wbg-button wbg-button-quiet" disabled={busy} onClick={() => runBatchFixed(false)}>取消固定</button>
+        <div className="wbg-batch-group">
+          <label className="wbg-form-label wbg-inline-field">导入源深度
+            <input className="wbg-field wbg-depth" type="number" aria-label="批量导入源深度" min={0} max={32} step={1} value={batchDepth}
+              onChange={(event) => setBatchDepth(Math.max(0, Math.min(32, Number(event.target.value) || 0)))} />
+          </label>
+          <button className="wbg-button wbg-button-quiet" disabled={busy} onClick={() => runBatchSource(batchDepth)}>设为导入源</button>
+          <button className="wbg-button wbg-button-quiet" disabled={busy} onClick={() => runBatchSource(null)}>取消导入源</button>
+        </div>
+        <div className="wbg-batch-group">
+          <label className="wbg-form-label wbg-inline-field">依赖目标
+            <select className="wbg-field wbg-batch-target" aria-label="批量依赖目标" value={batchTarget} onChange={(event) => setBatchTarget(event.target.value)}>
+              <option value="">选择条目</option>
+              {detail.entries.filter((entry) => !pickedSet.has(entry.uid))
+                .map((entry) => <option key={entry.uid} value={entry.uid}>{entry.name || entry.uid}</option>)}
+            </select>
+          </label>
+          <button className="wbg-button wbg-button-quiet" disabled={busy || !batchTarget} onClick={() => runBatchLink("to")}>所选 → 目标</button>
+          <button className="wbg-button wbg-button-quiet" disabled={busy || !batchTarget} onClick={() => runBatchLink("from")}>目标 → 所选</button>
+          <button className="wbg-button wbg-button-quiet" disabled={busy} onClick={() => startBatchLink(picked, "所选条目")}>在图中点选目标</button>
+        </div>
+        <button className="wbg-button wbg-button-quiet" disabled={busy} onClick={() => runBatchUnlink(picked, "所选条目")}>清空所选依赖</button>
+      </> : <>
+        <label className="wbg-form-label wbg-inline-field">归属分类
+          <select className="wbg-field wbg-batch-target" aria-label="批量归属分类" value={batchCategory} onChange={(event) => setBatchCategory(event.target.value)}>
+            {rows.map(({ category, level }) => <option key={category.id} value={category.id}>{"　".repeat(level)}{category.name}</option>)}
+          </select>
+        </label>
+        <button className="wbg-button wbg-button-quiet" disabled={busy} onClick={() => void runBatchMove()}>批量移入该分类</button>
+      </>}
+      <div className="wbg-toolbar-spacer" />
+      <button className="wbg-button wbg-button-quiet" onClick={() => { setPicked([]); setBatchNote(""); }}>清除选择</button>
+    </div>}
+    {batchNote && <div className="wbg-notice wbg-batch-notice" role="status">
+      <span>{batchNote}</span>
+      <button aria-label="关闭批量操作提示" onClick={() => setBatchNote("")}>×</button>
+    </div>}
     {previewError && isDependency && <div role="alert" className="wbg-notice wbg-error">预览未通过：{previewError}</div>}
     <div className="wbg-body">
       {libraryOpen && <aside className="wbg-library" aria-label="节点目录">
@@ -346,12 +500,30 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
         <div className="wbg-library-scroll">
           <div className="wbg-section-label">分类树 <span>{categories.length}</span></div>
           <nav className="wbg-category-tree" aria-label="分类树">
-            {rows.map(({ category, level }) => <button key={category.id} className={"wbg-tree-row" + (categoryId === category.id ? " is-active" : "")}
-              style={{ paddingLeft: 10 + Math.min(level, 8) * 13 }} title={category.name + " · " + KINDS[category.scope_type]}
-              onClick={() => { filterCategory(category.id); inspectCategory(category.id); }}>
-              <i className="wbg-type-dot" data-wbg-kind={category.scope_type} /><span>{category.name}</span>
-              <small>{detail.entries.filter((entry) => (entry.category_id || "unclassified") === category.id).length}</small>
-            </button>)}
+            {rows.map(({ category, level }) => <div key={category.id}
+              className={"wbg-tree-row" + (categoryId === category.id ? " is-active" : "") + (rowMenu === category.id ? " is-open" : "")}
+              style={{ paddingLeft: 10 + Math.min(level, 8) * 13 }}>
+              <button className="wbg-tree-main" title={category.name + " · " + KINDS[category.scope_type]}
+                onClick={() => { filterCategory(category.id); inspectCategory(category.id); }}>
+                <i className="wbg-type-dot" data-wbg-kind={category.scope_type} /><span>{category.name}</span>
+                <small>{detail.entries.filter((entry) => (entry.category_id || "unclassified") === category.id).length}</small>
+              </button>
+              <button className="wbg-tree-more" aria-label={`${category.name} 的分类批量操作`} aria-expanded={rowMenu === category.id}
+                title="分类批量操作"
+                onClick={() => setRowMenu(rowMenu === category.id ? null : category.id)}>⋯</button>
+              {rowMenu === category.id && <div className="wbg-row-menu" role="menu" aria-label={`${category.name} 的分类操作`}>
+                <button role="menuitem" onClick={() => pickCategory(category.id)}>
+                  选中该分类下 {categoryEntryUids(detail, category.id).length} 个条目
+                </button>
+                {isDependency && <>
+                  <button role="menuitem" onClick={() => sourceCategory(category.id)}>整类设为导入源（深度 {batchDepth}）</button>
+                  <button role="menuitem" onClick={() => fixedCategory(category.id)}>整类固定导入</button>
+                  <button role="menuitem" onClick={() => startBatchLink(categoryEntryUids(detail, category.id), `分类「${category.name}」`)}>整类连线到图中目标</button>
+                  <button role="menuitem" onClick={() => runBatchUnlink(categoryEntryUids(detail, category.id), `分类「${category.name}」`)}>清空整类依赖</button>
+                </>}
+                <button role="menuitem" onClick={() => { filterCategory(category.id); inspectCategory(category.id); }}>聚焦并编辑该分类</button>
+              </div>}
+            </div>)}
           </nav>
           <div className="wbg-section-label">条目节点 <span>{filtered.length}</span></div>
           <div className="wbg-entry-list">
@@ -373,10 +545,11 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
           : treeView ? "依赖树只画条目：层级来自遍历深度，分类仍可用上方分类树筛选。" : "拖入底栏可固定导入；也可在节点侧栏设置。"}</p>
       </aside>}
       <main className="wbg-stage">
-        <WorldBookGraphCanvas graph={graph} view={view} selectedId={selectedId} selectedEdgeId={selectedEdge} linkFromUid={linkFrom} busy={busy}
+        <WorldBookGraphCanvas graph={graph} view={view} selectedId={selectedId} selectedEdgeId={selectedEdge} linkFromUids={linkFrom} pickedIds={picked} busy={busy}
           coloring={coloring} tree={treeOptions} onToggleCollapse={toggleCollapse}
-          onSelectNode={selectNode} onSelectEdge={(id) => { setSelectedEdge(id); setSelection(null); setCategoryDraft(null); setPanel("inspector"); }}
-          onLinkStart={(uid) => { setLinkFrom(uid); setError(""); }} onCancelLink={() => setLinkFrom(null)}
+          onSelectNode={selectNode} onPickMany={pickMany}
+          onSelectEdge={(id) => { setSelectedEdge(id); setSelection(null); setCategoryDraft(null); setPanel("inspector"); }}
+          onLinkStart={(uid) => { setLinkFrom([uid]); setError(""); setBatchNote(""); }} onCancelLink={() => setLinkFrom(null)}
           onClear={() => { setSelection(null); setSelectedEdge(null); setCategoryDraft(null); if (panel === "inspector") setPanel(null); }}
           onDropEntry={(event) => { event.preventDefault(); const uid = dragUid(event); if (uid) inspectEntry(uid); }} />
       </main>
@@ -470,6 +643,37 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
             {selection?.kind === "category" && <>
               {(isDependency || !categoryDraft) && <div className="wbg-inspector-section"><p className="wbg-eyebrow">CATEGORY</p><h4>{categories.find((category) => category.id === selection.id)?.name}</h4><p className="wbg-help">{selection.id === "unclassified" ? "未分类是永久保留的归档分类，不能删除。" : "分类用于组织与筛选；分类连线不会自动形成条目依赖。"}</p></div>}
               <button className="wbg-button" onClick={() => filterCategory(selection.id)}>聚焦此分类</button>
+              <div className="wbg-inspector-section">
+                <h5>分类批量操作</h5>
+                <p className="wbg-help">该分类及子分类共 {categoryEntryUids(detail, selection.id).length} 个条目；操作只改策略草稿，随后照常点「保存策略」。</p>
+                <button className="wbg-button" onClick={() => pickCategory(selection.id)}>
+                  <WorldBookGraphIcon name="tag" size={13} />选中这些条目（{categoryEntryUids(detail, selection.id).length}）
+                </button>
+                {isDependency && <>
+                  <div className="wbg-form-pair">
+                    <button className="wbg-button" disabled={busy} onClick={() => sourceCategory(selection.id)}>整类设为导入源</button>
+                    <button className="wbg-button" disabled={busy} onClick={() => fixedCategory(selection.id)}>整类固定导入</button>
+                  </div>
+                  <label className="wbg-form-label">整类依赖目标
+                    <select className="wbg-field" aria-label="整类依赖目标" value={batchTarget} onChange={(event) => setBatchTarget(event.target.value)}>
+                      <option value="">选择一个条目</option>
+                      {detail.entries.map((entry) => <option key={entry.uid} value={entry.uid}>{entry.name || entry.uid}</option>)}
+                    </select>
+                  </label>
+                  <div className="wbg-form-pair">
+                    <button className="wbg-button" disabled={busy || !batchTarget}
+                      onClick={() => { const uids = categoryEntryUids(detail, selection.id); const { policy: next, added, skipped } = batchAddEdges(policy, detail, uids, batchTarget, "to");
+                        if (added.length) { setPolicy(next); setBatchNote(`已建立 ${added.length} 条依赖：分类「${categoryName(selection.id)}」→ ${label(batchTarget)}${skipped ? `，跳过 ${skipped} 条` : ""}。`); }
+                        else setBatchNote(`没有新增依赖：${skipped} 条已存在或指向自身。`); }}>整类 → 目标</button>
+                    <button className="wbg-button" disabled={busy || !batchTarget}
+                      onClick={() => { const uids = categoryEntryUids(detail, selection.id); const { policy: next, added, skipped } = batchAddEdges(policy, detail, uids, batchTarget, "from");
+                        if (added.length) { setPolicy(next); setBatchNote(`已建立 ${added.length} 条依赖：${label(batchTarget)} → 分类「${categoryName(selection.id)}」${skipped ? `，跳过 ${skipped} 条` : ""}。`); }
+                        else setBatchNote(`没有新增依赖：${skipped} 条已存在或指向自身。`); }}>目标 → 整类</button>
+                  </div>
+                  <button className="wbg-button wbg-button-quiet" disabled={busy} onClick={() => startBatchLink(categoryEntryUids(detail, selection.id), `分类「${categoryName(selection.id)}」`)}>在图中点选目标连线</button>
+                  <button className="wbg-button wbg-button-quiet" disabled={busy} onClick={() => runBatchUnlink(categoryEntryUids(detail, selection.id), `分类「${categoryName(selection.id)}」`)}>清空整类依赖</button>
+                </>}
+              </div>
               {isDependency && <p className="wbg-help">切换顶部「分类结构」可编辑分类名称、父级与条目归属。</p>}
             </>}
             {focused && <>
@@ -513,7 +717,7 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
                 </button>
                 <label className="wbg-form-label">遍历深度 <input aria-label="遍历深度" className="wbg-field" type="number" step={1} min={0} max={32} value={source?.max_depth ?? depth} onChange={(event) => source ? setSource(focused.uid, Number(event.target.value)) : setDepth(Number(event.target.value))} /><small>0 只包含源节点，最大 32 层。</small></label>
                 <div className="wbg-inspector-section">
-                  <div className="wbg-section-heading"><h5>依赖关系</h5><button className="wbg-text-button" onClick={() => { setLinkFrom(focused.uid); setError(""); }}>＋ 在图中连线</button></div>
+                  <div className="wbg-section-heading"><h5>依赖关系</h5><button className="wbg-text-button" onClick={() => { setLinkFrom([focused.uid]); setError(""); setBatchNote(""); }}>＋ 在图中连线</button></div>
                   <label className="wbg-form-label">依赖目标<select className="wbg-field" aria-label="依赖目标节点" value={edgeTo} onChange={(event) => setEdgeTo(event.target.value)}><option value="">选择一个条目</option>
                     {detail.entries.filter((entry) => entry.uid !== focused.uid).map((entry) => <option key={entry.uid} value={entry.uid}>{entry.name || entry.uid}</option>)}</select></label>
                   <button className="wbg-button" disabled={!edgeTo} onClick={() => addEdge(focused.uid, edgeTo)}><WorldBookGraphIcon name="link" />添加依赖</button>

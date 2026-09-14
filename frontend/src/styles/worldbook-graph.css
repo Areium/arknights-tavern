@@ -74,9 +74,16 @@ html.light .wbg-workbench { color-scheme: light; }
 .wbg-section-label { display: flex; align-items: center; justify-content: space-between; color: var(--ng-muted); font-size: 10px; font-weight: 500; letter-spacing: .08em; padding: 8px 7px; }
 .wbg-section-label:not(:first-child) { border-top: 1px solid var(--wbg-line); margin-top: 14px; padding-top: 14px; }
 .wbg-section-label span { letter-spacing: 0; font-variant-numeric: tabular-nums; }
-.wbg-tree-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 9px; border-radius: 5px; text-align: left; line-height: 1.4; }
-.wbg-tree-row > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wbg-tree-row > small { font-size: 10px; color: var(--ng-muted); }
+.wbg-tree-row { position: relative; display: flex; align-items: center; gap: 4px; padding: 8px 9px; border-radius: 5px; line-height: 1.4; }
+.wbg-tree-main { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; text-align: left; }
+.wbg-tree-main > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wbg-tree-main > small { font-size: 10px; color: var(--ng-muted); }
+.wbg-tree-more { flex-shrink: 0; width: 20px; height: 20px; border-radius: 4px; color: var(--ng-muted); font-size: 14px; line-height: 1; opacity: 0; }
+.wbg-tree-row:hover .wbg-tree-more, .wbg-tree-row.is-open .wbg-tree-more, .wbg-tree-more:focus-visible { opacity: 1; }
+.wbg-tree-more:hover { color: var(--ng-title); background: var(--wbg-hover); }
+.wbg-row-menu { position: absolute; right: 6px; top: calc(100% - 2px); z-index: 9; display: flex; flex-direction: column; min-width: 210px; padding: 4px; border: 1px solid var(--ng-card-border); border-radius: 7px; background: var(--ng-float-bg); box-shadow: 0 8px 24px #00000030; }
+.wbg-row-menu button { padding: 7px 9px; border-radius: 5px; color: var(--ng-body); text-align: left; font-size: 11px; white-space: nowrap; }
+.wbg-row-menu button:hover { color: var(--ng-title); background: var(--wbg-hover); }
 .wbg-tree-row:hover, .wbg-entry-row:hover { background: var(--wbg-hover); }
 .wbg-tree-row.is-active, .wbg-entry-row.is-active { background: var(--wbg-accent-soft); color: var(--ng-title); }
 [data-wbg-kind="worldview"] { --wbg-kind: var(--ng-beat); }
@@ -320,6 +327,21 @@ html.light .wbg-workbench { color-scheme: light; }
 .wbg-classify-list span { display: flex; flex: 1; align-items: baseline; gap: 6px; min-width: 0; color: var(--ng-body); }
 .wbg-classify-list small { color: var(--ng-muted); font-size: 9px; }
 .wbg-classify-list b { color: var(--ng-title); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.wbg-batch-bar { border-top: none; background: color-mix(in srgb, var(--ng-edge-color-hl) 7%, var(--ng-card-bg)); }
+.wbg-batch-count { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; color: var(--ng-edge-color-hl); font-size: 11px; white-space: nowrap; }
+.wbg-batch-count b { color: var(--ng-title); font-variant-numeric: tabular-nums; }
+.wbg-batch-group { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; padding: 2px 8px; border: 1px solid var(--wbg-line); border-radius: 7px; }
+.wbg-batch-target { width: 152px; padding: 6px 8px; }
+.wbg-batch-note { color: var(--ng-body); }
+.wbg-batch-notice { background: color-mix(in srgb, var(--ng-edge-color-hl) 6%, transparent); }
+.wbg-node.is-picked .wbg-node-halo { stroke: var(--ng-edge-color-hl); stroke-width: 2; stroke-dasharray: 3 3; opacity: .6; }
+.wbg-node.is-picked .wbg-node-disc { stroke-width: 2.4; }
+.wbg-pick-badge { pointer-events: none; }
+.wbg-pick-badge circle { fill: var(--ng-edge-color-hl); stroke: var(--ng-drawer-bg); stroke-width: 1.6; }
+.wbg-pick-badge path { fill: none; stroke: var(--ng-drawer-bg); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.wbg-marquee { fill: color-mix(in srgb, var(--ng-edge-color-hl) 12%, transparent); stroke: var(--ng-edge-color-hl); stroke-width: 1; stroke-dasharray: 4 4; pointer-events: none; }
+.wbg-pick-hint { position: absolute; left: 50%; bottom: 92px; transform: translateX(-50%); padding: 5px 11px; border: 1px solid var(--wbg-line); border-radius: 999px; background: var(--ng-float-bg); color: var(--ng-body); font-size: 10px; white-space: nowrap; pointer-events: none; }
 
 /* ── 依赖树 ────────────────────────────────────────────────────────────── */
 .wbg-tree-guides line { stroke: var(--wbg-line); stroke-dasharray: 2 6; }

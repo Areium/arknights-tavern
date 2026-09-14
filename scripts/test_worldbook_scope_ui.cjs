@@ -22,6 +22,9 @@ const { buildWorldBookGraph, layoutWorldBookGraph, spreadWorldBookGraph, worldBo
 const {
   buildDependencyTree, classifyDependencyRoles, defaultTreeDepthLimit, dependencyDescendants, dependencyPath, layoutDependencyTree,
 } = require(path.join(root, "frontend/src/utils/worldbookDependency.ts"));
+const {
+  batchAddEdges, batchFixed, batchMove, batchRemoveEdges, batchSource, categoryEntryUids, knownUids, pickedInRect,
+} = require(path.join(root, "frontend/src/utils/worldbookBatch.ts"));
 const ScopeManager = require(path.join(root, "frontend/src/components/WorldBookScopeManager.tsx")).default;
 const Preview = require(path.join(root, "frontend/src/components/WorldBookScopePreview.tsx")).default;
 const categories = [
@@ -74,12 +77,18 @@ assert.equal(Object.keys(layoutWorldBookGraph(bounded)).length, bounded.nodes.le
 const layoutMs = Math.round(performance.now() - started);
 assert.equal(JSON.stringify(detail), untouched, "graph layout must not mutate book policy");
 const graph = renderToStaticMarkup(React.createElement(ScopeManager, { detail, onChanged() {} }));
-for (const expected of ["固定导入区", "世界书有向依赖图", "marker-end", "wbg-node-disc", "缩小图谱", "重新布局图谱", "导入预览"]) assert.ok(graph.includes(expected), expected);
+for (const expected of ["固定导入区", "世界书有向依赖图", "marker-end", "wbg-node-disc", "缩小图谱", "重新布局图谱", "导入预览",
+  "全选可见条目", "Shift 拖拽框选"]) assert.ok(graph.includes(expected), expected);
+assert.ok(!graph.includes("wbg-batch-bar"), "没有批量选择时不渲染批量操作栏");
+assert.ok(graph.includes("小队 的分类批量操作"), "节点目录的分类行在依赖视图里同样带批量操作入口");
 assert.ok(!graph.includes("<fieldset"), "edit forms stay in a contextual inspector, not above the graph");
 const taxonomy = renderToStaticMarkup(React.createElement(ScopeManager, { detail, view: "taxonomy", onChanged() {} }));
 for (const expected of ["分类树", "小队", "世界书分类关系图", "选择分类 罗德岛", "打开内容中心"]) assert.ok(taxonomy.includes(expected), expected);
 assert.ok(taxonomy.includes("自动分类") && taxonomy.includes("uid 前缀 / group / 名称后缀"),
   "分类视图提供按条目元数据自动分类的入口，并说明只看哪些线索");
+assert.ok(taxonomy.includes("wbg-tree-more") && taxonomy.includes("小队 的分类批量操作"),
+  "分类树每行都有批量操作入口");
+assert.ok(taxonomy.includes("wbg-tree-main"), "分类行拆成主按钮 + 操作按钮，避免按钮嵌套按钮");
 assert.ok(!taxonomy.includes("世界书依赖图谱"), "分类视图不混入依赖视图的标题");
 const preview = renderToStaticMarkup(React.createElement(Preview, { value: {
   scope: { resolved_entry_uids: ["a"], legacy_full_scope: false, excluded_entries: [{ uid: "x", name: "停用节点", reason: "已停用" }] },
@@ -186,6 +195,49 @@ for (const expected of ["世界书依赖树", "世界书依赖分层树", "wbg-t
   assert.ok(treeMarkup.includes(expected), expected);
 }
 assert.ok(!treeMarkup.includes("wbg-node-category"), "依赖树不渲染分类节点");
+
+// ── 批量选中与整类操作 ──────────────────────────────────────────────────────
+assert.deepEqual(categoryEntryUids(depDetail, "characters"), ["X", "Y", "Z", "W"]);
+assert.deepEqual(categoryEntryUids(depDetail, "world"), ["A", "B", "F", "L"]);
+assert.deepEqual(categoryEntryUids(depDetail, "no-such-category"), []);
+assert.deepEqual(knownUids(depDetail, ["A", "nope", "A", "", "B"]), ["A", "B"], "批量目标要过滤未知 UID 与重复");
+const pickNodes = [
+  { id: "entry:a", refId: "a", kind: "entry", label: "A", scopeType: "other", radius: 25 },
+  { id: "entry:b", refId: "b", kind: "entry", label: "B", scopeType: "other", radius: 25 },
+  { id: "category:c", refId: "c", kind: "category", label: "C", scopeType: "other", radius: 37 },
+];
+const pickPositions = { "entry:a": { x: 0, y: 0 }, "entry:b": { x: 100, y: 0 }, "category:c": { x: 0, y: 0 } };
+assert.deepEqual(pickedInRect(pickNodes, pickPositions, { left: -10, top: -10, right: 10, bottom: 10 }), ["a"], "框选只取条目节点");
+assert.deepEqual(pickedInRect(pickNodes, pickPositions, { left: 120, top: 10, right: -10, bottom: -10 }).sort(), ["a", "b"], "反向拖拽的矩形也要正确");
+assert.deepEqual(pickedInRect(pickNodes, pickPositions, { left: 500, top: 500, right: 600, bottom: 600 }), []);
+
+const batchBase = JSON.parse(JSON.stringify(depPolicy));
+const batchUntouched = JSON.stringify(batchBase);
+const fixedOnce = batchFixed(batchBase, depDetail, ["A", "A", "nope"], true);
+assert.deepEqual(fixedOnce.fixed_entry_uids, ["F", "A"], "固定导入按顺序追加且去重");
+assert.equal(batchFixed(fixedOnce, depDetail, ["A"], true), fixedOnce, "已是固定导入时返回原对象，不产生无意义草稿差异");
+assert.deepEqual(batchFixed(fixedOnce, depDetail, ["F", "A"], false).fixed_entry_uids, []);
+const sourced = batchSource(batchBase, depDetail, ["B", "A"], 3);
+assert.deepEqual(sourced.dependency_sources, [{ entry_uid: "A", max_depth: 3 }, { entry_uid: "B", max_depth: 3 }], "导入源按 UID 稳定排序");
+assert.deepEqual(batchSource(sourced, depDetail, ["A"], null).dependency_sources, [{ entry_uid: "B", max_depth: 3 }]);
+assert.equal(batchSource(batchBase, depDetail, ["nope"], 1), batchBase);
+const linked = batchAddEdges(batchBase, depDetail, ["F", "W", "W"], "A", "to");
+assert.deepEqual(linked.added, [{ from_uid: "F", to_uid: "A" }, { from_uid: "W", to_uid: "A" }], "重复选中只建立一条边，且不算跳过");
+assert.equal(batchAddEdges(linked.policy, depDetail, ["F"], "A", "to").added.length, 0, "已存在的边不重复添加");
+const selfLink = batchAddEdges(batchBase, depDetail, ["A"], "A", "to");
+assert.equal(selfLink.added.length, 0);
+assert.equal(selfLink.skipped, 1, "自环直接跳过而不是抛错");
+assert.equal(batchAddEdges(batchBase, depDetail, ["F"], "nope", "to").added.length, 0, "目标不存在时不产出半成品");
+const reversed = batchAddEdges(batchBase, depDetail, ["Y", "Z"], "A", "from");
+assert.deepEqual(reversed.added, [{ from_uid: "A", to_uid: "Y" }, { from_uid: "A", to_uid: "Z" }], "反向批量连线：目标 → 所选");
+assert.deepEqual(batchAddEdges(batchBase, depDetail, ["F", "W"], "A", "from").added, [{ from_uid: "A", to_uid: "W" }],
+  "A→F 已存在时只补缺口，不重复添加");
+assert.equal(batchRemoveEdges(batchBase, depDetail, ["X"]).removed, 4, "X 的三条入边（A/B/Z）+ 一条出边");
+assert.equal(batchRemoveEdges(batchBase, depDetail, ["nope"]).removed, 0);
+assert.deepEqual(batchMove(depDetail, ["A", "nope"], "characters"), { A: "characters" });
+assert.deepEqual(batchMove(depDetail, ["A"], "no-such-category"), {}, "目标分类不存在时不产出 moves");
+assert.equal(JSON.stringify(batchBase), batchUntouched, "批量操作不得就地修改策略草稿");
+
 const bareMarkup = renderToStaticMarkup(React.createElement(ScopeManager, { detail: {
   ...depDetail, import_config: { revision: 1, fixed_entry_uids: [], dependency_sources: [] },
 }, view: "tree", onChanged() {} }));
