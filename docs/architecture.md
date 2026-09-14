@@ -50,6 +50,7 @@
 - `world_book.py` — 世界书（酒馆 Lorebook 兼容）：4 源解析（v1/v2/卡内嵌/jsonl）+ 关键词触发匹配 + 注入格式化 + 回灌导出 + `WorldBookManager`（`data/worldbooks/`，gitignored）。
   **注入纪律：常驻 position-0 条目进稳定层，触发型条目一律进动态层（前缀缓存稳定）。**
 - `worldbook_scope.py` — 多级分类、角色关联与导入策略校验，有向依赖深度遍历；候选范围由世界观 / 阵容 / 固定 / 依赖去重合成。`world_book.py` 提供估算预览与旧书/旧会话快照兼容，两个 prompt 入口均过滤候选。详见 `worldbook-on-demand.md`。
+- `worldbook_classify.py` — 条目自动分类：只认 uid 生成器前缀 / `group` 字段 / 名称括号后缀三类显式线索（取值为白名单，识别不出就不分类），产出分类树、条目归属与 `characters_<角色目录名>_index` → 角色关联。**不改变载入模式**：`from_dict` 只在分类形同未分类时对预装包自动补齐，其余走用户显式的「自动分类」。详见 `worldbook-on-demand.md`。
 - `memory.py` — `VectorMemory`：最近轮次滑动窗口 + ChromaDB 语义搜索，持久化于 `data/memory/`（gitignored）。
 
 ### 2.4 战斗后端
@@ -118,8 +119,8 @@
 - `components/AssetManager.tsx` — 资产目录：图片上传/裁剪/默认图，实体显示上级目录与来源世界书（frontmatter `worldbook_id`），按书筛选与归类
 - `components/CardManager.tsx` — 卡牌管理：角色/职业卡牌编辑（CardEditor），条目显示所属世界书，按书筛选
 - `components/WorldBookManager.tsx` — 世界书管理：导入（文件/粘贴，支持角色卡 PNG/JSON 连带导入角色 + 内嵌世界书）、分类图谱 / 条目正文切换、条目编辑器、会话绑定、酒馆格式导出
-- `components/WorldBookDependencyPage.tsx` / `WorldBookScopeManager.tsx` — 世界书分类与依赖工作台：节点目录、上下文属性、固定导入底栏、策略草稿与只读预览；`WorldBookScopePreview.tsx` 同时用于创建向导
-- `components/WorldBookGraphCanvas.tsx` / `utils/worldbookGraph.ts` — Neo4j 风格圆形节点图：分类归属与有向依赖、拖动/平移/缩放、关系高亮、确定性布局及大书显示限额；复用内容中心 `--ng-*` 配色，不修改战斗画布
+- `components/WorldBookDependencyPage.tsx` / `WorldBookScopeManager.tsx` — 世界书分类与依赖工作台：节点目录、上下文属性、固定导入底栏、策略草稿与只读预览、按条目元数据的自动分类入口；`WorldBookScopePreview.tsx` 同时用于创建向导
+- `components/WorldBookGraphCanvas.tsx` / `utils/worldbookGraph.ts` / `utils/worldbookDependency.ts` — Neo4j 风格圆形节点图：分类归属与有向依赖、拖动/平移/缩放、关系高亮、确定性布局及大书显示限额；节点角色分类（导入源/固定/中转/叶子/未配置）与按遍历深度展开的依赖树视图；复用内容中心 `--ng-*` 配色，不修改战斗画布
 - `components/SettingsPanel.tsx` — LLM 配置/主题/叙述选项
 
 ### 3.5 状态与数据获取

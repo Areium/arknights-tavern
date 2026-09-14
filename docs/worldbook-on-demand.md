@@ -4,7 +4,7 @@
 
 ## 使用入口
 
-- **世界书 → 分类图谱**：分类树、圆形分类/条目节点、条目归属与角色关联。切换「条目正文」可浏览和编辑原有条目。
+- **世界书 → 分类图谱**：分类树、圆形分类/条目节点、条目归属与角色关联，工具栏提供「自动分类」（先预览再应用）。切换「条目正文」可浏览和编辑原有条目。
 - **内容中心 → 世界书图谱**：三个页签——「分类结构」「条目依赖」「依赖树」。分类结构编辑分类与归属；条目依赖是力导向关系网络；依赖树按导入源与遍历深度分层展开。三者共用同一份策略草稿与「导入预览」。
 - **创建会话**：选定世界书和阵容后预览候选条目；创建时一次性初始化剧情、阵容、绑定与范围快照，失败不会留下半成品会话。
 
@@ -20,6 +20,26 @@
 角色只描述策略配置，与是否真的被展开无关：**导入源**在 `dependency_sources` 中；**固定导入**在 `fixed_entry_uids` 中；**中转节点**既有入边又有出边；**叶子节点**只有入边；**未配置**没有参与固定导入、导入源或任何依赖边（其中包括看似起点但没有登记为导入源的节点）。一个条目同时命中多条时按 源 > 固定 > 中转 > 叶子 > 未配置 取第一个。
 
 角色图例在画布左下角，工具栏的角色筛选会同时过滤画布与节点目录；筛选为空即显示全部。节点上的角色徽标（源 / 固 / 转 / 叶 / 未）在「按类型」着色时仍然显示，因此分类不会因为换色而丢失。
+
+## 条目分类（自动分类）
+
+分类本身也是数据：条目通过 `category_id` 归属分类，分类的 `scope_type` 决定它在按需载入下怎么进候选。整合包生成器把类别写在了三处可交叉验证的地方，自动分类只认这些**显式线索**，识别不出就保持未分类，**不按条目名字或正文猜测**：
+
+| 优先级 | 线索 | 例子 |
+|---|---|---|
+| 1 | uid 生成器前缀 | `characters_阿米娅_index` / `items_01-源石_index` / `plot_graph_*` |
+| 2 | `group` 字段（白名单取值） | `世界观` / `角色` / `敌人`（`group1`、`always` 之类一律忽略） |
+| 3 | 名称括号后缀 | `泰拉世界基础设定（世界观设定）` |
+
+结论按 1 → 2 → 3 取值；三条线索给出不同分类时会记进「线索冲突」供人工复核。产出的分类树与加载语义对齐：
+
+- **世界观设定**（worldview）下挂 **规则 / 属性 / 种族 / 职业 / 天气 / 地点设定**（子分类继承父类型）。这些「设定类」条目在按需载入下始终是候选，与旧的「world/rules/attributes/races/classes/Location → worldview」约定完全一致，只是界面上能看清具体类别。
+- **角色设定**（character）由 `characters_<角色目录名>_index` 推导出 `character_id`；推导不出目录名的条目落到 **角色条目（未关联）**（other），因为角色分类的条目必须带角色关联才能保存。
+- **物品 / 敌人 / 剧情设定 / 节点图**（other）沿用旧约定，不参与世界观候选。
+
+入口在**分类图谱**工具栏的「自动分类」：先出方案（可归类/无线索条数、将写入的分类与条目数、线索来源、冲突与未识别明细），再点「应用分类」写入。预装整合包在分类形同未分类时会自动补齐，**不覆盖用户已编辑过的分类**；外部的酒馆书没有这类元数据，一律保持原样，需要时走这个显式入口。
+
+**自动分类只改「条目属于哪一类」与随之而来的角色关联，不改载入模式、固定导入与依赖策略**——旧书仅修分类不会自动启用按需载入（与 `PUT taxonomy` 的纪律一致）。
 
 ## 依赖树
 
@@ -81,6 +101,7 @@
 | API | 主要字段 / 行为 |
 |---|---|
 | `PUT /api/worldbook/<id>/taxonomy` | 完整 `categories`、按 UID 的 `entry_moves`、可选 `expected_revision`；校验及迁移原子应用 |
+| `POST /api/worldbook/<id>/auto-classify` | 按条目元数据出分类方案；`apply=false` 只读预览，`apply=true` 写入分类树与条目归属（可选 `expected_revision`，冲突 409）。不改载入模式与依赖策略 |
 | `PUT /api/worldbook/<id>/entries/<uid>` | 合并条目字段，支持 `category_id` / `character_id`，保留未提供字段及零值 |
 | `PUT /api/worldbook/<id>/import-config` | `fixed_entry_uids`、`dependency_sources`、`dependency_edges`、`scope_mode`、可选 `expected_revision` |
 | `POST /api/worldbook/<id>/scope-preview` | 同上策略草稿与 `roster_character_ids`；只读预览，不更新缓存/磁盘/会话 |
@@ -88,12 +109,14 @@
 
 修订不一致返回 409，前端须重新加载，不能覆盖他人更新。删除条目会清理其固定项、依赖源与边引用。世界书保存采用同目录临时文件原子替换，成功后才更新缓存。
 
-后端：`src/worldbook_scope.py` 负责纯校验与遍历；`src/world_book.py` 负责候选解析、预览、兼容和存储。前端：`WorldBookScopeManager` 管理草稿、表单与视图控件，`WorldBookGraphCanvas` 管理图交互，`utils/worldbookGraph.ts` 提供确定性力导向布局和显示过滤，`utils/worldbookDependency.ts` 提供节点角色分类、依赖树建模与分层树布局。图谱不依赖额外图形库，也不改动战斗画布。
+后端：`src/worldbook_scope.py` 负责纯校验与遍历；`src/worldbook_classify.py` 负责条目自动分类（纯函数，只读条目元数据）；`src/world_book.py` 负责候选解析、预览、迁移、兼容和存储。前端：`WorldBookScopeManager` 管理草稿、表单与视图控件，`WorldBookGraphCanvas` 管理图交互，`utils/worldbookGraph.ts` 提供确定性力导向布局和显示过滤，`utils/worldbookDependency.ts` 提供节点角色分类、依赖树建模与分层树布局。图谱不依赖额外图形库，也不改动战斗画布。
 
-`worldbookDependency.ts` 的遍历与后端 `expand_sources` 同构（多源入队、最大剩余深度去重），因此前端展示的覆盖范围可以直接和后端预览互相印证；它不写盘、不改策略，只读 `WorldBookDetail` + `WorldBookPolicyDraft`。
+`worldbookDependency.ts` 的遍历与后端 `expand_sources` 同构（多源入队、最大剩余深度去重），因此前端展示的覆盖范围可以直接和后端预览互相印证；它不写盘、不改策略，只读 `WorldBookDetail` + `WorldBookPolicyDraft`。`worldbook_classify.py` 同样不写盘：`from_dict` 的自动补齐与接口的显式应用都通过同一份方案，前者额外受「预装包 + 分类形同未分类」两个条件约束。
 
 ## 验证
 
-统一入口仍为 `bash scripts/run_tests.sh`。范围与原子性回归在 `tests/test_worldbook_scope.py`；前端纯工具与真实 React SSR 检查可单独运行 `node scripts/test_worldbook_scope_ui.cjs`，覆盖分类树、环、显示上限、确定性布局、双向边与控件结构，以及角色分类（多源覆盖、固定导入、中转/叶子/未配置）、依赖树建模（层级、父节点归属、交叉边、超深度边、未启用边、依赖环、未覆盖带）、分层树布局（确定性、层级上限、折叠、未覆盖带换行、角色筛选剪枝）与依赖树视图的 SSR 结构。前端构建在 `frontend/` 运行 `npm run build`。
+统一入口仍为 `bash scripts/run_tests.sh`。范围与原子性回归在 `tests/test_worldbook_scope.py`；自动分类在 `tests/test_worldbook_classify.py`（信号优先级与白名单、外部 group 不被猜测、角色分类必须有角色目录名、冲突上报、`categories: []` 与缺字段两种迁移守卫、已保存分类不被覆盖、导入书不自动分类、接口预览只读/应用落盘/不改载入模式/409 冲突）；前端纯工具与真实 React SSR 检查可单独运行 `node scripts/test_worldbook_scope_ui.cjs`，覆盖分类树、环、显示上限、确定性布局、双向边与控件结构、自动分类入口，以及角色分类（多源覆盖、固定导入、中转/叶子/未配置）、依赖树建模（层级、父节点归属、交叉边、超深度边、未启用边、依赖环、未覆盖带）、分层树布局（确定性、层级上限、折叠、未覆盖带换行、角色筛选剪枝）与依赖树视图的 SSR 结构。前端构建在 `frontend/` 运行 `npm run build`。
 
-SSR 不代替浏览器验收。浏览器还需验证拖动/平移/缩放、侧栏遮挡、键盘操作、分类迁移、策略持久化、深度 0、切书草稿提醒及大书搜索，以及依赖树的折叠手柄、层级上限、未覆盖带与角色筛选的联动。
+SSR 不代替浏览器验收。浏览器还需验证拖动/平移/缩放、侧栏遮挡、键盘操作、分类迁移、策略持久化、深度 0、切书草稿提醒及大书搜索，依赖树的折叠手柄、层级上限、未覆盖带与角色筛选的联动，以及自动分类面板的预览 → 应用 → 分类树刷新。
+
+> Windows 中文环境下 `pytest tests/` 有 4 个战斗用例会因 subprocess 按 GBK 解码中文输出而失败（`stdout is None`）。加 `PYTHONUTF8=1` 后 24 项全过；这与世界书无关，属工作区环境问题。

@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useId, useMemo, useState } from "react";
 import { useApi } from "../hooks/useApi";
 import { useAppStore } from "../stores/appStore";
-import type { WorldBookCategoryDTO, WorldBookDetail, WorldBookEntryDTO, WorldBookPolicyDraft, WorldBookScopePreviewDTO } from "../types";
+import type { WorldBookCategoryDTO, WorldBookClassificationDTO, WorldBookDetail, WorldBookEntryDTO, WorldBookPolicyDraft, WorldBookScopePreviewDTO } from "../types";
 import { categoryDescendants, flattenCategoryTree } from "../utils/worldbookScope";
 import { buildWorldBookGraph, categoryNodeId, dependencyEdgeId, entryNodeId, type WorldBookGraphView, type WorldBookGraphNode } from "../utils/worldbookGraph";
 import {
@@ -14,6 +14,11 @@ import WorldBookScopePreview from "./WorldBookScopePreview";
 import "../styles/worldbook-graph.css";
 
 const KINDS = { worldview: "世界观", character: "角色", other: "其他" };
+/** 自动分类的线索名 → 界面文案（与后端 worldbook_classify 的信号名对应）。 */
+const SIGNALS: Record<string, string> = { "uid-prefix": "uid 前缀", group: "group 字段", "name-suffix": "名称后缀" };
+const classificationName = (value: WorldBookClassificationDTO, id: string) =>
+  value.categories.find((category) => category.id === id)?.name
+  || value.proposal.find((category) => category.id === id)?.name || id;
 const MIME = "application/x-worldbook-entry";
 const policyFrom = (detail: WorldBookDetail): WorldBookPolicyDraft => ({
   fixed_entry_uids: detail.import_config?.fixed_entry_uids || [],
@@ -51,7 +56,7 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
   const [preview, setPreview] = useState<WorldBookScopePreviewDTO | null>(null);
   const [previewError, setPreviewError] = useState("");
   const [libraryOpen, setLibraryOpen] = useState(true);
-  const [panel, setPanel] = useState<"inspector" | "preview" | null>(null);
+  const [panel, setPanel] = useState<"inspector" | "preview" | "classify" | null>(null);
   const [connectedOnly, setConnectedOnly] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [dropActive, setDropActive] = useState(false);
@@ -60,6 +65,8 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [treeDepth, setTreeDepth] = useState<number | null>(null);
   const [showLoose, setShowLoose] = useState(false);
+  const [classification, setClassification] = useState<WorldBookClassificationDTO | null>(null);
+  const [classifyError, setClassifyError] = useState("");
 
   const categories = detail.categories || [];
   const rows = useMemo(() => flattenCategoryTree(categories), [categories]);
@@ -107,6 +114,7 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
     setCategoryId(""); setSelection(null); setCategoryDraft(null); setError("");
     setRoster([]); setEdgeTo(""); setLinkFrom(null); setPanel(null); setSelectedEdge(null);
     setQuery(""); setConnectedOnly(false); setRoleFilter([]); setCollapsed(new Set()); setTreeDepth(null); setShowLoose(false);
+    setClassification(null); setClassifyError("");
   }, [detail.id]);
   useEffect(() => {
     setSelection(null); setSelectedEdge(null); setCategoryDraft(null); setLinkFrom(null); setPanel(null);
@@ -238,6 +246,18 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
   const openDependencies = () => {
     store.setWorldbookScopeJumpId(detail.id); store.setContentHubTab("worldbook-deps"); store.setCurrentView("content");
   };
+  const openClassification = async () => {
+    if (panel === "classify") { setPanel(null); return; }
+    setPanel("classify"); setSelection(null); setSelectedEdge(null); setCategoryDraft(null);
+    setClassification(null); setClassifyError("");
+    try { setClassification(await api.previewWorldbookClassification(detail.id)); }
+    catch (e) { setClassifyError(e instanceof Error ? e.message : "读取分类线索失败"); }
+  };
+  const applyClassification = async () => {
+    if (!classification?.matched) return;
+    // 应用会重新加载书，草稿里的导入策略会丢失，交给 run 统一确认。
+    if (await run(() => api.applyWorldbookClassification(detail.id, detail.import_config?.revision))) setPanel(null);
+  };
 
   return <section className={"wbg-workbench" + (expanded ? " wbg-expanded" : "")} aria-label={view === "taxonomy" ? "世界书分类工作台" : treeView ? "世界书依赖树工作台" : "世界书依赖工作台"}>
     <header className="wbg-header">
@@ -270,7 +290,13 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
       }}><WorldBookGraphIcon name="panel" />节点目录</button>
       <div className="wbg-breadcrumb"><button onClick={() => filterCategory("")}>全部分类</button>{categoryId && <><span>/</span><span>{categories.find((category) => category.id === categoryId)?.name || categoryId}</span></>}</div>
       {view === "taxonomy"
-        ? <button className="wbg-button wbg-button-quiet" disabled={busy} onClick={newCategory}>＋ 新建分类</button>
+        ? <>
+          <button className={"wbg-button wbg-button-quiet" + (panel === "classify" ? " is-active" : "")} aria-expanded={panel === "classify"}
+            title="按条目自带的 uid 前缀 / group / 名称后缀推断分类，先预览再决定是否应用" onClick={() => void openClassification()}>
+            <WorldBookGraphIcon name="tag" />自动分类
+          </button>
+          <button className="wbg-button wbg-button-quiet" disabled={busy} onClick={newCategory}>＋ 新建分类</button>
+        </>
         : <label className="wbg-checkbox-label"><input type="checkbox" checked={connectedOnly} onChange={(event) => setConnectedOnly(event.target.checked)} />仅已配置</label>}
       <div className="wbg-toolbar-spacer" />
       {isDependency ? <>
@@ -354,12 +380,52 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
           onClear={() => { setSelection(null); setSelectedEdge(null); setCategoryDraft(null); if (panel === "inspector") setPanel(null); }}
           onDropEntry={(event) => { event.preventDefault(); const uid = dragUid(event); if (uid) inspectEntry(uid); }} />
       </main>
-      {panel && <aside className="wbg-inspector" aria-label={panel === "preview" ? "导入预览面板" : "节点属性"}>
-        <div className="wbg-panel-heading"><span>{panel === "preview" ? "导入预览" : selectedRelation ? "依赖关系" : categoryDraft ? "分类属性" : focused ? "条目属性" : "分类概览"}</span>
+      {panel && <aside className="wbg-inspector" aria-label={panel === "preview" ? "导入预览面板" : panel === "classify" ? "自动分类面板" : "节点属性"}>
+        <div className="wbg-panel-heading"><span>{panel === "preview" ? "导入预览" : panel === "classify" ? "自动分类" : selectedRelation ? "依赖关系" : categoryDraft ? "分类属性" : focused ? "条目属性" : "分类概览"}</span>
           <button className="wbg-icon-button" aria-label="关闭属性面板" onClick={() => setPanel(null)}><WorldBookGraphIcon name="close" /></button>
         </div>
         <div className="wbg-inspector-scroll">
-          {panel === "preview" ? <>
+          {panel === "classify" ? <>
+            <div className="wbg-inspector-section"><p className="wbg-eyebrow">AUTO CLASSIFY</p><h4>按条目自带的类别分类</h4>
+              <p className="wbg-help">只认 uid 前缀、group 字段与名称后缀三类显式线索，识别不出就保持未分类，不按名字或正文猜测。应用只改分类与角色关联，不改载入模式、固定导入与依赖策略。</p>
+            </div>
+            {classifyError && <div role="alert" className="wbg-notice wbg-error"><span>{classifyError}</span><button onClick={() => void openClassification()}>重试</button></div>}
+            {!classification && !classifyError && <p className="wbg-help" role="status">正在读取条目的分类线索…</p>}
+            {classification && (classification.matched === 0 ? <p className="wbg-help">{classification.reason || "没有可用的分类线索，已保持原样。"}</p> : <>
+              <div className="wbg-metric-row">
+                <span>可归类 <b>{classification.matched}</b></span>
+                <span>无线索 <b>{classification.unmatched_count}</b></span>
+                <span>角色关联 <b>{classification.character_links}</b></span>
+                <span>线索冲突 <b>{classification.conflicts.length}</b></span>
+              </div>
+              <div className="wbg-inspector-section">
+                <h5>将写入的分类</h5>
+                <div className="wbg-classify-list">
+                  {classification.categories.map((category) => <div key={category.id}>
+                    <i data-wbg-kind={category.scope_type} />
+                    <span>{category.parent_id ? "↳ " : ""}{category.name}<small>{KINDS[category.scope_type]}</small></span>
+                    <b>{category.count}</b>
+                  </div>)}
+                </div>
+                <p className="wbg-help">共 {classification.categories.length} 个分类；条目归属会按上表替换。</p>
+              </div>
+              {!!Object.keys(classification.signals).length && <p className="wbg-help">线索来源：
+                {Object.entries(classification.signals).map(([signal, count]) => `${SIGNALS[signal] || signal} ${count} 条`).join(" · ")}</p>}
+              {!!classification.unmatched_count && <details className="wbg-details"><summary>未识别条目 <span>{classification.unmatched_count}</span></summary>
+                <div className="wbg-tree-path">{classification.unmatched.map((uid) => <button key={uid} className="wbg-text-button" onClick={() => inspectEntry(uid)}>{label(uid)}</button>)}</div>
+                <p className="wbg-help">这些条目保持各自原有分类（默认未分类），正文不受影响。</p>
+              </details>}
+              {!!classification.conflicts.length && <details className="wbg-details"><summary>线索冲突 <span>{classification.conflicts.length}</span></summary>
+                {classification.conflicts.map((item) => <p key={item.uid} className="wbg-help">{label(item.uid)}：
+                  {Object.entries(item.votes).map(([signal, categoryId]) => `${SIGNALS[signal] || signal} → ${classificationName(classification, categoryId)}`).join("；")}</p>)}
+                <p className="wbg-help">结论按 uid 前缀 &gt; group 字段 &gt; 名称后缀 取值；冲突条目可以人工复核。</p>
+              </details>}
+              <button className="wbg-button wbg-button-primary" disabled={busy} onClick={() => void applyClassification()}>
+                <WorldBookGraphIcon name="tag" />应用分类（{classification.matched} 条）
+              </button>
+              <p className="wbg-help">应用会写入分类树与条目归属并刷新页面；载入模式与依赖策略保持不变。</p>
+            </>)}
+          </> : panel === "preview" ? <>
             <div className="wbg-inspector-section"><p className="wbg-eyebrow">IMPORT SCOPE</p><h4>载入前，先看候选范围</h4><p className="wbg-help">预览不会修改会话。世界观、入队角色、固定条目与依赖展开合并后去重。</p></div>
             <details className="wbg-details"><summary>预览阵容 <span>{roster.length} 位</span></summary><div className="wbg-roster-list">
               {characters?.map((character) => <label key={character.id} className="wbg-checkbox-label"><input type="checkbox" checked={roster.includes(character.id)}

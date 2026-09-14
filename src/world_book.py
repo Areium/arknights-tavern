@@ -39,6 +39,7 @@ from worldbook_scope import (
     EXTENSION_KEY, UNCLASSIFIED, validate_categories, validate_policy,
     expand_sources, find_scope_extension,
 )
+from worldbook_classify import classify_entries, needs_classification
 
 logger = logging.getLogger(__name__)
 
@@ -672,18 +673,10 @@ class WorldBook:
         )
         book.created_at = float(data.get("created_at", time.time()))
         book.updated_at = float(data.get("updated_at", time.time()))
-        # 内置生成器的 UID 是可靠来源元数据；不按名字/关键词猜测外部书的角色关联。
-        if book.id == "arknights" and book.source == SOURCE_PREINSTALLED and "categories" not in data:
-            book.categories = validate_categories(copy.deepcopy(DEFAULT_CATEGORIES))
-            for entry in book.entries:
-                if entry.uid.startswith("characters_") and entry.uid.endswith("_index"):
-                    entry.category_id = "characters"
-                    entry.character_id = entry.uid[len("characters_"):-len("_index")]
-                elif entry.uid.split("_", 1)[0] in ("world", "rules", "attributes", "races", "classes", "weather", "Location"):
-                    entry.category_id = "worldview"
-                else:
-                    entry.category_id = "other"
-            book.scope_mode = "selective"
+        # 预装整合包由内置生成器写出，uid 前缀 / group / 名称后缀都是可靠来源元数据；
+        # 外部书没有这类元数据时保持原样，不按名字或关键词猜测。
+        if book.source == SOURCE_PREINSTALLED and needs_classification(data.get("categories")):
+            apply_auto_classification(book, first_install="categories" not in data)
         return book
 
     def category_scope_type(self, category_id: str) -> str:
@@ -898,6 +891,39 @@ class WorldBook:
             "dependency_edges": copy.deepcopy(self.dependency_edges),
             "import_config": copy.deepcopy(self.import_config),
         }}}
+
+
+def apply_auto_classification(book: WorldBook, first_install: bool = False):
+    """按条目自带的可信元数据重建分类与角色关联。
+
+    只改「条目属于哪一类」和随之而来的角色关联，**不碰载入模式、固定导入与依赖策略**。
+    调用方负责决定时机：`from_dict` 只在分类形同未分类时自动调用（用户编辑过的分类不会被
+    覆盖），接口则用于用户显式点击「自动分类」。
+
+    first_install 仅供预装包首次安装使用：沿用「预装包直接进入按需载入」的既有语义。
+    已存在的旧书只修分类，不隐式切换载入模式（旧书仅编辑分类不自动启用按需载入）。
+    """
+    result = classify_entries(book.entries)
+    if not result.matched:
+        return result
+    book.categories = validate_categories(result.categories(existing=book.categories))
+    known = {c["id"] for c in book.categories}
+    for entry in book.entries:
+        # 未识别出类别的条目保留原分类；原分类被整体替换掉时落到未分类。
+        target = result.assignments.get(entry.uid)
+        if not target or target not in known:
+            target = entry.category_id if entry.category_id in known else UNCLASSIFIED["id"]
+        entry.category_id = target
+        if book.category_scope_type(target) == "character":
+            entry.character_id = result.character_ids.get(entry.uid) or entry.character_id
+            if not entry.character_id:
+                # 角色分类必须带角色目录名，否则保存会被 _validate_entry_scope 拒绝。
+                entry.category_id = UNCLASSIFIED["id"]
+        else:
+            entry.character_id = ""
+    if first_install:
+        book.scope_mode = "selective"
+    return result
 
 
 # ─────────────────────────────────────────────────────────────

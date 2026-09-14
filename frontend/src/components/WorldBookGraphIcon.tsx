@@ -1,4 +1,4 @@
-export type WorldBookGraphIconName = "graph" | "search" | "folder" | "link" | "pin" | "fit" | "layout" | "panel" | "close" | "preview" | "tree";
+export type WorldBookGraphIconName = "graph" | "search" | "folder" | "link" | "pin" | "fit" | "layout" | "panel" | "close" | "preview" | "tree" | "tag";
 
 const PATHS: Record<WorldBookGraphIconName, string> = {
   graph: "M8 6h8M6 8v8m12-8v8M8 18h8M8 8l8 8M8 16l8-8 M8 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0M20 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0M8 18a2 2 0 1 1-4 0 2 2 0 0 1 4 0M20 18a2 2 0 1 1-4 0 2 2 0 0 1 4 0",
@@ -12,6 +12,7 @@ const PATHS: Record<WorldBookGraphIconName, string> = {
   close: "m6 6 12 12M6 18 18 6",
   preview: "M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12ZM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0",
   tree: "M12 4v4M6 12v2M18 12v2M12 8H6v4M12 8h6v4M4 17h4M10 17h4M16 17h4",
+  tag: "M3 4h9l9 8-9 8H3V4Zm4 6.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z",
 };
 
 export default function WorldBookGraphIcon({ name, size = 16 }: { name: WorldBookGraphIconName; size?: number }) {

@@ -711,6 +711,34 @@ export interface WorldBookPolicyDraft {
   scope_mode: "legacy" | "selective";
   expected_revision?: number;
 }
+/** 自动分类：单个候选分类（含条目数） */
+export interface WorldBookClassificationCategoryDTO extends WorldBookCategoryDTO {
+  count: number;
+}
+/** 自动分类方案（POST /api/worldbook/<id>/auto-classify，apply=false 时只读） */
+export interface WorldBookClassificationDTO {
+  matched: number;
+  unmatched_count: number;
+  total: number;
+  /** 结论采用了哪类线索 → 条目数（uid-prefix / group / name-suffix） */
+  signals: Record<string, number>;
+  categories: WorldBookClassificationCategoryDTO[];
+  character_links: number;
+  /** 未识别出类别的条目 UID（截断） */
+  unmatched: string[];
+  /** 各线索给出不同结论的条目 */
+  conflicts: Array<{ uid: string; votes: Record<string, string> }>;
+  unlinked_characters: string[];
+  /** 将要写入的完整分类数组 */
+  proposal: WorldBookCategoryDTO[];
+  apply: boolean;
+  reason?: string;
+}
+export interface WorldBookClassificationAppliedDTO {
+  classification: WorldBookClassificationDTO;
+  book: WorldBookDetail;
+}
+
 export interface WorldBookScopePreviewDTO {
   scope: WorldBookScopeDTO;
   entry_count: number;

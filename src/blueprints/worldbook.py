@@ -12,6 +12,8 @@ Worldbook blueprint — 世界书（酒馆 Lorebook 兼容）管理 API。
     PUT    /api/worldbook/<book_id>/entries/<entry_id>   更新条目
     DELETE /api/worldbook/<book_id>/entries/<entry_id>   删除条目
     GET    /api/worldbook/<book_id>/export     导出酒馆 v1 格式（回灌用）
+    PUT    /api/worldbook/<book_id>/taxonomy   更新分类树与条目归属
+    POST   /api/worldbook/<book_id>/auto-classify  按条目元数据自动分类（预览 / 应用）
     POST   /api/worldbook/<book_id>/default    设为/取消全局默认书
     POST   /api/worldbook/<book_id>/bind       绑定到会话（或解绑）
     GET    /api/worldbook/resolve              查询会话当前生效的书
@@ -25,7 +27,8 @@ import copy
 from flask import Blueprint, jsonify, request
 
 from shared.helpers import json_error
-from world_book import WorldBook, WorldBookEntry
+from world_book import WorldBook, WorldBookEntry, apply_auto_classification
+from worldbook_classify import classify_entries
 from worldbook_scope import validate_categories, validate_policy
 
 logger = logging.getLogger(__name__)
@@ -492,6 +495,39 @@ def register(app, managers):
         book.import_config["revision"] += 1
         wb_mgr.save(book)
         return jsonify(_book_detail(book))
+
+    @bp.route("/api/worldbook/<book_id>/auto-classify", methods=["POST"])
+    def auto_classify(book_id):
+        """按条目自带的可信元数据分类：默认只出方案（apply=false），apply=true 才写盘。
+
+        只认 uid 前缀 / group 字段 / 名称后缀三类显式线索，不按名字或正文猜测。只改
+        「条目属于哪一类」与随之而来的角色关联，不改载入模式、固定导入与依赖策略。
+        """
+        book, err = _get_book_or_404(book_id)
+        if err:
+            return err
+        data = request.json if isinstance(request.json, dict) else {}
+        result = classify_entries(book.entries)
+        payload = result.to_payload()
+        payload["proposal"] = result.categories(existing=book.categories)
+        payload["apply"] = False
+        if not result.matched:
+            payload["reason"] = "这本书的条目没有可用的分类线索（uid 前缀 / group 字段 / 名称后缀），已保持原样。"
+            return jsonify(payload)
+        if not data.get("apply"):
+            return jsonify(payload)
+        if data.get("expected_revision", book.import_config["revision"]) != book.import_config["revision"]:
+            return json_error("配置已变更，请重新加载后再保存", 409)
+        try:
+            apply_auto_classification(book)
+            for entry in book.entries:
+                _validate_entry_scope(book, entry)
+        except (TypeError, ValueError) as exc:
+            return json_error(str(exc))
+        book.import_config["revision"] += 1
+        wb_mgr.save(book)
+        payload["apply"] = True
+        return jsonify({"classification": payload, "book": _book_detail(book)})
 
     @bp.route("/api/worldbook/<book_id>/import-config", methods=["PUT"])
     def update_import_config(book_id):

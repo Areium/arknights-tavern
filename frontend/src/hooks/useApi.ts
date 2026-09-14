@@ -404,6 +404,14 @@ export function useApi() {
     updateWorldbookImportConfig: (bookId: string, data: import("../types").WorldBookPolicyDraft) => request<import("../types").WorldBookDetail>(`/api/worldbook/${encodeURIComponent(bookId)}/import-config`, {
       method: "PUT", body: JSON.stringify(data),
     }),
+    previewWorldbookClassification: (bookId: string) =>
+      request<import("../types").WorldBookClassificationDTO>(`/api/worldbook/${encodeURIComponent(bookId)}/auto-classify`, {
+        method: "POST", body: JSON.stringify({ apply: false }),
+      }),
+    applyWorldbookClassification: (bookId: string, expectedRevision?: number) =>
+      request<import("../types").WorldBookClassificationAppliedDTO>(`/api/worldbook/${encodeURIComponent(bookId)}/auto-classify`, {
+        method: "POST", body: JSON.stringify({ apply: true, expected_revision: expectedRevision }),
+      }),
     previewWorldbookScope: (bookId: string, rosterCharacterIds: string[], draft?: import("../types").WorldBookPolicyDraft) =>
       request<import("../types").WorldBookScopePreviewDTO>(`/api/worldbook/${encodeURIComponent(bookId)}/scope-preview`, {
         method: "POST", body: JSON.stringify({ ...draft, roster_character_ids: rosterCharacterIds }),

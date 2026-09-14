@@ -78,6 +78,9 @@ for (const expected of ["固定导入区", "世界书有向依赖图", "marker-e
 assert.ok(!graph.includes("<fieldset"), "edit forms stay in a contextual inspector, not above the graph");
 const taxonomy = renderToStaticMarkup(React.createElement(ScopeManager, { detail, view: "taxonomy", onChanged() {} }));
 for (const expected of ["分类树", "小队", "世界书分类关系图", "选择分类 罗德岛", "打开内容中心"]) assert.ok(taxonomy.includes(expected), expected);
+assert.ok(taxonomy.includes("自动分类") && taxonomy.includes("uid 前缀 / group / 名称后缀"),
+  "分类视图提供按条目元数据自动分类的入口，并说明只看哪些线索");
+assert.ok(!taxonomy.includes("世界书依赖图谱"), "分类视图不混入依赖视图的标题");
 const preview = renderToStaticMarkup(React.createElement(Preview, { value: {
   scope: { resolved_entry_uids: ["a"], legacy_full_scope: false, excluded_entries: [{ uid: "x", name: "停用节点", reason: "已停用" }] },
   entry_count: 1, full_entry_count: 10, full_estimated_tokens: 1000, resolved_estimated_tokens: 100,
