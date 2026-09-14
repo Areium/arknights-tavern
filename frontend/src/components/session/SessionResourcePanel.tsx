@@ -17,6 +17,40 @@ const MEDIA_TYPES: Array<"avatar" | "skin" | "card_face"> = [
   "card_face",
 ];
 
+/** 图片库单张图片（/api/assets/images 中 images[] 的元素） */
+interface AssetImage {
+  name: string;
+  path: string;
+  url: string;
+  subdir: string;
+}
+
+/** 图片库实体分组 */
+interface AssetEntity {
+  category: string;
+  entity: string;
+  entity_name: string;
+  images: AssetImage[];
+}
+
+/** 从全量图片库中找出某角色的实体分组（按显示名或目录名匹配，取图片最多的一组） */
+function findCharacterLibrary(
+  entities: AssetEntity[] | null,
+  charName: string,
+): AssetEntity | null {
+  if (!entities) return null;
+  const norm = (s: string) => s.trim().toLowerCase();
+  const target = norm(charName);
+  const candidates = entities.filter(
+    (e) =>
+      e.category === "characters" &&
+      (norm(e.entity_name) === target || norm(e.entity.split("/").pop() || "") === target),
+  );
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => b.images.length - a.images.length);
+  return candidates[0];
+}
+
 /** 拼接缓存爆破参数（v），保证覆盖图上传后强制刷新浏览器缓存 */
 function withVersion(url: string | null | undefined, v: number): string {
   if (!url) return "";
@@ -61,6 +95,12 @@ export default function SessionResourcePanel() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  // 形象快捷选取：目标角色 + 媒体类型 + 图片库缓存
+  const [picker, setPicker] = useState<{ name: string; mediaType: string } | null>(null);
+  const [library, setLibrary] = useState<AssetEntity[] | null>(null);
+  const [libraryLoading, setLibraryLoading] = useState(false);
+  const [pickingUrl, setPickingUrl] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!activeSessionId) {
@@ -141,6 +181,42 @@ export default function SessionResourcePanel() {
       alert("删除失败: " + err.message);
     } finally {
       setBusy(false);
+    }
+  };
+
+  // ── 形象快捷选取：从该角色全局图片库挑一张设为会话覆盖 ──
+
+  const openPicker = async (name: string, mediaType: string) => {
+    setPicker({ name, mediaType });
+    if (!library) {
+      setLibraryLoading(true);
+      try {
+        setLibrary(await api.listAssetImages());
+      } catch {
+        setLibrary([]);
+      } finally {
+        setLibraryLoading(false);
+      }
+    }
+  };
+
+  const handlePickImage = async (img: AssetImage) => {
+    if (!activeSessionId || !picker) return;
+    setPickingUrl(img.url);
+    try {
+      // 复用既有上传通道：拉取全局图片 → 作为会话覆盖上传（仅本会话生效）
+      const res = await fetch(img.url);
+      if (!res.ok) throw new Error(`读取图片失败 (${res.status})`);
+      const blob = await res.blob();
+      const ext = (img.name.match(/\.[a-z0-9]+$/i)?.[0] || ".png").toLowerCase();
+      const file = new File([blob], `pick${ext}`, { type: blob.type || "image/png" });
+      await api.uploadSessionCharacterMedia(activeSessionId, picker.name, picker.mediaType, file);
+      await refresh();
+      setPicker(null);
+    } catch (err: any) {
+      alert("选取形象失败: " + (err.message || "未知错误"));
+    } finally {
+      setPickingUrl(null);
     }
   };
 
@@ -269,19 +345,28 @@ export default function SessionResourcePanel() {
                       const isCovered = coveredType === t;
                       const key = `char-${name}-${t}`;
                       return (
-                        <button
-                          key={t}
-                          disabled={busy}
-                          onClick={() => fileRefs.current[key]?.click()}
-                          className={`text-[10px] px-1.5 py-0.5 rounded ${
-                            isCovered
-                              ? "bg-amber-700/30 text-amber-300 hover:bg-amber-700/50"
-                              : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-                          }`}
-                          title={`上传会话${MEDIA_LABEL[t]}（仅本会话生效）`}
-                        >
-                          {isCovered ? "替换" : "上传"}{MEDIA_LABEL[t]}
-                        </button>
+                        <span key={t} className="inline-flex gap-0.5">
+                          <button
+                            disabled={busy}
+                            onClick={() => fileRefs.current[key]?.click()}
+                            className={`text-[10px] px-1.5 py-0.5 rounded ${
+                              isCovered
+                                ? "bg-amber-700/30 text-amber-300 hover:bg-amber-700/50"
+                                : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                            }`}
+                            title={`上传会话${MEDIA_LABEL[t]}（仅本会话生效）`}
+                          >
+                            {isCovered ? "替换" : "上传"}{MEDIA_LABEL[t]}
+                          </button>
+                          <button
+                            disabled={busy}
+                            onClick={() => openPicker(name, t)}
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-blue-700/30 text-blue-200 hover:bg-blue-700/50"
+                            title={`从「${name}」的图片库中选取${MEDIA_LABEL[t]}设为会话覆盖`}
+                          >
+                            选取
+                          </button>
+                        </span>
                       );
                     })}
                     {coveredType && (
@@ -402,6 +487,70 @@ export default function SessionResourcePanel() {
           <div>backgrounds: {data.backgrounds_dir}</div>
         </div>
       )}
+
+      {/* ── 形象快捷选取弹窗（本角色图片库） ── */}
+      {picker && (() => {
+        const lib = findCharacterLibrary(library, picker.name);
+        const wantDir =
+          picker.mediaType === "avatar" ? "avatar"
+          : picker.mediaType === "skin" ? "skin"
+          : "card_face";
+        const pool = (lib?.images ?? []).filter((i) => i.subdir === wantDir);
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+            onClick={() => setPicker(null)}
+          >
+            <div
+              className="bg-gray-850 border border-gray-600 rounded-xl p-4 w-[26rem] max-h-[80vh] flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-sm font-medium mb-1">
+                选取{picker.name}·{MEDIA_LABEL[picker.mediaType]}
+              </h3>
+              <p className="text-[11px] text-gray-500 mb-3">
+                从该角色全局图片库（{wantDir}/ 目录）中挑一张，设为仅本会话生效的覆盖图
+              </p>
+              {libraryLoading ? (
+                <p className="text-gray-500 text-sm text-center py-6">图片库加载中...</p>
+              ) : pool.length === 0 ? (
+                <p className="text-gray-500 text-sm text-center py-6">
+                  该角色的 {wantDir}/ 目录下暂无图片
+                  <br />
+                  <span className="text-xs text-gray-600">可先通过「上传」添加全局图片</span>
+                </p>
+              ) : (
+                <div className="grid grid-cols-3 gap-2 overflow-y-auto pr-1">
+                  {pool.map((img) => (
+                    <button
+                      key={img.path}
+                      disabled={pickingUrl !== null}
+                      onClick={() => handlePickImage(img)}
+                      className="group relative rounded-lg overflow-hidden border border-gray-700 hover:border-amber-500/70 transition-colors disabled:opacity-50"
+                      title={img.name}
+                    >
+                      <img
+                        src={img.url}
+                        alt={img.name}
+                        className="w-full h-20 object-cover"
+                      />
+                      <span className="absolute inset-x-0 bottom-0 bg-black/60 text-[9px] text-gray-300 px-1 py-0.5 truncate opacity-0 group-hover:opacity-100 transition-opacity">
+                        {pickingUrl === img.url ? "应用中..." : img.name}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              <button
+                onClick={() => setPicker(null)}
+                className="btn-ghost text-xs w-full mt-3"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        );
+      })()}
     </aside>
   );
 }

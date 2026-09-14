@@ -48,16 +48,8 @@ export default function CharacterDetailCard({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Edit mode
-  const [editing, setEditing] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [hasOverrides, setHasOverrides] = useState(false);
-  const [editMeta, setEditMeta] = useState<Record<string, any>>({});
-  const [editContent, setEditContent] = useState("");
-  const [editTags, setEditTags] = useState("");
-  const [editAttrs, setEditAttrs] = useState<Record<string, number>>({});
-  const [editRels, setEditRels] = useState("");
-  // 成长（等级/XP）+ 派生战斗数值（会话覆盖合并后）
+  // 会话统一管理角色设定与数值：详情卡仅只读展示（等级/XP + 派生战斗数值
+  // 为会话合并后的结果），不提供对话内编辑入口
   const [growth, setGrowth] = useState<{ level: number; xp: number } | null>(null);
   const [combatStats, setCombatStats] = useState<Record<string, number> | null>(null);
 
@@ -65,7 +57,6 @@ export default function CharacterDetailCard({
     let cancelled = false;
     setLoading(true);
     setError("");
-    setEditing(false);
     api
       .getCharacter(characterId)
       .then((d) => {
@@ -103,121 +94,6 @@ export default function CharacterDetailCard({
     return () => { cancelled = true; };
   }, [activeSessionId, characterId, api]);
 
-  const handleStartEdit = async () => {
-    if (!activeSessionId) return;
-    setLoading(true);
-    try {
-      const merged = await api.getCharacterMerged(activeSessionId, characterId);
-      const meta = merged.metadata || {};
-      setEditMeta(meta);
-      setEditContent(merged.content || "");
-      setEditTags((meta.tags || []).join("、"));
-      setEditAttrs(meta.attributes || {});
-      setEditRels(
-        Object.entries(meta.relationships || {})
-          .map(([k, v]) => `${k}: ${v}`)
-          .join("\n")
-      );
-      setHasOverrides(merged.has_overrides);
-      setEditing(true);
-    } catch (err: any) {
-      alert("无法加载编辑数据: " + (err.message || "未知错误"));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSaveEdit = async () => {
-    if (!activeSessionId) return;
-    setSaving(true);
-    try {
-      const overrides: Record<string, any> = { metadata: {} };
-
-      // Tags
-      const newTags = editTags
-        .split(/[、,]/)
-        .map((t) => t.trim())
-        .filter(Boolean);
-      if (JSON.stringify(newTags) !== JSON.stringify(data?.metadata?.tags)) {
-        (overrides.metadata as any).tags = newTags;
-      }
-
-      // Attributes
-      const origAttrs = data?.metadata?.attributes || {};
-      const changedAttrs: Record<string, number> = {};
-      for (const [k, v] of Object.entries(editAttrs)) {
-        if (v !== origAttrs[k]) changedAttrs[k] = v;
-      }
-      if (Object.keys(changedAttrs).length > 0) {
-        (overrides.metadata as any).attributes = changedAttrs;
-      }
-
-      // Relationships
-      const newRels: Record<string, string> = {};
-      editRels.split("\n").forEach((line) => {
-        const idx = line.indexOf(":");
-        if (idx > 0) {
-          newRels[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
-        }
-      });
-      if (
-        JSON.stringify(newRels) !==
-        JSON.stringify(data?.metadata?.relationships || {})
-      ) {
-        (overrides.metadata as any).relationships = newRels;
-      }
-
-      // Simple fields
-      for (const field of ["class", "race", "faction"]) {
-        const newVal = (editMeta as any)[field];
-        if (newVal && newVal !== data?.metadata?.[field]) {
-          (overrides.metadata as any)[field] = newVal;
-        }
-      }
-
-      // Content
-      if (editContent !== (data?.content || "")) {
-        overrides.content = editContent;
-      }
-
-      // Remove empty metadata if no changes
-      if (Object.keys(overrides.metadata as any).length === 0) {
-        delete overrides.metadata;
-      }
-
-      if (!overrides.metadata && overrides.content === undefined) {
-        // No changes — delete override if exists
-        if (hasOverrides) {
-          await api.deleteCharacterOverride(activeSessionId, characterId);
-        }
-      } else {
-        await api.setCharacterOverride(activeSessionId, characterId, overrides);
-      }
-
-      setHasOverrides(!!overrides.metadata || overrides.content !== undefined);
-      setEditing(false);
-    } catch (err: any) {
-      alert("保存失败: " + (err.message || "未知错误"));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleRevert = async () => {
-    if (!activeSessionId || !hasOverrides) return;
-    if (!confirm("确定还原为模板？所有修改将丢失。")) return;
-    try {
-      await api.deleteCharacterOverride(activeSessionId, characterId);
-      setHasOverrides(false);
-      setEditing(false);
-      // Refresh from template
-      const d = await api.getCharacter(characterId);
-      setData(d);
-    } catch (err: any) {
-      alert("还原失败: " + (err.message || "未知错误"));
-    }
-  };
-
   const vw = window.innerWidth;
   const vh = window.innerHeight;
   let left = anchorRect.right + GAP;
@@ -250,21 +126,8 @@ export default function CharacterDetailCard({
           <h3 className="text-base font-semibold truncate">
             {meta?.name || characterId}
           </h3>
-          {hasOverrides && (
-            <span className="text-xs px-1.5 py-0.5 rounded bg-amber-600/30 text-amber-300 shrink-0">
-              已修改
-            </span>
-          )}
         </div>
         <div className="flex items-center gap-1 shrink-0 ml-2">
-          {activeSessionId && !editing && (
-            <button
-              onClick={handleStartEdit}
-              className="text-xs px-2 py-0.5 rounded text-gray-400 hover:text-gray-200 hover:bg-gray-700 transition-colors"
-            >
-              编辑
-            </button>
-          )}
           <button
             onClick={onTogglePin}
             className={`text-sm px-1.5 py-0.5 rounded transition-colors ${
@@ -292,7 +155,7 @@ export default function CharacterDetailCard({
         )}
         {error && <p className="text-red-400">{error}</p>}
 
-        {data && !editing && (
+        {data && (
           <>
             <div className="flex flex-wrap gap-1.5">
               {meta?.class && (
@@ -410,117 +273,6 @@ export default function CharacterDetailCard({
               </div>
             )}
           </>
-        )}
-
-        {/* Edit form */}
-        {editing && (
-          <div className="space-y-3">
-            <div className="grid grid-cols-3 gap-2">
-              <div>
-                <label className="text-[10px] text-gray-500">职业</label>
-                <input
-                  className="input text-xs py-1"
-                  value={editMeta.class || ""}
-                  onChange={(e) => setEditMeta({ ...editMeta, class: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="text-[10px] text-gray-500">种族</label>
-                <input
-                  className="input text-xs py-1"
-                  value={editMeta.race || ""}
-                  onChange={(e) => setEditMeta({ ...editMeta, race: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="text-[10px] text-gray-500">势力</label>
-                <input
-                  className="input text-xs py-1"
-                  value={editMeta.faction || ""}
-                  onChange={(e) => setEditMeta({ ...editMeta, faction: e.target.value })}
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="text-[10px] text-gray-500">标签（、分隔）</label>
-              <input
-                className="input text-xs py-1"
-                value={editTags}
-                onChange={(e) => setEditTags(e.target.value)}
-              />
-            </div>
-
-            <div>
-              <label className="text-[10px] text-gray-500 mb-1 block">属性</label>
-              <div className="grid grid-cols-4 gap-1.5">
-                {Object.entries(ATTR_LABELS).map(([key, label]) => (
-                  <div key={key} className="flex flex-col items-center gap-0.5">
-                    <span className="text-[10px] text-gray-500">{label}</span>
-                    <input
-                      className="input text-xs py-0.5 w-full text-center"
-                      type="number"
-                      min={1}
-                      max={10}
-                      value={editAttrs[key] ?? ""}
-                      onChange={(e) =>
-                        setEditAttrs({
-                          ...editAttrs,
-                          [key]: parseInt(e.target.value) || 0,
-                        })
-                      }
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <label className="text-[10px] text-gray-500">
-                关系（每行一个：名字: 描述）
-              </label>
-              <textarea
-                className="input text-xs py-1"
-                rows={4}
-                value={editRels}
-                onChange={(e) => setEditRels(e.target.value)}
-              />
-            </div>
-
-            <div>
-              <label className="text-[10px] text-gray-500">角色背景</label>
-              <textarea
-                className="input text-xs py-1"
-                rows={6}
-                value={editContent}
-                onChange={(e) => setEditContent(e.target.value)}
-              />
-            </div>
-
-            <div className="flex gap-2">
-              <button
-                onClick={handleSaveEdit}
-                disabled={saving}
-                className="btn-primary text-xs px-3 py-1.5"
-              >
-                {saving ? "保存中..." : "保存修改"}
-              </button>
-              <button
-                onClick={() => setEditing(false)}
-                className="text-xs px-3 py-1.5 rounded bg-gray-700 text-gray-300 hover:bg-gray-600"
-              >
-                取消
-              </button>
-              {hasOverrides && (
-                <button
-                  onClick={handleRevert}
-                  className="text-xs px-3 py-1.5 rounded bg-red-800/30 text-red-300 hover:bg-red-800/50 ml-auto"
-                >
-                  还原为模板
-                </button>
-              )}
-            </div>
-          </div>
         )}
       </div>
     </div>,

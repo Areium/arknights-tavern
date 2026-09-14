@@ -17,8 +17,6 @@ interface EnvState {
   time: string;
 }
 
-const CUSTOM = "__custom__";
-
 export default function EnvironmentPanel() {
   const { activeSessionId, chatMode, envRefreshKey, triggerEnvRefresh, triggerSceneSwitch } =
     useAppStore();
@@ -35,11 +33,6 @@ export default function EnvironmentPanel() {
     times: string[];
   } | null>(null);
 
-  // 自由模式编辑态
-  const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState<EnvState>({ location: "", weather: "", time: "" });
-  const [customFields, setCustomFields] = useState<Record<string, boolean>>({});
-
   // 剧情模式场景选择弹窗
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -49,7 +42,6 @@ export default function EnvironmentPanel() {
     try {
       const data = await api.getEnvironment(activeSessionId);
       setEnv(data);
-      setForm(data);
       setError("");
     } catch (err: any) {
       setError(err.message || "加载失败");
@@ -82,19 +74,6 @@ export default function EnvironmentPanel() {
     loadPresets();
   }, [loadPresets]);
 
-  const handleSave = async () => {
-    if (!activeSessionId) return;
-    try {
-      await api.updateEnvironment(activeSessionId, form);
-      setEnv(form);
-      setEditing(false);
-      setCustomFields({});
-      triggerEnvRefresh();
-    } catch (err: any) {
-      alert("更新环境失败: " + err.message);
-    }
-  };
-
   const handlePickerSelect = async (locName: string) => {
     if (!activeSessionId) return;
     try {
@@ -107,63 +86,33 @@ export default function EnvironmentPanel() {
     }
   };
 
-  const handleCancel = () => {
-    setEditing(false);
-    setForm(env || { location: "", weather: "", time: "" });
-    setCustomFields({});
-  };
-
-  const updateForm = (field: keyof EnvState, value: string) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
-  };
-
-  // ── 下拉选择渲染 ──
-
-  const renderSelect = (
-    field: keyof EnvState,
-    options: EnvPreset[],
-    value: string,
-    optionLabel: (o: EnvPreset) => string
-  ) => {
-    const isCustom = customFields[field] || (value && !options.find(
-      (o) => o.name === value || o.id === value
-    ));
-    return (
-      <div className="space-y-1">
-        <select
-          className="input text-sm"
-          value={isCustom ? CUSTOM : value}
-          onChange={(e) => {
-            const v = e.target.value;
-            if (v === CUSTOM) {
-              setCustomFields((prev) => ({ ...prev, [field]: true }));
-              updateForm(field, "");
-            } else {
-              setCustomFields((prev) => ({ ...prev, [field]: false }));
-              updateForm(field, v);
-            }
-          }}
-        >
-          {options.map((o) => (
-            <option key={o.name} value={o.name}>
-              {optionLabel(o)}
-            </option>
-          ))}
-          <option value={CUSTOM}>✏️ 自定义...</option>
-        </select>
-        {isCustom && (
-          <input
-            className="input text-sm"
-            placeholder={`输入自定义${field === "location" ? "地点" : field === "weather" ? "天气" : "时间"}`}
-            value={value}
-            onChange={(e) => updateForm(field, e.target.value)}
-          />
-        )}
-      </div>
-    );
-  };
-
   if (!activeSessionId) return null;
+
+  const readOnlyView = (note: string) => (
+    <>
+      {loading ? (
+        <p className="text-gray-500 text-sm text-center py-2">加载中...</p>
+      ) : error ? (
+        <p className="text-red-400 text-sm text-center py-2">{error}</p>
+      ) : env ? (
+        <div className="text-sm space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="text-gray-500 w-8">📍</span>
+            <span>{env.location || "未知"}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-gray-500 w-8">🌤</span>
+            <span>{env.weather || "未知"}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-gray-500 w-8">⏰</span>
+            <span>{env.time || "未知"}</span>
+          </div>
+          <p className="text-xs text-gray-600 pt-2">{note}</p>
+        </div>
+      ) : null}
+    </>
+  );
 
   // ── 剧情模式：只读 + 场景选择 ──
 
@@ -180,29 +129,7 @@ export default function EnvironmentPanel() {
           </button>
         </div>
 
-        {loading ? (
-          <p className="text-gray-500 text-sm text-center py-2">加载中...</p>
-        ) : error ? (
-          <p className="text-red-400 text-sm text-center py-2">{error}</p>
-        ) : env ? (
-          <div className="text-sm space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="text-gray-500 w-8">📍</span>
-              <span>{env.location || "未知"}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-gray-500 w-8">🌤</span>
-              <span>{env.weather || "未知"}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-gray-500 w-8">⏰</span>
-              <span>{env.time || "未知"}</span>
-            </div>
-            <p className="text-xs text-gray-600 pt-2">环境由剧情发展决定</p>
-          </div>
-        ) : null}
-
-        {/* 场景选择弹窗 */}
+        {readOnlyView("环境由剧情发展决定")}
         {pickerOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
                onClick={() => setPickerOpen(false)}>
@@ -238,64 +165,14 @@ export default function EnvironmentPanel() {
     );
   }
 
-  // ── 自由模式：预设选择 + 自定义编辑 ──
-
-  const locOptions = presets?.locations || [];
-  const weatherOptions = presets?.weathers || [];
-  const timeOptions = (presets?.times || []).map((t) => ({ name: t }));
+  // ── 自由模式：只读（环境由会话/剧情统一管理，对话内不再手动编辑） ──
 
   return (
     <div className="card">
       <div className="flex items-center justify-between mb-3">
         <h2 className="panel-title mb-0">环境</h2>
-        <button
-          onClick={() => editing ? handleCancel() : setEditing(true)}
-          className="text-xs text-gray-500 hover:text-gray-300"
-        >
-          {editing ? "取消" : "编辑"}
-        </button>
       </div>
-
-      {loading ? (
-        <p className="text-gray-500 text-sm text-center py-2">加载中...</p>
-      ) : error ? (
-        <p className="text-red-400 text-sm text-center py-2">{error}</p>
-      ) : editing ? (
-        <div className="space-y-3">
-          <div>
-            <label className="text-xs text-gray-500 mb-1 block">地点</label>
-            {renderSelect("location", locOptions, form.location, (o) => o.name)}
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 mb-1 block">天气</label>
-            {renderSelect("weather", weatherOptions, form.weather, (o) =>
-              o.icon ? `${o.icon} ${o.name}` : o.name
-            )}
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 mb-1 block">时间</label>
-            {renderSelect("time", timeOptions, form.time, (o) => o.name)}
-          </div>
-          <button onClick={handleSave} className="btn-primary text-sm w-full">
-            保存
-          </button>
-        </div>
-      ) : env ? (
-        <div className="text-sm space-y-1">
-          <div className="flex items-center gap-2">
-            <span className="text-gray-500 w-8">📍</span>
-            <span>{env.location || "未知"}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-gray-500 w-8">🌤</span>
-            <span>{env.weather || "未知"}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-gray-500 w-8">⏰</span>
-            <span>{env.time || "未知"}</span>
-          </div>
-        </div>
-      ) : null}
+      {readOnlyView("环境由会话统一管理")}
     </div>
   );
 }

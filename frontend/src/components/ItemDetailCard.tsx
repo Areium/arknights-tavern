@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { useAppStore } from "../stores/appStore";
 import { useApi } from "../hooks/useApi";
 
 interface ItemDetail {
@@ -47,6 +46,10 @@ const CATEGORY_MAP: Record<string, string> = {
   material: "材料",
 };
 
+/**
+ * 物品详情浮卡 —— 仅只读展示。
+ * 会话统一管理物品数据：对话内不提供编辑入口，物品增减由剧情/LLM 驱动。
+ */
 export default function ItemDetailCard({
   itemId,
   anchorRect,
@@ -56,25 +59,15 @@ export default function ItemDetailCard({
   onMouseEnter,
   onMouseLeave,
 }: Props) {
-  const { activeSessionId } = useAppStore();
   const api = useApi();
   const [data, setData] = useState<ItemDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Edit mode
-  const [editing, setEditing] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [hasOverrides, setHasOverrides] = useState(false);
-  const [editMeta, setEditMeta] = useState<Record<string, any>>({});
-  const [editContent, setEditContent] = useState("");
-  const [editEffects, setEditEffects] = useState("");
-
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError("");
-    setEditing(false);
     api
       .getItem(itemId)
       .then((d) => {
@@ -90,98 +83,6 @@ export default function ItemDetailCard({
       cancelled = true;
     };
   }, [itemId, api]);
-
-  const handleStartEdit = async () => {
-    if (!activeSessionId) return;
-    setLoading(true);
-    try {
-      const merged = await api.getItemMerged(activeSessionId, itemId);
-      const meta = merged.metadata || {};
-      setEditMeta(meta);
-      setEditContent(merged.content || "");
-      setEditEffects((meta.effects || []).join("\n"));
-      setHasOverrides(merged.has_overrides);
-      setEditing(true);
-    } catch (err: any) {
-      alert("无法加载编辑数据: " + (err.message || "未知错误"));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSaveEdit = async () => {
-    if (!activeSessionId) return;
-    setSaving(true);
-    try {
-      const overrides: Record<string, any> = { metadata: {} };
-
-      // Effects
-      const newEffects = editEffects
-        .split("\n")
-        .map((t) => t.trim())
-        .filter(Boolean);
-      if (JSON.stringify(newEffects) !== JSON.stringify(data?.metadata?.effects)) {
-        (overrides.metadata as any).effects = newEffects;
-      }
-
-      // Simple text fields
-      for (const field of [
-        "name",
-        "alias",
-        "category",
-        "rarity",
-        "owner",
-        "location",
-        "source",
-        "condition",
-        "usable",
-      ]) {
-        const newVal = (editMeta as any)[field];
-        if (newVal !== undefined && newVal !== data?.metadata?.[field]) {
-          (overrides.metadata as any)[field] = newVal;
-        }
-      }
-
-      // Content
-      if (editContent !== (data?.content || "")) {
-        overrides.content = editContent;
-      }
-
-      // Remove empty metadata if no changes
-      if (Object.keys(overrides.metadata as any).length === 0) {
-        delete overrides.metadata;
-      }
-
-      if (!overrides.metadata && overrides.content === undefined) {
-        if (hasOverrides) {
-          await api.deleteItemOverride(activeSessionId, itemId);
-        }
-      } else {
-        await api.setItemOverride(activeSessionId, itemId, overrides);
-      }
-
-      setHasOverrides(!!overrides.metadata || overrides.content !== undefined);
-      setEditing(false);
-    } catch (err: any) {
-      alert("保存失败: " + (err.message || "未知错误"));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleRevert = async () => {
-    if (!activeSessionId || !hasOverrides) return;
-    if (!confirm("确定还原为模板？所有修改将丢失。")) return;
-    try {
-      await api.deleteItemOverride(activeSessionId, itemId);
-      setHasOverrides(false);
-      setEditing(false);
-      const d = await api.getItem(itemId);
-      setData(d);
-    } catch (err: any) {
-      alert("还原失败: " + (err.message || "未知错误"));
-    }
-  };
 
   const vw = window.innerWidth;
   const vh = window.innerHeight;
@@ -215,21 +116,8 @@ export default function ItemDetailCard({
           <h3 className="text-base font-semibold truncate">
             {meta?.name || itemId}
           </h3>
-          {hasOverrides && (
-            <span className="text-xs px-1.5 py-0.5 rounded bg-amber-600/30 text-amber-300 shrink-0">
-              已修改
-            </span>
-          )}
         </div>
         <div className="flex items-center gap-1 shrink-0 ml-2">
-          {activeSessionId && !editing && (
-            <button
-              onClick={handleStartEdit}
-              className="text-xs px-2 py-0.5 rounded text-gray-400 hover:text-gray-200 hover:bg-gray-700 transition-colors"
-            >
-              编辑
-            </button>
-          )}
           <button
             onClick={onTogglePin}
             className={`text-sm px-1.5 py-0.5 rounded transition-colors ${
@@ -250,14 +138,14 @@ export default function ItemDetailCard({
         </div>
       </div>
 
-      {/* Body */}
+      {/* Body（只读） */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 text-sm">
         {loading && (
           <p className="text-gray-500 text-center py-8">加载中...</p>
         )}
         {error && <p className="text-red-400">{error}</p>}
 
-        {data && !editing && (
+        {data && (
           <>
             {/* Badges: rarity + category + condition */}
             <div className="flex flex-wrap gap-1.5">
@@ -342,152 +230,6 @@ export default function ItemDetailCard({
               </div>
             )}
           </>
-        )}
-
-        {/* Edit form */}
-        {editing && (
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-[10px] text-gray-500">名称</label>
-                <input
-                  className="input text-xs py-1"
-                  value={editMeta.name || ""}
-                  onChange={(e) => setEditMeta({ ...editMeta, name: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="text-[10px] text-gray-500">别名</label>
-                <input
-                  className="input text-xs py-1"
-                  value={editMeta.alias || ""}
-                  onChange={(e) => setEditMeta({ ...editMeta, alias: e.target.value })}
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-[10px] text-gray-500">分类</label>
-                <select
-                  className="input text-xs py-1"
-                  value={editMeta.category || ""}
-                  onChange={(e) => setEditMeta({ ...editMeta, category: e.target.value })}
-                >
-                  <option value="">—</option>
-                  {Object.entries(CATEGORY_MAP).map(([k, v]) => (
-                    <option key={k} value={k}>{v}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-[10px] text-gray-500">稀有度</label>
-                <select
-                  className="input text-xs py-1"
-                  value={editMeta.rarity || ""}
-                  onChange={(e) => setEditMeta({ ...editMeta, rarity: e.target.value })}
-                >
-                  <option value="">—</option>
-                  {Object.entries(RARITY_MAP).map(([k, v]) => (
-                    <option key={k} value={k}>{v}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2">
-              <div>
-                <label className="text-[10px] text-gray-500">持有者</label>
-                <input
-                  className="input text-xs py-1"
-                  value={editMeta.owner || ""}
-                  onChange={(e) => setEditMeta({ ...editMeta, owner: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="text-[10px] text-gray-500">位置</label>
-                <input
-                  className="input text-xs py-1"
-                  value={editMeta.location || ""}
-                  onChange={(e) => setEditMeta({ ...editMeta, location: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="text-[10px] text-gray-500">来源</label>
-                <input
-                  className="input text-xs py-1"
-                  value={editMeta.source || ""}
-                  onChange={(e) => setEditMeta({ ...editMeta, source: e.target.value })}
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-[10px] text-gray-500">状态</label>
-                <input
-                  className="input text-xs py-1"
-                  value={editMeta.condition || ""}
-                  onChange={(e) => setEditMeta({ ...editMeta, condition: e.target.value })}
-                />
-              </div>
-              <div className="flex items-end pb-1">
-                <label className="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={!!editMeta.usable}
-                    onChange={(e) => setEditMeta({ ...editMeta, usable: e.target.checked })}
-                    className="rounded"
-                  />
-                  可使用
-                </label>
-              </div>
-            </div>
-
-            <div>
-              <label className="text-[10px] text-gray-500">效果（每行一个）</label>
-              <textarea
-                className="input text-xs py-1"
-                rows={4}
-                value={editEffects}
-                onChange={(e) => setEditEffects(e.target.value)}
-              />
-            </div>
-
-            <div>
-              <label className="text-[10px] text-gray-500">物品详情</label>
-              <textarea
-                className="input text-xs py-1"
-                rows={6}
-                value={editContent}
-                onChange={(e) => setEditContent(e.target.value)}
-              />
-            </div>
-
-            <div className="flex gap-2">
-              <button
-                onClick={handleSaveEdit}
-                disabled={saving}
-                className="btn-primary text-xs px-3 py-1.5"
-              >
-                {saving ? "保存中..." : "保存修改"}
-              </button>
-              <button
-                onClick={() => setEditing(false)}
-                className="text-xs px-3 py-1.5 rounded bg-gray-700 text-gray-300 hover:bg-gray-600"
-              >
-                取消
-              </button>
-              {hasOverrides && (
-                <button
-                  onClick={handleRevert}
-                  className="text-xs px-3 py-1.5 rounded bg-red-800/30 text-red-300 hover:bg-red-800/50 ml-auto"
-                >
-                  还原为模板
-                </button>
-              )}
-            </div>
-          </div>
         )}
       </div>
     </div>,

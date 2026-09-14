@@ -11,14 +11,8 @@ interface SceneItem {
   rarity?: string;
 }
 
-export default function ItemPanel({
-  onAddClick,
-  refreshKey,
-}: {
-  onAddClick?: () => void;
-  refreshKey?: number;
-}) {
-  const { activeSessionId, chatMode } = useAppStore();
+export default function ItemPanel({ refreshKey }: { refreshKey?: number }) {
+  const { activeSessionId } = useAppStore();
   const api = useApi();
   const [items, setItems] = useState<SceneItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -131,16 +125,6 @@ export default function ItemPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadItems, refreshKey]);
 
-  const handleRemove = async (itemId: string) => {
-    if (!activeSessionId) return;
-    try {
-      await api.removeSceneItem(activeSessionId, itemId);
-      await loadItems();
-    } catch (err: any) {
-      alert("移除物品失败: " + err.message);
-    }
-  };
-
   if (!activeSessionId) {
     return (
       <div className="card">
@@ -164,15 +148,6 @@ export default function ItemPanel({
           )}
         </h2>
         <div className="flex gap-1">
-          {chatMode !== "story" && (
-            <button
-              onClick={onAddClick}
-              className="text-xs px-2 py-1 rounded bg-green-700/30 text-green-300 hover:bg-green-700/50"
-              title="浏览全部物品"
-            >
-              + 添加
-            </button>
-          )}
           <button
             onClick={loadItems}
             className="text-xs text-gray-500 hover:text-gray-300"
@@ -190,9 +165,9 @@ export default function ItemPanel({
       <div className="space-y-1.5 max-h-40 overflow-y-auto">
         {!loading && items.length === 0 && (
           <p className="text-gray-500 text-sm text-center py-4">
-            {chatMode === "story"
-              ? "场景暂无物品"
-              : '暂无物品 — 点击"+ 添加"浏览'}
+            场景暂无物品
+            <br />
+            <span className="text-xs text-gray-600">物品由剧情发展自动增减</span>
           </p>
         )}
         {items.map((item) => (
@@ -230,14 +205,6 @@ export default function ItemPanel({
               >
                 📌
               </button>
-              {chatMode !== "story" && (
-                <button
-                  onClick={() => handleRemove(item.id)}
-                  className="text-xs px-2 py-1 rounded bg-gray-700 text-gray-400 hover:text-red-400"
-                >
-                  移除
-                </button>
-              )}
             </div>
           </div>
         ))}

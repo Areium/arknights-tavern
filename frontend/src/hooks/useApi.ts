@@ -304,6 +304,9 @@ export function useApi() {
       }),
     getDefaultImage: (category: string, entity: string) =>
       request<{ default_avatar: string; default_skin: string; card_face: string; card_face_crop: import("../types").SkinCrop | null }>(`/api/assets/${category}/${encodeURIComponent(entity)}/default-image`),
+    /** 全量实体图片库（/api/assets/images）：按实体分组的图片清单，供形象快捷选取 */
+    listAssetImages: () =>
+      request<any[]>("/api/assets/images"),
     setDefaultImage: (category: string, entity: string, type: "avatar" | "skin" | "card_face", filename: string, crop?: import("../types").SkinCrop | null) =>
       request<any>(`/api/assets/${category}/${encodeURIComponent(entity)}/default-image`, {
         method: "PUT",

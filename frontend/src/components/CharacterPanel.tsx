@@ -11,14 +11,8 @@ interface CharacterInfo {
   active: boolean;
 }
 
-export default function CharacterPanel({
-  onAddClick,
-  refreshKey,
-}: {
-  onAddClick?: () => void;
-  refreshKey?: number;
-}) {
-  const { activeSessionId, chatMode, triggerCharacterRefresh } = useAppStore();
+export default function CharacterPanel({ refreshKey }: { refreshKey?: number }) {
+  const { activeSessionId, triggerCharacterRefresh } = useAppStore();
   const api = useApi();
   const [characters, setCharacters] = useState<CharacterInfo[]>([]);
   const [loading, setLoading] = useState(false);
@@ -139,28 +133,6 @@ export default function CharacterPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSessionId, refreshKey]);
 
-  const handleLoad = async (name: string) => {
-    if (!activeSessionId) return;
-    try {
-      await api.loadCharacter(activeSessionId, name);
-      await loadCharacters();
-      triggerCharacterRefresh();
-    } catch (err: any) {
-      alert("加载角色失败: " + err.message);
-    }
-  };
-
-  const handleUnload = async (name: string) => {
-    if (!activeSessionId) return;
-    try {
-      await api.unloadCharacter(activeSessionId, name);
-      await loadCharacters();
-      triggerCharacterRefresh();
-    } catch (err: any) {
-      alert("卸载角色失败: " + err.message);
-    }
-  };
-
   const handleSwitch = async (name: string) => {
     if (!activeSessionId) return;
     try {
@@ -197,15 +169,6 @@ export default function CharacterPanel({
           )}
         </h2>
         <div className="flex gap-1">
-          {chatMode !== "story" && (
-            <button
-              onClick={onAddClick}
-              className="text-xs px-2 py-1 rounded bg-green-700/30 text-green-300 hover:bg-green-700/50"
-              title="浏览全部角色"
-            >
-              + 添加
-            </button>
-          )}
           <button
             onClick={loadCharacters}
             className="text-xs text-gray-500 hover:text-gray-300"
@@ -223,9 +186,9 @@ export default function CharacterPanel({
       <div className="space-y-1.5 max-h-48 overflow-y-auto">
         {!loading && characters.length === 0 && (
           <p className="text-gray-500 text-sm text-center py-4">
-            {chatMode === "story"
-              ? "场景尚未加载角色"
-              : '暂无角色 — 点击“+ 添加”浏览'}
+            场景尚未加载角色
+            <br />
+            <span className="text-xs text-gray-600">角色阵容请在大厅或创建会话时配置</span>
           </p>
         )}
         {characters.map((c) => (
@@ -266,34 +229,13 @@ export default function CharacterPanel({
               >
                 📌
               </button>
-              {c.loaded ? (
-                <>
-                  {!c.active && (
-                    <button
-                      onClick={() => handleSwitch(c.name)}
-                      className="text-xs px-2 py-1 rounded bg-blue-600/30 text-blue-300 hover:bg-blue-600/50"
-                    >
-                      对话
-                    </button>
-                  )}
-                  {chatMode !== "story" && (
-                    <button
-                      onClick={() => handleUnload(c.name)}
-                      className="text-xs px-2 py-1 rounded bg-gray-700 text-gray-400 hover:text-red-400"
-                    >
-                      移除
-                    </button>
-                  )}
-                </>
-              ) : (
-                chatMode !== "story" && (
-                  <button
-                    onClick={() => handleLoad(c.name)}
-                    className="text-xs px-2 py-1 rounded bg-green-700/30 text-green-300 hover:bg-green-700/50"
-                  >
-                    加入
-                  </button>
-                )
+              {!c.active && (
+                <button
+                  onClick={() => handleSwitch(c.name)}
+                  className="text-xs px-2 py-1 rounded bg-blue-600/30 text-blue-300 hover:bg-blue-600/50"
+                >
+                  对话
+                </button>
               )}
             </div>
           </div>

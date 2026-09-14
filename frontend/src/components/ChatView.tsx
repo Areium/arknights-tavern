@@ -9,8 +9,6 @@ import CharacterPanel from "./CharacterPanel";
 import ItemPanel from "./ItemPanel";
 import EnvironmentPanel from "./EnvironmentPanel";
 import ChatPanel from "./ChatPanel";
-import CharacterBrowser from "./CharacterBrowser";
-import ItemBrowser from "./ItemBrowser";
 import MemoryPanel from "./MemoryPanel";
 import QuestPanel from "./QuestPanel";
 import StoryStatePanel from "./StoryStatePanel";
@@ -20,9 +18,6 @@ export default function ChatView() {
   const resourcePanelOpen = useAppStore((s) => s.resourcePanelOpen);
   const { setCurrentView, chatMode, setChatMode, activeSessionId, sessions } = useAppStore();
   const [panelsOpen, setPanelsOpen] = useState(true);
-  const [charBrowserOpen, setCharBrowserOpen] = useState(false);
-  const [itemBrowserOpen, setItemBrowserOpen] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
 
   const activeSession = sessions.find((s) => s.id === activeSessionId);
 
@@ -99,14 +94,8 @@ export default function ChatView() {
         {/* Left: scene panels（可折叠） */}
         {panelsOpen && (
           <div className="w-72 border-r border-gray-700 overflow-y-auto p-3 space-y-3 shrink-0">
-            <CharacterPanel
-              refreshKey={refreshKey}
-              onAddClick={() => setCharBrowserOpen(true)}
-            />
-            <ItemPanel
-              refreshKey={refreshKey}
-              onAddClick={() => setItemBrowserOpen(true)}
-            />
+            <CharacterPanel />
+            <ItemPanel />
             <EnvironmentPanel />
             <StoryStatePanel />
             <MemoryPanel />
@@ -122,20 +111,6 @@ export default function ChatView() {
         {/* Right panel: 会话资源（可折叠） */}
         {resourcePanelOpen && <SessionResourcePanel />}
       </div>
-
-      {/* Character browser modal */}
-      <CharacterBrowser
-        open={charBrowserOpen}
-        onClose={() => setCharBrowserOpen(false)}
-        onAdded={() => setRefreshKey((k) => k + 1)}
-      />
-
-      {/* Item browser modal */}
-      <ItemBrowser
-        open={itemBrowserOpen}
-        onClose={() => setItemBrowserOpen(false)}
-        onAdded={() => setRefreshKey((k) => k + 1)}
-      />
     </div>
   );
 }
