@@ -1,10 +1,14 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { Fragment, useEffect, useId, useMemo, useState } from "react";
 import { useApi } from "../hooks/useApi";
 import { useAppStore } from "../stores/appStore";
 import type { WorldBookCategoryDTO, WorldBookDetail, WorldBookEntryDTO, WorldBookPolicyDraft, WorldBookScopePreviewDTO } from "../types";
 import { categoryDescendants, flattenCategoryTree } from "../utils/worldbookScope";
-import { buildWorldBookGraph, categoryNodeId, dependencyEdgeId, entryNodeId, type WorldBookGraphNode } from "../utils/worldbookGraph";
-import WorldBookGraphCanvas from "./WorldBookGraphCanvas";
+import { buildWorldBookGraph, categoryNodeId, dependencyEdgeId, entryNodeId, type WorldBookGraphView, type WorldBookGraphNode } from "../utils/worldbookGraph";
+import {
+  DEPENDENCY_ROLES, ROLE_GLYPHS, ROLE_HINTS, ROLE_LABELS, defaultTreeDepthLimit, dependencyDescendants, dependencyPath,
+  type DependencyRole,
+} from "../utils/worldbookDependency";
+import WorldBookGraphCanvas, { type GraphColoring } from "./WorldBookGraphCanvas";
 import WorldBookGraphIcon from "./WorldBookGraphIcon";
 import WorldBookScopePreview from "./WorldBookScopePreview";
 import "../styles/worldbook-graph.css";
@@ -21,7 +25,7 @@ const policyFrom = (detail: WorldBookDetail): WorldBookPolicyDraft => ({
 export default function WorldBookScopeManager({ detail, onChanged, view = "dependencies", onCategoryChange, onEditEntry, onDirtyChange }: {
   detail: WorldBookDetail;
   onChanged: () => void | Promise<void>;
-  view?: "taxonomy" | "dependencies";
+  view?: WorldBookGraphView;
   onCategoryChange?: (id: string) => void;
   onEditEntry?: (entry: WorldBookEntryDTO) => void;
   onDirtyChange?: (dirty: boolean) => void;
@@ -51,6 +55,11 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
   const [connectedOnly, setConnectedOnly] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [dropActive, setDropActive] = useState(false);
+  const [coloring, setColoring] = useState<GraphColoring>("role");
+  const [roleFilter, setRoleFilter] = useState<DependencyRole[]>([]);
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  const [treeDepth, setTreeDepth] = useState<number | null>(null);
+  const [showLoose, setShowLoose] = useState(false);
 
   const categories = detail.categories || [];
   const rows = useMemo(() => flattenCategoryTree(categories), [categories]);
@@ -64,24 +73,45 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
   const selectedRelation = policy.dependency_edges.find((edge) => dependencyEdgeId(edge.from_uid, edge.to_uid) === selectedEdge);
   const label = (uid: string) => byUid.get(uid)?.name || uid;
   const selectedCategories = useMemo(() => categoryId ? categoryDescendants(categories, categoryId) : null, [categories, categoryId]);
+  const isDependency = view !== "taxonomy";
+  const treeView = view === "tree";
+  const graph = useMemo(() => buildWorldBookGraph(detail, policy, {
+    view, categoryId, query, connectedOnly: isDependency && connectedOnly, focusedUid,
+    roles: isDependency && roleFilter.length ? roleFilter : undefined,
+  }), [detail, policy, view, categoryId, query, connectedOnly, focusedUid, roleFilter, isDependency]);
+  const model = graph.tree;
+  const role = focused ? model?.roles.get(focused.uid) || "orphan" : null;
+  const treeNode = focused ? model?.byUid.get(focused.uid) : undefined;
+  const treeDepthLimit = treeDepth ?? (model ? defaultTreeDepthLimit(model) : 0);
+  const treeOptions = useMemo(() => (treeView && model
+    ? { depthLimit: treeDepthLimit, collapsed, showLoose }
+    : null), [treeView, model, treeDepthLimit, collapsed, showLoose]);
+  const toggleRole = (value: DependencyRole) => setRoleFilter((current) =>
+    current.includes(value) ? current.filter((item) => item !== value) : [...current, value]);
+  const toggleCollapse = (uid: string) => setCollapsed((current) => {
+    const next = new Set(current);
+    if (next.has(uid)) next.delete(uid); else next.add(uid);
+    return next;
+  });
   const filtered = detail.entries.filter((entry) =>
     (!selectedCategories || selectedCategories.has(entry.category_id || "unclassified")) &&
+    // 角色筛选只属于依赖视图；切回分类结构时不参与过滤，也不会把目录清空。
+    (!isDependency || !roleFilter.length || roleFilter.includes(model?.roles.get(entry.uid) || "orphan")) &&
     (!query.trim() || [entry.name, entry.uid, entry.character_id, categories.find((category) => category.id === entry.category_id)?.name,
       ...(entry.trigger_keys || [])].join(" ").toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())));
   const editingDescendants = categoryDraft ? categoryDescendants(categories, categoryDraft.id) : new Set<string>();
   const assignmentKind = categories.find((category) => category.id === assignment.category_id)?.scope_type;
-  const graph = useMemo(() => buildWorldBookGraph(detail, policy, {
-    view, categoryId, query, connectedOnly: view === "dependencies" && connectedOnly, focusedUid,
-  }), [detail, policy, view, categoryId, query, connectedOnly, focusedUid]);
 
   useEffect(() => { setPolicy(policyFrom(detail)); }, [detail]);
   useEffect(() => {
     setCategoryId(""); setSelection(null); setCategoryDraft(null); setError("");
     setRoster([]); setEdgeTo(""); setLinkFrom(null); setPanel(null); setSelectedEdge(null);
-    setQuery(""); setConnectedOnly(false);
+    setQuery(""); setConnectedOnly(false); setRoleFilter([]); setCollapsed(new Set()); setTreeDepth(null); setShowLoose(false);
   }, [detail.id]);
   useEffect(() => {
     setSelection(null); setSelectedEdge(null); setCategoryDraft(null); setLinkFrom(null); setPanel(null);
+    setCollapsed(new Set()); setTreeDepth(null);
+    setColoring(view === "taxonomy" ? "kind" : "role");
   }, [view]);
   useEffect(() => {
     setAssignment({ category_id: focused?.category_id || "unclassified", character_id: focused?.character_id || "" });
@@ -102,7 +132,7 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
     return () => { cancelled = true; };
   }, [api]);
   useEffect(() => {
-    if (view !== "dependencies") return;
+    if (!isDependency) return;
     let cancelled = false;
     setPreview(null); setPreviewError("");
     const timer = setTimeout(() => {
@@ -209,14 +239,16 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
     store.setWorldbookScopeJumpId(detail.id); store.setContentHubTab("worldbook-deps"); store.setCurrentView("content");
   };
 
-  return <section className={"wbg-workbench" + (expanded ? " wbg-expanded" : "")} aria-label={view === "taxonomy" ? "世界书分类工作台" : "世界书依赖工作台"}>
+  return <section className={"wbg-workbench" + (expanded ? " wbg-expanded" : "")} aria-label={view === "taxonomy" ? "世界书分类工作台" : treeView ? "世界书依赖树工作台" : "世界书依赖工作台"}>
     <header className="wbg-header">
       <div className="wbg-heading"><WorldBookGraphIcon name="graph" size={22} /><div>
-        <h3>{view === "taxonomy" ? "分类与角色关联" : "世界书依赖图谱"}</h3>
-        <p>{view === "taxonomy" ? "分类组织内容，条目关联角色" : "A → B 表示 A 依赖 B，分类连线不参与依赖展开"}</p>
+        <h3>{view === "taxonomy" ? "分类与角色关联" : treeView ? "世界书依赖树" : "世界书依赖图谱"}</h3>
+        <p>{view === "taxonomy" ? "分类组织内容，条目关联角色"
+          : treeView ? "按导入源与遍历深度分层展开；虚线边代表不会展开的依赖"
+            : "A → B 表示 A 依赖 B，分类连线不参与依赖展开"}</p>
       </div></div>
       <div className="wbg-header-actions">
-        {view === "dependencies" && <>
+        {isDependency && <>
           <select className="wbg-field wbg-mode-select" aria-label="载入模式" disabled={busy} value={policy.scope_mode}
             onChange={(event) => setPolicy((current) => ({ ...current, scope_mode: event.target.value as WorldBookPolicyDraft["scope_mode"] }))}>
             <option value="selective">按需载入</option><option value="legacy">全量兼容</option>
@@ -241,13 +273,46 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
         ? <button className="wbg-button wbg-button-quiet" disabled={busy} onClick={newCategory}>＋ 新建分类</button>
         : <label className="wbg-checkbox-label"><input type="checkbox" checked={connectedOnly} onChange={(event) => setConnectedOnly(event.target.checked)} />仅已配置</label>}
       <div className="wbg-toolbar-spacer" />
-      {view === "dependencies" ? <>
+      {isDependency ? <>
         <span className={"wbg-save-state" + (dirty ? " is-dirty" : "")}>{dirty ? "有未保存修改" : "策略已同步"}</span>
         <button className={"wbg-button" + (panel === "preview" ? " is-active" : "")} onClick={() => setPanel(panel === "preview" ? null : "preview")} aria-expanded={panel === "preview"}><WorldBookGraphIcon name="preview" />导入预览{preview && <span className="wbg-count">{preview.entry_count}</span>}</button>
       </> : <button className="wbg-button wbg-button-quiet" onClick={openDependencies}>打开内容中心 · 依赖图谱 →</button>}
     </div>
+    {isDependency && <div className="wbg-toolbar wbg-toolbar-sub">
+      <div className="wbg-seg" role="group" aria-label="节点着色依据">
+        <button aria-pressed={coloring === "kind"} title="按分类类型着色：世界观 / 角色 / 其他" onClick={() => setColoring("kind")}>按类型</button>
+        <button aria-pressed={coloring === "role"} title="按依赖角色着色：导入源 / 固定导入 / 中转 / 叶子 / 未配置" onClick={() => setColoring("role")}>按角色</button>
+      </div>
+      <div className="wbg-role-filter" role="group" aria-label="按依赖角色筛选节点">
+        <button className="wbg-role-chip" aria-pressed={!roleFilter.length} title="显示全部角色" onClick={() => setRoleFilter([])}>全部 <b>{detail.entries.length}</b></button>
+        {DEPENDENCY_ROLES.map((item) => <button key={item} className="wbg-role-chip" data-wbg-role={item} aria-pressed={roleFilter.includes(item)} title={ROLE_HINTS[item]}
+          onClick={() => toggleRole(item)}><i />{ROLE_LABELS[item]} <b>{graph.roles[item]}</b></button>)}
+      </div>
+      {treeView && <>
+        <label className="wbg-form-label wbg-inline-field">展开层级
+          <input className="wbg-field wbg-depth" type="number" aria-label="依赖树展开层级" min={0} max={model?.stats.maxDepth ?? 0} step={1} disabled={!model}
+            value={treeDepthLimit} onChange={(event) => setTreeDepth(Math.max(0, Math.min(model?.stats.maxDepth ?? 0, Number(event.target.value) || 0)))} />
+          <small>/ {model?.stats.maxDepth ?? 0}</small>
+        </label>
+        <button className="wbg-button wbg-button-quiet" disabled={!model || treeDepthLimit >= (model?.stats.maxDepth ?? 0)} onClick={() => setTreeDepth(model?.stats.maxDepth ?? 0)}>全部展开</button>
+        <button className="wbg-button wbg-button-quiet" disabled={!collapsed.size} onClick={() => setCollapsed(new Set())}>重置折叠</button>
+        <label className="wbg-checkbox-label" title="把固定导入但未展开的条目、以及未被任何导入源覆盖的条目放到树的底部">
+          <input type="checkbox" checked={showLoose} onChange={(event) => setShowLoose(event.target.checked)} />未覆盖条目 <b>{model ? model.stats.looseCount + model.stats.fixedOnlyCount : 0}</b>
+        </label>
+      </>}
+      <div className="wbg-toolbar-spacer" />
+      <div className="wbg-dep-stats" aria-label="依赖统计">
+        <span>源 <b>{model?.stats.sourceCount ?? 0}</b></span>
+        <span>固定 <b>{model?.stats.fixedCount ?? 0}</b></span>
+        <span>已覆盖 <b>{model?.stats.reachableCount ?? 0}</b></span>
+        {!!model?.stats.looseCount && <span className="is-warn">未覆盖 <b>{model.stats.looseCount}</b></span>}
+        {!!model?.stats.cycleCount && <span className="is-warn" title="位于依赖环内的条目；遍历按剩余深度去重，不会死循环">依赖环 <b>{model.stats.cycleCount}</b></span>}
+        {!!model?.stats.cappedEdges && <span className="is-warn" title="上游已进入候选范围但遍历深度用尽，这些依赖不会展开">超深度边 <b>{model.stats.cappedEdges}</b></span>}
+        {!!model?.stats.idleEdges && <span title="上游未进入候选范围，这些依赖不会展开">未启用边 <b>{model.stats.idleEdges}</b></span>}
+      </div>
+    </div>}
     {error && <div role="alert" className="wbg-notice wbg-error"><span>{error}</span><button onClick={() => { if (!dirty || window.confirm("重新加载会丢弃未保存策略，继续吗？")) void onChanged(); }}>重新加载</button><button aria-label="关闭错误提示" onClick={() => setError("")}>×</button></div>}
-    {previewError && view === "dependencies" && <div role="alert" className="wbg-notice wbg-error">预览未通过：{previewError}</div>}
+    {previewError && isDependency && <div role="alert" className="wbg-notice wbg-error">预览未通过：{previewError}</div>}
     <div className="wbg-body">
       {libraryOpen && <aside className="wbg-library" aria-label="节点目录">
         <div className="wbg-panel-heading"><span>节点目录</span><button className="wbg-icon-button" aria-label="收起节点目录" onClick={() => setLibraryOpen(false)}><WorldBookGraphIcon name="close" /></button></div>
@@ -270,16 +335,20 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
               onDragStart={(event) => { event.dataTransfer.setData(MIME, JSON.stringify({ book_id: detail.id, uid: entry.uid })); event.dataTransfer.effectAllowed = "copy"; }}>
               <i className="wbg-entry-dot" data-wbg-kind={categories.find((category) => category.id === entry.category_id)?.scope_type || "other"} />
               <span><strong>{entry.name || entry.uid}</strong><small>{!entry.enabled ? "已停用" : entry.character_id || entry.uid}</small></span>
+              {isDependency && <em className="wbg-role-tag" data-wbg-role={model?.roles.get(entry.uid) || "orphan"}
+                title={ROLE_LABELS[model?.roles.get(entry.uid) || "orphan"]}>{ROLE_GLYPHS[model?.roles.get(entry.uid) || "orphan"]}</em>}
               {fixed.has(entry.uid) && <WorldBookGraphIcon name="pin" size={13} />}
             </button>)}
-            {!filtered.length && <p className="wbg-help">没有匹配条目，试试其他关键词。</p>}
+            {!filtered.length && <p className="wbg-help">没有匹配条目，试试其他关键词或清空角色筛选。</p>}
             {filtered.length > 200 && <p className="wbg-help">显示前 200 条，请通过搜索定位更多条目。</p>}
           </div>
         </div>
-        <p className="wbg-library-foot">{view === "dependencies" ? "拖入底栏可固定导入；也可在节点侧栏设置。" : "选中分类或条目，在侧栏编辑归属。"}</p>
+        <p className="wbg-library-foot">{view === "taxonomy" ? "选中分类或条目，在侧栏编辑归属。"
+          : treeView ? "依赖树只画条目：层级来自遍历深度，分类仍可用上方分类树筛选。" : "拖入底栏可固定导入；也可在节点侧栏设置。"}</p>
       </aside>}
       <main className="wbg-stage">
         <WorldBookGraphCanvas graph={graph} view={view} selectedId={selectedId} selectedEdgeId={selectedEdge} linkFromUid={linkFrom} busy={busy}
+          coloring={coloring} tree={treeOptions} onToggleCollapse={toggleCollapse}
           onSelectNode={selectNode} onSelectEdge={(id) => { setSelectedEdge(id); setSelection(null); setCategoryDraft(null); setPanel("inspector"); }}
           onLinkStart={(uid) => { setLinkFrom(uid); setError(""); }} onCancelLink={() => setLinkFrom(null)}
           onClear={() => { setSelection(null); setSelectedEdge(null); setCategoryDraft(null); if (panel === "inspector") setPanel(null); }}
@@ -333,9 +402,9 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
               </details>}
             </fieldset>}
             {selection?.kind === "category" && <>
-              {(view === "dependencies" || !categoryDraft) && <div className="wbg-inspector-section"><p className="wbg-eyebrow">CATEGORY</p><h4>{categories.find((category) => category.id === selection.id)?.name}</h4><p className="wbg-help">{selection.id === "unclassified" ? "未分类是永久保留的归档分类，不能删除。" : "分类用于组织与筛选；分类连线不会自动形成条目依赖。"}</p></div>}
+              {(isDependency || !categoryDraft) && <div className="wbg-inspector-section"><p className="wbg-eyebrow">CATEGORY</p><h4>{categories.find((category) => category.id === selection.id)?.name}</h4><p className="wbg-help">{selection.id === "unclassified" ? "未分类是永久保留的归档分类，不能删除。" : "分类用于组织与筛选；分类连线不会自动形成条目依赖。"}</p></div>}
               <button className="wbg-button" onClick={() => filterCategory(selection.id)}>聚焦此分类</button>
-              {view === "dependencies" && <p className="wbg-help">切换顶部「分类结构」可编辑分类名称、父级与条目归属。</p>}
+              {isDependency && <p className="wbg-help">切换顶部「分类结构」可编辑分类名称、父级与条目归属。</p>}
             </>}
             {focused && <>
               <div className="wbg-inspector-section"><span className="wbg-kind-label" data-wbg-kind={categories.find((category) => category.id === focused.category_id)?.scope_type || "other"}>{KINDS[categories.find((category) => category.id === focused.category_id)?.scope_type || "other"]}</span>
@@ -343,7 +412,33 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
                 {!focused.enabled && <p className="wbg-warning">此条目已停用，不参与实际注入。</p>}
                 <p className="wbg-entry-excerpt">{focused.content?.slice(0, 180) || "暂无正文"}</p>
               </div>
-              {view === "dependencies" && <fieldset disabled={busy} className="wbg-form">
+              {isDependency && <div className="wbg-inspector-section wbg-role-panel">
+                <div className="wbg-section-heading"><h5>节点分类</h5>
+                  <span className="wbg-role-pill" data-wbg-role={role || "orphan"}>{ROLE_GLYPHS[role || "orphan"]} {ROLE_LABELS[role || "orphan"]}</span>
+                </div>
+                <p className="wbg-help">{ROLE_HINTS[role || "orphan"]}。</p>
+                {treeNode && model ? <>
+                  <div className="wbg-metric-row">
+                    <span>层级 <b>{treeNode.depth}</b></span>
+                    <span>剩余深度 <b>{treeNode.remaining}</b></span>
+                    <span>下游节点 <b>{dependencyDescendants(model, treeNode.uid)}</b></span>
+                    <span>直接下游 <b>{treeNode.childUids.length}</b></span>
+                  </div>
+                  <div className="wbg-tree-path" aria-label="依赖树路径">
+                    <span className="wbg-tree-path-label">起点 {label(treeNode.sourceUid)}</span>
+                    {dependencyPath(model, treeNode.uid).map((uid, index) => <Fragment key={uid}>
+                      {index > 0 && <span className="wbg-path-arrow" aria-hidden="true">→</span>}
+                      <button className={"wbg-text-button" + (uid === treeNode.uid ? " is-current" : "")} onClick={() => inspectEntry(uid)}>{label(uid)}</button>
+                    </Fragment>)}
+                  </div>
+                  {treeNode.inCycle && <p className="wbg-warning">位于依赖环内：遍历按「已访问节点的最佳剩余深度」终止，不会死循环；树上只保留第一次到达的路径。</p>}
+                </> : null}
+                {!treeNode && <p className="wbg-help">{fixed.has(focused.uid)
+                  ? "固定导入：会作为注入候选，但不沿依赖展开。"
+                  : role === "orphan" ? "未参与固定导入、导入源或依赖边；仍可能由世界观或入队角色来源进入候选。"
+                    : "已参与依赖配置，但当前策略下不会被任何导入源展开：检查上游遍历深度，或把它设为导入源。"}</p>}
+              </div>}
+              {isDependency && <fieldset disabled={busy} className="wbg-form">
                 <button role="switch" aria-checked={fixed.has(focused.uid)} className="wbg-policy-switch" onClick={() => fixed.has(focused.uid) ? removeFixed(focused.uid) : addFixed(focused.uid)}>
                   <WorldBookGraphIcon name="pin" /><span><strong>固定导入</strong><small>始终作为候选，不自动展开依赖</small></span><i className={fixed.has(focused.uid) ? "is-on" : ""} />
                 </button>
@@ -381,7 +476,7 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
         </div>
       </aside>}
     </div>
-    {view === "dependencies" ? <div className={"wbg-import-tray" + (dropActive ? " is-drop-active" : "")} aria-label="固定导入区"
+    {isDependency ? <div className={"wbg-import-tray" + (dropActive ? " is-drop-active" : "")} aria-label="固定导入区"
       onDragOver={(event) => { event.preventDefault(); setDropActive(true); }} onDragLeave={() => setDropActive(false)}
       onDrop={(event) => { event.preventDefault(); setDropActive(false); addFixed(dragUid(event)); }}>
       <div className="wbg-tray-heading"><WorldBookGraphIcon name="pin" /><span>固定导入</span><b>{fixed.size}</b></div>

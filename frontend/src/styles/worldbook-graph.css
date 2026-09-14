@@ -268,3 +268,86 @@ html.light .wbg-workbench { color-scheme: light; }
 @media (prefers-reduced-motion: reduce) {
   .wbg-workbench *, .wbg-workbench *::after { transition: none !important; }
 }
+
+/* ── 节点分类（依赖角色） ─────────────────────────────────────────────────
+   角色色板与类型色板互相独立：type 走 --wbg-kind，role 走 --wbg-role。
+   「按角色着色」只把角色色接进 --wbg-kind，因此圆盘、光晕、缩略图、图例
+   会自动一起换色，不需要给每个图元写一份重复规则。 */
+[data-wbg-role="source"] { --wbg-role: var(--ng-beat); }
+[data-wbg-role="fixed"] { --wbg-role: var(--ng-edge-color-hl); }
+[data-wbg-role="bridge"] { --wbg-role: var(--ng-chapter); }
+[data-wbg-role="leaf"] { --wbg-role: var(--ng-note); }
+[data-wbg-role="orphan"] { --wbg-role: var(--ng-muted); }
+.wbg-canvas.is-role-coloring [data-wbg-role] { --wbg-kind: var(--wbg-role); }
+.wbg-canvas.is-role-coloring .wbg-node-category { --wbg-kind: var(--ng-muted); }
+.wbg-role-badge { pointer-events: none; }
+.wbg-role-badge circle { fill: var(--wbg-role); stroke: var(--ng-drawer-bg); stroke-width: 1.6; }
+.wbg-role-badge text { fill: var(--ng-drawer-bg); text-anchor: middle; font-size: 9px; font-weight: 750; }
+.wbg-cycle-ring { fill: none; stroke: var(--ng-combat); stroke-width: 1.4; stroke-dasharray: 4 4; opacity: .85; }
+.wbg-node.is-unreached .wbg-node-disc { stroke-dasharray: 4 3; }
+.wbg-node.is-cycle .wbg-node-caption { fill: var(--ng-combat); }
+
+.wbg-seg { display: inline-flex; flex-shrink: 0; border: 1px solid var(--wbg-line); border-radius: 6px; padding: 2px; }
+.wbg-seg button { padding: 4px 9px; border-radius: 4px; color: var(--ng-muted); font-size: 11px; }
+.wbg-seg button:hover { color: var(--ng-body); }
+.wbg-seg button[aria-pressed="true"] { background: var(--wbg-accent-soft); color: var(--ng-edge-color-hl); }
+.wbg-toolbar-sub { border-top: none; row-gap: 7px; }
+.wbg-role-filter { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.wbg-role-chip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px; border: 1px solid var(--wbg-line); border-radius: 999px; color: var(--ng-muted); font-size: 10px; }
+.wbg-role-chip:hover { color: var(--ng-body); border-color: var(--ng-muted); }
+.wbg-role-chip[aria-pressed="true"] { color: var(--ng-title); background: color-mix(in srgb, var(--wbg-role, var(--ng-edge-color-hl)) 13%, transparent); border-color: color-mix(in srgb, var(--wbg-role, var(--ng-edge-color-hl)) 45%, transparent); }
+.wbg-role-chip i { width: 7px; height: 7px; flex-shrink: 0; border-radius: 50%; background: var(--wbg-role, var(--ng-muted)); }
+.wbg-role-chip b { color: var(--ng-body); font-weight: 500; font-variant-numeric: tabular-nums; }
+.wbg-form-label.wbg-inline-field { flex-direction: row; align-items: center; gap: 5px; flex-shrink: 0; }
+.wbg-inline-field small { white-space: nowrap; }
+.wbg-dep-stats { display: flex; flex-wrap: wrap; gap: 4px 10px; color: var(--ng-muted); font-size: 10px; }
+.wbg-dep-stats b { color: var(--ng-body); font-weight: 600; font-variant-numeric: tabular-nums; }
+.wbg-dep-stats .is-warn, .wbg-dep-stats .is-warn b { color: var(--ng-edge-color-hl); }
+.wbg-role-tag { display: inline-flex; justify-content: center; align-items: center; width: 16px; height: 16px; flex-shrink: 0; border-radius: 4px; font-size: 9px; font-style: normal; color: var(--wbg-role); background: color-mix(in srgb, var(--wbg-role) 15%, transparent); }
+.wbg-role-pill { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border: 1px solid color-mix(in srgb, var(--wbg-role) 38%, transparent); border-radius: 999px; color: var(--wbg-role); background: color-mix(in srgb, var(--wbg-role) 13%, transparent); font-size: 10px; white-space: nowrap; }
+.wbg-metric-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 8px; }
+.wbg-metric-row > span { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 6px 8px; border: 1px solid var(--wbg-line); border-radius: 5px; color: var(--ng-muted); font-size: 10px; }
+.wbg-metric-row b { color: var(--ng-title); font-weight: 600; font-variant-numeric: tabular-nums; }
+.wbg-tree-path { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 8px; border: 1px solid var(--wbg-line); border-radius: 6px; background: var(--ng-drawer-bg); }
+.wbg-tree-path-label { width: 100%; color: var(--ng-muted); font-size: 9px; letter-spacing: .1em; }
+.wbg-tree-path .wbg-text-button { padding: 2px 6px; border-radius: 4px; background: var(--wbg-hover); font-size: 10px; }
+.wbg-tree-path .wbg-text-button.is-current { color: var(--ng-edge-color-hl); background: var(--wbg-accent-soft); }
+.wbg-path-arrow { color: var(--ng-muted); font-size: 10px; }
+
+/* ── 依赖树 ────────────────────────────────────────────────────────────── */
+.wbg-tree-guides line { stroke: var(--wbg-line); stroke-dasharray: 2 6; }
+.wbg-tree-level-label { fill: var(--ng-muted); font-weight: 600; letter-spacing: .05em; paint-order: stroke; stroke: var(--ng-drawer-bg); stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
+.wbg-tree-level-label.is-loose { fill: var(--ng-edge-color-hl); }
+.wbg-tree-level-label.is-fixed { fill: var(--ng-note); }
+.wbg-collapse-handle { cursor: pointer; outline: none; }
+.wbg-collapse-handle circle { fill: var(--ng-drawer-bg); stroke: var(--ng-edge-color); stroke-width: 1.3; }
+.wbg-collapse-handle path { fill: none; stroke: var(--ng-body); stroke-width: 1.5; }
+.wbg-collapse-handle text { fill: var(--ng-muted); text-anchor: middle; font-size: 9px; }
+.wbg-collapse-handle:hover circle, .wbg-collapse-handle:focus-visible circle { fill: var(--wbg-accent-soft); stroke: var(--ng-edge-color-hl); }
+.wbg-collapse-handle.is-collapsed circle { stroke: var(--ng-edge-color-hl); }
+.wbg-collapse-handle.is-collapsed path { stroke: var(--ng-edge-color-hl); }
+
+/* 依赖边按真实展开结果分型：实线参与展开，其余用虚线区分原因。 */
+.wbg-edge.is-skeleton .wbg-edge-line { stroke-width: 1.9; opacity: .85; }
+.wbg-edge.is-extra .wbg-edge-line { stroke-width: 1.2; opacity: .38; stroke-dasharray: 5 4; }
+.wbg-edge.is-capped .wbg-edge-line { stroke: var(--ng-note); stroke-dasharray: 4 5; opacity: .55; }
+.wbg-edge.is-idle .wbg-edge-line { stroke-dasharray: 1 6; opacity: .32; }
+.wbg-edge.is-loop .wbg-edge-line { stroke: var(--ng-combat); stroke-dasharray: 6 4; opacity: .7; }
+.wbg-edge.is-active.is-capped .wbg-edge-line, .wbg-edge.is-active.is-idle .wbg-edge-line, .wbg-edge.is-active.is-extra .wbg-edge-line {
+  stroke: var(--ng-edge-color-hl); stroke-width: 2; opacity: .85;
+}
+.wbg-legend i[data-wbg-role] { background: var(--wbg-role); }
+.wbg-legend .wbg-legend-cycle { background: none; border: 1.3px dashed var(--ng-combat); }
+.wbg-legend .wbg-legend-edge { width: 14px; height: 0; border-radius: 0; background: none; border-top: 2px solid var(--ng-edge-color); }
+.wbg-legend .wbg-legend-edge.is-capped { border-top-style: dashed; border-top-color: var(--ng-note); }
+.wbg-legend .wbg-legend-edge.is-idle { border-top-style: dotted; border-top-color: var(--ng-muted); }
+
+@container (max-width: 900px) {
+  .wbg-dep-stats { display: none; }
+  .wbg-role-chip { padding: 3px 6px; }
+}
+@container (max-width: 650px) {
+  .wbg-toolbar-sub { padding: 6px; }
+  .wbg-seg button { padding: 4px 6px; font-size: 10px; }
+  .wbg-metric-row { grid-template-columns: 1fr; }
+}

@@ -2,8 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useApi } from "../hooks/useApi";
 import { useAppStore } from "../stores/appStore";
 import type { WorldBookDetail, WorldBookSummary } from "../types";
+import type { WorldBookGraphView } from "../utils/worldbookGraph";
 import WorldBookScopeManager from "./WorldBookScopeManager";
 import WorldBookGraphIcon from "./WorldBookGraphIcon";
+
+const VIEWS: Array<{ id: WorldBookGraphView; label: string; icon: "folder" | "link" | "tree"; hint: string }> = [
+  { id: "taxonomy", label: "分类结构", icon: "folder", hint: "分类树与条目归属，分类连线不参与依赖展开" },
+  { id: "dependencies", label: "条目依赖", icon: "link", hint: "力导向关系网络：按角色着色并逐条检查依赖边" },
+  { id: "tree", label: "依赖树", icon: "tree", hint: "按导入源与遍历深度分层展开，并标出不会展开的边" },
+];
 
 export default function WorldBookDependencyPage() {
   const api = useApi();
@@ -12,7 +19,7 @@ export default function WorldBookDependencyPage() {
   const [selected, setSelected] = useState(worldbookScopeJumpId || "");
   const [detail, setDetail] = useState<WorldBookDetail | null>(null);
   const [error, setError] = useState("");
-  const [view, setView] = useState<"taxonomy" | "dependencies">("dependencies");
+  const [view, setView] = useState<WorldBookGraphView>("tree");
   const [dirty, setDirty] = useState(false);
   const sequence = useRef(0);
   useEffect(() => {
@@ -42,8 +49,9 @@ export default function WorldBookDependencyPage() {
         <option value="">请选择</option>{books.map((book) => <option key={book.id} value={book.id}>{book.name}{!book.enabled && "（已停用）"}</option>)}
       </select></label>
       <nav className="wbg-view-tabs" aria-label="世界书图谱视图">
-        <button aria-pressed={view === "taxonomy"} onClick={() => setView("taxonomy")}><WorldBookGraphIcon name="folder" size={14} />分类结构</button>
-        <button aria-pressed={view === "dependencies"} onClick={() => setView("dependencies")}><WorldBookGraphIcon name="link" size={14} />条目依赖</button>
+        {VIEWS.map((item) => <button key={item.id} title={item.hint} aria-pressed={view === item.id} onClick={() => setView(item.id)}>
+          <WorldBookGraphIcon name={item.icon} size={14} />{item.label}
+        </button>)}
       </nav>
     </div>
     {error && <p role="alert" className="text-xs text-red-300">{error} <button onClick={() => void reload()}>重试</button></p>}

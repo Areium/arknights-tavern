@@ -24,7 +24,7 @@ import PlotGraphPage from "./combat/PlotGraphPage";
 const WorldBookDependencyPage = lazy(() => import("./WorldBookDependencyPage"));
 
 const TABS: { id: ContentHubTab; label: string; icon: string; hint: string }[] = [
-  { id: "worldbook-deps", label: "世界书图谱", icon: "📖", hint: "分类与角色关联 / 固定导入 / 条目依赖 / 导入预览" },
+  { id: "worldbook-deps", label: "世界书图谱", icon: "📖", hint: "节点分类 / 依赖树与依赖网络 / 固定导入 / 导入预览" },
   { id: "index", label: "索引", icon: "🔗", hint: "文档依赖关系与会话白名单" },
   { id: "images", label: "资产", icon: "🖼️", hint: "图片资产上传 / 裁剪 / 默认图 / 来源世界书" },
   { id: "cards", label: "卡牌", icon: "🃏", hint: "角色与职业卡牌编辑 / 所属世界书" },

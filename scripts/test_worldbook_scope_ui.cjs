@@ -19,6 +19,9 @@ const React = fromFrontend("react");
 const { renderToStaticMarkup } = fromFrontend("react-dom/server");
 const { categoryDescendants, flattenCategoryTree } = require(path.join(root, "frontend/src/utils/worldbookScope.ts"));
 const { buildWorldBookGraph, layoutWorldBookGraph, spreadWorldBookGraph, worldBookEdgeGeometry, entryNodeId, categoryNodeId } = require(path.join(root, "frontend/src/utils/worldbookGraph.ts"));
+const {
+  buildDependencyTree, classifyDependencyRoles, defaultTreeDepthLimit, dependencyDescendants, dependencyPath, layoutDependencyTree,
+} = require(path.join(root, "frontend/src/utils/worldbookDependency.ts"));
 const ScopeManager = require(path.join(root, "frontend/src/components/WorldBookScopeManager.tsx")).default;
 const Preview = require(path.join(root, "frontend/src/components/WorldBookScopePreview.tsx")).default;
 const categories = [
@@ -81,4 +84,107 @@ const preview = renderToStaticMarkup(React.createElement(Preview, { value: {
   saved_estimated_tokens: 900, saved_percent: 90, breakdown: { roster: { entry_count: 1, estimated_tokens: 100 } }, warnings: [],
 } }));
 assert.ok(preview.includes("不是每轮实际节省量") && preview.includes("停用节点"));
-console.log("Worldbook UI: taxonomy, graph filtering/IDs/layout/reciprocal edges, SSR controls, and preview passed. Large layout: " + layoutMs + "ms.");
+
+// ── 依赖角色分类与依赖树 ────────────────────────────────────────────────────
+// A/B 为导入源；X 同时被两个源到达（取更大的剩余深度，父节点归 A）；
+// Z→X 与 X→Y→Z 构成三节点环，Y→Z 因深度用尽不会展开；Z 不可达；L 完全未配置。
+const depCategories = [
+  { id: "world", name: "世界观", parent_id: null, scope_type: "worldview", sort_order: 1 },
+  { id: "characters", name: "角色", parent_id: null, scope_type: "character", sort_order: 2 },
+];
+const depEntries = [["A", "world"], ["B", "world"], ["F", "world"], ["X", "characters"],
+  ["Y", "characters"], ["Z", "characters"], ["W", "characters"], ["L", "world"]]
+  .map(([uid, category_id]) => ({ uid, name: uid + " 条目", category_id, enabled: true, trigger_keys: [] }));
+const depDetail = {
+  id: "dep", name: "依赖树验收", categories: depCategories, entries: depEntries, scope_mode: "selective",
+  dependency_edges: [
+    { from_uid: "A", to_uid: "X" }, { from_uid: "X", to_uid: "Y" }, { from_uid: "Y", to_uid: "Z" },
+    { from_uid: "Z", to_uid: "X" }, { from_uid: "A", to_uid: "F" }, { from_uid: "B", to_uid: "X" }, { from_uid: "B", to_uid: "W" },
+  ],
+  import_config: { revision: 3, fixed_entry_uids: ["F"], dependency_sources: [{ entry_uid: "A", max_depth: 2 }, { entry_uid: "B", max_depth: 1 }] },
+};
+const depPolicy = { ...depDetail.import_config, dependency_edges: depDetail.dependency_edges, scope_mode: depDetail.scope_mode };
+const depUntouched = JSON.stringify(depDetail);
+const roles = classifyDependencyRoles(depDetail, depPolicy);
+assert.deepEqual(Object.fromEntries(roles), {
+  A: "source", B: "source", F: "fixed", X: "bridge", Y: "bridge", Z: "bridge", W: "leaf", L: "orphan",
+});
+const tree = buildDependencyTree(depDetail, depPolicy);
+assert.deepEqual(tree.roots, ["A", "B"]);
+assert.deepEqual([...tree.reachable].sort(), ["A", "B", "F", "W", "X", "Y"]);
+assert.deepEqual([...tree.loose].sort(), ["L", "Z"], "未配置与不可达条目都要落进未覆盖带");
+assert.deepEqual(tree.fixedOnly, [], "F 已被展开，不再算固定但未覆盖");
+assert.deepEqual(tree.cycleUids.sort(), ["X", "Y", "Z"]);
+assert.deepEqual(tree.stats, {
+  sourceCount: 2, fixedCount: 1, reachableCount: 6, looseCount: 2, fixedOnlyCount: 0, maxDepth: 2,
+  activeEdges: 5, cappedEdges: 1, idleEdges: 1, loopEdges: 3, cycleCount: 3, depthCounts: [2, 3, 1],
+});
+const at = (uid) => tree.byUid.get(uid);
+assert.deepEqual([at("X").depth, at("X").parentUid, at("X").remaining, at("X").sourceUid], [1, "A", 1, "A"], "多源到达时保留剩余深度更大的那条路径");
+assert.deepEqual([at("W").depth, at("W").parentUid, at("W").remaining], [1, "B", 0]);
+assert.deepEqual([at("Y").depth, at("Y").parentUid, at("Y").remaining], [2, "X", 0]);
+assert.deepEqual([at("A").depth, at("A").remaining, at("A").sourceUid], [0, 2, "A"]);
+assert.deepEqual(at("A").childUids, ["F", "X"]);
+const status = (from, to) => tree.edgeStates.get(JSON.stringify([from, to]));
+assert.deepEqual([status("A", "X").status, status("A", "X").skeleton], ["active", true]);
+assert.deepEqual([status("B", "X").status, status("B", "X").skeleton], ["active", false], "被更强路径覆盖的边保留为交叉依赖");
+assert.equal(status("Y", "Z").status, "capped", "上游已到达但预算用尽");
+assert.equal(status("Z", "X").status, "idle", "上游没进候选范围");
+assert.deepEqual([status("Z", "X").loop, status("X", "Y").loop], [true, true]);
+assert.deepEqual(dependencyPath(tree, "Y"), ["A", "X", "Y"]);
+assert.deepEqual(dependencyPath(tree, "nowhere"), []);
+assert.equal(dependencyDescendants(tree, "A"), 3);
+assert.equal(dependencyDescendants(tree, "B"), 1);
+assert.equal(defaultTreeDepthLimit(tree, 3), 1);
+assert.equal(defaultTreeDepthLimit(tree, 60), 2);
+assert.equal(JSON.stringify(depDetail), depUntouched, "依赖建模不得修改策略草稿");
+
+const depLayout = layoutDependencyTree(tree);
+assert.deepEqual(depLayout, layoutDependencyTree(tree), "依赖树布局必须确定性");
+assert.equal(Object.keys(depLayout.positions).length, 6, "默认不画未覆盖带");
+assert.equal(depLayout.hidden, 0);
+assert.deepEqual(depLayout.levels.map((level) => [level.depth, level.y, level.count]), [[0, 0, 2], [1, 162, 3], [2, 324, 1]]);
+assert.deepEqual(depLayout.bands, []);
+assert.ok(Object.values(depLayout.positions).every((point) => Number.isFinite(point.x) && Number.isFinite(point.y)));
+assert.equal(depLayout.positions.X.y, 162);
+assert.equal(depLayout.positions.Y.y, 324);
+const limited = layoutDependencyTree(tree, { depthLimit: 1 });
+assert.equal(Object.keys(limited.positions).length, 5);
+assert.equal(limited.hidden, 1);
+assert.equal(limited.hasDeeper, true);
+const folded = layoutDependencyTree(tree, { collapsed: new Set(["X"]) });
+assert.equal(Object.keys(folded.positions).length, 5);
+assert.ok(!folded.positions.Y, "折叠的分支不产出位置");
+const withLoose = layoutDependencyTree(tree, { showLoose: true });
+assert.equal(Object.keys(withLoose.positions).length, 8);
+assert.deepEqual(withLoose.bands.map((band) => [band.kind, band.count]), [["loose", 2]], "空分组不占带");
+assert.ok(withLoose.bands[0].y > 324);
+const filteredTree = layoutDependencyTree(tree, { allowed: new Set(["A", "B", "X"]), showLoose: true });
+assert.deepEqual(Object.keys(filteredTree.positions).sort(), ["A", "B", "X"]);
+assert.deepEqual(filteredTree.bands, [], "角色筛选掉的条目不出现在未覆盖带");
+
+const depGraph = buildWorldBookGraph(depDetail, depPolicy, { view: "tree" });
+assert.equal(depGraph.entryCount, 8);
+assert.equal(depGraph.nodes.filter((node) => node.kind === "category").length, 0, "依赖树视图不混入分类层级");
+assert.equal(depGraph.edges.filter((edge) => edge.kind !== "dependency").length, 0);
+assert.deepEqual(depGraph.roles, { source: 2, fixed: 1, bridge: 3, leaf: 1, orphan: 1 });
+assert.deepEqual([depGraph.nodes.find((node) => node.refId === "X").role, depGraph.nodes.find((node) => node.refId === "X").treeDepth], ["bridge", 1]);
+assert.equal(depGraph.nodes.find((node) => node.refId === "Z").inCycle, true);
+assert.equal(depGraph.nodes.find((node) => node.refId === "Z").unreached, true);
+assert.equal(depGraph.nodes.find((node) => node.refId === "F").childCount, 0);
+assert.equal(buildWorldBookGraph(depDetail, depPolicy, { view: "tree", roles: ["source"] }).entryCount, 2);
+assert.equal(buildWorldBookGraph(depDetail, depPolicy, { view: "tree", roles: ["orphan"] }).entryCount, 1);
+assert.equal(buildWorldBookGraph(depDetail, depPolicy, { view: "dependencies" }).nodes.filter((node) => node.kind === "category").length, 2);
+assert.equal(buildWorldBookGraph(depDetail, depPolicy, { view: "taxonomy" }).stats, null, "分类结构视图不做依赖建模");
+
+const treeMarkup = renderToStaticMarkup(React.createElement(ScopeManager, { detail: depDetail, view: "tree", onChanged() {} }));
+for (const expected of ["世界书依赖树", "世界书依赖分层树", "wbg-toolbar-sub", "wbg-role-chip", "按角色", "按类型",
+  "展开层级", "重置折叠", "未覆盖条目", "导入源 · 2 节点", "第 1 层 · 3 节点", "wbg-role-badge", "wbg-collapse-handle", "wbg-tree-level-label"]) {
+  assert.ok(treeMarkup.includes(expected), expected);
+}
+assert.ok(!treeMarkup.includes("wbg-node-category"), "依赖树不渲染分类节点");
+const bareMarkup = renderToStaticMarkup(React.createElement(ScopeManager, { detail: {
+  ...depDetail, import_config: { revision: 1, fixed_entry_uids: [], dependency_sources: [] },
+}, view: "tree", onChanged() {} }));
+assert.ok(bareMarkup.includes("还没有可展开的导入源"));
+console.log("Worldbook UI: taxonomy, graph filtering/IDs/layout/reciprocal edges, SSR controls, preview, dependency roles and tree passed. Large layout: " + layoutMs + "ms.");

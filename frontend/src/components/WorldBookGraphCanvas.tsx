@@ -3,6 +3,9 @@ import {
   entryNodeId, layoutWorldBookGraph, spreadWorldBookGraph, worldBookEdgeGeometry,
   type GraphPoint, type WorldBookGraphData, type WorldBookGraphNode,
 } from "../utils/worldbookGraph";
+import {
+  DEPENDENCY_ROLES, ROLE_GLYPHS, ROLE_HINTS, ROLE_LABELS, layoutDependencyTree,
+} from "../utils/worldbookDependency";
 import WorldBookGraphIcon from "./WorldBookGraphIcon";
 
 type Camera = { x: number; y: number; zoom: number };
@@ -15,29 +18,34 @@ type Gesture = {
   nodeId?: string;
   moved: boolean;
 };
+export type TreeViewOptions = { depthLimit: number; collapsed: Set<string>; showLoose: boolean };
+export type GraphColoring = "kind" | "role";
 const KINDS = { worldview: "世界观", character: "角色", other: "其他" };
 const clampZoom = (value: number) => Math.max(0.15, Math.min(2.5, value));
 
-function boundsFor(graph: WorldBookGraphData, positions: Record<string, GraphPoint>) {
+function boundsFor(graph: WorldBookGraphData, positions: Record<string, GraphPoint>, pad = 55) {
   const points = graph.nodes.flatMap((node) => positions[node.id] ? [{ ...positions[node.id], radius: node.radius }] : []);
   if (!points.length) return { left: -200, top: -150, width: 400, height: 300 };
-  const left = Math.min(...points.map((p) => p.x - p.radius - 55));
+  const left = Math.min(...points.map((p) => p.x - p.radius - pad));
   const top = Math.min(...points.map((p) => p.y - p.radius - 25));
   return { left, top,
-    width: Math.max(...points.map((p) => p.x + p.radius + 55)) - left,
+    width: Math.max(...points.map((p) => p.x + p.radius + pad)) - left,
     height: Math.max(...points.map((p) => p.y + p.radius + 50)) - top,
   };
 }
 
-export default function WorldBookGraphCanvas({ graph, view, selectedId, selectedEdgeId, linkFromUid, busy,
-  onSelectNode, onSelectEdge, onLinkStart, onCancelLink, onClear, onDropEntry,
+export default function WorldBookGraphCanvas({ graph, view, selectedId, selectedEdgeId, linkFromUid, busy, coloring, tree,
+  onToggleCollapse, onSelectNode, onSelectEdge, onLinkStart, onCancelLink, onClear, onDropEntry,
 }: {
   graph: WorldBookGraphData;
-  view: "taxonomy" | "dependencies";
+  view: "taxonomy" | "dependencies" | "tree";
   selectedId: string | null;
   selectedEdgeId: string | null;
   linkFromUid: string | null;
   busy: boolean;
+  coloring: GraphColoring;
+  tree: TreeViewOptions | null;
+  onToggleCollapse: (uid: string) => void;
   onSelectNode: (node: WorldBookGraphNode) => void;
   onSelectEdge: (id: string) => void;
   onLinkStart: (uid: string) => void;
@@ -54,9 +62,30 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
   const [cursor, setCursor] = useState<GraphPoint | null>(null);
   const [dragging, setDragging] = useState(false);
   const [layoutVersion, setLayoutVersion] = useState(0);
+  const dependencyView = view !== "taxonomy";
+  // 依赖树只画条目：层级语义由 depth 承担，分类归属交给「分类结构」视图与节点目录。
+  const allowedUids = useMemo(() => new Set(graph.nodes.filter((node) => node.kind === "entry").map((node) => node.refId)), [graph.nodes]);
+  const treeLayout = useMemo(() => (tree && graph.tree
+    ? layoutDependencyTree(graph.tree, {
+      allowed: allowedUids, depthLimit: tree.depthLimit, collapsed: tree.collapsed, showLoose: tree.showLoose,
+    })
+    : null), [graph.tree, tree, allowedUids]);
+  // 依赖树按条目 UID 布局，画布按 entry:<uid> 取点，这里做一次显式映射。
+  const treePositions = useMemo(() => {
+    if (!treeLayout) return null;
+    const result: Record<string, GraphPoint> = {};
+    for (const node of graph.nodes) {
+      const point = treeLayout.positions[node.refId];
+      if (point) result[node.id] = point;
+    }
+    return result;
+  }, [treeLayout, graph.nodes]);
   // Flags and names do not invalidate node positions while the user edits a policy.
   const layoutKey = JSON.stringify([graph.nodes.map((node) => node.id), graph.edges.map((edge) => [edge.from, edge.to, edge.kind])]);
-  const initial = useMemo(() => layoutWorldBookGraph(graph), [layoutKey, layoutVersion]);
+  // 依赖树会随层级上限与折叠变化重排；力导向布局只为节点/边的集合变化重排。
+  const treeKey = treeLayout ? `tree:${layoutKey}:${layoutVersion}:${tree?.depthLimit}:${tree?.showLoose}:${[...(tree?.collapsed || [])].sort().join(",")}` : "";
+  const layoutSignature = treeKey || `force:${layoutKey}:${layoutVersion}`;
+  const initial = useMemo(() => (treePositions ?? layoutWorldBookGraph(graph)), [layoutSignature, layoutVersion]);
   const [positions, setPositions] = useState(initial);
   const fittedKey = useRef("");
   const fittedSize = useRef("");
@@ -106,17 +135,18 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
 
   useEffect(() => {
     if (!size.width || !size.height) return;
-    const key = layoutKey + ":" + layoutVersion;
+    const key = layoutSignature;
     const sizeKey = size.width + ":" + size.height;
     const newLayout = fittedKey.current !== key;
     if (!newLayout && (!autoFit.current || fittedSize.current === sizeKey)) return;
     if (newLayout) autoFit.current = true;
     fittedKey.current = key;
     fittedSize.current = sizeKey;
-    const arranged = spreadWorldBookGraph(initial, Math.max(100, size.width - 110) / Math.max(100, size.height - 150));
+    // 分层树保持等距整齐，不再横向拉伸；力导向网络继续按视口比例铺开。
+    const arranged = treePositions ?? spreadWorldBookGraph(initial, Math.max(100, size.width - 110) / Math.max(100, size.height - 150));
     setPositions(arranged);
     fitPositions(arranged);
-  }, [initial, layoutKey, layoutVersion, size, fitPositions]);
+  }, [initial, layoutSignature, size, fitPositions, treePositions]);
 
   useEffect(() => {
     if (!selectedId || !positions[selectedId] || !size.width) return;
@@ -194,9 +224,16 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
   // Small graphs stay readable at fit-to-view zoom. Dense graphs reveal entry
   // labels on focus instead of rendering hundreds of illegible tiny captions.
   const visualScale = Math.max(1, Math.min(1.7, 1 / camera.zoom));
+  const visibleCount = graph.nodes.reduce((total, node) => total + (positions[node.id] ? 1 : 0), 0);
+  const caption = treeLayout
+    ? { title: "依赖树", detail: `${treeLayout.levels.length ? treeLayout.levels[0].depth + "–" + treeLayout.levels[treeLayout.levels.length - 1].depth : 0} 层 · 可见 ${treeLayout.visible} 节点` }
+    : view === "taxonomy"
+      ? { title: "分类结构", detail: `${graph.nodes.filter((node) => node.kind === "category").length} 分类 · ${graph.entryCount} 条目` }
+      : { title: "关系网络", detail: `${graph.nodes.filter((node) => node.kind === "category").length} 分类 · ${graph.entryCount} 条目` };
 
-  return <div ref={viewport} className={"wbg-canvas" + (dragging ? " is-dragging" : "") + (linkFromUid ? " is-linking" : "")}
-    role="region" aria-label={view === "taxonomy" ? "世界书分类图画布" : "世界书依赖图画布"} tabIndex={0}
+  return <div ref={viewport} className={"wbg-canvas" + (dragging ? " is-dragging" : "") + (linkFromUid ? " is-linking" : "")
+    + (coloring === "role" && dependencyView ? " is-role-coloring" : "") + (treeLayout ? " is-tree" : "")}
+    role="region" aria-label={view === "taxonomy" ? "世界书分类图画布" : view === "tree" ? "世界书依赖树画布" : "世界书依赖图画布"} tabIndex={0}
     style={{ backgroundPosition: `${camera.x}px ${camera.y}px`, backgroundSize: `${28 * camera.zoom}px ${28 * camera.zoom}px` }}
     onPointerDown={(event) => {
       if (!(event.target as Element).closest("[data-wbg-control], [data-wbg-node], [data-wbg-edge]")) begin(event);
@@ -213,29 +250,45 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
       const arrows: Record<string, GraphPoint> = { ArrowLeft: { x: 45, y: 0 }, ArrowRight: { x: -45, y: 0 }, ArrowUp: { x: 0, y: 45 }, ArrowDown: { x: 0, y: -45 } };
       if (arrows[event.key]) setCamera((current) => ({ ...current, x: current.x + arrows[event.key].x, y: current.y + arrows[event.key].y }));
     }}>
-    <svg className="wbg-svg" role="group" aria-label={view === "taxonomy" ? "世界书分类关系图" : "世界书有向依赖图"}>
+    <svg className="wbg-svg" role="group" aria-label={view === "taxonomy" ? "世界书分类关系图" : view === "tree" ? "世界书依赖分层树" : "世界书有向依赖图"}>
       <defs>
         <marker id={id + "-arrow"} viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 1 1 L 9 5 L 1 9 Z" className="wbg-arrow" /></marker>
         <marker id={id + "-active"} viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 1 1 L 9 5 L 1 9 Z" className="wbg-arrow-active" /></marker>
       </defs>
       <g transform={`translate(${camera.x},${camera.y}) scale(${camera.zoom})`}>
+        {treeLayout && <g className="wbg-tree-guides" aria-hidden="true">
+          {treeLayout.levels.map((level) => <line key={level.depth} x1={bounds.left - 70} x2={bounds.left + bounds.width + 70}
+            y1={level.y - 74} y2={level.y - 74} vectorEffect="non-scaling-stroke" />)}
+          {treeLayout.bands.map((band) => <line key={band.kind} x1={bounds.left - 70} x2={bounds.left + bounds.width + 70}
+            y1={band.y - 62} y2={band.y - 62} vectorEffect="non-scaling-stroke" />)}
+          {treeLayout.levels.map((level) => <text key={"label-" + level.depth} className="wbg-tree-level-label" x={bounds.left - 54}
+            y={level.y - 80} style={{ fontSize: 11 / Math.max(0.12, camera.zoom) }}>{level.label} · {level.count} 节点</text>)}
+          {treeLayout.bands.map((band) => <text key={"band-" + band.kind} className={"wbg-tree-level-label is-" + band.kind} x={bounds.left - 54}
+            y={band.y - 68} style={{ fontSize: 11 / Math.max(0.12, camera.zoom) }}>{band.label} · {band.count} 条</text>)}
+        </g>}
         {graph.edges.map((edge) => {
           const a = positions[edge.from], b = positions[edge.to];
           if (!a || !b) return null;
           const from = nodeMap.get(edge.from)!, to = nodeMap.get(edge.to)!;
           const dependency = edge.kind === "dependency";
           const active = edge.id === selectedEdgeId || edge.from === activeId || edge.to === activeId;
-          const geometry = worldBookEdgeGeometry(a, b, from.radius * visualScale, to.radius * visualScale, dependency && edgeDirections.has(JSON.stringify([edge.to, edge.from])));
+          const extra = !!treeLayout && dependency && !edge.skeleton;
+          const curved = dependency && (treeLayout ? extra : edgeDirections.has(JSON.stringify([edge.to, edge.from])));
+          const geometry = worldBookEdgeGeometry(a, b, from.radius * visualScale, to.radius * visualScale, curved);
+          const status = dependency ? edge.status : undefined;
+          const arrow = dependency && status !== "capped" && status !== "idle";
           return <g key={edge.id} data-wbg-edge={edge.id}
-            className={`wbg-edge wbg-edge-${edge.kind}${active ? " is-active" : ""}${related && !active ? " is-muted" : ""}`}
+            className={`wbg-edge wbg-edge-${edge.kind}${active ? " is-active" : ""}${related && !active ? " is-muted" : ""}`
+              + (edge.skeleton ? " is-skeleton" : "") + (extra ? " is-extra" : "")
+              + (status === "capped" ? " is-capped" : "") + (status === "idle" ? " is-idle" : "") + (edge.loop ? " is-loop" : "")}
             role={dependency ? "button" : undefined} tabIndex={dependency ? 0 : undefined}
-            aria-label={dependency ? `${from.label} 依赖 ${to.label}` : undefined}
+            aria-label={dependency ? `${from.label} 依赖 ${to.label}${status && status !== "active" ? "（" + (status === "capped" ? "深度用尽未展开" : "上游未进入候选范围") + "）" : ""}` : undefined}
             onClick={dependency ? (event) => { event.stopPropagation(); onCancelLink(); onSelectEdge(edge.id); } : undefined}
             onKeyDown={dependency ? (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); onSelectEdge(edge.id); } } : undefined}>
-            <title>{from.label + (dependency ? " → 依赖 → " : " / ") + to.label}</title>
+            <title>{from.label + (dependency ? " → 依赖 → " : " / ") + to.label + (dependency && status ? " · " + (status === "active" ? "参与展开" : status === "capped" ? "深度用尽，未展开" : "上游未进入候选范围") : "") + (edge.loop ? " · 位于依赖环" : "")}</title>
             {dependency && <path className="wbg-edge-hit" d={geometry.path} />}
-            <path className="wbg-edge-line" d={geometry.path} markerEnd={dependency ? `url(#${id}${active ? "-active" : "-arrow"})` : undefined} />
-            {dependency && (active || graph.entryCount < 24) && <text className="wbg-edge-label" x={geometry.label.x} y={geometry.label.y - 9 / camera.zoom} style={{ fontSize: 10 / Math.min(1, camera.zoom) }}>依赖</text>}
+            <path className="wbg-edge-line" d={geometry.path} markerEnd={arrow ? `url(#${id}${active ? "-active" : "-arrow"})` : undefined} />
+            {dependency && !treeLayout && (active || graph.entryCount < 24) && <text className="wbg-edge-label" x={geometry.label.x} y={geometry.label.y - 9 / camera.zoom} style={{ fontSize: 10 / Math.min(1, camera.zoom) }}>依赖</text>}
           </g>;
         })}
         {linkSource && cursor && <path className="wbg-pending-edge" d={worldBookEdgeGeometry(linkSource, cursor, 25 * visualScale, 0).path} markerEnd={`url(#${id}-active)`} />}
@@ -250,25 +303,52 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
           const inFocus = !activeId || related?.has(node.id);
           const showLabel = selected || hoverId === node.id ||
             (inFocus && (node.kind === "category" || graph.entryCount <= 24 || camera.zoom >= 0.5));
+          const role = node.role;
+          const showBadge = !!role && (showLabel || role === "source" || !!node.fixed || !!node.inCycle);
+          // 只有「确实画得出来」的下游才给折叠手柄：被层级上限或角色筛选挡住的分支
+          // 交给工具栏的展开层级处理，避免手柄点了没反应。
+          const childUids = treeLayout && graph.tree ? graph.tree.byUid.get(node.refId)?.childUids || [] : [];
+          const drawnChildren = treeLayout ? childUids.filter((uid) => treeLayout.positions[uid]).length : 0;
+          const folded = !!treeLayout && !!tree?.collapsed.has(node.refId);
+          const showHandle = !!treeLayout && (drawnChildren > 0 || (folded && childUids.length > 0));
+          // 正好卡在层级上限的节点：下游不是被折叠，而是被「展开层级」截断的。
+          const atLimit = !!treeLayout && !!tree && node.treeDepth !== undefined && node.treeDepth >= tree.depthLimit && !!node.childCount;
+          const caption = [node.disabled ? "已停用" : "", node.treeDepth !== undefined ? `第 ${node.treeDepth} 层 · 余 ${node.remaining}` : "",
+            atLimit ? `下游 ${node.childCount} 未展开` : ""].filter(Boolean).join(" · ");
+          const roleText = role ? ROLE_LABELS[role] : KINDS[node.scopeType];
           return <g key={node.id} transform={`translate(${point.x},${point.y})`} data-wbg-node={node.id} data-wbg-kind={node.scopeType}
-            className={`wbg-node wbg-node-${node.kind}${selected ? " is-selected" : ""}${linking ? " is-source" : ""}${related && !related.has(node.id) && !linkFromUid ? " is-muted" : ""}${node.disabled ? " is-disabled" : ""}`}
-            tabIndex={0} role="button" aria-label={`${node.kind === "category" ? "选择分类" : "选择节点"} ${node.label}`} aria-pressed={selected}
+            data-wbg-role={role} data-wbg-depth={node.treeDepth}
+            className={`wbg-node wbg-node-${node.kind}${selected ? " is-selected" : ""}${linking ? " is-source" : ""}${related && !related.has(node.id) && !linkFromUid ? " is-muted" : ""}${node.disabled ? " is-disabled" : ""}${node.inCycle ? " is-cycle" : ""}${node.unreached ? " is-unreached" : ""}`}
+            tabIndex={0} role="button" aria-label={`${node.kind === "category" ? "选择分类" : "选择节点"} ${node.label}${role ? "（" + roleText + "）" : ""}`} aria-pressed={selected}
             onPointerDown={(event) => begin(event, node)} onPointerEnter={() => !dragging && setHoverId(node.id)} onPointerLeave={() => setHoverId(null)}
             onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); onSelectNode(node); } }}>
-            <title>{node.label + " · " + (node.kind === "category" ? "分类" : KINDS[node.scopeType]) + (node.fixed ? " · 固定导入" : "") + (node.sourceDepth !== undefined ? ` · 导入源 / 深度 ${node.sourceDepth}` : "") + (node.disabled ? " · 已停用" : "")}</title>
+            <title>{node.label + " · " + (node.kind === "category" ? "分类" : roleText)
+              + (node.fixed ? " · 固定导入" : "") + (node.sourceDepth !== undefined ? ` · 导入源 / 预算深度 ${node.sourceDepth}` : "")
+              + (node.treeDepth !== undefined ? ` · 第 ${node.treeDepth} 层 · 剩余 ${node.remaining}` : "")
+              + (node.inCycle ? " · 位于依赖环" : "") + (node.unreached ? " · 未被导入源展开" : "") + (node.disabled ? " · 已停用" : "")}</title>
             <g transform={`scale(${scale})`}>
             <circle className="wbg-node-halo" r={node.radius + 9} />
             {node.fixed && <circle className="wbg-fixed-ring" r={node.radius + 5} />}
+            {node.inCycle && <circle className="wbg-cycle-ring" r={node.radius + 7} />}
             <circle className="wbg-node-disc" r={node.radius} />
             {node.kind === "category" ? <>
               <path className="wbg-folder-glyph" d="M-10-9h8l3 4h10v12h-22V-9Z" />
               <text className="wbg-category-count" y="23">{node.count} 条</text>
             </> : showLabel && <text className="wbg-node-monogram" y="5">{chars.slice(0, 2).join("")}</text>}
+            {showBadge && role && <g className="wbg-role-badge" data-wbg-role={role} transform={`translate(${-node.radius + 1},${-node.radius + 1})`}><circle r="9" /><text y="3.4">{ROLE_GLYPHS[role]}</text></g>}
             {node.sourceDepth !== undefined && <g className="wbg-source-badge" transform={`translate(${node.radius - 2},${-node.radius + 2})`}><circle r="10" /><text y="3.5">{node.sourceDepth}</text></g>}
             {showLabel && <text className="wbg-node-label" y={node.radius + 23} style={{ fontSize: (node.kind === "category" ? 13 : 12) / Math.min(1, scale * camera.zoom) }}>{shortLabel}</text>}
-            {node.disabled && showLabel && <text className="wbg-node-caption" y={node.radius + 39}>已停用</text>}
-            {view === "dependencies" && node.kind === "entry" && selected && !busy && !linkFromUid &&
-              <g className="wbg-link-handle" role="button" tabIndex={0} aria-label={`从 ${node.label} 添加依赖`} transform={`translate(${node.radius + 17},0)`}
+            {showLabel && caption && <text className="wbg-node-caption" y={node.radius + 39}>{caption}</text>}
+            {showHandle && <g className={"wbg-collapse-handle" + (folded ? " is-collapsed" : "")} role="button" tabIndex={0}
+              aria-label={(folded ? "展开 " : "折叠 ") + node.label + " 的下游 " + childUids.length + " 个节点"}
+              transform={`translate(${node.radius + 15},0)`}
+              onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onToggleCollapse(node.refId); }}
+              onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); onToggleCollapse(node.refId); } }}>
+              <circle r="9" /><path d={"M-3.5 0H3.5" + (folded ? "M0-3.5V3.5" : "")} />
+              <text y="21">{childUids.length}{folded ? " 未展开" : ""}</text>
+            </g>}
+            {dependencyView && node.kind === "entry" && selected && !busy && !linkFromUid &&
+              <g className="wbg-link-handle" role="button" tabIndex={0} aria-label={`从 ${node.label} 添加依赖`} transform={`translate(${node.radius + 17},${showHandle ? 26 : 0})`}
                 onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onLinkStart(node.refId); }}
                 onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); onLinkStart(node.refId); } }}>
                 <circle r="10" /><path d="M-4 0H4M0-4V4" />
@@ -280,17 +360,29 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
     </svg>
 
     <div className="wbg-canvas-caption" data-wbg-control>
-      <span>{view === "taxonomy" ? "分类结构" : "关系网络"}</span>
-      <span>{graph.nodes.filter((node) => node.kind === "category").length} 分类 · {graph.entryCount} 条目</span>
+      <span>{caption.title}</span>
+      <span>{caption.detail}</span>
       {graph.hiddenCount > 0 && <span className="wbg-warning">另有 {graph.hiddenCount} 条未上图，请搜索或筛选分类</span>}
+      {treeLayout && treeLayout.hidden > 0 && <span className="wbg-warning">层级上限或折叠隐藏 {treeLayout.hidden} 个节点</span>}
+      {treeLayout && treeLayout.hasDeeper && <span className="wbg-warning">还有更深的层级未展开</span>}
     </div>
     {linkFromUid && <div className="wbg-link-banner" role="status" data-wbg-control><WorldBookGraphIcon name="link" /> 点击目标条目建立依赖 <button onClick={onCancelLink}>取消 · Esc</button></div>}
     {!graph.nodes.length && <div className="wbg-empty"><WorldBookGraphIcon name="graph" size={42} /><strong>暂无匹配的节点</strong><p>试试清空搜索或切换分类；也可以从节点目录中选择条目。</p></div>}
+    {view === "tree" && !!graph.nodes.length && !treeLayout?.visible && !treeLayout?.bands.length && <div className="wbg-empty">
+      <WorldBookGraphIcon name="graph" size={42} /><strong>还没有可展开的导入源</strong>
+      <p>在节点属性中把条目设为「导入源」并设置遍历深度，依赖树就会从该节点按层展开。</p>
+    </div>}
 
     <div className="wbg-canvas-footer" data-wbg-control>
       <div className="wbg-legend" aria-label="节点图例">
-        {Object.entries(KINDS).map(([kind, label]) => <span key={kind}><i data-wbg-kind={kind} />{label}</span>)}
-        {view === "dependencies" && <><span><i className="wbg-legend-fixed" />固定导入</span><span><i className="wbg-legend-source" />导入源</span></>}
+        {coloring === "role" && dependencyView
+          ? DEPENDENCY_ROLES.map((role) => <span key={role} title={ROLE_HINTS[role]}><i data-wbg-role={role} />{ROLE_LABELS[role]}</span>)
+          : Object.entries(KINDS).map(([kind, label]) => <span key={kind}><i data-wbg-kind={kind} />{label}</span>)}
+        {dependencyView && coloring !== "role" && <><span><i className="wbg-legend-fixed" />固定导入</span><span><i className="wbg-legend-source" />导入源</span></>}
+        {dependencyView && !!graph.stats?.cycleCount && <span><i className="wbg-legend-cycle" />依赖环</span>}
+        {treeLayout && <span><i className="wbg-legend-edge is-active" />参与展开</span>}
+        {treeLayout && !!graph.stats?.cappedEdges && <span><i className="wbg-legend-edge is-capped" />超深度</span>}
+        {treeLayout && !!graph.stats?.idleEdges && <span><i className="wbg-legend-edge is-idle" />未启用</span>}
       </div>
       <div className="wbg-canvas-controls">
         <button aria-label="缩小图谱" title="缩小（-）" onClick={() => zoomAt(1 / 1.2, size.width / 2, size.height / 2)}>−</button>
@@ -299,13 +391,13 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
         <span className="wbg-control-divider" />
         <button aria-label="适应全部节点" title="适应全部节点（0）" onClick={() => fitPositions(positions)}><WorldBookGraphIcon name="fit" /></button>
         <button aria-label="定位选中节点" title="定位选中节点" disabled={!selectedId} onClick={centerSelected}>◎</button>
-        <button aria-label="重新布局图谱" title="重新布局（仅调整视图，不改变分类与依赖）" onClick={() => setLayoutVersion((value) => value + 1)}><WorldBookGraphIcon name="layout" /></button>
+        <button aria-label={treeLayout ? "重置依赖树布局" : "重新布局图谱"} title={treeLayout ? "重置布局（清除手动拖动，不改变策略）" : "重新布局（仅调整视图，不改变分类与依赖）"} onClick={() => setLayoutVersion((value) => value + 1)}><WorldBookGraphIcon name="layout" /></button>
       </div>
     </div>
-    <span className="wbg-gesture-hint" data-wbg-control>拖动节点 · 空白平移 · 滚轮缩放</span>
-    {graph.nodes.length > 4 && <svg className="wbg-minimap" aria-label="图谱缩略图" viewBox={`${bounds.left} ${bounds.top} ${bounds.width} ${bounds.height}`} data-wbg-control>
+    <span className="wbg-gesture-hint" data-wbg-control>{treeLayout ? "点击 ⊕ 折叠分支 · 拖动节点 · 空白平移 · 滚轮缩放" : "拖动节点 · 空白平移 · 滚轮缩放"}</span>
+    {visibleCount > 4 && <svg className="wbg-minimap" aria-label="图谱缩略图" viewBox={`${bounds.left} ${bounds.top} ${bounds.width} ${bounds.height}`} data-wbg-control>
       {graph.edges.map((edge) => positions[edge.from] && positions[edge.to] ? <line key={edge.id} x1={positions[edge.from].x} y1={positions[edge.from].y} x2={positions[edge.to].x} y2={positions[edge.to].y} /> : null)}
-      {graph.nodes.map((node) => positions[node.id] ? <circle key={node.id} cx={positions[node.id].x} cy={positions[node.id].y} r={node.kind === "category" ? 12 : 6} data-wbg-kind={node.scopeType} /> : null)}
+      {graph.nodes.map((node) => positions[node.id] ? <circle key={node.id} cx={positions[node.id].x} cy={positions[node.id].y} r={node.kind === "category" ? 12 : 6} data-wbg-kind={node.scopeType} data-wbg-role={node.role} /> : null)}
       <rect x={-camera.x / camera.zoom} y={-camera.y / camera.zoom} width={size.width / camera.zoom} height={size.height / camera.zoom} />
     </svg>}
   </div>;
