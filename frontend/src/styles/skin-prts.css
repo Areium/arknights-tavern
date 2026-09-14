@@ -429,14 +429,24 @@ html.skin-prts body {
   .text-black { color: #02040a; }
   /* ═══ 工具类覆盖结束 ═══ */
 
-  /* ── 通用按钮族（PRTS 全息风格） ─────────────────────────────────────────
+  /* ── 通用按钮族（方形全息风格） ─────────────────────────────────────────
      设计基准：ui-styles/06-prts-hud-upgrade-preview.html 的 after 态。
-     · 切角统一取左上 / 右下（clip-path 会连同 border / box-shadow 一起裁剪，
-       因此外发光用 drop-shadow() 滤镜 —— 滤镜在裁剪之后合成，光晕贴着切角轮廓）；
-     · .btn-primary / .btn-danger：深色渐变实底 + 浅字 + 斜切扫光（::before），
-       hover 点亮双层光晕，active 下沉缩压，disabled 去饱和且隐藏扫光；
-     · .btn-ghost：透明底 + 角标括号（::before/::after L 形，hover 点亮）；
-     · .btn-hero：切角 + 光晕，保留自身渐变底。
+     · 形状：直角 + 左上 / 右下切角（--p-cut，≤2px 以上视觉全部为方形）；
+     · 底色：半透明深色科技蓝（rgba 面板色 + 全息青渐变层），backdrop-filter
+       磨砂，可透出背景；
+     · 边框 / 光效：clip-path 会裁掉矩形 box-shadow 外圈，故 1px 发光描边 +
+       内发光用 inset box-shadow（沿切角断开呈分段线框感），外辉光用
+       drop-shadow() 滤镜（滤镜在裁剪后合成，光晕贴切角轮廓）；表面叠加
+       扫描线纹理（repeating-linear-gradient）+ 斜向静态高光；
+     · 文字：var(--p-mono) 等宽 + 0.06em 字距 + 轻微文字发光；
+     · .btn-primary / .btn-danger：斜切扫光（::before），hover 点亮双层光晕
+       与内发光，active 下沉缩压 + 亮度回落，disabled 去饱和且隐藏扫光；
+     · .btn-hero（「＋ 新建会话」等主操作）：同族半透明全息底，层级靠更亮
+       描边 / 内发光 / 外辉光区分，同样带扫光；
+     · .btn-ghost（次要 / 图标按钮）：方形透明底 + 角标括号（::before/::after
+       L 形，hover 点亮），同一视觉体系仅用亮度 / 透明度区分层级；
+     · 动效：transition 全部落在 150–250ms（扫光一次 0.45s 属刻意 passes），
+       缓动 ease / var(--p-ease)，仅 filter / transform / box-shadow 过渡。
      用 :where() 把 .btn-ghost / .btn-hero 从 .btn 基础形里排除（二者有专属块）。
      组件里 .btn-primary 等不与 .btn 同现（style.css @apply 合成），故基础形只
      覆盖「裸 .btn + 工具类底色」的按钮。
@@ -450,9 +460,10 @@ html.skin-prts body {
     clip-path: polygon(var(--p-cut) 0, 100% 0, 100% calc(100% - var(--p-cut)), calc(100% - var(--p-cut)) 100%, 0 100%, 0 var(--p-cut));
     border: 1px solid var(--p-line);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), inset 0 -1px 0 rgba(56, 189, 248, 0.10);
+    font-family: var(--p-mono);
     font-weight: 600;
-    letter-spacing: 0.04em;
-    transition: border-color 0.15s ease, filter 0.2s ease, transform 0.12s ease;
+    letter-spacing: 0.06em;
+    transition: border-color 0.15s ease, filter 0.2s ease, transform 0.12s ease, box-shadow 0.2s ease;
   }
   body .btn:where(:not(.btn-ghost):not(.btn-hero)):hover {
     border-color: var(--p-line-strong);
@@ -464,20 +475,36 @@ html.skin-prts body {
     border: none;
     border-radius: 0;
     overflow: hidden;
-    background-color: transparent;
+    /* 半透明深色科技蓝底：磨砂 + 可透出背景（clip-path 会沿切角裁掉
+       box-shadow 的矩形外圈，inset 内发光留在多边形内部，仅切角处断开） */
+    background-color: rgba(11, 21, 36, 0.55);
+    backdrop-filter: blur(4px);
     clip-path: polygon(var(--p-cut) 0, 100% 0, 100% calc(100% - var(--p-cut)), calc(100% - var(--p-cut)) 100%, 0 100%, 0 var(--p-cut));
+    box-shadow:
+      inset 0 0 0 1px var(--p-line),
+      inset 0 0 16px rgba(56, 189, 248, 0.14);
+    font-family: var(--p-mono);
     font-weight: 600;
-    letter-spacing: 0.04em;
-    transition: filter 0.2s ease, transform 0.12s ease;
+    letter-spacing: 0.06em;
+    text-shadow: 0 0 6px rgba(56, 189, 248, 0.45);
+    transition: filter 0.2s ease, transform 0.12s ease, box-shadow 0.2s ease;
   }
   body .btn-primary {
-    background-image: linear-gradient(160deg, #0ea5e9 0%, #0284c7 55%, #0369a1 100%);
+    /* 表面叠加扫描线纹理 + 斜向静态高光 + 半透明渐变 */
+    background-image:
+      repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.045) 0 1px, transparent 1px 3px),
+      linear-gradient(115deg, transparent 42%, rgba(255, 255, 255, 0.10) 50%, transparent 58%),
+      linear-gradient(160deg, rgba(56, 189, 248, 0.28) 0%, rgba(2, 132, 199, 0.16) 55%, rgba(4, 7, 13, 0.42) 100%);
     color: #eaf4fc;
     filter: drop-shadow(0 0 1px rgba(56, 189, 248, 0.4)) drop-shadow(0 2px 10px rgba(56, 189, 248, 0.28));
   }
   body .btn-danger {
-    background-image: linear-gradient(160deg, #fb5e5e 0%, #dc2626 55%, #991b1b 100%);
+    background-image:
+      repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.045) 0 1px, transparent 1px 3px),
+      linear-gradient(115deg, transparent 42%, rgba(255, 255, 255, 0.10) 50%, transparent 58%),
+      linear-gradient(160deg, rgba(251, 94, 94, 0.26) 0%, rgba(220, 38, 38, 0.16) 55%, rgba(30, 6, 6, 0.45) 100%);
     color: #fdecec;
+    text-shadow: 0 0 6px rgba(251, 94, 94, 0.45);
     filter: drop-shadow(0 0 1px rgba(251, 94, 94, 0.4)) drop-shadow(0 2px 10px rgba(251, 94, 94, 0.28));
   }
   /* 斜切扫光：高光窄条 hover 时横穿一次（skew 后宽度的 440% 位移保证完全穿出） */
@@ -497,9 +524,15 @@ html.skin-prts body {
   }
   body .btn-primary:hover {
     filter: brightness(1.06) drop-shadow(0 0 2px rgba(56, 189, 248, 0.55)) drop-shadow(0 5px 18px rgba(56, 189, 248, 0.45));
+    box-shadow:
+      inset 0 0 0 1px var(--p-line-strong),
+      inset 0 0 22px rgba(56, 189, 248, 0.28);
   }
   body .btn-danger:hover {
     filter: brightness(1.06) drop-shadow(0 0 2px rgba(251, 94, 94, 0.55)) drop-shadow(0 5px 18px rgba(251, 94, 94, 0.45));
+    box-shadow:
+      inset 0 0 0 1px rgba(251, 94, 94, 0.55),
+      inset 0 0 22px rgba(251, 94, 94, 0.26);
   }
   body .btn-primary:hover::before,
   body .btn-danger:hover::before {
@@ -522,13 +555,17 @@ html.skin-prts body {
     display: none;
   }
 
-  /* ghost：透明底 + 全息角标括号（L 形四分之一角，hover 点亮） */
+  /* ghost：方形透明底 + 全息角标括号（L 形四分之一角，hover 点亮）。
+     与主按钮同一视觉体系，仅用亮度/透明度区分层级 */
   body .btn-ghost {
     position: relative;
-    border-radius: 3px;
+    border-radius: 0;
     border-color: rgba(56, 189, 248, 0.30);
     background-color: rgba(56, 189, 248, 0.03);
     color: #8ca3b8;
+    font-family: var(--p-mono);
+    font-weight: 600;
+    letter-spacing: 0.06em;
   }
   body .btn-ghost::before,
   body .btn-ghost::after {
@@ -732,18 +769,52 @@ html.skin-prts body {
   .session-hero-sub { color: rgba(140, 163, 184, 0.9); }
 
   .btn-hero {
-    background: linear-gradient(135deg, #7dd3fc 0%, #38bdf8 55%, #0284c7 100%);
-    color: #04070d;
+    position: relative;
+    overflow: hidden;
+    /* 「＋ 新建会话」等主操作：与 btn-primary 同族的半透明全息底，
+       层级靠更亮的描边 / 内发光 / 外辉光区分 */
+    background-color: rgba(11, 21, 36, 0.60);
+    background-image:
+      repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 3px),
+      linear-gradient(115deg, transparent 42%, rgba(255, 255, 255, 0.12) 50%, transparent 58%),
+      linear-gradient(135deg, rgba(125, 211, 252, 0.30) 0%, rgba(56, 189, 248, 0.18) 55%, rgba(2, 132, 199, 0.30) 100%);
+    backdrop-filter: blur(4px);
+    color: #eaf4fc;
+    text-shadow: 0 0 8px rgba(56, 189, 248, 0.55);
+    border: none;
     border-radius: 0;
     clip-path: polygon(var(--p-cut) 0, 100% 0, 100% calc(100% - var(--p-cut)), calc(100% - var(--p-cut)) 100%, 0 100%, 0 var(--p-cut));
-    box-shadow: none;
+    box-shadow:
+      inset 0 0 0 1px var(--p-line-strong),
+      inset 0 0 18px rgba(56, 189, 248, 0.20);
     filter: drop-shadow(0 0 2px rgba(56, 189, 248, 0.4)) drop-shadow(0 3px 14px rgba(56, 189, 248, 0.3));
-    transition: filter 0.2s ease, transform 0.12s ease;
+    transition: filter 0.2s ease, transform 0.12s ease, box-shadow 0.2s ease;
   }
   .btn-hero:hover {
     filter: brightness(1.08) drop-shadow(0 0 3px rgba(56, 189, 248, 0.55)) drop-shadow(0 5px 20px rgba(56, 189, 248, 0.45));
+    box-shadow:
+      inset 0 0 0 1px var(--p-holo),
+      inset 0 0 24px rgba(56, 189, 248, 0.30);
   }
-  .btn-hero:active { transform: translateY(1px); }
+  .btn-hero:active { transform: translateY(1px) scale(0.985); filter: brightness(0.95); }
+  /* 主操作扫光：与 .btn-primary 相同的斜切高光窄条 */
+  .btn-hero::before {
+    content: "";
+    position: absolute;
+    top: -30%;
+    bottom: -30%;
+    left: -35%;
+    width: 36%;
+    pointer-events: none;
+    background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+    transform: skewX(-18deg);
+    opacity: 0;
+    transition: transform 0.45s var(--p-ease), opacity 0.2s ease;
+  }
+  .btn-hero:hover::before {
+    opacity: 1;
+    transform: skewX(-18deg) translateX(440%);
+  }
 
   .session-card {
     background: linear-gradient(150deg, rgba(11, 21, 36, 0.95), rgba(7, 14, 25, 0.95));
@@ -896,7 +967,8 @@ html.skin-prts:has(.bg-combat-bg) body::after {
   }
   /* 按钮扫光 / ghost 角标 / 卡片角标点亮 / 按钮悬停下沉：压平为无过渡 */
   html.skin-prts .btn-primary::before,
-  html.skin-prts .btn-danger::before {
+  html.skin-prts .btn-danger::before,
+  html.skin-prts .btn-hero::before {
     transition: none !important;
   }
   html.skin-prts .btn-ghost::before,
