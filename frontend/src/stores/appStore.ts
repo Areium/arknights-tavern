@@ -21,7 +21,7 @@ export interface CombatContext {
 type ViewName = "home" | "chat" | "sessions" | "settings" | "combat" | "index" | "worldbook" | "content" | "docs" | "characters";
 
 /** 内容中心内部 Tab（统一管理：索引/资产/卡牌/节点图；世界书为上一级独立入口，不在此重复） */
-export type ContentHubTab = "index" | "images" | "cards" | "combat";
+export type ContentHubTab = "index" | "images" | "cards" | "combat" | "worldbook-deps";
 
 /** 最小化对话框的恢复入口信息（key = 对话框 id） */
 export interface MinimizedDialogEntry {
@@ -41,6 +41,10 @@ interface AppState {
   // 内容中心检索命中世界书 → 跳转上一级「世界书」页并选中该书
   worldbookJumpId: string | null;
   setWorldbookJumpId: (id: string | null) => void;
+  worldbookScopeJumpId: string | null;
+  setWorldbookScopeJumpId: (id: string | null) => void;
+  worldbookEntryJump: { bookId: string; entryUid: string } | null;
+  setWorldbookEntryJump: (target: { bookId: string; entryUid: string } | null) => void;
 
   // 战斗节点编辑器跳转：战前卡片等入口指定要打开的节点
   combatNodeJumpId: string | null;
@@ -157,6 +161,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   // 内容中心检索 → 上一级「世界书」页跳转
   worldbookJumpId: null,
   setWorldbookJumpId: (id) => set({ worldbookJumpId: id }),
+  worldbookScopeJumpId: null,
+  setWorldbookScopeJumpId: (id) => set({ worldbookScopeJumpId: id }),
+  worldbookEntryJump: null,
+  setWorldbookEntryJump: (target) => set({ worldbookEntryJump: target }),
 
   // 战斗节点编辑器跳转
   combatNodeJumpId: null,

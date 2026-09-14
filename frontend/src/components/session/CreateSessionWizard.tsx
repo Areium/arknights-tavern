@@ -6,7 +6,8 @@ import { useState, useEffect, useMemo } from "react";
 import { useAppStore } from "../../stores/appStore";
 import { useApi } from "../../hooks/useApi";
 import { useDialogMinimize } from "../../hooks/useDialogMinimize";
-import type { PlotInfo, WorldBookSummary, Session } from "../../types";
+import type { PlotInfo, WorldBookSummary, Session, WorldBookScopePreviewDTO } from "../../types";
+import WorldBookScopePreview from "../WorldBookScopePreview";
 
 interface CharItem {
   id: string;
@@ -51,6 +52,8 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
   const [name, setName] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
+  const [scopePreview, setScopePreview] = useState<WorldBookScopePreviewDTO | null>(null);
+  const [scopeError, setScopeError] = useState("");
 
   // ── 数据 ──
   const [plots, setPlots] = useState<PlotInfo[]>([]);
@@ -120,6 +123,16 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
     return () => { cancelled = true; };
   }, [open, api, chatMode]);
 
+  useEffect(() => {
+    setScopePreview(null); setScopeError("");
+    if (!open || !worldbookId) return;
+    let cancelled = false;
+    api.previewWorldbookScope(worldbookId, roster.filter((name) => name !== identity))
+      .then((value) => { if (!cancelled) setScopePreview(value); })
+      .catch((e) => { if (!cancelled) setScopeError(e.message || "导入范围预览失败"); });
+    return () => { cancelled = true; };
+  }, [api, open, worldbookId, roster, identity]);
+
   if (!open) return null;
 
   const current = steps[step];
@@ -142,18 +155,11 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
     setCreating(true);
     setError("");
     try {
-      const session = await api.createSession(mode, name.trim(), mode === "story" ? plotId : "", combatMode, identity || "博士");
-      // 绑定世界书
-      if (worldbookId) {
-        try {
-          await api.bindWorldbook(worldbookId, session.id, true);
-          session.worldbook_id = worldbookId;
-        } catch { /* 绑定失败不阻断创建 */ }
-      }
-      // 角色入队（逐个加载，失败跳过）
-      for (const c of roster) {
-        try { await api.loadCharacter(session.id, c); } catch { /* ignore */ }
-      }
+      // 世界书绑定、角色入队与候选条目范围由服务端一次完成，首轮不会全量载入。
+      const session = await api.createSession(
+        mode, name.trim(), mode === "story" ? plotId : "", combatMode,
+        identity || "博士", worldbookId || "", roster,
+      );
       onCreated(session);
     } catch (err: any) {
       setError(err?.message || "创建失败");
@@ -375,7 +381,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
               </div>
               <div
                 className={`pick-card p-3 ${plotId === "" ? "selected" : ""}`}
-                onClick={() => setPlotId("")}
+                onClick={() => { setPlotId(""); setRoster([]); }}
               >
                 <span className="text-sm text-gray-300 font-medium">不绑定</span>
                 <span className="text-[11px] text-gray-500 ml-2">自由探索，不加载任何剧情</span>
@@ -385,7 +391,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                   <div
                     key={p.id}
                     className={`pick-card p-3 ${plotId === p.id ? "selected" : ""}`}
-                    onClick={() => setPlotId(p.id)}
+                    onClick={() => { setPlotId(p.id); setRoster((p.initial_characters || []).filter((name) => name !== identity && characters.some((c) => charKey(c) === name))); }}
                   >
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium text-gray-200 truncate">{p.name}</span>
@@ -532,6 +538,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                   )}
                 </div>
               </div>
+              {worldbookId ? scopePreview ? <WorldBookScopePreview value={scopePreview} /> : <p className="text-xs text-gray-400">{scopeError || "计算导入范围中…"}</p> : <p className="text-xs text-gray-400">未绑定世界书：此次会话不会载入世界书条目。</p>}
               {error && <p className="text-xs text-red-400">{error}</p>}
             </div>
           )}

@@ -172,7 +172,8 @@ class CharacterAgent:
         wb_before, wb_after = "", ""
         if worldbook is not None:
             try:
-                matched = worldbook.collect_matches(recent_text, user_input)
+                eligible_uids = worldbook.eligible_uids_for(getattr(self._session_context, "overlay", None))
+                matched = worldbook.collect_matches(recent_text, user_input, eligible_uids=eligible_uids)
                 wb_before, wb_after = worldbook.format_injection(
                     matched, identity=identity, active_char=self.character_name)
             except Exception:

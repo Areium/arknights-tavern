@@ -283,7 +283,8 @@ class SceneManager:
         if worldbook is None:
             return "", ""
         try:
-            matched = worldbook.collect_matches(recent_text, current_input)
+            eligible_uids = worldbook.eligible_uids_for(self._overlay)
+            matched = worldbook.collect_matches(recent_text, current_input, eligible_uids=eligible_uids)
             if matched:
                 logger.debug("世界书命中 %d 条: %s",
                              len(matched), [e.uid for e in matched])
@@ -335,6 +336,7 @@ class SceneManager:
         self._log_event(f"{name} 进入了场景")
         logger.info("角色加入场景: %s", name)
         self._persist_scene()
+        self._refresh_worldbook_scope()
         return True
 
     def unload_character(self, name: str) -> bool:
@@ -358,7 +360,18 @@ class SceneManager:
         self._log_event(f"{name} 离开了场景")
         logger.info("角色离开场景: %s", name)
         self._persist_scene()
+        self._refresh_worldbook_scope()
         return True
+
+    def _refresh_worldbook_scope(self):
+        if getattr(self, "_restoring_scope", False):
+            return
+        scope = getattr(self._overlay, "get_worldbook_scope", lambda: None)()
+        if scope is None:
+            return  # 旧会话继续采用原语义，直到显式重新绑定
+        book = self._resolve_worldbook()
+        if book:
+            self._overlay.set_worldbook_scope(book.resolve_import_scope(self.get_scene_characters()))
 
     def switch_active(self, name: str) -> bool:
         """切换对话目标。

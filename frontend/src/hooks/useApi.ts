@@ -76,10 +76,12 @@ export function useApi() {
     listSessions: () => request<any[]>("/api/sessions"),
     listPlots: () => request<any[]>("/api/plots"),
     createSession: (mode: "free" | "story" = "free", name = "", plotId = "",
-      combatMode: "narrative" | "tactical" = "narrative", identity = "博士") =>
+      combatMode: "narrative" | "tactical" = "narrative", identity = "博士",
+      worldbookId = "", rosterCharacterIds: string[] = []) =>
       request<any>("/api/sessions", {
         method: "POST",
-        body: JSON.stringify({ mode, name, plot_id: plotId, combat_mode: combatMode, identity }),
+        body: JSON.stringify({ mode, name, plot_id: plotId, combat_mode: combatMode, identity,
+          worldbook_id: worldbookId, roster_character_ids: rosterCharacterIds }),
       }),
     getSession: (id: string) => request<any>(`/api/sessions/${id}`),
     deleteSession: (id: string) =>
@@ -394,13 +396,25 @@ export function useApi() {
         `/api/worldbook/${encodeURIComponent(bookId)}/entries/${encodeURIComponent(entryId)}`, {
           method: "DELETE",
         }),
+    updateWorldbookTaxonomy: (bookId: string, categories: import("../types").WorldBookCategoryDTO[],
+      entryMoves: Record<string, string> = {}, expectedRevision?: number) =>
+      request<import("../types").WorldBookDetail>(`/api/worldbook/${encodeURIComponent(bookId)}/taxonomy`, {
+        method: "PUT", body: JSON.stringify({ categories, entry_moves: entryMoves, expected_revision: expectedRevision }),
+      }),
+    updateWorldbookImportConfig: (bookId: string, data: import("../types").WorldBookPolicyDraft) => request<import("../types").WorldBookDetail>(`/api/worldbook/${encodeURIComponent(bookId)}/import-config`, {
+      method: "PUT", body: JSON.stringify(data),
+    }),
+    previewWorldbookScope: (bookId: string, rosterCharacterIds: string[], draft?: import("../types").WorldBookPolicyDraft) =>
+      request<import("../types").WorldBookScopePreviewDTO>(`/api/worldbook/${encodeURIComponent(bookId)}/scope-preview`, {
+        method: "POST", body: JSON.stringify({ ...draft, roster_character_ids: rosterCharacterIds }),
+      }),
     setDefaultWorldbook: (id: string, isDefault: boolean) =>
       request<{ default_book_id: string | null }>(`/api/worldbook/${encodeURIComponent(id)}/default`, {
         method: "POST",
         body: JSON.stringify({ default: isDefault }),
       }),
     bindWorldbook: (id: string, sessionId: string, bound: boolean) =>
-      request<{ session_id: string; worldbook_id: string | null }>(
+      request<{ session_id: string; worldbook_id: string | null; worldbook_scope: import("../types").WorldBookScopeDTO }>(
         `/api/worldbook/${encodeURIComponent(id)}/bind`, {
           method: "POST",
           body: JSON.stringify({ session_id: sessionId, bound }),

@@ -31,7 +31,7 @@ function formatDate(ts: number): string {
 }
 
 export default function SessionManagerView() {
-  const { sessions, activeSessionId, chatMode, setSessions, setActiveSession, setCurrentView, setIndexSessionId, setChatMode, setCombatContext, setContentHubTab } =
+  const { sessions, activeSessionId, chatMode, setSessions, setActiveSession, setCurrentView, setIndexSessionId, setChatMode, setCombatContext, setContentHubTab, setWorldbookScopeJumpId } =
     useAppStore();
   const api = useApi();
 
@@ -218,7 +218,7 @@ export default function SessionManagerView() {
     try {
       // 解绑时需传当前绑定的真实 book id（bound=false 回落全局默认）
       const res = await api.bindWorldbook(bookId || selected.worldbook_id || "", selected.id, !!bookId);
-      setSessions(sessions.map((s) => (s.id === selected.id ? { ...s, worldbook_id: res.worldbook_id } : s)));
+      setSessions(sessions.map((s) => (s.id === selected.id ? { ...s, worldbook_id: res.worldbook_id, worldbook_scope: res.worldbook_scope } : s)));
     } catch (err: any) {
       alert("绑定失败: " + (err?.message || "未知错误"));
     } finally {
@@ -684,7 +684,12 @@ export default function SessionManagerView() {
                   </div>
                 )}
                 <p className="text-[10px] text-gray-600 mt-2.5">
-                  提示：在对话页的「角色面板」中可切换当前发言角色、编辑人设覆盖。
+                  {!selected.worldbook_id && selected.worldbook_scope ? "当前未绑定世界书，角色条目不会载入。" :
+                    selected.worldbook_scope?.legacy_full_scope || !selected.worldbook_scope ? "当前会话沿用旧版全量范围；启用按需策略并重新绑定后，角色条目才按阵容载入。" :
+                    "提示：入队角色的世界书条目随会话载入；世界观及固定/依赖条目按策略生效。未入队角色不会自动导入，可在此调整阵容。"}
+                  {" "}<button className="text-blue-400 hover:underline" onClick={() => {
+                    setWorldbookScopeJumpId(selected.worldbook_id || null); setContentHubTab("worldbook-deps"); setCurrentView("content");
+                  }}>前往内容中心配置依赖 →</button>
                 </p>
               </div>
 

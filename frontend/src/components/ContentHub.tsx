@@ -12,7 +12,7 @@
  *    「世界书整合包」（data/packs/arknights.json），随世界书导入/预装分发。
  *  - 战斗节点编辑：先选世界书再编辑（NodeFlowEditor），节点数据归属所选世界书。
  */
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useApi } from "../hooks/useApi";
 import { useAppStore, type ContentHubTab } from "../stores/appStore";
 import type { WorldBookSearchHit } from "../types";
@@ -21,8 +21,10 @@ import AssetManager from "./AssetManager";
 import CardManager from "./CardManager";
 import IndexManager from "./IndexManager";
 import PlotGraphPage from "./combat/PlotGraphPage";
+const WorldBookDependencyPage = lazy(() => import("./WorldBookDependencyPage"));
 
 const TABS: { id: ContentHubTab; label: string; icon: string; hint: string }[] = [
+  { id: "worldbook-deps", label: "世界书图谱", icon: "📖", hint: "分类与角色关联 / 固定导入 / 条目依赖 / 导入预览" },
   { id: "index", label: "索引", icon: "🔗", hint: "文档依赖关系与会话白名单" },
   { id: "images", label: "资产", icon: "🖼️", hint: "图片资产上传 / 裁剪 / 默认图 / 来源世界书" },
   { id: "cards", label: "卡牌", icon: "🃏", hint: "角色与职业卡牌编辑 / 所属世界书" },
@@ -148,6 +150,7 @@ export default function ContentHub() {
 
       {/* ── Tab 内容区 ── */}
       <div className="flex-1 min-h-0 overflow-hidden">
+        {contentHubTab === "worldbook-deps" && <Suspense fallback={<p className="p-4 text-xs text-gray-400">加载世界书依赖…</p>}><WorldBookDependencyPage /></Suspense>}
         {contentHubTab === "index" && <IndexManager key="im" />}
         {contentHubTab === "images" && <AssetManager key="am" />}
         {contentHubTab === "cards" && <CardManager key="cm" />}

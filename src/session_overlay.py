@@ -234,6 +234,18 @@ class SessionOverlay:
             logger.info("会话 %s: 已解绑世界书", self.session_id)
         self._save()
 
+    def get_worldbook_scope(self) -> dict | None:
+        """返回会话固定的世界书候选范围；旧会话返回 None 以保持兼容。"""
+        scope = self._data.get("worldbook_scope")
+        return copy.deepcopy(scope) if isinstance(scope, dict) else None
+
+    def set_worldbook_scope(self, scope: dict | None):
+        if scope:
+            self._data["worldbook_scope"] = copy.deepcopy(scope)
+        else:
+            self._data.pop("worldbook_scope", None)
+        self._save()
+
     # ── 环境覆盖 ──
 
     def get_environment_overrides(self) -> dict:
@@ -1682,6 +1694,7 @@ class SessionOverlay:
             "session_id": self.session_id,
             "plot_id": self._data.get("plot_id"),
             "worldbook_id": self._data.get("worldbook_id"),
+            "worldbook_scope": self._data.get("worldbook_scope"),
             "characters": self._data.get("characters", {}),
             "items": self._data.get("items", {}),
             "environment": self._data.get("environment", {}),

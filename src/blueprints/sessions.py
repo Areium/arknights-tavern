@@ -7,6 +7,7 @@ import re
 import logging
 import shutil
 import tempfile
+import copy
 from pathlib import Path
 from urllib.parse import quote
 
@@ -26,7 +27,7 @@ _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _REPO_ROOT = Path(_project_root).parent
 
 
-def _load_plot_opening(session, plot_id: str):
+def _load_plot_opening(session, plot_id: str, load_characters: bool = True):
     """加载剧情的开场配置到会话中。
 
     从 index.md frontmatter 读取所有开场字段。
@@ -56,7 +57,7 @@ def _load_plot_opening(session, plot_id: str):
 
         # 2. 加载初始角色（跳过不存在的角色 & 玩家身份角色）
         player_identity = session.player_identity
-        for char_name in meta.get("initial_characters", []):
+        for char_name in (meta.get("initial_characters", []) if load_characters else []):
             name = char_name.strip()
             if name and name != player_identity:
                 ok = session.scene_manager.load_character(name)
@@ -87,6 +88,7 @@ def _load_plot_opening(session, plot_id: str):
 def register(app, managers):
     bp = Blueprint("sessions", __name__)
     session_mgr = managers["session"]
+    wb_mgr = managers.get("worldbook")
 
     # ── 会话 CRUD ──
 
@@ -121,24 +123,49 @@ def register(app, managers):
         # 玩家身份角色（用户自身，默认"博士"）
         player_identity = str(data.get("identity", "") or "").strip() or "博士"
 
-        session = session_mgr.create_session(
-            name=data.get("name", ""),
-            mode=mode,
-            plot_name=plot_name if not data.get("name") else "",
-            combat_mode=combat_mode,
-            player_identity=player_identity,
-            plot_id=plot_id,
-        )
+        worldbook_id = str(data.get("worldbook_id", "") or "").strip()
+        roster = data.get("roster_character_ids", [])
+        if not isinstance(roster, list) or not all(isinstance(x, str) and x.strip() for x in roster):
+            return json_error("roster_character_ids 必须是非空字符串组成的数组")
+        try:
+            book = wb_mgr.load(worldbook_id) if worldbook_id and wb_mgr else None
+            if worldbook_id and (book is None or not book.enabled):
+                return json_error("世界书不存在或已停用", 404)
+            # 旧客户端未传此字段时沿用默认书；新客户端空字符串表示明确不绑定。
+            if "worldbook_id" not in data and wb_mgr:
+                book = wb_mgr.resolve()
+            book = copy.deepcopy(book)
+        except (ValueError, TypeError, OSError) as exc:
+            return json_error(f"世界书读取失败：{exc}")
 
-        if plot_id and mode == "story":
-            from session_overlay import _resolve_plot_dir
-            resolved = _resolve_plot_dir(plot_id) or plot_id
-            plot_dir = _REPO_ROOT / "data" / "plots" / resolved
-            if plot_dir.is_dir():
-                session.overlay.load_quests_from_plot(plot_id)
-                _load_plot_opening(session, plot_id)
-                session.overlay.init_session_docs(plot_id)
+        def initialize(session):
+            if plot_id and mode == "story":
+                from session_overlay import _resolve_plot_dir
+                resolved = _resolve_plot_dir(plot_id) or plot_id
+                if (_REPO_ROOT / "data" / "plots" / resolved).is_dir():
+                    session.overlay.load_quests_from_plot(plot_id)
+                    _load_plot_opening(session, plot_id, load_characters="roster_character_ids" not in data)
+                    session.overlay.init_session_docs(plot_id)
+            for character in dict.fromkeys(name.strip() for name in roster):
+                if character != player_identity and not session.scene_manager.load_character(character):
+                    raise ValueError(f"无法加载入队角色：{character}")
+            scope = (book.resolve_import_scope(session.scene_manager.get_scene_characters())
+                     if book else {"book_id": None, "resolved_entry_uids": []})
+            session.overlay.set_worldbook_scope(scope)
 
+        try:
+            session = session_mgr.create_session(
+                name=data.get("name", ""), mode=mode,
+                plot_name=plot_name if not data.get("name") else "",
+                combat_mode=combat_mode, player_identity=player_identity,
+                plot_id=plot_id, worldbook_id=book.id if book else "",
+                initializer=initialize,
+            )
+        except ValueError as exc:
+            return json_error(str(exc))
+        except Exception:
+            logger.exception("创建会话失败，已清理本次半成品")
+            return json_error("创建会话失败，请重试", 500)
         return jsonify(session.to_dict()), 201
 
     @bp.route("/api/sessions/<session_id>", methods=["GET"])
@@ -473,6 +500,7 @@ def register(app, managers):
                     "name": meta.get("name", entry.name),
                     "category": meta.get("category", "main"),
                     "priority": meta.get("priority", 5),
+                    "initial_characters": meta.get("initial_characters", []) if isinstance(meta.get("initial_characters", []), list) else [],
                     "trigger_location": meta.get("trigger", {}).get("location", []),
                     "trigger_character": meta.get("trigger", {}).get("character", []),
                 })

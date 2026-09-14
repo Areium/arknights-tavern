@@ -30,9 +30,15 @@ import random
 import re
 import time
 import uuid
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
+
+from worldbook_scope import (
+    EXTENSION_KEY, UNCLASSIFIED, validate_categories, validate_policy,
+    expand_sources, find_scope_extension,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +61,12 @@ SOURCE_CARD = "character_card"
 SOURCE_JSONL = "chat_backup_jsonl"
 SOURCE_MANUAL = "manual"
 SOURCE_PREINSTALLED = "preinstalled"
+
+DEFAULT_CATEGORIES = [
+    {"id": "worldview", "parent_id": None, "name": "世界观设定", "scope_type": "worldview", "sort_order": 10},
+    {"id": "characters", "parent_id": None, "name": "角色", "scope_type": "character", "sort_order": 20},
+    {"id": "other", "parent_id": None, "name": "其他", "scope_type": "other", "sort_order": 30},
+]
 
 
 def _pack_rev(data: dict) -> str:
@@ -118,6 +130,9 @@ class WorldBookEntry:
     group_weight: int = 100
     case_sensitive: bool = False
     match_whole_words: bool = False
+    # 应用私有元数据；不参与酒馆匹配语义，仅用于会话按需载入。
+    category_id: str = ""
+    character_id: str = ""
     raw: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -138,6 +153,8 @@ class WorldBookEntry:
             "group_weight": self.group_weight,
             "case_sensitive": self.case_sensitive,
             "match_whole_words": self.match_whole_words,
+            "category_id": self.category_id,
+            "character_id": self.character_id,
             "raw": self.raw,
         }
 
@@ -160,6 +177,8 @@ class WorldBookEntry:
             group_weight=int(data.get("group_weight", 100)),
             case_sensitive=bool(data.get("case_sensitive", False)),
             match_whole_words=bool(data.get("match_whole_words", False)),
+            category_id=str(data.get("category_id", "") or ""),
+            character_id=str(data.get("character_id", "") or ""),
             raw=dict(data.get("raw") or {}),
         )
 
@@ -233,6 +252,9 @@ def _normalize_entry(raw_entry: dict, index: int, warnings: list) -> Optional[Wo
     extensions = raw_entry.get("extensions")
     extensions = extensions if isinstance(extensions, dict) else {}
 
+    scope_meta = extensions.get(EXTENSION_KEY, {})
+    scope_meta = scope_meta if isinstance(scope_meta, dict) else {}
+
     content = _first(raw_entry, "content", default="")
     if not isinstance(content, str) or not content.strip():
         warnings.append(f"条目 #{index} 内容为空，已跳过")
@@ -285,6 +307,8 @@ def _normalize_entry(raw_entry: dict, index: int, warnings: list) -> Optional[Wo
                                        default=False), False),
         match_whole_words=_to_bool(_first(raw_entry, "matchWholeWords", "match_whole_words",
                                           default=False), False),
+        category_id=str(scope_meta.get("category_id", "") or ""),
+        character_id=str(scope_meta.get("character_id", "") or ""),
         raw=copy.deepcopy(raw_entry),
     )
 
@@ -542,7 +566,9 @@ class WorldBook:
     def __init__(self, book_id: str, name: str = "", entries: list = None,
                  source_format: str = SOURCE_MANUAL, budget_tokens: int = 0,
                  source: str = "imported", enabled: bool = True,
-                 pack_rev: str = ""):
+                 pack_rev: str = "", schema_version: int = 2,
+                 categories: list = None, dependency_edges: list = None,
+                 import_config: dict = None, scope_mode: str = None):
         self.id = book_id
         self.name = name or book_id
         self.source_format = source_format
@@ -557,6 +583,51 @@ class WorldBook:
         self.updated_at = time.time()
         self.pack_rev = str(pack_rev or "")
         self.entries: list[WorldBookEntry] = list(entries or [])
+        self.schema_version = 2
+        self.scope_mode = scope_mode or ("selective" if schema_version >= 2 and categories else "legacy")
+        if self.scope_mode not in ("legacy", "selective"):
+            raise ValueError("scope_mode 必须是 legacy 或 selective")
+        self.categories = self._normalize_categories(categories)
+        for entry in self.entries:
+            entry.category_id = entry.category_id or "unclassified"
+        self.dependency_edges = self._normalize_edges(dependency_edges)
+        self.import_config = self._normalize_import_config(import_config)
+
+    @staticmethod
+    def _normalize_categories(categories) -> list[dict]:
+        return validate_categories(categories if categories is not None else [])
+
+    def _normalize_edges(self, edges) -> list[dict]:
+        known = {e.uid for e in self.entries}
+        result, seen = [], set()
+        for raw in edges if isinstance(edges, list) else []:
+            if not isinstance(raw, dict):
+                continue
+            source, target = str(raw.get("from_uid", "") or ""), str(raw.get("to_uid", "") or "")
+            key = (source, target)
+            if source in known and target in known and source != target and key not in seen:
+                seen.add(key)
+                result.append({"from_uid": source, "to_uid": target})
+        return result
+
+    def _normalize_import_config(self, config) -> dict:
+        config = config if isinstance(config, dict) else {}
+        known = {e.uid for e in self.entries}
+        fixed = []
+        for uid in config.get("fixed_entry_uids", []) if isinstance(config.get("fixed_entry_uids", []), list) else []:
+            uid = str(uid)
+            if uid in known and uid not in fixed:
+                fixed.append(uid)
+        sources = []
+        for raw in config.get("dependency_sources", []) if isinstance(config.get("dependency_sources", []), list) else []:
+            if not isinstance(raw, dict):
+                continue
+            uid = str(raw.get("entry_uid", "") or "")
+            depth = raw.get("max_depth", 0)
+            if uid in known and type(depth) is int and 0 <= depth <= 32:
+                sources.append({"entry_uid": uid, "max_depth": depth})
+        return {"fixed_entry_uids": fixed, "dependency_sources": sources,
+                "revision": max(1, _to_int(config.get("revision", 1), 1))}
 
     # ── 序列化 ──
 
@@ -571,6 +642,11 @@ class WorldBook:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "entries": [e.to_dict() for e in self.entries],
+            "schema_version": self.schema_version,
+            "scope_mode": self.scope_mode,
+            "categories": self.categories,
+            "dependency_edges": self.dependency_edges,
+            "import_config": self.import_config,
         }
         # 仅预装包携带指纹，用户导入/新建的书序列化形态保持不变
         if self.pack_rev:
@@ -582,21 +658,128 @@ class WorldBook:
         book = WorldBook(
             book_id=str(data.get("id", "")),
             name=str(data.get("name", "")),
+            entries=[WorldBookEntry.from_dict(e) for e in data.get("entries", [])],
             source_format=str(data.get("source_format", SOURCE_MANUAL)),
             budget_tokens=int(data.get("budget_tokens", 0)),
             source=str(data.get("source", "imported")),
             enabled=bool(data.get("enabled", True)),
             pack_rev=str(data.get("pack_rev", "")),
+            schema_version=int(data.get("schema_version", 1) or 1),
+            categories=data.get("categories"),
+            dependency_edges=data.get("dependency_edges"),
+            import_config=data.get("import_config"),
+            scope_mode=data.get("scope_mode"),
         )
         book.created_at = float(data.get("created_at", time.time()))
         book.updated_at = float(data.get("updated_at", time.time()))
-        book.entries = [WorldBookEntry.from_dict(e) for e in data.get("entries", [])]
+        # 内置生成器的 UID 是可靠来源元数据；不按名字/关键词猜测外部书的角色关联。
+        if book.id == "arknights" and book.source == SOURCE_PREINSTALLED and "categories" not in data:
+            book.categories = validate_categories(copy.deepcopy(DEFAULT_CATEGORIES))
+            for entry in book.entries:
+                if entry.uid.startswith("characters_") and entry.uid.endswith("_index"):
+                    entry.category_id = "characters"
+                    entry.character_id = entry.uid[len("characters_"):-len("_index")]
+                elif entry.uid.split("_", 1)[0] in ("world", "rules", "attributes", "races", "classes", "weather", "Location"):
+                    entry.category_id = "worldview"
+                else:
+                    entry.category_id = "other"
+            book.scope_mode = "selective"
         return book
+
+    def category_scope_type(self, category_id: str) -> str:
+        """返回分类的有效类型；父链异常时安全回落 other。"""
+        by_id = {c["id"]: c for c in self.categories}
+        seen = set()
+        current = by_id.get(category_id)
+        while current and current["id"] not in seen:
+            seen.add(current["id"])
+            kind = current.get("scope_type")
+            if kind in ("worldview", "character"):
+                return kind
+            current = by_id.get(current.get("parent_id"))
+        return "other"
+
+    def resolve_import_scope(self, roster_character_ids: list[str] = None) -> dict:
+        """固定候选 UID 快照；不改变条目的关键词、常驻位置或预算。"""
+        if roster_character_ids is None:
+            roster_character_ids = []
+        if not isinstance(roster_character_ids, list) or any(
+                not isinstance(x, str) or not x.strip() for x in roster_character_ids):
+            raise ValueError("roster_character_ids 必须是非空字符串组成的数组")
+        roster = {x.strip() for x in roster_character_ids}
+        known = {e.uid: e for e in self.entries}
+        legacy = self.scope_mode == "legacy"
+        reasons = {"legacy": set(known) if legacy else set(), "worldview": set(),
+                   "roster": set(), "fixed": set(self.import_config["fixed_entry_uids"]),
+                   "dependency": expand_sources(self.import_config["dependency_sources"], self.dependency_edges)}
+        if not legacy:
+            for entry in self.entries:
+                kind = self.category_scope_type(entry.category_id)
+                if kind == "worldview":
+                    reasons["worldview"].add(entry.uid)
+                elif kind == "character" and entry.character_id in roster:
+                    reasons["roster"].add(entry.uid)
+        selected = set().union(*reasons.values())
+        resolved = [e.uid for e in self.entries if e.uid in selected and self.enabled and e.enabled and e.content.strip()]
+        return {"book_id": self.id, "policy_revision": self.import_config["revision"],
+                "roster_character_ids": sorted(roster), "resolved_entry_uids": resolved,
+                "legacy_full_scope": legacy, "resolved_at": time.time(),
+                "selection_reasons": {uid: [reason for reason, uids in reasons.items() if uid in uids]
+                                      for uid in sorted(selected)},
+                "excluded_entries": [{"uid": e.uid, "name": e.name,
+                                      "reason": "世界书已停用" if not self.enabled else "条目已停用" if not e.enabled else "内容为空"}
+                                     for e in self.entries if e.uid in selected and e.uid not in resolved]}
+
+    def preview_scope(self, roster_character_ids=None) -> dict:
+        scope = self.resolve_import_scope(roster_character_ids)
+        resolved = set(scope["resolved_entry_uids"])
+        full = [e for e in self.entries if e.enabled and e.content.strip()]
+        costs = {e.uid: estimate_tokens(e.content) for e in full}
+        total, selected = sum(costs.values()), sum(costs.get(uid, 0) for uid in resolved)
+        warnings = []
+        pending = sum(e.category_id == "unclassified" for e in full)
+        if pending:
+            warnings.append(f"{pending} 条尚未分类；按需模式下不会自动导入，可归类或设为固定导入。")
+        unlinked = sum(self.category_scope_type(e.category_id) == "character" and not e.character_id for e in full)
+        if unlinked:
+            warnings.append(f"{unlinked} 条角色设定未关联角色，不能随阵容自动导入。")
+        entry_names = {entry.uid: entry.name for entry in self.entries}
+        source_expansions = []
+        for source in self.import_config["dependency_sources"]:
+            expanded = expand_sources([source], self.dependency_edges) & resolved
+            source_expansions.append({
+                "entry_uid": source["entry_uid"],
+                "name": entry_names.get(source["entry_uid"], source["entry_uid"]),
+                "max_depth": source["max_depth"],
+                "entries": [{"uid": entry.uid, "name": entry.name}
+                            for entry in self.entries if entry.uid in expanded],
+            })
+        return {"scope": scope, "entry_count": len(resolved), "full_entry_count": len(full),
+                "full_estimated_tokens": total, "resolved_estimated_tokens": selected,
+                "saved_estimated_tokens": total - selected,
+                "saved_percent": round(100 * (total - selected) / total, 1) if total else 0,
+                "breakdown": {reason: {"entry_count": sum(reason in scope["selection_reasons"].get(uid, []) for uid in resolved),
+                                       "estimated_tokens": sum(costs.get(uid, 0) for uid in resolved if reason in scope["selection_reasons"].get(uid, []))}
+                              for reason in ("worldview", "roster", "fixed", "dependency", "legacy")},
+                "source_expansions": source_expansions,
+                "warnings": warnings}
+
+    def eligible_uids_for(self, overlay):
+        scope = getattr(overlay, "get_worldbook_scope", lambda: None)()
+        if scope is None:
+            if not hasattr(overlay, "set_worldbook_scope"):
+                return None
+            # 首次使用时为旧会话留存全量兼容快照，之后新增条目不悄悄扩张旧剧情。
+            scope = {"book_id": self.id, "policy_revision": self.import_config["revision"],
+                     "resolved_entry_uids": [e.uid for e in self.entries if e.enabled and e.content.strip()],
+                     "legacy_full_scope": True, "resolved_at": time.time()}
+            overlay.set_worldbook_scope(scope)
+        return set(scope.get("resolved_entry_uids", [])) if scope.get("book_id") == self.id else set()
 
     # ── 触发 ──
 
     def collect_matches(self, recent_text: str, current_input: str,
-                        rng: random.Random = None) -> list[WorldBookEntry]:
+                        rng: random.Random = None, eligible_uids: set[str] | None = None) -> list[WorldBookEntry]:
         """扫描最近对话 + 当前输入，返回被触发的条目（按注入顺序排序）。
 
         Args:
@@ -610,6 +793,8 @@ class WorldBook:
 
         matched: list[WorldBookEntry] = []
         for entry in self.entries:
+            if eligible_uids is not None and entry.uid not in eligible_uids:
+                continue
             if not entry.enabled:
                 continue
             if not _entry_matches(entry, scan_text):
@@ -678,10 +863,10 @@ class WorldBook:
         for i, entry in enumerate(self.entries):
             out = dict(entry.raw) if entry.raw else {}
             # 同步可能被编辑过的字段
-            out["uid"] = out.get("uid", entry.uid)
-            out["key"] = _first(out, "key", default=entry.trigger_keys)
-            out["keysecondary"] = _first(out, "keysecondary", default=entry.secondary_keys)
-            out["comment"] = _first(out, "comment", default=entry.name)
+            out["uid"] = entry.uid
+            out["key"] = entry.trigger_keys
+            out["keysecondary"] = entry.secondary_keys
+            out["comment"] = entry.name
             out["content"] = entry.content
             out["constant"] = entry.always_active
             out["selective"] = entry.selective
@@ -701,9 +886,18 @@ class WorldBook:
             out["caseSensitive"] = entry.case_sensitive
             out["matchWholeWords"] = entry.match_whole_words
             out["displayIndex"] = out.get("displayIndex", i)
+            extensions = out.get("extensions")
+            out["extensions"] = {**(extensions if isinstance(extensions, dict) else {}),
+                                 EXTENSION_KEY: {"category_id": entry.category_id,
+                                                 "character_id": entry.character_id}}
             key = str(out.get("uid", i))
             entries_map[key] = out
-        return {"entries": entries_map}
+        return {"entries": entries_map, "extensions": {EXTENSION_KEY: {
+            "schema_version": 2, "scope_mode": self.scope_mode,
+            "categories": copy.deepcopy(self.categories),
+            "dependency_edges": copy.deepcopy(self.dependency_edges),
+            "import_config": copy.deepcopy(self.import_config),
+        }}}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -916,10 +1110,18 @@ class WorldBookManager:
     def save(self, book: WorldBook):
         """统一保存（预装包安装副本与导入书同样可写）。"""
         book.updated_at = time.time()
-        self._cache[book.id] = book
-        with open(self._path(book.id), "w", encoding="utf-8") as f:
-            json.dump(book.to_dict(), f, ensure_ascii=False, indent=2)
-            f.write("\n")
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self._dir,
+                                             prefix=".worldbook-", suffix=".tmp", delete=False) as f:
+                temporary = Path(f.name)
+                json.dump(book.to_dict(), f, ensure_ascii=False, indent=2)
+                f.write("\n")
+            temporary.replace(self._path(book.id))
+            self._cache[book.id] = book
+        finally:
+            if temporary and temporary.exists():
+                temporary.unlink()
 
     def create_book(self, name: str, entries: list = None,
                     source_format: str = SOURCE_MANUAL,
@@ -927,15 +1129,37 @@ class WorldBookManager:
         book_id = uuid.uuid4().hex[:12]
         book = WorldBook(book_id, name=name, entries=entries,
                          source_format=source_format, budget_tokens=budget_tokens,
-                         source="imported")
+                         source="imported", categories=copy.deepcopy(DEFAULT_CATEGORIES))
         self.save(book)
         return book
 
     def import_book(self, name: str, source) -> tuple[WorldBook, ImportReport]:
         """解析并创建一本书。source 为 dict 或 str（JSON/JSONL 文本）。"""
         entries, report = parse_lorebook(source)
-        book = self.create_book(name or "导入的世界书", entries=entries,
-                                source_format=report.source_format)
+        obj = source
+        if isinstance(source, str):
+            try:
+                obj = json.loads(source)
+            except ValueError:
+                obj = None
+        extension = find_scope_extension(obj)
+        book = WorldBook(uuid.uuid4().hex[:12], name or "导入的世界书", entries,
+                         source_format=report.source_format, scope_mode="legacy")
+        if extension:
+            if not isinstance(extension.get("import_config", {}), dict):
+                raise ValueError("导入的 import_config 必须是对象")
+            book.categories = validate_categories(extension.get("categories", []))
+            mode = extension.get("scope_mode", "legacy")
+            if mode not in ("legacy", "selective"):
+                raise ValueError("导入的范围模式无效")
+            book.scope_mode = mode
+            config, edges = validate_policy({e.uid for e in entries}, {
+                **extension.get("import_config", {}), "dependency_edges": extension.get("dependency_edges", [])})
+            config["revision"] = max(1, _to_int(extension.get("import_config", {}).get("revision"), 1))
+            book.import_config, book.dependency_edges = config, edges
+            if any(e.category_id not in {c["id"] for c in book.categories} for e in entries):
+                raise ValueError("导入的条目引用了不存在的分类")
+        self.save(book)
         return book, report
 
     def duplicate_book(self, book_id: str, new_name: str = None) -> WorldBook:
@@ -947,11 +1171,15 @@ class WorldBookManager:
         new_book = WorldBook(
             new_id,
             name=(new_name or f"{book.name}（副本）").strip(),
-            entries=book.entries,
+            entries=copy.deepcopy(book.entries),
             source_format=book.source_format,
             budget_tokens=book.budget_tokens,
             source="imported",
             enabled=book.enabled,
+            categories=copy.deepcopy(book.categories),
+            dependency_edges=copy.deepcopy(book.dependency_edges),
+            import_config=copy.deepcopy(book.import_config),
+            scope_mode=book.scope_mode,
         )
         new_book.created_at = time.time()
         new_book.updated_at = time.time()
@@ -1035,6 +1263,12 @@ class WorldBookManager:
         """
         book_id = None
         if overlay is not None:
+            # 新会话显式“不绑定”不得回退全书；已存快照的书被删除/停用也不改绑。
+            scope = getattr(overlay, "get_worldbook_scope", lambda: None)()
+            if scope is not None:
+                book_id = scope.get("book_id")
+                book = self.load(book_id) if book_id else None
+                return book if book and book.enabled else None
             try:
                 book_id = overlay.get_worldbook_id()
             except Exception:

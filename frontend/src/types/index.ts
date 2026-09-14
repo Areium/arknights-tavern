@@ -30,6 +30,7 @@ export interface Session {
   player_identity?: string;
   plot_id: string | null;
   worldbook_id?: string | null;
+  worldbook_scope?: WorldBookScopeDTO | null;
   created_at: number;
   usable: boolean;
   characters: string[];
@@ -213,6 +214,7 @@ export interface PlotInfo {
   name: string;
   category: string;
   priority: number;
+  initial_characters?: string[];
 }
 
 /** 战斗单位 */
@@ -661,6 +663,8 @@ export interface WorldBookEntryDTO {
   group_weight: number;
   case_sensitive: boolean;
   match_whole_words: boolean;
+  category_id?: string;
+  character_id?: string;
   /** 酒馆原始字段（导出回灌用） */
   raw?: Record<string, any>;
 }
@@ -668,6 +672,56 @@ export interface WorldBookEntryDTO {
 /** 世界书详情（含条目） */
 export interface WorldBookDetail extends WorldBookSummary {
   entries: WorldBookEntryDTO[];
+  schema_version?: number;
+  scope_mode?: "legacy" | "selective";
+  categories?: WorldBookCategoryDTO[];
+  dependency_edges?: WorldBookDependencyEdgeDTO[];
+  import_config?: WorldBookImportConfigDTO;
+}
+
+export type WorldBookScopeType = "worldview" | "character" | "other";
+export interface WorldBookCategoryDTO {
+  id: string;
+  parent_id: string | null;
+  name: string;
+  scope_type: WorldBookScopeType;
+  sort_order: number;
+}
+export interface WorldBookDependencyEdgeDTO { from_uid: string; to_uid: string; }
+export interface WorldBookImportConfigDTO {
+  fixed_entry_uids: string[];
+  dependency_sources: Array<{ entry_uid: string; max_depth: number }>;
+  revision: number;
+}
+
+export interface WorldBookScopeDTO {
+  book_id: string | null;
+  policy_revision?: number;
+  roster_character_ids?: string[];
+  resolved_entry_uids: string[];
+  legacy_full_scope?: boolean;
+  resolved_at?: number;
+  selection_reasons?: Record<string, string[]>;
+  excluded_entries?: Array<{ uid: string; name: string; reason: string }>;
+}
+export interface WorldBookPolicyDraft {
+  fixed_entry_uids: string[];
+  dependency_sources: WorldBookImportConfigDTO["dependency_sources"];
+  dependency_edges: WorldBookDependencyEdgeDTO[];
+  scope_mode: "legacy" | "selective";
+  expected_revision?: number;
+}
+export interface WorldBookScopePreviewDTO {
+  scope: WorldBookScopeDTO;
+  entry_count: number;
+  full_entry_count: number;
+  full_estimated_tokens: number;
+  resolved_estimated_tokens: number;
+  saved_estimated_tokens: number;
+  saved_percent: number;
+  breakdown: Record<string, { entry_count: number; estimated_tokens: number }>;
+  source_expansions?: Array<{ entry_uid: string; name: string; max_depth: number; entries: Array<{ uid: string; name: string }> }>;
+  warnings: string[];
 }
 
 /** 导入报告 */

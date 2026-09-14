@@ -12,7 +12,7 @@ import time
 import logging
 import threading
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Callable
 
 from SceneManager import SceneManager
 from avatar_color import get_theme_color
@@ -66,6 +66,8 @@ class Session:
         # Wiki 文档上下文
         self._wiki_manager = wiki_manager
         self.wiki_context = SessionContext()
+        # CharacterAgent 复用该上下文，借此取得会话级世界书候选范围。
+        self.wiki_context.overlay = self.overlay
 
         # LLM 延迟检测 — 首次 get_llm() 调用时才探测后端
         self._llm = None
@@ -120,7 +122,9 @@ class Session:
         self.total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
         self._load_memories()
+        self.scene_manager._restoring_scope = True
         self._restore_scene()
+        self.scene_manager._restoring_scope = False
 
     @property
     def is_usable(self) -> bool:
@@ -616,6 +620,7 @@ class Session:
             "player_identity": self.player_identity,
             "plot_id": self.overlay.get_plot_id(),
             "worldbook_id": self.overlay.get_worldbook_id(),
+            "worldbook_scope": self.overlay.get_worldbook_scope(),
             "custom_prompt": self.overlay.get_custom_prompt(),
             "created_at": self.created_at,
             "usable": self.is_usable,
@@ -660,7 +665,8 @@ class SessionManager:
 
     def create_session(self, name: str = "", mode: str = "free", plot_name: str = "",
                         combat_mode: str = "narrative", worldbook_id: str = "",
-                        player_identity: str = "博士", plot_id: str = "") -> Session:
+                        player_identity: str = "博士", plot_id: str = "",
+                        initializer: Callable[[Session], None] | None = None) -> Session:
         """创建新会话。
 
         Args:
@@ -684,17 +690,24 @@ class SessionManager:
             while name in existing:
                 counter += 1
                 name = f"{base}·{counter}"
-        session = Session(session_id, self._llm_backend, name=name, mode=mode,
-                         combat_mode=combat_mode,
-                         player_identity=player_identity,
-                         wiki_manager=self._wiki_manager,
-                         worldbook_manager=self._worldbook_manager,
-                         empty_environment=(mode == "story" and not plot_id))
-        if worldbook_id:
-            session.overlay.set_worldbook_id(worldbook_id)
+        try:
+            session = Session(session_id, self._llm_backend, name=name, mode=mode,
+                              combat_mode=combat_mode,
+                              player_identity=player_identity,
+                              wiki_manager=self._wiki_manager,
+                              worldbook_manager=self._worldbook_manager,
+                              empty_environment=(mode == "story" and not plot_id))
+            if worldbook_id:
+                session.overlay.set_worldbook_id(worldbook_id)
+            if initializer:
+                initializer(session)
+            self._save_session_meta(session)
+        except Exception:
+            # 新创建的会话还未公开；失败时只清理本次唯一 ID 对应的半成品。
+            SessionOverlay.delete_session_overlays(session_id, mode)
+            raise
         with self._lock:
             self._sessions[session_id] = session
-        self._save_session_meta(session)
         logger.info("创建会话: %s (mode=%s, chars=%s)",
                      session_id, mode, session.scene_manager.get_scene_characters())
         return session

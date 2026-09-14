@@ -208,6 +208,34 @@ def test_constant_always_matches():
     assert len(book.collect_matches("", "任何输入")) == 1
 
 
+def test_scope_resolves_worldview_roster_fixed_and_dependencies_with_cycle():
+    entries = [
+        _e("world", always_active=True, category_id="world"),
+        _e("amiya", category_id="characters", character_id="阿米娅"),
+        _e("other", category_id="other"),
+        _e("dep-a", category_id="other"),
+        _e("dep-b", category_id="other"),
+    ]
+    book = WorldBook("t", "测试", entries, categories=[
+        {"id": "world", "name": "世界观", "scope_type": "worldview"},
+        {"id": "characters", "name": "角色", "scope_type": "character"},
+        {"id": "other", "name": "其他", "scope_type": "other"},
+    ], dependency_edges=[
+        {"from_uid": "dep-a", "to_uid": "dep-b"},
+        {"from_uid": "dep-b", "to_uid": "dep-a"},
+    ], import_config={"fixed_entry_uids": ["other"],
+                      "dependency_sources": [{"entry_uid": "dep-a", "max_depth": 3}]})
+    scope = book.resolve_import_scope(["阿米娅"])
+    assert set(scope["resolved_entry_uids"]) == {"world", "amiya", "other", "dep-a", "dep-b"}
+    assert scope["legacy_full_scope"] is False
+
+
+def test_scope_legacy_book_remains_full_and_matching_can_filter_uids():
+    book = WorldBook("t", "测试", [_e("one", always_active=True), _e("two", always_active=True)])
+    assert set(book.resolve_import_scope()["resolved_entry_uids"]) == {"one", "two"}
+    assert [entry.uid for entry in book.collect_matches("", "", eligible_uids={"one"})] == ["one"]
+
+
 def test_selective_requires_primary_and_secondary():
     e = _e(trigger_keys=["凯尔希"], secondary_keys=["罗德岛"], selective=True)
     assert len(_book([e]).collect_matches("", "凯尔希今天不在")) == 0

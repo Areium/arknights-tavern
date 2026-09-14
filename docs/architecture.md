@@ -34,8 +34,8 @@
 
 | 模块 | 职责 |
 |---|---|
-| `session_manager.py` | 会话 CRUD、回滚、叙述变体。**`combat_mode`（`"narrative"` \| `"tactical"`）创建时选定，不可更改** |
-| `session_overlay.py` | 职责聚合：角色/物品属性覆盖 + 剧情日志（保留最近 15 条）+ 节拍状态 + 任务系统 + 世界书绑定（`worldbook_id`） |
+| `session_manager.py` | 会话 CRUD、回滚、叙述变体；创建时通过 initializer 在发布前完成阵容与世界书范围初始化。**`combat_mode`（`"narrative"` \| `"tactical"`）创建时选定，不可更改** |
+| `session_overlay.py` | 职责聚合：角色/物品属性覆盖 + 剧情日志（保留最近 15 条）+ 节拍状态 + 任务系统 + 世界书绑定（`worldbook_id`）与候选快照（`worldbook_scope`） |
 | `session_context.py` | 按会话缓存文档摘要 |
 | `session_resources.py` / `session_export.py` | 会话级资源（背景/形象覆盖）与会话存档导出 |
 | `environment_state.py` | 地点/天气/时间状态机，从 `data/environment/` 加载 |
@@ -49,6 +49,7 @@
 
 - `world_book.py` — 世界书（酒馆 Lorebook 兼容）：4 源解析（v1/v2/卡内嵌/jsonl）+ 关键词触发匹配 + 注入格式化 + 回灌导出 + `WorldBookManager`（`data/worldbooks/`，gitignored）。
   **注入纪律：常驻 position-0 条目进稳定层，触发型条目一律进动态层（前缀缓存稳定）。**
+- `worldbook_scope.py` — 多级分类、角色关联与导入策略校验，有向依赖深度遍历；候选范围由世界观 / 阵容 / 固定 / 依赖去重合成。`world_book.py` 提供估算预览与旧书/旧会话快照兼容，两个 prompt 入口均过滤候选。详见 `worldbook-on-demand.md`。
 - `memory.py` — `VectorMemory`：最近轮次滑动窗口 + ChromaDB 语义搜索，持久化于 `data/memory/`（gitignored）。
 
 ### 2.4 战斗后端
@@ -111,10 +112,12 @@
 
 ### 3.4 管理页
 
-- `components/ContentHub.tsx` — 内容中心（Tab：索引/资产/卡牌/节点图；文档管理已移除——世界观语料经 `scripts/generate_builtin_worldbook.py` 整理为世界书整合包 `data/packs/arknights.json`，浏览与编辑走世界书模块）
+- `components/ContentHub.tsx` — 内容中心（Tab：世界书图谱/索引/资产/卡牌/节点图；文档管理已移除——世界观语料经 `scripts/generate_builtin_worldbook.py` 整理为世界书整合包 `data/packs/arknights.json`，浏览与编辑走世界书模块）
 - `components/AssetManager.tsx` — 资产目录：图片上传/裁剪/默认图，实体显示上级目录与来源世界书（frontmatter `worldbook_id`），按书筛选与归类
 - `components/CardManager.tsx` — 卡牌管理：角色/职业卡牌编辑（CardEditor），条目显示所属世界书，按书筛选
-- `components/WorldBookManager.tsx` — 世界书管理：导入（文件/粘贴，支持角色卡 PNG/JSON 连带导入角色 + 内嵌世界书）、条目编辑器、会话绑定、酒馆格式导出
+- `components/WorldBookManager.tsx` — 世界书管理：导入（文件/粘贴，支持角色卡 PNG/JSON 连带导入角色 + 内嵌世界书）、分类图谱 / 条目正文切换、条目编辑器、会话绑定、酒馆格式导出
+- `components/WorldBookDependencyPage.tsx` / `WorldBookScopeManager.tsx` — 世界书分类与依赖工作台：节点目录、上下文属性、固定导入底栏、策略草稿与只读预览；`WorldBookScopePreview.tsx` 同时用于创建向导
+- `components/WorldBookGraphCanvas.tsx` / `utils/worldbookGraph.ts` — Neo4j 风格圆形节点图：分类归属与有向依赖、拖动/平移/缩放、关系高亮、确定性布局及大书显示限额；复用内容中心 `--ng-*` 配色，不修改战斗画布
 - `components/SettingsPanel.tsx` — LLM 配置/主题/叙述选项
 
 ### 3.5 状态与数据获取
@@ -165,6 +168,7 @@
 | `battle-spec.md` | 战斗规格（节点 JSON 全字段/地形效果/威胁与阶段带/校验规则/生成闭环），LLM 与设计者共用 |
 | `combat-background-prompts.md` | 战斗背景图生成提示词规范 |
 | `content-hub-design.md` | 内容中心整合设计 |
+| `worldbook-on-demand.md` | 世界书分类与依赖图谱、按需候选范围、快照兼容与 API |
 | `tutorial.md`、`game-experience-roadmap.md`、`perf-round-latency.md` | 教程、体验路线、性能记录 |
 | `prompt.md` | Prompt 工程策略与模板设计 |
 | `system-update-log.md` | 系统更新日志 |

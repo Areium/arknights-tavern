@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useApi } from "../hooks/useApi";
 import { useAppStore } from "../stores/appStore";
 import type {
@@ -6,9 +6,14 @@ import type {
   WorldBookEntryDTO,
   WorldBookImportReport,
   WorldBookSummary,
+  WorldBookCategoryDTO,
 } from "../types";
 import SourceBadge from "./SourceBadge";
+import WorldBookGraphIcon from "./WorldBookGraphIcon";
+import "../styles/worldbook-graph.css";
 import { useDialogMinimize } from "../hooks/useDialogMinimize";
+const WorldBookScopeManager = lazy(() => import("./WorldBookScopeManager"));
+import { categoryDescendants, flattenCategoryTree } from "../utils/worldbookScope";
 
 /** 条目编辑器对话框 id（Esc 守卫与恢复入口共用） */
 const ENTRY_EDITOR_DIALOG_ID = "worldbook-entry-editor";
@@ -30,6 +35,8 @@ interface EntryDraft {
   groupWeight: number;
   caseSensitive: boolean;
   matchWholeWords: boolean;
+  categoryId: string;
+  characterId: string;
 }
 
 function entryToDraft(e: WorldBookEntryDTO): EntryDraft {
@@ -49,6 +56,8 @@ function entryToDraft(e: WorldBookEntryDTO): EntryDraft {
     groupWeight: e.group_weight ?? 100,
     caseSensitive: !!e.case_sensitive,
     matchWholeWords: !!e.match_whole_words,
+    categoryId: e.category_id || "unclassified",
+    characterId: e.character_id || "",
   };
 }
 
@@ -71,6 +80,8 @@ function draftToEntry(draft: EntryDraft): Partial<WorldBookEntryDTO> {
     group_weight: draft.groupWeight,
     case_sensitive: draft.caseSensitive,
     match_whole_words: draft.matchWholeWords,
+    category_id: draft.categoryId.trim(),
+    character_id: draft.characterId.trim(),
   };
 }
 
@@ -92,11 +103,17 @@ export default function WorldBookManager() {
   const sessions = useAppStore((s) => s.sessions);
   const worldbookJumpId = useAppStore((s) => s.worldbookJumpId);
   const setWorldbookJumpId = useAppStore((s) => s.setWorldbookJumpId);
+  const worldbookEntryJump = useAppStore((s) => s.worldbookEntryJump);
+  const setWorldbookEntryJump = useAppStore((s) => s.setWorldbookEntryJump);
 
   const [books, setBooks] = useState<WorldBookSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<WorldBookDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [detailTab, setDetailTab] = useState<"taxonomy" | "entries">("taxonomy");
+  useEffect(() => { setCategoryFilter(""); }, [selectedId]);
+  const visibleCategories = categoryFilter ? categoryDescendants(detail?.categories || [], categoryFilter) : null;
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ text: string; type: "ok" | "error" } | null>(null);
   const [importReport, setImportReport] = useState<WorldBookImportReport | null>(null);
@@ -394,12 +411,20 @@ export default function WorldBookManager() {
     }));
   };
 
-  const openEdit = (e: WorldBookEntryDTO) => {
+  const openEdit = useCallback((e: WorldBookEntryDTO) => {
     setEditorMode("edit");
     setEditingUid(e.uid);
     setDirty(false);
     setDraft(entryToDraft(e));
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!worldbookEntryJump || detail?.id !== worldbookEntryJump.bookId) return;
+    const entry = detail.entries.find((item) => item.uid === worldbookEntryJump.entryUid);
+    if (entry) openEdit(entry);
+    else showToast("要编辑的条目已不存在，请重新选择。", "error");
+    setWorldbookEntryJump(null);
+  }, [detail, worldbookEntryJump, openEdit, setWorldbookEntryJump, showToast]);
 
   const saveEntry = async () => {
     if (!detail || !draft) return;
@@ -640,7 +665,7 @@ export default function WorldBookManager() {
       </div>
 
       {/* ═══ 右侧：详情 + 条目管理 ═══ */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 min-w-0 overflow-y-auto p-4">
         {!detail && (
           <p className="text-gray-600 text-sm mt-8 text-center">
             选择左侧世界书，或导入/新建一本。
@@ -754,7 +779,18 @@ export default function WorldBookManager() {
               </div>
             </div>
 
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <nav className="wbg-view-tabs" aria-label="世界书管理视图">
+                <button aria-pressed={detailTab === "taxonomy"} onClick={() => { setDetailTab("taxonomy"); setCategoryFilter(""); }}><WorldBookGraphIcon name="graph" size={14} />分类图谱</button>
+                <button aria-pressed={detailTab === "entries"} onClick={() => setDetailTab("entries")}><WorldBookGraphIcon name="folder" size={14} />条目正文 · {detail.entries.length}</button>
+              </nav>
+              {categoryFilter && detailTab === "entries" && <button className="text-xs text-gray-400 hover:text-gray-200" onClick={() => setCategoryFilter("")}>清除分类筛选 ×</button>}
+            </div>
+
+            {detailTab === "taxonomy" && <div className="wbg-taxonomy-shell"><Suspense fallback={<p className="text-xs text-gray-400">加载分类图谱…</p>}><WorldBookScopeManager key={detail.id} detail={detail} view="taxonomy" onChanged={() => loadDetail(detail.id)} onCategoryChange={setCategoryFilter} onEditEntry={openEdit} /></Suspense></div>}
+
             {/* ── 条目区 ── */}
+            {detailTab === "entries" && <>
             <div className="flex items-center justify-between mb-2">
               <h3 className="panel-title">条目（{detail.entries.length}）</h3>
               <button
@@ -772,7 +808,7 @@ export default function WorldBookManager() {
               <p className="text-gray-600 text-xs">本书暂无条目。</p>
             )}
             <div className="space-y-2">
-              {detail.entries.map((e) => (
+              {detail.entries.filter((e) => !visibleCategories || visibleCategories.has(e.category_id || "unclassified")).map((e) => (
                 <div
                   key={e.uid}
                   className={`p-2.5 rounded-lg border transition-colors ${
@@ -841,7 +877,7 @@ export default function WorldBookManager() {
                 </div>
               ))}
             </div>
-
+            </>}
           </>
         )}
       </div>
@@ -857,6 +893,7 @@ export default function WorldBookManager() {
               : `编辑条目：${draft.name || "(未命名)"}`
           }
           draft={draft}
+          categories={detail?.categories || []}
           saving={saving}
           onChange={handleDraftChange}
           onCancel={cancelEditor}
@@ -885,6 +922,7 @@ function EntryEditorModal({
   mode,
   title,
   draft,
+  categories,
   saving,
   onChange,
   onCancel,
@@ -893,6 +931,7 @@ function EntryEditorModal({
   mode: "create" | "edit";
   title: string;
   draft: EntryDraft;
+  categories: WorldBookCategoryDTO[];
   saving: boolean;
   onChange: (patch: Partial<EntryDraft>) => void;
   onCancel: () => void;
@@ -989,6 +1028,16 @@ function EntryEditorModal({
                 value={draft.group}
                 onChange={(e) => onChange({ group: e.target.value })}
               />
+            </label>
+            <label className="text-xs text-gray-400">
+              分类
+              <select className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200" value={draft.categoryId} onChange={(e) => onChange({ categoryId: e.target.value, characterId: categories.find((c) => c.id === e.target.value)?.scope_type === "character" ? draft.characterId : "" })}>
+                {flattenCategoryTree(categories).map(({ category, level }) => <option key={category.id} value={category.id}>{"　".repeat(level)}{category.name}</option>)}
+              </select>
+            </label>
+            <label className="text-xs text-gray-400">
+              关联角色目录名（角色类条目必填）
+              <input disabled={categories.find((c) => c.id === draft.categoryId)?.scope_type !== "character"} className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200 disabled:opacity-40" value={draft.characterId} onChange={(e) => onChange({ characterId: e.target.value })} />
             </label>
             <label className="text-xs text-gray-400">
               插入位置

@@ -20,11 +20,13 @@ Worldbook blueprint — 世界书（酒馆 Lorebook 兼容）管理 API。
 import json
 import logging
 import uuid
+import copy
 
 from flask import Blueprint, jsonify, request
 
 from shared.helpers import json_error
 from world_book import WorldBook, WorldBookEntry
+from worldbook_scope import validate_categories, validate_policy
 
 logger = logging.getLogger(__name__)
 
@@ -46,14 +48,26 @@ def _entry_from_payload(payload: dict, uid: str = None) -> WorldBookEntry:
         selective=bool(payload.get("selective", True)),
         enabled=bool(payload.get("enabled", True)),
         position=1 if int(payload.get("position", 0) or 0) else 0,
-        depth=max(0, int(payload.get("depth", 4) or 4)),
+        depth=max(0, int(payload.get("depth", 4))),
         scan_depth=max(1, int(payload.get("scan_depth", 4) or 4)),
-        probability=max(0, min(100, int(payload.get("probability", 100) or 100))),
+        probability=max(0, min(100, int(payload.get("probability", 100)))),
         group=str(payload.get("group", "") or ""),
         group_weight=int(payload.get("group_weight", 100) or 100),
         case_sensitive=bool(payload.get("case_sensitive", False)),
         match_whole_words=bool(payload.get("match_whole_words", False)),
+        category_id=str(payload.get("category_id", "") or "unclassified"),
+        character_id=str(payload.get("character_id", "") or "").strip(),
     )
+
+
+def _validate_entry_scope(book, entry):
+    if entry.category_id not in {c["id"] for c in book.categories}:
+        raise ValueError("条目引用了不存在的分类")
+    kind = book.category_scope_type(entry.category_id)
+    if kind == "character" and not entry.character_id:
+        raise ValueError("角色分类的条目必须关联角色标识（角色目录名）")
+    if kind != "character" and entry.character_id:
+        raise ValueError("非角色分类不可关联角色；请清空角色标识")
 
 
 def _decode_upload(raw: bytes) -> str:
@@ -174,7 +188,7 @@ def register(app, managers):
         book = wb_mgr.load(book_id)
         if not book:
             return None, json_error("世界书不存在", 404)
-        return book, None
+        return copy.deepcopy(book), None
 
     def _book_detail(book: "WorldBook", include_entries: bool = True) -> dict:
         detail = {
@@ -189,6 +203,11 @@ def register(app, managers):
             "updated_at": book.updated_at,
             "entry_count": len(book.entries),
             "is_default": wb_mgr.get_default_book_id() == book.id,
+            "schema_version": book.schema_version,
+            "scope_mode": book.scope_mode,
+            "categories": book.categories,
+            "dependency_edges": book.dependency_edges,
+            "import_config": book.import_config,
         }
         if include_entries:
             detail["entries"] = [e.to_dict() for e in book.entries]
@@ -368,9 +387,13 @@ def register(app, managers):
             return err
         try:
             entry = _entry_from_payload(request.json or {})
-        except ValueError as e:
+            _validate_entry_scope(book, entry)
+            if any(e.uid == entry.uid for e in book.entries):
+                raise ValueError("条目 UID 已存在")
+        except (TypeError, ValueError) as e:
             return json_error(str(e))
         book.entries.append(entry)
+        book.import_config["revision"] += 1
         wb_mgr.save(book)
         return jsonify({"entry": entry.to_dict()}), 201
 
@@ -382,12 +405,17 @@ def register(app, managers):
         for i, e in enumerate(book.entries):
             if e.uid == entry_id:
                 try:
-                    updated = _entry_from_payload(request.json or {}, uid=entry_id)
-                except ValueError as exc:
+                    if not isinstance(request.json, dict):
+                        raise ValueError("条目数据必须是对象")
+                    payload = {**e.to_dict(), **request.json}
+                    updated = _entry_from_payload(payload, uid=entry_id)
+                    _validate_entry_scope(book, updated)
+                except (TypeError, ValueError) as exc:
                     return json_error(str(exc))
                 # 保留 raw 以便导出回灌（编辑过的字段在 export_st 时会被覆盖）
                 updated.raw = e.raw
                 book.entries[i] = updated
+                book.import_config["revision"] += 1
                 wb_mgr.save(book)
                 return jsonify({"entry": updated.to_dict()})
         return json_error("条目不存在", 404)
@@ -400,9 +428,101 @@ def register(app, managers):
         for i, e in enumerate(book.entries):
             if e.uid == entry_id:
                 book.entries.pop(i)
+                affected = {"dependency_edges": sum(entry_id in (edge["from_uid"], edge["to_uid"]) for edge in book.dependency_edges),
+                            "fixed_entries": int(entry_id in book.import_config["fixed_entry_uids"]),
+                            "dependency_sources": sum(s["entry_uid"] == entry_id for s in book.import_config["dependency_sources"])}
+                book.dependency_edges = [edge for edge in book.dependency_edges
+                                         if entry_id not in (edge["from_uid"], edge["to_uid"])]
+                config = book.import_config
+                config["fixed_entry_uids"] = [uid for uid in config["fixed_entry_uids"] if uid != entry_id]
+                config["dependency_sources"] = [s for s in config["dependency_sources"]
+                                                if s["entry_uid"] != entry_id]
+                config["revision"] += 1
                 wb_mgr.save(book)
-                return jsonify({"message": "已删除"})
+                return jsonify({"message": "已删除", "affected": affected})
         return json_error("条目不存在", 404)
+
+    # ── 4.1 分类树 / 依赖导入配置 ──
+
+    def _policy_candidate(book, data):
+        if not isinstance(data, dict):
+            raise ValueError("请求体必须是对象")
+        config, edges = validate_policy({e.uid for e in book.entries},
+                                        {**book.import_config, **data}, book.dependency_edges)
+        mode = data.get("scope_mode", book.scope_mode)
+        if mode not in ("legacy", "selective"):
+            raise ValueError("scope_mode 必须是 legacy 或 selective")
+        candidate = copy.deepcopy(book)
+        candidate.import_config = {**config, "revision": book.import_config["revision"] + 1}
+        candidate.dependency_edges, candidate.scope_mode = edges, mode
+        return candidate
+
+    @bp.route("/api/worldbook/<book_id>/taxonomy", methods=["PUT"])
+    def update_taxonomy(book_id):
+        book, err = _get_book_or_404(book_id)
+        if err:
+            return err
+        data = request.json
+        try:
+            if not isinstance(data, dict):
+                raise ValueError("请求体必须是对象")
+            if data.get("expected_revision", book.import_config["revision"]) != book.import_config["revision"]:
+                return json_error("配置已变更，请重新加载后再保存", 409)
+            old_kinds = {e.uid: book.category_scope_type(e.category_id) for e in book.entries}
+            book.categories = validate_categories(data.get("categories"))
+            moves = data.get("entry_moves", {})
+            if not isinstance(moves, dict) or any(uid not in {e.uid for e in book.entries} for uid in moves):
+                raise ValueError("entry_moves 必须按有效条目 UID 指定目标分类")
+            category_ids = {c["id"] for c in book.categories}
+            for entry in book.entries:
+                if entry.uid in moves:
+                    target = moves[entry.uid]
+                    if not isinstance(target, str) or target not in category_ids:
+                        raise ValueError(f"条目 {entry.uid} 的目标分类不存在")
+                    entry.category_id = target
+                    if book.category_scope_type(target) != "character":
+                        entry.character_id = ""
+                if entry.category_id not in category_ids:
+                    raise ValueError(f"请先为分类中的条目 {entry.uid} 指定迁移目标")
+                if entry.uid in moves or old_kinds[entry.uid] != book.category_scope_type(entry.category_id):
+                    _validate_entry_scope(book, entry)
+        except (TypeError, ValueError) as exc:
+            return json_error(str(exc))
+        # 编辑分类不隐式退出旧书兼容模式；用户检查预览后显式启用按需模式。
+        book.import_config["revision"] += 1
+        wb_mgr.save(book)
+        return jsonify(_book_detail(book))
+
+    @bp.route("/api/worldbook/<book_id>/import-config", methods=["PUT"])
+    def update_import_config(book_id):
+        book, err = _get_book_or_404(book_id)
+        if err:
+            return err
+        data = request.json
+        try:
+            if isinstance(data, dict) and data.get("expected_revision", book.import_config["revision"]) != book.import_config["revision"]:
+                return json_error("配置已变更，请重新加载后再保存", 409)
+            book = _policy_candidate(book, data)
+        except (TypeError, ValueError) as exc:
+            return json_error(str(exc))
+        wb_mgr.save(book)
+        return jsonify(_book_detail(book))
+
+    @bp.route("/api/worldbook/<book_id>/scope-preview", methods=["POST"])
+    def preview_scope(book_id):
+        book, err = _get_book_or_404(book_id)
+        if err:
+            return err
+        data = request.json
+        try:
+            if not isinstance(data, dict):
+                raise ValueError("请求体必须是对象")
+            # 草稿预览不写缓存/磁盘，也不影响已有会话。
+            candidate = _policy_candidate(book, data)
+            candidate.import_config["revision"] = book.import_config["revision"]
+            return jsonify(candidate.preview_scope(data.get("roster_character_ids", [])))
+        except (TypeError, ValueError) as exc:
+            return json_error(str(exc))
 
     # ── 5. 默认书 / 会话绑定 ──
 
@@ -420,11 +540,8 @@ def register(app, managers):
     def bind_session(book_id):
         """绑定世界书到会话。body: {session_id, bound}。
 
-        bound=false 时解绑该会话（回落全局默认书）。
+        bound=false 时显式不使用世界书，不回落全局默认书。
         """
-        book, err = _get_book_or_404(book_id)
-        if err:
-            return err
         data = request.json or {}
         session_id = str(data.get("session_id", "") or "").strip()
         bound = bool(data.get("bound", True))
@@ -435,10 +552,21 @@ def register(app, managers):
         session = session_mgr.get_session(session_id)
         if not session:
             return json_error("会话不存在", 404)
+        if bound:
+            book, err = _get_book_or_404(book_id)
+            if err:
+                return err
+            if not book.enabled:
+                return json_error("世界书已停用")
+            scope = book.resolve_import_scope(session.scene_manager.get_scene_characters())
+        else:
+            scope = {"book_id": None, "resolved_entry_uids": []}
         session.overlay.set_worldbook_id(book_id if bound else None)
+        session.overlay.set_worldbook_scope(scope)
         return jsonify({
             "session_id": session_id,
             "worldbook_id": session.overlay.get_worldbook_id(),
+            "worldbook_scope": session.overlay.get_worldbook_scope(),
         })
 
     @bp.route("/api/worldbook/search", methods=["GET"])
