@@ -23,6 +23,15 @@ const classificationName = (value: WorldBookClassificationDTO, id: string) =>
   value.categories.find((category) => category.id === id)?.name
   || value.proposal.find((category) => category.id === id)?.name || id;
 const MIME = "application/x-worldbook-entry";
+/** 固定导入托盘最多平铺这么多 chip，其余交给按分类的管理面板。 */
+const TRAY_CHIP_LIMIT = 12;
+/** 管理面板的固定行高与视口高度：虚拟滚动按这两个值算窗口。 */
+const FIXED_ROW_HEIGHT = 30;
+const FIXED_VIEWPORT = 234;
+const FIXED_OVERSCAN = 4;
+type FixedRow =
+  | { kind: "group"; id: string; name: string; level: number; uids: string[] }
+  | { kind: "entry"; uid: string; groupId: string };
 const policyFrom = (detail: WorldBookDetail): WorldBookPolicyDraft => ({
   fixed_entry_uids: detail.import_config?.fixed_entry_uids || [],
   dependency_sources: detail.import_config?.dependency_sources || [],
@@ -69,6 +78,12 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
   const [connectedOnly, setConnectedOnly] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [dropActive, setDropActive] = useState(false);
+  // 固定导入管理面板：分组折叠、搜索、批量选择与虚拟滚动都只作用于本地视图状态，
+  // 条目本身仍然只存在 policy.fixed_entry_uids 里，存储格式不变。
+  const [fixedPanel, setFixedPanel] = useState(false);
+  const [fixedQuery, setFixedQuery] = useState("");
+  const [fixedCollapsed, setFixedCollapsed] = useState<Set<string>>(() => new Set());
+  const [fixedScroll, setFixedScroll] = useState(0);
   const [coloring, setColoring] = useState<GraphColoring>("role");
   const [roleFilter, setRoleFilter] = useState<DependencyRole[]>([]);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
@@ -117,6 +132,68 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
     (!query.trim() || [entry.name, entry.uid, entry.character_id, categories.find((category) => category.id === entry.category_id)?.name,
       ...(entry.trigger_keys || [])].join(" ").toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())));
   const editingDescendants = categoryDraft ? categoryDescendants(categories, categoryDraft.id) : new Set<string>();
+  /**
+   * 固定导入条目按分类分组。组顺序沿用分类树（未分类与已不存在的分类排在最后），
+   * 只读 policy.fixed_entry_uids 与条目自身的 category_id，不改任何存储结构。
+   */
+  const fixedGroups = useMemo(() => {
+    const order = new Map(rows.map(({ category }, index) => [category.id, index]));
+    const levels = new Map(rows.map(({ category, level }) => [category.id, level]));
+    const needle = fixedQuery.trim().toLocaleLowerCase();
+    const groups = new Map<string, { id: string; name: string; level: number; uids: string[] }>();
+    for (const uid of policy.fixed_entry_uids) {
+      const entry = byUid.get(uid);
+      if (!entry) continue;   // 书里已不存在的陈旧 UID：不展示，也不顺手改写策略
+      const categoryId = entry.category_id || "unclassified";
+      const name = categories.find((category) => category.id === categoryId)?.name || categoryId;
+      if (needle && ![entry.name, entry.uid, entry.character_id, name].join(" ").toLocaleLowerCase().includes(needle)) continue;
+      const group = groups.get(categoryId);
+      if (group) group.uids.push(uid);
+      else groups.set(categoryId, { id: categoryId, name, level: levels.get(categoryId) ?? 0, uids: [uid] });
+    }
+    return [...groups.values()].sort((a, b) =>
+      (order.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (order.get(b.id) ?? Number.MAX_SAFE_INTEGER));
+  }, [policy.fixed_entry_uids, byUid, categories, rows, fixedQuery]);
+  /** 折叠后的扁平行列表：虚拟滚动按它算窗口，行高固定。 */
+  const fixedRows = useMemo(() => {
+    const out: FixedRow[] = [];
+    for (const group of fixedGroups) {
+      out.push({ kind: "group", id: group.id, name: group.name, level: group.level, uids: group.uids });
+      if (!fixedCollapsed.has(group.id)) for (const uid of group.uids) out.push({ kind: "entry", uid, groupId: group.id });
+    }
+    return out;
+  }, [fixedGroups, fixedCollapsed]);
+  const fixedMatched = fixedGroups.reduce((total, group) => total + group.uids.length, 0);
+  const fixedWindow = useMemo(() => {
+    // 列表会因折叠、搜索、批量取消固定而变短，而滚动位置可能停在旧高度上；
+    // 这里把窗口夹在有效范围内，避免出现「滚到越界位置后一片空白」。
+    const visible = Math.ceil(FIXED_VIEWPORT / FIXED_ROW_HEIGHT);
+    const first = Math.max(0, Math.min(Math.max(0, fixedRows.length - visible),
+      Math.floor(fixedScroll / FIXED_ROW_HEIGHT) - FIXED_OVERSCAN));
+    return { first, last: Math.min(fixedRows.length, first + visible + FIXED_OVERSCAN * 2) };
+  }, [fixedRows.length, fixedScroll]);
+  const fixedVisibleRows = fixedRows.slice(fixedWindow.first, fixedWindow.last);
+  const fixedRowUids = useMemo(() => fixedRows.flatMap((row) => (row.kind === "entry" ? [row.uid] : [])), [fixedRows]);
+  const toggleFixedGroup = (id: string) => setFixedCollapsed((current) => {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const toggleFixedPick = (uid: string) => setPicked((current) =>
+    current.includes(uid) ? current.filter((item) => item !== uid) : [...current, uid]);
+  /** 全选/反选都只作用于「当前可见（含折叠与搜索过滤后）的固定导入条目」，并并入已有批量选择。 */
+  const pickFixedVisible = () => {
+    if (!fixedRowUids.length) return;
+    setPicked((current) => [...new Set([...current, ...fixedRowUids])]);
+    setBatchNote(`已选中 ${fixedRowUids.length} 个固定导入条目（并入当前批量选择）。`);
+  };
+  const invertFixedVisible = () => {
+    const scope = new Set(fixedRowUids);
+    setPicked((current) => {
+      const kept = new Set(current);
+      return [...current.filter((uid) => !scope.has(uid)), ...[...scope].filter((uid) => !kept.has(uid))];
+    });
+  };
   const assignmentKind = categories.find((category) => category.id === assignment.category_id)?.scope_type;
 
   useEffect(() => { setPolicy(policyFrom(detail)); }, [detail]);
@@ -441,10 +518,10 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
       </>}
       <div className="wbg-toolbar-spacer" />
       <div className="wbg-dep-stats" aria-label="依赖统计">
-        <span>源 <b>{model?.stats.sourceCount ?? 0}</b></span>
-        <span>固定 <b>{model?.stats.fixedCount ?? 0}</b></span>
-        <span>已覆盖 <b>{model?.stats.reachableCount ?? 0}</b></span>
-        {!!model?.stats.looseCount && <span className="is-warn">未覆盖 <b>{model.stats.looseCount}</b></span>}
+        <span title="导入源条目数">源 <b>{model?.stats.sourceCount ?? 0}</b></span>
+        <span title="固定导入条目数">固定 <b>{model?.stats.fixedCount ?? 0}</b></span>
+        <span title="被至少一个导入源展开的条目数">已覆盖 <b>{model?.stats.reachableCount ?? 0}</b></span>
+        {!!model?.stats.looseCount && <span className="is-warn" title="未被任何导入源展开、也不是固定导入的条目数">未覆盖 <b>{model.stats.looseCount}</b></span>}
         {!!model?.stats.cycleCount && <span className="is-warn" title="位于依赖环内的条目；遍历按剩余深度去重，不会死循环">依赖环 <b>{model.stats.cycleCount}</b></span>}
         {!!model?.stats.cappedEdges && <span className="is-warn" title="上游已进入候选范围但遍历深度用尽，这些依赖不会展开">超深度边 <b>{model.stats.cappedEdges}</b></span>}
         {!!model?.stats.idleEdges && <span title="上游未进入候选范围，这些依赖不会展开">未启用边 <b>{model.stats.idleEdges}</b></span>}
@@ -684,7 +761,8 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
               </div>
               {isDependency && <div className="wbg-inspector-section wbg-role-panel">
                 <div className="wbg-section-heading"><h5>节点分类</h5>
-                  <span className="wbg-role-pill" data-wbg-role={role || "orphan"}>{ROLE_GLYPHS[role || "orphan"]} {ROLE_LABELS[role || "orphan"]}</span>
+                  {/* 只放完整分类名：单字缩写（ROLE_GLYPHS）在这里与全称重复，看起来就像被截断的「固 固定导入」。 */}
+                  <span className="wbg-role-pill" data-wbg-role={role || "orphan"}>{ROLE_LABELS[role || "orphan"]}</span>
                 </div>
                 <p className="wbg-help">{ROLE_HINTS[role || "orphan"]}。</p>
                 {treeNode && model ? <>
@@ -746,14 +824,70 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
         </div>
       </aside>}
     </div>
-    {isDependency ? <div className={"wbg-import-tray" + (dropActive ? " is-drop-active" : "")} aria-label="固定导入区"
-      onDragOver={(event) => { event.preventDefault(); setDropActive(true); }} onDragLeave={() => setDropActive(false)}
-      onDrop={(event) => { event.preventDefault(); setDropActive(false); addFixed(dragUid(event)); }}>
-      <div className="wbg-tray-heading"><WorldBookGraphIcon name="pin" /><span>固定导入</span><b>{fixed.size}</b></div>
-      <div className="wbg-tray-chips">{policy.fixed_entry_uids.map((uid) => <span key={uid} className="wbg-fixed-chip"><button onClick={() => inspectEntry(uid)}>{label(uid)}</button><button aria-label={"移除固定导入 " + label(uid)} disabled={busy} onClick={() => removeFixed(uid)}>×</button></span>)}
-        {!fixed.size && <span className="wbg-tray-empty">将条目拖到这里，或在节点属性中开启固定导入</span>}
+    {/* 托盘坞：面板以浮层形式贴在托盘上方，不参与弹性布局，画布高度不受影响。 */}
+    {isDependency ? <div className="wbg-tray-dock">
+      {fixedPanel && <section className="wbg-fixed-panel" aria-label="固定导入管理">
+      <div className="wbg-fixed-head">
+        <span className="wbg-fixed-count">固定导入 <b>{fixedMatched}</b> 条 · <b>{fixedGroups.length}</b> 组{fixedQuery ? "（已过滤）" : ""}</span>
+        <label className="wbg-search wbg-fixed-search"><WorldBookGraphIcon name="search" size={13} />
+          <input placeholder="搜索名称、UID、分类" aria-label="搜索固定导入条目" value={fixedQuery}
+            onChange={(event) => { setFixedQuery(event.target.value); setFixedScroll(0); }} />
+          {fixedQuery && <button aria-label="清空固定导入搜索" onClick={() => setFixedQuery("")}>×</button>}
+        </label>
+        <div className="wbg-fixed-batch" role="group" aria-label="固定导入批量操作">
+          <button className="wbg-button wbg-button-quiet" disabled={!fixedRowUids.length} onClick={pickFixedVisible}>全选</button>
+          <button className="wbg-button wbg-button-quiet" disabled={!fixedRowUids.length} onClick={invertFixedVisible}>反选</button>
+          <button className="wbg-button wbg-button-quiet" disabled={busy || !picked.length} onClick={() => runBatchFixed(false)}>取消固定（{picked.length}）</button>
+          <label className="wbg-form-label wbg-inline-field">移入分类
+            <select className="wbg-field wbg-batch-target" aria-label="固定导入批量归属分类" value={batchCategory}
+              onChange={(event) => setBatchCategory(event.target.value)}>
+              {rows.map(({ category, level }) => <option key={category.id} value={category.id}>{"　".repeat(level)}{category.name}</option>)}
+            </select>
+          </label>
+          <button className="wbg-button wbg-button-quiet" disabled={busy || !picked.length} onClick={() => void runBatchMove()}>批量移入</button>
+          <button className="wbg-button wbg-button-quiet" disabled={!picked.length} onClick={() => { setPicked([]); setBatchNote(""); }}>清除选择</button>
+        </div>
       </div>
-      <button className="wbg-button wbg-button-quiet" disabled={busy || !focusedUid || fixed.has(focusedUid)} onClick={() => addFixed(focusedUid)}>＋ 固定选中条目</button>
+      {/* 虚拟滚动：只渲染窗口内的行，条目再多也不会有成百上千个 DOM 节点。 */}
+      <div className="wbg-fixed-scroll" style={{ height: FIXED_VIEWPORT }} onScroll={(event) => setFixedScroll(event.currentTarget.scrollTop)}>
+        {!fixedRows.length && <p className="wbg-help wbg-fixed-empty">{fixedQuery ? "没有匹配的固定导入条目。" : "还没有固定导入条目：在节点属性里开启，或把条目拖进下方托盘。"}</p>}
+        <div className="wbg-fixed-rows" style={{ height: fixedRows.length * FIXED_ROW_HEIGHT }}>
+          {fixedVisibleRows.map((row, index) => {
+            const top = (fixedWindow.first + index) * FIXED_ROW_HEIGHT;
+            if (row.kind === "group") {
+              const folded = fixedCollapsed.has(row.id);
+              return <div key={"group:" + row.id} className="wbg-fixed-group" style={{ top, height: FIXED_ROW_HEIGHT }}>
+                <button className="wbg-fixed-group-main" aria-expanded={!folded} onClick={() => toggleFixedGroup(row.id)}>
+                  <span className="wbg-fixed-chevron" aria-hidden="true">{folded ? "▸" : "▾"}</span>
+                  <span>{row.name}</span><b>{row.uids.length}</b>
+                </button>
+                <button className="wbg-text-button" onClick={() => setPicked((current) => [...new Set([...current, ...row.uids])])}>全选本组</button>
+              </div>;
+            }
+            const entry = byUid.get(row.uid);
+            return <div key={row.uid} className={"wbg-fixed-row" + (pickedSet.has(row.uid) ? " is-picked" : "")} style={{ top, height: FIXED_ROW_HEIGHT }}>
+              <input type="checkbox" checked={pickedSet.has(row.uid)} onChange={() => toggleFixedPick(row.uid)} aria-label={"选择 " + (entry?.name || row.uid)} />
+              <span><strong>{entry?.name || row.uid}</strong><small>{entry?.character_id || row.uid}</small></span>
+              <button className="wbg-text-button" onClick={() => inspectEntry(row.uid)}>编辑</button>
+              <button className="wbg-icon-button" aria-label={"取消固定 " + (entry?.name || row.uid)} disabled={busy} onClick={() => removeFixed(row.uid)}>×</button>
+            </div>;
+          })}
+        </div>
+      </div>
+      </section>}
+      <div className={"wbg-import-tray" + (dropActive ? " is-drop-active" : "")} aria-label="固定导入区"
+        onDragOver={(event) => { event.preventDefault(); setDropActive(true); }} onDragLeave={() => setDropActive(false)}
+        onDrop={(event) => { event.preventDefault(); setDropActive(false); addFixed(dragUid(event)); }}>
+        <div className="wbg-tray-heading"><WorldBookGraphIcon name="pin" /><span>固定导入</span><b>{fixed.size}</b></div>
+        <button className={"wbg-button wbg-button-quiet" + (fixedPanel ? " is-active" : "")} aria-expanded={fixedPanel}
+          title="按分类分组浏览、搜索与批量编辑固定导入条目" onClick={() => setFixedPanel(!fixedPanel)}>按分类管理</button>
+        {/* 托盘只平铺前若干条做概览，其余交给管理面板，避免上百个 chip 把横向滚动条塞满。 */}
+        <div className="wbg-tray-chips">{policy.fixed_entry_uids.slice(0, TRAY_CHIP_LIMIT).map((uid) => <span key={uid} className="wbg-fixed-chip"><button onClick={() => inspectEntry(uid)}>{label(uid)}</button><button aria-label={"移除固定导入 " + label(uid)} disabled={busy} onClick={() => removeFixed(uid)}>×</button></span>)}
+          {!fixed.size && <span className="wbg-tray-empty">将条目拖到这里，或在节点属性中开启固定导入</span>}
+        </div>
+        {policy.fixed_entry_uids.length > TRAY_CHIP_LIMIT && <button className="wbg-tray-more" onClick={() => setFixedPanel(true)}>还有 {policy.fixed_entry_uids.length - TRAY_CHIP_LIMIT} 条 · 打开管理面板</button>}
+        <button className="wbg-button wbg-button-quiet" disabled={busy || !focusedUid || fixed.has(focusedUid)} onClick={() => addFixed(focusedUid)}>＋ 固定选中条目</button>
+      </div>
     </div> : <footer className="wbg-taxonomy-foot">分类调整不会自动改变旧书的载入模式。完成后，可在依赖图谱中预览并启用按需载入。</footer>}
   </section>;
 }

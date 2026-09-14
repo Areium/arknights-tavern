@@ -17,6 +17,10 @@ type Gesture = {
   startY: number;
   origin: GraphPoint;
   nodeId?: string;
+  /** 本次拖动要一起位移的节点：被拖动节点 + 直接相连节点，已去重。 */
+  follow?: string[];
+  /** 世界坐标下的实时位移；拖动中只写这一个值，节点位置在抬手时一次性提交。 */
+  offset?: GraphPoint;
   moved: boolean;
 };
 export type TreeViewOptions = { depthLimit: number; collapsed: Set<string>; showLoose: boolean };
@@ -25,6 +29,22 @@ const KINDS = { worldview: "世界观", character: "角色", other: "其他" };
 const clampZoom = (value: number) => Math.max(0.15, Math.min(2.5, value));
 /** 批量连线时最多画这么多条待定边，避免上百个源把画布糊住。 */
 const PENDING_EDGE_LIMIT = 12;
+
+/**
+ * 拖动跟随集合：被拖动节点自身 + 与它在**当前图上真实存在的边**直接相连的节点。
+ *
+ * 只取一跳，所以不会顺着链条无限展开，也就不存在递归；用 Set 去重，
+ * 双向边（A→B 与 B→A 同时存在）或平行边不会让同一节点被位移两次。
+ * 节点自身恒为集合第一项，拖动高亮按 `follow[0]` 取被拖动节点。
+ */
+function followSetFor(graph: WorldBookGraphData, nodeId: string): string[] {
+  const ids = new Set<string>([nodeId]);
+  for (const edge of graph.edges) {
+    if (edge.from === nodeId) ids.add(edge.to);
+    else if (edge.to === nodeId) ids.add(edge.from);
+  }
+  return [...ids];
+}
 
 function boundsFor(graph: WorldBookGraphData, positions: Record<string, GraphPoint>, pad = 55) {
   const points = graph.nodes.flatMap((node) => positions[node.id] ? [{ ...positions[node.id], radius: node.radius }] : []);
@@ -71,6 +91,10 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
   const [cursor, setCursor] = useState<GraphPoint | null>(null);
   const [dragging, setDragging] = useState(false);
   const [marquee, setMarquee] = useState<BatchRect | null>(null);
+  // 拖动期间的两个轻量状态：跟随集合（按下时定一次）与位移（每帧一个点）。
+  // positions 是 N 个节点的整表，只在抬手时写一次，避免每帧重建整表导致卡顿。
+  const [follow, setFollow] = useState<string[] | null>(null);
+  const [dragOffset, setDragOffset] = useState<GraphPoint | null>(null);
   const [layoutVersion, setLayoutVersion] = useState(0);
   const dependencyView = view !== "taxonomy";
   // 依赖树只画条目：层级语义由 depth 承担，分类归属交给「分类结构」视图与节点目录。
@@ -106,6 +130,19 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
   const visibleEntryUids = useMemo(() => graph.nodes
     .filter((node) => node.kind === "entry" && positions[node.id])
     .map((node) => node.refId), [graph.nodes, positions]);
+  const followSet = useMemo(() => (follow ? new Set(follow) : null), [follow]);
+  /** follow 的第一项恒为被拖动的节点（见 followSetFor）。 */
+  const dragNodeId = follow?.[0] ?? null;
+  /**
+   * 画布取点入口：拖动期间读「已提交位置 + 实时位移」，所以连线端点与节点同步跟随；
+   * 拖动结束位移归零、位置已写进 positions，画面不会跳。
+   * 缩略图仍读 positions（拖动中不跟随），避免视口框跟着位移抖动。
+   */
+  const at = useCallback((id: string): GraphPoint | undefined => {
+    const base = positions[id];
+    if (!base || !dragOffset || !followSet?.has(id)) return base;
+    return { x: base.x + dragOffset.x, y: base.y + dragOffset.y };
+  }, [positions, dragOffset, followSet]);
   const cameraRef = useRef(camera);
   cameraRef.current = camera;
   const bounds = useMemo(() => boundsFor(graph, positions), [graph, positions]);
@@ -204,9 +241,12 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
     // 空白处 Shift / Alt 拖拽 = 框选；普通拖拽仍然是平移。
     const marqueeMode = !node && (event.shiftKey || event.altKey);
     const origin = node ? positions[node.id] : marqueeMode ? worldPoint(event) : { x: camera.x, y: camera.y };
+    // 跟随集合在按下时定一次：拖动过程中图与筛选不变，不需要每帧重算。
+    const followIds = node ? followSetFor(graph, node.id) : undefined;
     gesture.current = { kind: node ? "node" : marqueeMode ? "marquee" : "pan", pointerId: event.pointerId,
-      startX: event.clientX, startY: event.clientY, origin, nodeId: node?.id, moved: false,
+      startX: event.clientX, startY: event.clientY, origin, nodeId: node?.id, follow: followIds, moved: false,
     };
+    if (node) { setFollow(followIds!); setDragOffset({ x: 0, y: 0 }); }
     if (marqueeMode) { marqueeRef.current = { left: origin.x, top: origin.y, right: origin.x, bottom: origin.y }; setMarquee(marqueeRef.current); }
     viewport.current?.setPointerCapture(event.pointerId);
   };
@@ -223,15 +263,30 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
       const point = worldPoint(event);
       marqueeRef.current = { left: current.origin.x, top: current.origin.y, right: point.x, bottom: point.y };
       setMarquee(marqueeRef.current);
-    } else setPositions((next) => ({ ...next, [current.nodeId!]: {
-      x: current.origin.x + dx / camera.zoom, y: current.origin.y + dy / camera.zoom,
-    } }));
+    } else {
+      // 拖动节点：位移同时存进 ref（抬手时提交用）与 state（渲染用），
+      // 被拖动节点与跟随节点都只是「基准位置 + 同一个位移」，相对位置恒定。
+      const offset = { x: dx / camera.zoom, y: dy / camera.zoom };
+      current.offset = offset;
+      setDragOffset(offset);
+    }
   };
   const end = (event: React.PointerEvent, cancelled = false) => {
     const current = gesture.current;
     if (!current || current.pointerId !== event.pointerId) return;
     gesture.current = null; setDragging(false);
     if (viewport.current?.hasPointerCapture(event.pointerId)) viewport.current.releasePointerCapture(event.pointerId);
+    // 位置只在这里写一次：被拖动节点与直接相连的节点按同一位移一起落表。
+    // 取消（pointercancel）时放弃本次拖动，位置保持拖动前的值。
+    if (current.kind === "node" && current.moved && !cancelled && current.offset && current.follow) {
+      const delta = current.offset, ids = current.follow;
+      setPositions((next) => {
+        const moved = { ...next };
+        for (const id of ids) if (moved[id]) moved[id] = { x: moved[id].x + delta.x, y: moved[id].y + delta.y };
+        return moved;
+      });
+    }
+    setFollow(null); setDragOffset(null);
     if (!cancelled && !current.moved) {
       if (current.nodeId) {
         const node = nodeMap.get(current.nodeId);
@@ -298,7 +353,7 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
             y={band.y - 68} style={{ fontSize: 11 / Math.max(0.12, camera.zoom) }}>{band.label} · {band.count} 条</text>)}
         </g>}
         {graph.edges.map((edge) => {
-          const a = positions[edge.from], b = positions[edge.to];
+          const a = at(edge.from), b = at(edge.to);
           if (!a || !b) return null;
           const from = nodeMap.get(edge.from)!, to = nodeMap.get(edge.to)!;
           const dependency = edge.kind === "dependency";
@@ -323,15 +378,17 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
           </g>;
         })}
         {!!linkSources.length && cursor && linkSources.slice(0, PENDING_EDGE_LIMIT).map((uid) => {
-          const point = positions[entryNodeId(uid)];
+          const point = at(entryNodeId(uid));
           return point ? <path key={uid} className="wbg-pending-edge" d={worldBookEdgeGeometry(point, cursor, 25 * visualScale, 0).path} markerEnd={`url(#${id}-active)`} /> : null;
         })}
         {marquee && <rect className="wbg-marquee" x={Math.min(marquee.left, marquee.right)} y={Math.min(marquee.top, marquee.bottom)}
           width={Math.abs(marquee.right - marquee.left)} height={Math.abs(marquee.bottom - marquee.top)} vectorEffect="non-scaling-stroke" />}
         {graph.nodes.map((node) => {
-          const point = positions[node.id];
+          const point = at(node.id);
           if (!point) return null;
           const selected = selectedId === node.id;
+          // 跟随提示只给「被带动」的节点，被拖动的那个由 is-selected / hover 表达。
+          const following = !!dragNodeId && node.id !== dragNodeId && !!followSet?.has(node.id);
           const linking = node.kind === "entry" && linkSources.includes(node.refId);
           const picked = node.kind === "entry" && pickedSet.has(node.refId);
           const chars = Array.from(node.label);
@@ -355,7 +412,7 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
           const roleText = role ? ROLE_LABELS[role] : KINDS[node.scopeType];
           return <g key={node.id} transform={`translate(${point.x},${point.y})`} data-wbg-node={node.id} data-wbg-kind={node.scopeType}
             data-wbg-role={role} data-wbg-depth={node.treeDepth}
-            className={`wbg-node wbg-node-${node.kind}${selected ? " is-selected" : ""}${linking ? " is-source" : ""}${picked ? " is-picked" : ""}${related && !related.has(node.id) && !linkSources.length ? " is-muted" : ""}${node.disabled ? " is-disabled" : ""}${node.inCycle ? " is-cycle" : ""}${node.unreached ? " is-unreached" : ""}`}
+            className={`wbg-node wbg-node-${node.kind}${selected ? " is-selected" : ""}${linking ? " is-source" : ""}${picked ? " is-picked" : ""}${following ? " is-following" : ""}${related && !related.has(node.id) && !linkSources.length ? " is-muted" : ""}${node.disabled ? " is-disabled" : ""}${node.inCycle ? " is-cycle" : ""}${node.unreached ? " is-unreached" : ""}`}
             tabIndex={0} role="button" aria-label={`${node.kind === "category" ? "选择分类" : "选择节点"} ${node.label}${role ? "（" + roleText + "）" : ""}${picked ? "，已批量选中" : ""}`} aria-pressed={selected || picked}
             onPointerDown={(event) => begin(event, node)} onPointerEnter={() => !dragging && setHoverId(node.id)} onPointerLeave={() => setHoverId(null)}
             onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); onSelectNode(node, event.ctrlKey || event.metaKey || event.shiftKey); } }}>
@@ -437,7 +494,7 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
         <button aria-label={treeLayout ? "重置依赖树布局" : "重新布局图谱"} title={treeLayout ? "重置布局（清除手动拖动，不改变策略）" : "重新布局（仅调整视图，不改变分类与依赖）"} onClick={() => setLayoutVersion((value) => value + 1)}><WorldBookGraphIcon name="layout" /></button>
       </div>
     </div>
-    <span className="wbg-gesture-hint" data-wbg-control>{treeLayout ? "点击 ⊕ 折叠分支 · " : ""}拖动节点 · Shift 拖拽框选 · Ctrl/Shift 点击多选 · 空白平移 · 滚轮缩放</span>
+    <span className="wbg-gesture-hint" data-wbg-control>{treeLayout ? "点击 ⊕ 折叠分支 · " : ""}拖动节点（直接相连的节点同步跟随） · Shift 拖拽框选 · Ctrl/Shift 点击多选 · 空白平移 · 滚轮缩放</span>
     {visibleCount > 4 && <svg className="wbg-minimap" aria-label="图谱缩略图" viewBox={`${bounds.left} ${bounds.top} ${bounds.width} ${bounds.height}`} data-wbg-control>
       {graph.edges.map((edge) => positions[edge.from] && positions[edge.to] ? <line key={edge.id} x1={positions[edge.from].x} y1={positions[edge.from].y} x2={positions[edge.to].x} y2={positions[edge.to].y} /> : null)}
       {graph.nodes.map((node) => positions[node.id] ? <circle key={node.id} cx={positions[node.id].x} cy={positions[node.id].y} r={node.kind === "category" ? 12 : 6} data-wbg-kind={node.scopeType} data-wbg-role={node.role} /> : null)}
