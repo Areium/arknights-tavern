@@ -811,25 +811,52 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
             if not guard():
                 return job
             batch = todo[start:start + ADJUDICATION_BATCH]
-            blocks = []
+            # 判定也走缓存：键绑定「双方正文 hash + 模型 + prompt 版本」，
+            # 目标正文一变旧判定即失效；命中缓存的批次不再花钱。
+            pending = []
             for pair in batch:
+                a, b = pair["from_uid"], pair["to_uid"]
+                key = cache.judgment_key(metadata["entries"][a]["content_hash"],
+                                         metadata["entries"][b]["content_hash"], job.model)
+                cached = cache.get(key)
+                if isinstance(cached, list):
+                    judgments.extend(item for item in cached if isinstance(item, dict))
+                else:
+                    pending.append((pair, key))
+            if not pending:
+                job.judgments = judgments
+                job.progress = min(job.total, len(judgments))
+                job.save()
+                continue
+            blocks = []
+            for pair, _ in pending:
                 a, b = pair["from_uid"], pair["to_uid"]
                 blocks.append(
                     f"<pair from=\"{a}\" to=\"{b}\" matched=\"{pair.get('matched', '')}\">\n"
                     f"[A: {entries_by_uid[a].name or a}]\n{_clip(entries_by_uid[a].content)}\n"
-                    f"---\n[B: {entries_by_uid[b].name or b}]\n{_clip(entries_by_uid[b].content)}\n"
+                    f"---\n"
+                    f"[B: {entries_by_uid[b].name or b}]\n{_clip(entries_by_uid[b].content)}\n"
                     "</pair>")
             try:
                 value = _chat_json(llm, [
                     {"role": "system", "content": _SYSTEM},
                     {"role": "user", "content": _ADJUDICATION_INSTRUCTION + "\n\n" + "\n\n".join(blocks)},
                 ], job)
-                for item in (value or {}).get("judgments", []) if isinstance(value, dict) else []:
-                    if isinstance(item, dict):
-                        judgments.append(item)
+                items = [item for item in (value or {}).get("judgments", [])
+                         if isinstance(item, dict)] if isinstance(value, dict) else []
+                # 按候选对归档后写缓存：只缓存本批真正问过的 pair，避免张冠李戴。
+                by_pair = {}
+                for item in items:
+                    by_pair.setdefault((item.get("from_uid"), item.get("to_uid")), []).append(item)
+                for pair, key in pending:
+                    got = by_pair.get((pair["from_uid"], pair["to_uid"]))
+                    if got:
+                        cache.put(key, got)
+                judgments.extend(items)
             except LLMError as exc:
                 job.failed_batches.append({"stage": STAGE_ADJUDICATION,
-                                           "pairs": [[p["from_uid"], p["to_uid"]] for p in batch],
+                                           "pairs": [[p["from_uid"], p["to_uid"]]
+                                                     for p, _ in pending],
                                            "code": exc.code, "message": exc.message})
             job.judgments = judgments
             job.progress = min(job.total, len(judgments))

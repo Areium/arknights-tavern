@@ -677,6 +677,12 @@ export interface WorldBookDetail extends WorldBookSummary {
   categories?: WorldBookCategoryDTO[];
   dependency_edges?: WorldBookDependencyEdgeDTO[];
   import_config?: WorldBookImportConfigDTO;
+  /** v3：全书底层有向图的条件起点；null/缺省表示这本书仍是 v2 语义 */
+  dependency_rules?: WorldBookRulesDTO | null;
+  related_edges?: WorldBookDependencyEdgeDTO[];
+  content_revision?: string;
+  resolver_version?: number;
+  policy_revisions?: WorldBookPolicyRevisionDTO[];
 }
 
 export type WorldBookScopeType = "worldview" | "character" | "other";
@@ -692,6 +698,131 @@ export interface WorldBookImportConfigDTO {
   fixed_entry_uids: string[];
   dependency_sources: Array<{ entry_uid: string; max_depth: number }>;
   revision: number;
+}
+
+/** v3 起点激活方式：always 恒为候选 / roster_any 入队任一角色即候选 / manual 只手动追加 */
+export type WorldBookActivation = "always" | "roster_any" | "manual";
+/** v3 展开方式：none 只含自身 / requires_closure 完整必要闭包 / legacy_depth 旧深度语义 */
+export type WorldBookExpansion = "none" | "requires_closure" | "legacy_depth";
+export interface WorldBookRootDTO {
+  entry_uid: string;
+  activation: WorldBookActivation;
+  expansion: WorldBookExpansion;
+  character_ids?: string[];
+  max_depth?: number;
+}
+/** v3 规则集：分类只负责组织，起点与展开决定候选 */
+export interface WorldBookRulesDTO {
+  roots: WorldBookRootDTO[];
+  root_rule?: { entry_uids: string[] };
+}
+export interface WorldBookPolicyRevisionDTO {
+  revision: number;
+  resolver_version: number;
+  created_at: number;
+}
+/** 会话绑定的候选范围快照（含完整规则版本，不只是版本号） */
+export interface WorldBookScopeV3DTO extends WorldBookScopeDTO {
+  schema_version?: number;
+  resolver_version?: number;
+  rules?: WorldBookRulesDTO | null;
+  requires_edges?: WorldBookDependencyEdgeDTO[];
+  related_edges?: WorldBookDependencyEdgeDTO[];
+  manual_entry_uids?: string[];
+  active_roots?: WorldBookRootDTO[];
+  resolved_edges?: Array<WorldBookDependencyEdgeDTO & { relation: string; active: boolean }>;
+  display_tree?: WorldBookDisplayNodeDTO[];
+  issues?: WorldBookIssueDTO[];
+}
+export interface WorldBookDisplayNodeDTO {
+  uid: string;
+  name: string;
+  root_uid: string;
+  depth: number;
+  parent_uid: string | null;
+  child_uids: string[];
+  remaining: number | null;
+  is_root: boolean;
+}
+export interface WorldBookIssueDTO {
+  code: string;
+  severity: "error" | "warning" | "info";
+  uid?: string;
+  message: string;
+}
+/** 统一配置写入（PUT /api/worldbook/<id>/configuration）的请求体 */
+export interface WorldBookConfigurationDraft {
+  expected_revision?: number;
+  categories?: WorldBookCategoryDTO[];
+  entry_moves?: Record<string, string>;
+  entry_updates?: Record<string, { category_id?: string; character_id?: string }>;
+  scope_mode?: "legacy" | "selective";
+  roots?: WorldBookRootDTO[];
+  requires_edges?: WorldBookDependencyEdgeDTO[];
+  related_edges?: WorldBookDependencyEdgeDTO[];
+  /** AI 构建结果：与手写草稿在同一次原子写入中生效 */
+  proposal?: { accepted: Array<{ from_uid: string; to_uid: string; relation: string }> } | null;
+  rejected?: WorldBookDependencyEdgeDTO[];
+}
+export interface WorldBookConfigurationResultDTO {
+  book: WorldBookDetail;
+  policy_revision: number;
+  content_revision: string;
+  applied: { categories: number; roots: number; requires_edges: number; related_edges: number };
+}
+/** AI 依赖构建任务 */
+export type DependencyJobStage =
+  | "queued" | "metadata" | "cards" | "candidates" | "adjudication"
+  | "validation" | "done" | "failed" | "cancelled";
+export interface DependencyProposalRecordDTO {
+  from_uid: string;
+  to_uid: string;
+  relation: "requires" | "related" | "none" | "unsure";
+  confidence: number;
+  reason: string;
+  evidence: string;
+  evidence_hash: string;
+  source_content_hash: string;
+  target_content_hash: string;
+  origin: string;
+  model: string;
+  prompt_version: string;
+  review_status: string;
+}
+export interface DependencyProposalResultDTO {
+  proposal_version: string;
+  model: string;
+  content_revision: string;
+  records: DependencyProposalRecordDTO[];
+  records_total?: number;
+  record_offset?: number;
+  accepted: Array<{ from_uid: string; to_uid: string; relation: string; confidence: number }>;
+  issues: WorldBookIssueDTO[];
+  cycles: string[][];
+  fanout: Record<string, number>;
+  expansion_probe: Record<string, number>;
+  stats: { records: number; requires: number; related: number; unsure: number; none: number };
+}
+export interface DependencyProposalJobDTO {
+  job_id: string;
+  book_id: string;
+  input_hash: string;
+  model: string;
+  stage: DependencyJobStage;
+  progress: number;
+  total: number;
+  message: string;
+  created_at: number;
+  updated_at: number;
+  cancelled: boolean;
+  error: { code: string; message: string } | null;
+  calls: number;
+  failed_batches: Array<{ stage: string; code?: string; message?: string; uids?: string[]; pairs?: string[][] }>;
+  card_count: number;
+  judgment_count: number;
+  /** 输入快照已变化：结果不得直接覆盖当前数据 */
+  stale?: boolean;
+  result: DependencyProposalResultDTO | null;
 }
 
 export interface WorldBookScopeDTO {
@@ -750,6 +881,25 @@ export interface WorldBookScopePreviewDTO {
   breakdown: Record<string, { entry_count: number; estimated_tokens: number }>;
   source_expansions?: Array<{ entry_uid: string; name: string; max_depth: number; entries: Array<{ uid: string; name: string }> }>;
   warnings: string[];
+  // ── v3 解释字段（未启用 v3 的书不返回）──
+  schema_version?: number;
+  resolver_version?: number;
+  /** 本次会话是否显式选择「全量兼容」（只影响本会话） */
+  full_scope?: boolean;
+  active_roots?: WorldBookRootDTO[];
+  resolved_edges?: Array<WorldBookDependencyEdgeDTO & { relation: string; active: boolean }>;
+  selection_reasons?: Record<string, string[]>;
+  display_tree?: WorldBookDisplayNodeDTO[];
+  cross_references?: WorldBookDependencyEdgeDTO[];
+  issues?: WorldBookIssueDTO[];
+  /** 草稿指纹：创建会话时用它校验「预览与创建一致」 */
+  draft_hash?: string;
+  policy_revision?: number;
+  content_revision?: string;
+  manual_entry_uids?: string[];
+  unselected_entries?: Array<{ uid: string; name: string; category_id: string }>;
+  unselected_count?: number;
+  entry_names?: Record<string, string>;
 }
 
 /** 导入报告 */

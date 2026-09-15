@@ -14,6 +14,9 @@ import {
 } from "../utils/worldbookBatch";
 import WorldBookGraphIcon from "./WorldBookGraphIcon";
 import WorldBookScopePreview from "./WorldBookScopePreview";
+import {
+  patchFromPolicy, policyFromDraft, type WorldBookDraft,
+} from "../hooks/useWorldbookDraft";
 import "../styles/worldbook-graph.css";
 
 const KINDS = { worldview: "世界观", character: "角色", other: "其他" };
@@ -39,18 +42,66 @@ const policyFrom = (detail: WorldBookDetail): WorldBookPolicyDraft => ({
   scope_mode: detail.scope_mode || "legacy",
 });
 
-export default function WorldBookScopeManager({ detail, onChanged, view = "dependencies", onCategoryChange, onEditEntry, onDirtyChange }: {
+export default function WorldBookScopeManager({ detail: detailProp, onChanged, view = "dependencies", onCategoryChange, onEditEntry, onDirtyChange,
+  draft: unifiedDraft, patch: unifiedPatch, unifiedSave, unifiedSaving, unifiedDirty,
+  unifiedPreview, unifiedPreviewError, unifiedUndo }: {
   detail: WorldBookDetail;
   onChanged: () => void | Promise<void>;
   view?: WorldBookGraphView;
   onCategoryChange?: (id: string) => void;
   onEditEntry?: (entry: WorldBookEntryDTO) => void;
   onDirtyChange?: (dirty: boolean) => void;
+  /**
+   * 统一草稿模式：分类、条目归属、起点与依赖边都改这一份草稿，
+   * 由页面右上角一次原子保存。不传则沿用组件内部的旧策略草稿（兼容旧用法）。
+   */
+  draft?: WorldBookDraft | null;
+  patch?: (changes: Partial<WorldBookDraft>) => void;
+  unifiedSave?: () => Promise<void>;
+  unifiedSaving?: boolean;
+  unifiedDirty?: boolean;
+  unifiedPreview?: WorldBookScopePreviewDTO | null;
+  unifiedPreviewError?: string;
+  unifiedUndo?: () => void;
 }) {
   const api = useApi();
   const store = useAppStore();
   const controlId = useId();
-  const [policy, setPolicy] = useState(() => policyFrom(detail));
+  const unified = !!unifiedDraft && !!unifiedPatch;
+  /**
+   * 统一模式：把草稿里的分类与条目归属叠到 detail 上，高级图谱看到的
+   * 就是「保存后会变成的样子」，不需要维护第二份草稿。
+   */
+  const viewDetail = useMemo(() => {
+    if (!unified || !unifiedDraft) return detailProp;
+    const moves = unifiedDraft.entry_moves;
+    const updates = unifiedDraft.entry_updates;
+    return {
+      ...detailProp,
+      categories: unifiedDraft.categories,
+      dependency_edges: unifiedDraft.requires_edges,
+      related_edges: unifiedDraft.related_edges,
+      entries: detailProp.entries.map((entry) => {
+        const patch = updates[entry.uid];
+        const category_id = patch?.category_id ?? moves[entry.uid] ?? entry.category_id;
+        const character_id = patch?.character_id ?? entry.character_id;
+        return category_id === entry.category_id && character_id === entry.character_id
+          ? entry : { ...entry, category_id, character_id };
+      }),
+    } as WorldBookDetail;
+  }, [unified, unifiedDraft, detailProp]);
+  const detail = viewDetail;
+  const [localPolicy, setLocalPolicy] = useState(() => policyFrom(detailProp));
+  // 统一模式下 policy 由草稿投影而来：高级图谱与简化视图始终看到同一份配置。
+  const policy = unified && unifiedDraft ? policyFromDraft(unifiedDraft) : localPolicy;
+  const setPolicy = (next: WorldBookPolicyDraft | ((current: WorldBookPolicyDraft) => WorldBookPolicyDraft)) => {
+    const apply = (current: WorldBookPolicyDraft) => (typeof next === "function" ? next(current) : next);
+    if (unified && unifiedDraft) {
+      unifiedPatch!(patchFromPolicy(apply(policyFromDraft(unifiedDraft)), unifiedDraft));
+      return;
+    }
+    setLocalPolicy(apply);
+  };
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
@@ -71,8 +122,8 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
   const [batchNote, setBatchNote] = useState("");
   const [depth, setDepth] = useState(1);
   const [roster, setRoster] = useState<string[]>([]);
-  const [preview, setPreview] = useState<WorldBookScopePreviewDTO | null>(null);
-  const [previewError, setPreviewError] = useState("");
+  const [localPreview, setLocalPreview] = useState<WorldBookScopePreviewDTO | null>(null);
+  const [localPreviewError, setLocalPreviewError] = useState("");
   const [libraryOpen, setLibraryOpen] = useState(true);
   const [panel, setPanel] = useState<"inspector" | "preview" | "classify" | null>(null);
   const [connectedOnly, setConnectedOnly] = useState(false);
@@ -98,7 +149,11 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
   const focusedUid = selection?.kind === "entry" ? selection.id : "";
   const focused = byUid.get(focusedUid);
   const selectedId = selection ? selection.kind === "entry" ? entryNodeId(selection.id) : categoryNodeId(selection.id) : null;
-  const dirty = JSON.stringify(policy) !== JSON.stringify(policyFrom(detail));
+  const localDirty = JSON.stringify(localPolicy) !== JSON.stringify(policyFrom(detail));
+  const dirty = unified ? !!unifiedDirty : localDirty;
+  const preview = unified ? (unifiedPreview ?? null) : localPreview;
+  const previewError = unified ? (unifiedPreviewError || "") : localPreviewError;
+  const saving = unified ? !!unifiedSaving : busy;
   const fixed = new Set(policy.fixed_entry_uids);
   const source = policy.dependency_sources.find((item) => item.entry_uid === focusedUid);
   const selectedRelation = policy.dependency_edges.find((edge) => dependencyEdgeId(edge.from_uid, edge.to_uid) === selectedEdge);
@@ -196,7 +251,8 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
   };
   const assignmentKind = categories.find((category) => category.id === assignment.category_id)?.scope_type;
 
-  useEffect(() => { setPolicy(policyFrom(detail)); }, [detail]);
+  // 统一模式下草稿由页面持有，这里不覆盖；只有旧的独立模式才从 detail 重置本地策略。
+  useEffect(() => { if (!unified) setLocalPolicy(policyFrom(detail)); }, [detail, unified]);
   useEffect(() => {
     setCategoryId(""); setSelection(null); setCategoryDraft(null); setError("");
     setRoster([]); setEdgeTo(""); setLinkFrom(null); setPanel(null); setSelectedEdge(null);
@@ -247,16 +303,17 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
     return () => { cancelled = true; };
   }, [api]);
   useEffect(() => {
-    if (!isDependency) return;
+    // 统一模式下预览由页面按统一草稿计算，避免这里用旧形态策略算出不一致的结果。
+    if (!isDependency || unified) return;
     let cancelled = false;
-    setPreview(null); setPreviewError("");
+    setLocalPreview(null); setLocalPreviewError("");
     const timer = setTimeout(() => {
       api.previewWorldbookScope(detail.id, roster, policy)
-        .then((value) => { if (!cancelled) setPreview(value); })
-        .catch((e) => { if (!cancelled) setPreviewError(e.message || "预览失败"); });
+        .then((value) => { if (!cancelled) setLocalPreview(value); })
+        .catch((e) => { if (!cancelled) setLocalPreviewError(e.message || "预览失败"); });
     }, 180);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [api, detail.id, detail.updated_at, roster, policy, view]);
+  }, [api, detail.id, detail.updated_at, roster, policy, view, unified]);
 
   const run = async (action: () => Promise<unknown>, savingPolicy = false) => {
     if (busy) return false;
@@ -388,8 +445,16 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
   const runBatchMove = async () => {
     const moves = batchMove(detail, picked, batchCategory);
     if (!Object.keys(moves).length) return;
-    if (await run(() => api.updateWorldbookTaxonomy(detail.id, categories, moves, detail.import_config?.revision))) {
-      setBatchNote(`已将 ${Object.keys(moves).length} 个条目移入「${categories.find((category) => category.id === batchCategory)?.name || batchCategory}」。`);
+    let done: boolean;
+    if (unified) {
+      // 统一模式：移入分类只是改草稿里的条目归属，不单独写盘
+      unifiedPatch!({ entry_moves: { ...unifiedDraft!.entry_moves, ...moves } });
+      done = true;
+    } else {
+      done = !!(await run(() => api.updateWorldbookTaxonomy(detail.id, categories, moves, detail.import_config?.revision)));
+    }
+    if (done) {
+      setBatchNote(`已将 ${Object.keys(moves).length} 个条目移入「${categories.find((category) => category.id === batchCategory)?.name || batchCategory}」${unified ? "（尚未保存）" : ""}。`);
       setPicked([]);
     }
   };
@@ -419,7 +484,10 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
     const next = categories.filter((category) => category.id !== categoryDraft.id).map((category) =>
       editingDescendants.has(category.id) ? { ...category, scope_type: categoryDraft.scope_type } : category);
     next.push(categoryDraft);
-    if (await run(() => api.updateWorldbookTaxonomy(detail.id, next, {}, detail.import_config?.revision))) {
+    let done: boolean;
+    if (unified) { unifiedPatch!({ categories: next }); done = true; }
+    else done = !!(await run(() => api.updateWorldbookTaxonomy(detail.id, next, {}, detail.import_config?.revision)));
+    if (done) {
       setSelection({ kind: "category", id: categoryDraft.id }); setCategoryDraft(null); setPanel(null);
     }
   };
@@ -427,8 +495,16 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
     if (!categoryDraft || editingDescendants.has(deleteTarget)) return;
     const moved = detail.entries.filter((entry) => editingDescendants.has(entry.category_id || ""));
     if (!window.confirm("删除该分类及子分类，并将 " + moved.length + " 个条目移入所选目标？条目内容不会删除。")) return;
-    if (await run(() => api.updateWorldbookTaxonomy(detail.id, categories.filter((category) => !editingDescendants.has(category.id)),
-      Object.fromEntries(moved.map((entry) => [entry.uid, deleteTarget])), detail.import_config?.revision))) {
+    const kept = categories.filter((category) => !editingDescendants.has(category.id));
+    const moves = Object.fromEntries(moved.map((entry) => [entry.uid, deleteTarget]));
+    let done: boolean;
+    if (unified) {
+      unifiedPatch!({ categories: kept, entry_moves: { ...unifiedDraft!.entry_moves, ...moves } });
+      done = true;
+    } else {
+      done = !!(await run(() => api.updateWorldbookTaxonomy(detail.id, kept, moves, detail.import_config?.revision)));
+    }
+    if (done) {
       setCategoryDraft(null); setSelection(null); setPanel(null);
       if (editingDescendants.has(categoryId)) filterCategory("");
     }
@@ -445,6 +521,11 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
   };
   const applyClassification = async () => {
     if (!classification?.matched) return;
+    if (unified && dirty) {
+      // 应用自动分类会重新加载这本书，草稿会被替换；先让用户明确选择。
+      setError("自动分类会重新加载这本书。请先保存或撤销当前草稿，再应用分类。");
+      return;
+    }
     // 应用会重新加载书，草稿里的导入策略会丢失，交给 run 统一确认。
     if (await run(() => api.applyWorldbookClassification(detail.id, detail.import_config?.revision))) setPanel(null);
   };
@@ -463,10 +544,17 @@ export default function WorldBookScopeManager({ detail, onChanged, view = "depen
             onChange={(event) => setPolicy((current) => ({ ...current, scope_mode: event.target.value as WorldBookPolicyDraft["scope_mode"] }))}>
             <option value="selective">按需载入</option><option value="legacy">全量兼容</option>
           </select>
-          <button className="wbg-button wbg-button-quiet" disabled={busy || !dirty} onClick={() => { setPolicy(policyFrom(detail)); setError(""); }}>撤销草稿</button>
-          <button className="wbg-button wbg-button-primary" disabled={busy || !dirty || !preview || !!previewError}
-            onClick={() => void run(() => api.updateWorldbookImportConfig(detail.id, { ...policy, expected_revision: detail.import_config?.revision }), true)}>
-            {busy ? "保存中…" : dirty ? "保存策略" : "已保存"}
+          <button className="wbg-button wbg-button-quiet" disabled={busy || !dirty} onClick={() => {
+            // 统一模式撤销回到服务端已保存版本，由页面统一负责
+            if (unified) { unifiedUndo?.(); setError(""); return; }
+            setPolicy(policyFrom(detail)); setError("");
+          }}>撤销草稿</button>
+          <button className="wbg-button wbg-button-primary" disabled={saving || !dirty || !preview || !!previewError}
+            onClick={() => {
+              if (unified) { void unifiedSave?.(); return; }
+              void run(() => api.updateWorldbookImportConfig(detail.id, { ...policy, expected_revision: detail.import_config?.revision }), true);
+            }}>
+            {saving ? "保存中…" : dirty ? "保存策略" : "已保存"}
           </button>
         </>}
         <button className="wbg-icon-button" aria-label={expanded ? "收起图谱工作台" : "展开图谱工作台"} title={expanded ? "收起图谱工作台" : "展开图谱工作台"} onClick={() => setExpanded(!expanded)}>

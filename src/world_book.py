@@ -924,17 +924,30 @@ class WorldBook:
         return result
 
     def preview_v3_scope(self, roster_character_ids=None, manual_entry_uids=None,
-                         revision=None):
-        """v3 预览：候选范围 + 解释 + 与草稿绑定的一致性指纹。"""
+                         revision=None, full_scope=False):
+        """v3 预览：候选范围 + 解释 + 与草稿绑定的一致性指纹。
+
+        `full_scope=True` 表示「本次会话显式全量兼容」：预览结果与创建会话时一致，
+        因此这里必须真的把范围换成全量，而不是只加一句提示。
+        """
         scope = self.resolve_v3_import_scope(roster_character_ids, revision, manual_entry_uids)
+        full = [e for e in self.entries if e.enabled and e.content.strip()]
+        if full_scope:
+            uids = sorted(e.uid for e in full)
+            scope = {**scope, "resolved_entry_uids": uids,
+                     "selection_reasons": {uid: ["full_scope"] for uid in uids},
+                     "active_roots": [], "resolved_edges": [], "display_tree": [],
+                     "cross_references": [], "issues": [], "legacy_full_scope": True}
         resolved = set(scope["resolved_entry_uids"])
         costs = {e.uid: estimate_tokens(e.content) for e in self.entries}
-        full = [e for e in self.entries if e.enabled and e.content.strip()]
         total = sum(costs.get(e.uid, 0) for e in full)
         selected = sum(costs.get(uid, 0) for uid in resolved)
         by_uid = {e.uid: e for e in self.entries}
 
         warnings = []
+        if full_scope:
+            warnings.append("已选择「本次会话全量兼容」：这次会载入全部启用条目，"
+                            "只影响本会话，不改变这本书的规则。")
         pending = sum(e.category_id == "unclassified" for e in full)
         if pending:
             warnings.append(f"{pending} 条尚未分类；未分类条目不会被任何起点激活，"
@@ -950,6 +963,7 @@ class WorldBook:
             "scope": scope,
             "schema_version": SCHEMA_VERSION_V3,
             "resolver_version": RESOLVER_VERSION,
+            "full_scope": bool(full_scope),
             "entry_count": len(resolved),
             "full_entry_count": len(full),
             "full_estimated_tokens": total,
@@ -962,7 +976,8 @@ class WorldBook:
             "display_tree": scope["display_tree"],
             "cross_references": scope["cross_references"],
             "issues": scope["issues"],
-            "draft_hash": self.policy_draft_hash(roster_character_ids, manual_entry_uids, revision),
+            "draft_hash": self.policy_draft_hash(roster_character_ids, manual_entry_uids,
+                                                 revision, full_scope),
             "policy_revision": scope["policy_revision"],
             "content_revision": scope["content_revision"],
             "breakdown": {
@@ -970,7 +985,7 @@ class WorldBook:
                                             for uid in resolved),
                          "estimated_tokens": sum(costs.get(uid, 0) for uid in resolved
                                                  if reason in scope["selection_reasons"].get(uid, []))}
-                for reason in ("always", "roster", "requires", "manual")},
+                for reason in ("always", "roster", "requires", "manual", "full_scope")},
             "manual_entry_uids": scope["manual_entry_uids"],
             "unselected_entries": unselected[:200],
             "unselected_count": len(unselected),
@@ -980,8 +995,12 @@ class WorldBook:
         }
 
     def policy_draft_hash(self, roster_character_ids=None, manual_entry_uids=None,
-                          revision=None) -> str:
-        """草稿指纹：规则 + 边 + 阵容 + 手动追加。用于「预览与创建必须一致」。"""
+                          revision=None, full_scope=False) -> str:
+        """草稿指纹：规则 + 边 + 阵容 + 手动追加 + 是否显式全量兼容。
+
+        用于「预览与创建必须一致」：只要其中任何一项不同，指纹就不同，
+        创建会话时校验失败而不是静默换一套范围。
+        """
         snapshot = self.rules_snapshot(revision) if revision is not None else None
         payload = {
             "book_id": self.id,
@@ -991,22 +1010,26 @@ class WorldBook:
             "related_edges": (snapshot or {}).get("related_edges") or self.related_edges,
             "roster": sorted({c.strip() for c in (roster_character_ids or []) if isinstance(c, str)}),
             "manual": sorted(set(manual_entry_uids or [])),
+            "full_scope": bool(full_scope),
             "content_revision": content_revision(self.entries),
         }
         text = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
     def session_scope_snapshot(self, roster_character_ids=None, manual_entry_uids=None,
-                               revision=None) -> dict:
+                               revision=None, full_scope=False) -> dict:
         """生成会话要持久化的 v3 范围快照。
 
         绑定的是**完整规则/关联/边的不可变版本**（不只是版本号），并记录解析器版本、
         阵容、手动追加、激活根、UID、原因、参与边与展示路径。正文仍按实时语义读取，
         因此这里保存的是规则与解析结果，不是条目正文副本。
+
+        `full_scope=True` 是**显式**的全量兼容：本次会话载入全部启用且有正文的条目，
+        不改动这本书的规则，也不影响别的会话。
         """
         scope = self.resolve_v3_import_scope(roster_character_ids, revision, manual_entry_uids)
         snapshot = self.rules_snapshot(scope["policy_revision"])
-        return {
+        result = {
             "book_id": self.id,
             "schema_version": SCHEMA_VERSION_V3,
             "resolver_version": RESOLVER_VERSION,
@@ -1024,8 +1047,23 @@ class WorldBook:
             "display_tree": scope["display_tree"],
             "issues": scope["issues"],
             "legacy_full_scope": False,
+            "full_scope": False,
             "resolved_at": scope["resolved_at"],
         }
+        if not full_scope:
+            return result
+        uids = sorted(e.uid for e in self.entries if e.enabled and (e.content or "").strip())
+        result.update({
+            "resolved_entry_uids": uids,
+            "selection_reasons": {uid: ["full_scope"] for uid in uids},
+            "active_roots": [],
+            "resolved_edges": [],
+            "display_tree": [],
+            "issues": [],
+            "legacy_full_scope": True,
+            "full_scope": True,
+        })
+        return result
 
     def eligible_uids_for(self, overlay):
         scope = getattr(overlay, "get_worldbook_scope", lambda: None)()

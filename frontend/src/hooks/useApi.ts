@@ -77,11 +77,16 @@ export function useApi() {
     listPlots: () => request<any[]>("/api/plots"),
     createSession: (mode: "free" | "story" = "free", name = "", plotId = "",
       combatMode: "narrative" | "tactical" = "narrative", identity = "博士",
-      worldbookId = "", rosterCharacterIds: string[] = []) =>
+      worldbookId = "", rosterCharacterIds: string[] = [],
+      manualEntryUids: string[] = [], expectedDraftHash = "", fullScope = false) =>
       request<any>("/api/sessions", {
         method: "POST",
         body: JSON.stringify({ mode, name, plot_id: plotId, combat_mode: combatMode, identity,
-          worldbook_id: worldbookId, roster_character_ids: rosterCharacterIds }),
+          worldbook_id: worldbookId, roster_character_ids: rosterCharacterIds,
+          // 手动追加只作用于本会话；draft_hash 让服务端校验「预览与创建一致」
+          manual_entry_uids: manualEntryUids, expected_draft_hash: expectedDraftHash || undefined,
+          // 显式全量兼容：只影响本会话，不改变这本书的规则
+          full_scope: fullScope || undefined }),
       }),
     getSession: (id: string) => request<any>(`/api/sessions/${id}`),
     deleteSession: (id: string) =>
@@ -412,10 +417,43 @@ export function useApi() {
       request<import("../types").WorldBookClassificationAppliedDTO>(`/api/worldbook/${encodeURIComponent(bookId)}/auto-classify`, {
         method: "POST", body: JSON.stringify({ apply: true, expected_revision: expectedRevision }),
       }),
-    previewWorldbookScope: (bookId: string, rosterCharacterIds: string[], draft?: import("../types").WorldBookPolicyDraft) =>
+    previewWorldbookScope: (bookId: string, rosterCharacterIds: string[],
+      draft?: import("../types").WorldBookConfigurationDraft | import("../types").WorldBookPolicyDraft,
+      options?: { manual_entry_uids?: string[]; policy_revision?: number; full_scope?: boolean }) =>
       request<import("../types").WorldBookScopePreviewDTO>(`/api/worldbook/${encodeURIComponent(bookId)}/scope-preview`, {
-        method: "POST", body: JSON.stringify({ ...draft, roster_character_ids: rosterCharacterIds }),
+        method: "POST",
+        body: JSON.stringify({ ...draft, roster_character_ids: rosterCharacterIds,
+          manual_entry_uids: options?.manual_entry_uids || [],
+          policy_revision: options?.policy_revision,
+          full_scope: options?.full_scope || undefined }),
       }),
+    /** 统一配置写入：分类 / 角色关联 / 起点 / 依赖边 / AI 建议，一次原子提交。 */
+    putWorldbookConfiguration: (bookId: string, draft: import("../types").WorldBookConfigurationDraft) =>
+      request<import("../types").WorldBookConfigurationResultDTO>(
+        `/api/worldbook/${encodeURIComponent(bookId)}/configuration`, {
+          method: "PUT", body: JSON.stringify(draft),
+        }),
+    /** AI 自动构建依赖：一次点击即在后台开始，不需要用户写提示词或 JSON。 */
+    createDependencyProposal: (bookId: string, maxCalls?: number) =>
+      request<{ job: import("../types").DependencyProposalJobDTO }>(
+        `/api/worldbook/${encodeURIComponent(bookId)}/dependency-proposals`, {
+          method: "POST", body: JSON.stringify(maxCalls ? { max_calls: maxCalls } : {}),
+        }),
+    listDependencyProposals: (bookId: string) =>
+      request<{ jobs: import("../types").DependencyProposalJobDTO[]; input_hash: string }>(
+        `/api/worldbook/${encodeURIComponent(bookId)}/dependency-proposals`),
+    getDependencyProposal: (bookId: string, jobId: string, offset = 0, limit = 100) =>
+      request<{ job: import("../types").DependencyProposalJobDTO }>(
+        `/api/worldbook/${encodeURIComponent(bookId)}/dependency-proposals/${encodeURIComponent(jobId)}` +
+        `?offset=${offset}&limit=${limit}`),
+    cancelDependencyProposal: (bookId: string, jobId: string) =>
+      request<{ job: import("../types").DependencyProposalJobDTO }>(
+        `/api/worldbook/${encodeURIComponent(bookId)}/dependency-proposals/${encodeURIComponent(jobId)}/cancel`,
+        { method: "POST" }),
+    retryDependencyProposal: (bookId: string, jobId: string) =>
+      request<{ job: import("../types").DependencyProposalJobDTO }>(
+        `/api/worldbook/${encodeURIComponent(bookId)}/dependency-proposals/${encodeURIComponent(jobId)}/retry`,
+        { method: "POST" }),
     setDefaultWorldbook: (id: string, isDefault: boolean) =>
       request<{ default_book_id: string | null }>(`/api/worldbook/${encodeURIComponent(id)}/default`, {
         method: "POST",

@@ -43,11 +43,14 @@ def fixture_book():
 class StubLLM:
     """按请求内容分派的确定性 stub：只替代模型，不替代被测逻辑。"""
 
-    def __init__(self, cards=None, judgments=None, fail_on=None, raw=None):
+    def __init__(self, cards=None, judgments=None, fail_on=None, raw=None,
+                 echo_pairs=False):
         self.cards = cards
         self.judgments = judgments if judgments is not None else []
         self.fail_on = fail_on or set()
         self.raw = raw
+        # echo_pairs：对「被问到的每一对」都给出判定，用于验证缓存能整批命中
+        self.echo_pairs = echo_pairs
         self.calls = []
 
     def chat(self, messages, **kwargs):
@@ -70,6 +73,18 @@ class StubLLM:
         if "判断下列" in prompt:
             if "judgments" in self.fail_on:
                 raise LLMConnectError("stub 判定阶段失败")
+            if self.echo_pairs:
+                echoed = []
+                for line in prompt.splitlines():
+                    if line.startswith("<pair from="):
+                        parts = dict(part.split("=", 1) for part in
+                                     line.strip("<>").split(" ") if "=" in part)
+                        echoed.append({"from_uid": parts.get("from", "").strip('"'),
+                                       "to_uid": parts.get("to", "").strip('"'),
+                                       "relation": REL_RELATED, "confidence": 0.6,
+                                       "evidence": "与角色A同属罗德岛"})
+                return {"type": "text", "content": json.dumps({"judgments": echoed},
+                                                              ensure_ascii=False)}
             return {"type": "text", "content": json.dumps(
                 {"judgments": self.judgments}, ensure_ascii=False)}
         raise AssertionError("未预期的请求")
@@ -247,6 +262,30 @@ def test_judgment_cache_key_binds_target_hash(cache):
     assert cache.judgment_key("h1", "h2", "m") != cache.judgment_key("h1", "h3", "m")
     assert cache.judgment_key("h1", "h2", "m") != cache.judgment_key("h1", "h2", "other")
     assert cache.card_key("c", "m") != cache.card_key("c", "m2")
+
+
+def test_judgment_cache_is_actually_used_at_runtime(cache, store):
+    """判定也走缓存：第二次构建不再为同一批候选对调用模型。"""
+    book = fixture_book()
+    first = StubLLM(echo_pairs=True)
+    build(book, first, cache, store)
+    judge_calls_first = len([c for c in first.calls if "判断下列" in c[-1]["content"]])
+    assert judge_calls_first > 0
+
+    second = StubLLM(echo_pairs=True)
+    job = build(book, second, cache, store)
+    judge_calls_second = len([c for c in second.calls if "判断下列" in c[-1]["content"]])
+    assert judge_calls_second == 0, "判定阶段没有命中缓存，重复付费"
+    # 命中缓存的结果仍然进入最终建议，而不是变成空结果
+    assert job.stage == "done"
+    assert len(job.judgments) > 0
+    assert job.result["stats"]["records"] == len(job.judgments)
+
+    # 目标条目正文变了 → 相关判定失效，必须重新问模型
+    book.entries[1].content = "角色A：正文完全改写了。"
+    third = StubLLM(echo_pairs=True)
+    build(book, third, cache, store)
+    assert len([c for c in third.calls if "判断下列" in c[-1]["content"]]) > 0
 
 
 def test_llm_failure_is_structured_and_never_fake_success(cache, store):

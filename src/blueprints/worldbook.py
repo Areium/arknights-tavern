@@ -30,7 +30,7 @@ from flask import Blueprint, jsonify, request
 from shared.helpers import json_error
 from world_book import (
     RESOLVER_VERSION, WorldBook, WorldBookEntry, apply_auto_classification,
-    content_revision,
+    content_revision, estimate_tokens,
 )
 from worldbook_classify import classify_entries
 from worldbook_builder import (
@@ -47,6 +47,69 @@ logger = logging.getLogger(__name__)
 # 依赖构建任务表（进程级）。任务本身持久化到磁盘，重启后仍可查询。
 _JOB_STORE = DependencyJobStore()
 _ANALYSIS_CACHE = AnalysisCache()
+
+
+def _apply_full_scope(payload: dict, book) -> dict:
+    """把预览结果改成「本次会话显式全量兼容」。
+
+    v2 与 v3 都走这一条：范围真的换成全量，预览与实际创建保持一致，
+    只影响本次会话，不改动这本书的规则。
+    """
+    full = [e for e in book.entries if e.enabled and (e.content or "").strip()]
+    uids = sorted(e.uid for e in full)
+    costs = {e.uid: estimate_tokens(e.content) for e in full}
+    total = sum(costs.values())
+    scope = dict(payload.get("scope") or {})
+    scope.update({
+        "resolved_entry_uids": uids,
+        "selection_reasons": {uid: ["full_scope"] for uid in uids},
+        "legacy_full_scope": True,
+        "full_scope": True,
+    })
+    payload.update({
+        "scope": scope,
+        "full_scope": True,
+        "entry_count": len(uids),
+        "resolved_estimated_tokens": total,
+        "saved_estimated_tokens": 0,
+        "saved_percent": 0.0,
+        "warnings": ["已选择「本次会话全量兼容」：这次会载入全部启用条目，"
+                     "只影响本会话，不改变这本书的规则。"] + list(payload.get("warnings") or []),
+    })
+    return payload
+
+
+def _merge_v3_payload(manual: dict, proposal: dict = None) -> dict:
+    """把人工草稿与 AI 建议并入同一个 v3 规则集（人工优先，重复项跳过）。
+
+    顺序很重要：人工起点先占位，AI 只补人工没有的；边按 (from, to) 去重。
+    这样「应用构建结果」是**追加**，不会静默重置用户已配好的起点与依赖。
+    """
+    proposal = proposal or {}
+    roots = [r for r in manual.get("roots", []) if isinstance(r, dict)]
+    seen = {r.get("entry_uid") for r in roots}
+    roots += [r for r in proposal.get("roots", [])
+              if isinstance(r, dict) and r.get("entry_uid") not in seen]
+
+    def union(first, second):
+        out, pairs = [], set()
+        for edge in list(first) + list(second):
+            if not isinstance(edge, dict):
+                continue
+            pair = (edge.get("from_uid"), edge.get("to_uid"))
+            if pair in pairs:
+                continue
+            pairs.add(pair)
+            out.append(edge)
+        return out
+
+    return {
+        "roots": roots,
+        "requires_edges": union(manual.get("requires_edges", []),
+                                proposal.get("requires_edges", [])),
+        "related_edges": union(manual.get("related_edges", []),
+                               proposal.get("related_edges", [])),
+    }
 
 
 def _entry_from_payload(payload: dict, uid: str = None) -> WorldBookEntry:
@@ -593,11 +656,15 @@ def register(app, managers):
             roster = data.get("roster_character_ids", [])
             manual = data.get("manual_entry_uids", [])
             revision = data.get("policy_revision")
+            full_scope = bool(data.get("full_scope"))
             if candidate.v3_enabled:
-                return jsonify(candidate.preview_v3_scope(roster, manual, revision))
+                payload = candidate.preview_v3_scope(roster, manual, revision, full_scope)
+                return jsonify(_apply_full_scope(payload, candidate) if full_scope else payload)
             # 未启用 v3 的书沿用 v2 预览（旧语义不静默改变）
             payload = candidate.preview_scope(roster)
-            payload["draft_hash"] = candidate.policy_draft_hash(roster, manual, revision)
+            if full_scope:
+                payload = _apply_full_scope(payload, candidate)
+            payload["draft_hash"] = candidate.policy_draft_hash(roster, manual, revision, full_scope)
             payload["policy_revision"] = candidate.import_config["revision"]
             payload["content_revision"] = content_revision(candidate.entries)
             payload["schema_version"] = candidate.schema_version
@@ -659,7 +726,9 @@ def register(app, managers):
             raise ValueError("scope_mode 必须是 legacy 或 selective")
         candidate.scope_mode = mode
 
-        # AI 建议一次应用：proposal 与手写草稿在同一次原子写入中生效
+        # AI 建议一次应用：proposal 与手写草稿在同一次原子写入中生效。
+        # 两者并存时**并入**而不是互相覆盖 —— 应用 AI 结果不能把人工已经配好的
+        # 起点和依赖边冲掉，否则「一次点击」等于静默重置用户配置。
         proposal = data.get("proposal")
         v3_payload = None
         if isinstance(proposal, dict) and "accepted" in proposal:
@@ -668,13 +737,12 @@ def register(app, managers):
                 existing_rules={"roots": (candidate.dependency_rules or {}).get("roots", []),
                                 "rejected": data.get("rejected", [])})
         if any(key in data for key in ("roots", "requires_edges", "related_edges")):
-            v3_payload = {
-                "roots": data.get("roots", (v3_payload or {}).get("roots", [])),
-                "requires_edges": data.get("requires_edges",
-                                           (v3_payload or {}).get("requires_edges", [])),
-                "related_edges": data.get("related_edges",
-                                          (v3_payload or {}).get("related_edges", [])),
+            manual = {
+                "roots": data.get("roots", []),
+                "requires_edges": data.get("requires_edges", []),
+                "related_edges": data.get("related_edges", []),
             }
+            v3_payload = _merge_v3_payload(manual, v3_payload)
 
         if v3_payload is not None:
             candidate.dependency_rules, candidate.dependency_edges, candidate.related_edges = (

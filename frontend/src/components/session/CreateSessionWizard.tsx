@@ -1,12 +1,16 @@
 /**
  * 新建会话向导 — 游戏式分步创建：
  * 模式&战斗模式 → 剧情（可选） → 世界书（可选） → 角色入队（可选） → 命名创建
+ *
+ * 阵容步骤展示的是**服务端真实解析结果**：候选统计、载入树与选用原因都来自
+ * `POST /scope-preview`，前端不自己再走一遍遍历。创建会话本身不调用任何 LLM。
  */
 import { useState, useEffect, useMemo } from "react";
 import { useAppStore } from "../../stores/appStore";
 import { useApi } from "../../hooks/useApi";
 import { useDialogMinimize } from "../../hooks/useDialogMinimize";
-import type { PlotInfo, WorldBookSummary, Session, WorldBookScopePreviewDTO } from "../../types";
+import { useRosterScopePreview } from "../../hooks/useWorldbookDraft";
+import type { PlotInfo, WorldBookSummary, Session } from "../../types";
 import WorldBookScopePreview from "../WorldBookScopePreview";
 
 interface CharItem {
@@ -19,6 +23,14 @@ interface CharItem {
 const charName = (c: CharItem) => c.name || c.title || c.id;
 /** 角色加载键：目录名（slug），后端按目录加载 */
 const charKey = (c: CharItem) => c.id || charName(c);
+
+const REASON_LABELS: Record<string, string> = {
+  always: "基础设定", roster: "角色入队", requires: "必要依赖", manual: "手动追加",
+  full_scope: "全量兼容", worldview: "世界观", fixed: "固定导入", dependency: "依赖展开",
+  legacy: "旧书兼容",
+};
+const reasonLabel = (reason: string) => REASON_LABELS[reason]
+  || (reason.startsWith("roster:") ? `角色入队（${reason.slice(7)}）` : reason);
 
 interface CreateSessionWizardProps {
   open: boolean;
@@ -52,8 +64,11 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
   const [name, setName] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
-  const [scopePreview, setScopePreview] = useState<WorldBookScopePreviewDTO | null>(null);
-  const [scopeError, setScopeError] = useState("");
+  // 手动追加只作用于本会话；全量兼容也是显式选择，不写回世界书规则
+  const [manualUids, setManualUids] = useState<string[]>([]);
+  const [fullScope, setFullScope] = useState(false);
+  const [manualQuery, setManualQuery] = useState("");
+  const [rosterNote, setRosterNote] = useState("");
 
   // ── 数据 ──
   const [plots, setPlots] = useState<PlotInfo[]>([]);
@@ -105,6 +120,10 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
     setRoster([]);
     setName("");
     setError("");
+    setManualUids([]);
+    setFullScope(false);
+    setManualQuery("");
+    setRosterNote("");
     setLoading(true);
     let cancelled = false;
     Promise.allSettled([
@@ -123,15 +142,11 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
     return () => { cancelled = true; };
   }, [open, api, chatMode]);
 
-  useEffect(() => {
-    setScopePreview(null); setScopeError("");
-    if (!open || !worldbookId) return;
-    let cancelled = false;
-    api.previewWorldbookScope(worldbookId, roster.filter((name) => name !== identity))
-      .then((value) => { if (!cancelled) setScopePreview(value); })
-      .catch((e) => { if (!cancelled) setScopeError(e.message || "导入范围预览失败"); });
-    return () => { cancelled = true; };
-  }, [api, open, worldbookId, roster, identity]);
+  // 阵容变化后重新解析候选范围：防抖 + 过时响应保护（旧响应不会覆盖新结果）
+  const { preview: scopePreview, loading: scopeLoading, error: scopeError } = useRosterScopePreview(
+    worldbookId || "", roster.filter((key) => key !== identity), manualUids, fullScope,
+    open && !!worldbookId,
+  );
 
   if (!open) return null;
 
@@ -156,9 +171,11 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
     setError("");
     try {
       // 世界书绑定、角色入队与候选条目范围由服务端一次完成，首轮不会全量载入。
+      // 带上预览指纹：预览已过期时宁可报错，也不静默用一套不同的范围创建会话。
       const session = await api.createSession(
         mode, name.trim(), mode === "story" ? plotId : "", combatMode,
-        identity || "博士", worldbookId || "", roster,
+        identity || "博士", worldbookId || "", roster, manualUids,
+        scopePreview?.draft_hash || "", fullScope,
       );
       onCreated(session);
     } catch (err: any) {
@@ -455,7 +472,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                   onChange={(e) => setCharSearch(e.target.value)}
                 />
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-h-80 overflow-y-auto lobby-scroll pr-1">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-h-72 overflow-y-auto lobby-scroll pr-1">
                 {filteredChars.map((c) => {
                   const key = charKey(c);
                   const selected = roster.includes(key);
@@ -494,6 +511,123 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                   <p className="text-gray-500 text-sm col-span-full text-center py-6">暂无可用角色，可前往「资产」页面导入角色卡</p>
                 )}
               </div>
+
+              {!worldbookId && <p className="text-[11px] text-gray-500">
+                未绑定世界书：阵容不会影响设定载入。上一步可以选一本世界书。
+              </p>}
+
+              {worldbookId && <div className="wbg-card space-y-3" aria-label="候选范围">
+                <div className="wbg-card-head">
+                  <div>
+                    <h4>这次会载入什么</h4>
+                    <p className="wbg-help">来自服务端按当前阵容的真实解析，前端不再自己走一遍遍历。</p>
+                  </div>
+                  {scopeLoading && <span className="wbg-chip">重新计算…</span>}
+                </div>
+
+                {scopeError && <div role="alert" className="wbg-notice wbg-error"><span>候选范围预览失败：{scopeError}</span></div>}
+
+                {scopePreview && <>
+                  <div className="wbg-config-metrics">
+                    <span>候选条目 <b>{scopePreview.entry_count}</b></span>
+                    <span>全书可用 <b>{scopePreview.full_entry_count}</b></span>
+                    <span>估算 token <b>{scopePreview.resolved_estimated_tokens.toLocaleString()}</b></span>
+                    <span>未选中 <b>{scopePreview.unselected_count ?? 0}</b></span>
+                  </div>
+
+                  {!!scopePreview.active_roots?.length && <p className="wbg-help">
+                    激活起点：{scopePreview.active_roots.map((root) => root.entry_uid).join("、")}
+                    （{scopePreview.active_roots.length} 个）
+                  </p>}
+
+                  {!!scopePreview.display_tree?.length && <details className="wbg-details">
+                    <summary>载入树 <span>{scopePreview.display_tree.length}</span></summary>
+                    <ul className="wbg-tree-list">{scopePreview.display_tree.slice(0, 80).map((node) => <li key={node.uid}
+                      style={{ paddingLeft: 8 + Math.min(node.depth, 8) * 14 }}>
+                      <span className={node.is_root ? "wbg-tree-root" : ""}>{node.name || node.uid}</span>
+                      <small>{(scopePreview.selection_reasons?.[node.uid] || []).map(reasonLabel).join("、")}</small>
+                    </li>)}</ul>
+                    {scopePreview.display_tree.length > 80 && <p className="wbg-help">仅显示前 80 个节点。</p>}
+                  </details>}
+
+                  {!!scopePreview.source_expansions?.length && <details className="wbg-details">
+                    <summary>旧格式导入源展开 <span>{scopePreview.source_expansions.length}</span></summary>
+                    {scopePreview.source_expansions.map((source) => <p key={source.entry_uid} className="wbg-help">
+                      {source.name || source.entry_uid} · 深度 {source.max_depth} · 展开 {source.entries.length} 条
+                    </p>)}
+                  </details>}
+
+                  <details className="wbg-details">
+                    <summary>为什么载入 / 为什么不载入</summary>
+                    <p className="wbg-help">
+                      条目没被选中不是错误：按需载入下，只有被起点激活或依赖补齐的条目才会进入候选。
+                      可用「手动追加」把个别条目只加进本次会话。
+                    </p>
+                    {!!scopePreview.unselected_entries?.length && <ul className="wbg-build-issues">
+                      {scopePreview.unselected_entries.slice(0, 40).map((entry) => <li key={entry.uid}>
+                        <b>未载入</b><span>{entry.name || entry.uid}</span>
+                      </li>)}
+                    </ul>}
+                  </details>
+                </>}
+
+                {/* 手动追加：只作用于本会话，可逐条取消 */}
+                <div className="wbg-action-row">
+                  <div>
+                    <strong>手动追加条目（只作用于本会话）</strong>
+                    <small>不会写回世界书规则；取消追加只影响这次创建。</small>
+                  </div>
+                </div>
+                <div className="wbg-action-controls">
+                  <input className="input text-xs flex-1" list="wizard-entry-targets" placeholder="搜索条目名称或 UID"
+                    aria-label="手动追加条目" value={manualQuery} onChange={(e) => setManualQuery(e.target.value)} />
+                  <datalist id="wizard-entry-targets">
+                    {(scopePreview?.unselected_entries || []).slice(0, 300).map((entry) => <option key={entry.uid} value={entry.uid}>
+                      {entry.name || entry.uid}
+                    </option>)}
+                  </datalist>
+                  <button className="btn px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-200"
+                    disabled={!manualQuery.trim()} onClick={() => {
+                      const uid = manualQuery.trim();
+                      setManualQuery("");
+                      if (manualUids.includes(uid)) { setRosterNote("这个条目已经在手动追加列表里。"); return; }
+                      const known = scopePreview?.entry_names?.[uid]
+                        || scopePreview?.unselected_entries?.some((entry) => entry.uid === uid);
+                      if (!known) { setRosterNote(`没有找到条目「${uid}」。请从下拉建议里选择，或核对 UID。`); return; }
+                      setManualUids((current) => [...current, uid]);
+                      setRosterNote(`已手动追加「${scopePreview?.entry_names?.[uid] || uid}」，仅本次会话生效。`);
+                    }}>追加</button>
+                </div>
+                {!!manualUids.length && <div className="wbg-roster-chips">
+                  {manualUids.map((uid) => <span key={uid} className="wbg-fixed-chip">
+                    <span>{scopePreview?.entry_names?.[uid] || uid}</span>
+                    <button aria-label={`取消追加 ${uid}`} onClick={() => {
+                      const reasons = scopePreview?.selection_reasons?.[uid] || [];
+                      const alsoRequired = reasons.some((reason) => reason !== "manual");
+                      setManualUids((current) => current.filter((item) => item !== uid));
+                      setRosterNote(alsoRequired
+                        ? `已取消手动追加「${uid}」，但它仍会因${reasons.map(reasonLabel).join("、")}被载入 —— 必要关系要用的条目不会因为取消追加而消失。`
+                        : `已取消手动追加「${uid}」。`);
+                    }}>×</button>
+                  </span>)}
+                </div>}
+                {rosterNote && <p className="wbg-help" role="status">{rosterNote}</p>}
+
+                <div className="wbg-action-row">
+                  <div>
+                    <strong>本次会话全量兼容</strong>
+                    <small>显式选择：这次载入全部启用条目。只影响本会话，不改这本书的规则。</small>
+                  </div>
+                  <button className="wbg-button" aria-pressed={fullScope} onClick={() => {
+                    setFullScope(!fullScope);
+                    setRosterNote(fullScope ? "已关闭全量兼容，回到按需载入。" : "已开启全量兼容：本次会话会载入全部启用条目。");
+                  }}>{fullScope ? "已开启 · 点击关闭" : "开启全量兼容"}</button>
+                </div>
+
+                {!!scopePreview?.warnings?.length && <div className="space-y-1">
+                  {scopePreview.warnings.map((warning) => <p key={warning} className="text-[11px] text-amber-300">{warning}</p>)}
+                </div>}
+              </div>}
             </div>
           )}
 
@@ -536,6 +670,10 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                       </p>
                     </>
                   )}
+                  {!!manualUids.length && (
+                    <span className="badge badge-wb">✋ 手动追加 {manualUids.length} 条（仅本会话）</span>
+                  )}
+                  {fullScope && <span className="badge badge-tactical">📚 本次会话全量兼容</span>}
                 </div>
               </div>
               {worldbookId ? scopePreview ? <WorldBookScopePreview value={scopePreview} /> : <p className="text-xs text-gray-400">{scopeError || "计算导入范围中…"}</p> : <p className="text-xs text-gray-400">未绑定世界书：此次会话不会载入世界书条目。</p>}

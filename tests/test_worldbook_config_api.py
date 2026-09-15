@@ -286,6 +286,7 @@ def session_api(tmp_path, monkeypatch):
     class FakeSession:
         def __init__(self, sid, backend, **kwargs):
             self.id, self.name = sid, kwargs["name"]
+            self.mode = kwargs.get("mode", "free")
             self.overlay = type("O", (), {
                 "_scope": None,
                 "get_worldbook_scope": lambda s: copy.deepcopy(s._scope),
@@ -380,3 +381,124 @@ def test_session_creation_failure_leaves_no_partial_session(session_api):
                        json={"worldbook_id": "book", "roster_character_ids": ["A", "missing"]}
                        ).status_code == 400
     assert not manager._sessions
+
+
+def test_ai_proposal_merges_into_manual_draft_instead_of_replacing_it(api):
+    """应用 AI 结果不能把人工配好的起点与依赖冲掉。"""
+    client, manager, _ = api
+    client.put("/api/worldbook/book/configuration", json={
+        "expected_revision": 1,
+        "roots": [{"entry_uid": "tech", "activation": ACTIVATION_ALWAYS,
+                   "expansion": EXPANSION_REQUIRES_CLOSURE}],
+        "related_edges": [{"from_uid": "world", "to_uid": "tech"}],
+    })
+    response = client.put("/api/worldbook/book/configuration", json={
+        "expected_revision": 2,
+        # 草稿里的起点与边（人工）
+        "roots": [{"entry_uid": "tech", "activation": ACTIVATION_ALWAYS,
+                   "expansion": EXPANSION_REQUIRES_CLOSURE}],
+        "requires_edges": [],
+        "related_edges": [{"from_uid": "world", "to_uid": "tech"}],
+        # 同时应用 AI 建议
+        "proposal": {"accepted": [{"from_uid": "a", "to_uid": "tech",
+                                   "relation": "requires"}]},
+    })
+    assert response.status_code == 200, response.json
+    stored = manager.load("book")
+    roots = {r["entry_uid"]: r for r in stored.dependency_rules["roots"]}
+    # 人工起点保留
+    assert roots["tech"]["activation"] == ACTIVATION_ALWAYS
+    # AI 派生起点并入（角色条目 → roster 起点），而不是替换整份配置
+    assert roots["a"]["activation"] == ACTIVATION_ROSTER_ANY
+    assert {"from_uid": "a", "to_uid": "tech"} in stored.dependency_edges
+    assert {"from_uid": "world", "to_uid": "tech"} in stored.related_edges
+    # 同一条边不会因为重复提交而出现两次
+    assert len(stored.dependency_edges) == len(
+        {(e["from_uid"], e["to_uid"]) for e in stored.dependency_edges})
+
+
+def test_full_scope_preview_and_session_creation_are_explicit_and_consistent(session_api):
+    """显式全量兼容：预览与创建一致，只影响本会话，不改这本书的规则。"""
+    client, _, books, _ = session_api
+    client.put("/api/worldbook/book/configuration", json={
+        "expected_revision": 1,
+        "roots": [{"entry_uid": "a", "activation": ACTIVATION_ROSTER_ANY,
+                   "expansion": EXPANSION_REQUIRES_CLOSURE, "character_ids": ["A"]}],
+    })
+    before = copy.deepcopy(books.load("book").dependency_rules)
+
+    preview = client.post("/api/worldbook/book/scope-preview",
+                          json={"roster_character_ids": ["A"], "full_scope": True})
+    assert preview.status_code == 200
+    body = preview.json
+    assert body["full_scope"] is True
+    # 全量：所有启用且有正文的条目都在候选里
+    assert set(body["scope"]["resolved_entry_uids"]) == {"world", "a", "b", "tech"}
+    assert body["saved_estimated_tokens"] == 0
+
+    created = client.post("/api/sessions", json={
+        "worldbook_id": "book", "roster_character_ids": ["A"],
+        "full_scope": True, "expected_draft_hash": body["draft_hash"]})
+    assert created.status_code == 201, created.json
+    scope = created.json["worldbook_scope"]
+    assert scope["full_scope"] is True
+    assert set(scope["resolved_entry_uids"]) == {"world", "a", "b", "tech"}
+    # 规则没被改动
+    assert books.load("book").dependency_rules == before
+
+
+def test_full_scope_hash_differs_and_stale_preview_is_rejected(session_api):
+    """指纹区分是否全量兼容；预览过期时创建直接报错，不静默换范围。"""
+    client, manager, books, _ = session_api
+    book = books.load("book")
+    book.dependency_rules = {"roots": [{"entry_uid": "a", "activation": ACTIVATION_ROSTER_ANY,
+                                        "expansion": EXPANSION_REQUIRES_CLOSURE,
+                                        "character_ids": ["A"]}]}
+    book.schema_version = 3
+    books.save(book)
+
+    partial = client.post("/api/worldbook/book/scope-preview",
+                          json={"roster_character_ids": ["A"]}).json
+    full = client.post("/api/worldbook/book/scope-preview",
+                       json={"roster_character_ids": ["A"], "full_scope": True}).json
+    assert partial["draft_hash"] != full["draft_hash"]
+
+    # 用「全量」的指纹去创建一个「非全量」的会话 → 必须被拒绝
+    rejected = client.post("/api/sessions", json={
+        "worldbook_id": "book", "roster_character_ids": ["A"],
+        "expected_draft_hash": full["draft_hash"]})
+    assert rejected.status_code == 400
+    assert "预览已过期" in rejected.json["error"]
+    assert not manager._sessions
+
+
+def test_manual_append_is_session_scoped_and_cancellable(session_api):
+    """手动追加只作用于本会话：书规则不变，取消追加后新会话不再包含它。"""
+    client, _, books, _ = session_api
+    client.put("/api/worldbook/book/configuration", json={
+        "expected_revision": 1,
+        "roots": [{"entry_uid": "a", "activation": ACTIVATION_ROSTER_ANY,
+                   "expansion": EXPANSION_REQUIRES_CLOSURE, "character_ids": ["A"]}],
+    })
+    before = copy.deepcopy(books.load("book").dependency_rules)
+
+    preview = client.post("/api/worldbook/book/scope-preview",
+                          json={"roster_character_ids": ["A"],
+                                "manual_entry_uids": ["world"]}).json
+    assert "world" in preview["scope"]["resolved_entry_uids"]
+    assert preview["scope"]["selection_reasons"]["world"] == ["manual"]
+
+    created = client.post("/api/sessions", json={
+        "worldbook_id": "book", "roster_character_ids": ["A"],
+        "manual_entry_uids": ["world"], "expected_draft_hash": preview["draft_hash"]})
+    assert created.status_code == 201, created.json
+    assert "world" in created.json["worldbook_scope"]["resolved_entry_uids"]
+    assert created.json["worldbook_scope"]["manual_entry_uids"] == ["world"]
+    assert books.load("book").dependency_rules == before      # 书规则没被写回
+
+    # 取消追加（不带 manual）→ 新会话不再包含，且没有破坏书上的配置
+    again = client.post("/api/sessions", json={
+        "worldbook_id": "book", "roster_character_ids": ["A"]})
+    assert again.status_code == 201
+    assert "world" not in again.json["worldbook_scope"]["resolved_entry_uids"]
+    assert books.load("book").dependency_rules == before

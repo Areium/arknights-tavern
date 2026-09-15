@@ -419,3 +419,157 @@ html.light .wbg-workbench { color-scheme: light; }
   .wbg-seg button { padding: 4px 6px; font-size: 10px; }
   .wbg-metric-row { grid-template-columns: 1fr; }
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+   简化视图：配置概览 / 条目与角色，以及「AI 自动构建依赖」面板。
+   它们不在 .wbg-workbench 里，所以这里重新声明同一套调色变量。
+   ══════════════════════════════════════════════════════════════════════ */
+.wbg-page, .wbg-config, .wbg-entries, .wbg-build {
+  --wbg-line: color-mix(in srgb, var(--ng-muted) 20%, transparent);
+  --wbg-hover: color-mix(in srgb, var(--ng-muted) 9%, transparent);
+  --wbg-accent-soft: color-mix(in srgb, var(--ng-edge-color-hl) 12%, transparent);
+  color: var(--ng-body);
+  color-scheme: dark;
+}
+html.light .wbg-page, html.light .wbg-config, html.light .wbg-entries, html.light .wbg-build { color-scheme: light; }
+.wbg-page-status { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.wbg-notice.wbg-ok { color: var(--ng-edge-color-hl); background: var(--wbg-accent-soft); }
+.wbg-notice.wbg-warn { color: var(--ng-note); background: color-mix(in srgb, var(--ng-note) 9%, transparent); }
+.wbg-notice.wbg-warn b { color: var(--ng-title); }
+
+/* ── 配置概览 / 条目与角色 的公共骨架 ── */
+.wbg-config, .wbg-entries { display: flex; flex-direction: column; gap: 13px; height: 100%; min-height: 0; }
+.wbg-config-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 14px; flex-shrink: 0; }
+.wbg-config-head h3 { font-size: 15px; font-weight: 650; color: var(--ng-title); margin-top: 3px; }
+.wbg-config-head .wbg-help { max-width: 62ch; margin-top: 4px; }
+.wbg-config-metrics { display: flex; flex-wrap: wrap; gap: 7px; }
+.wbg-config-metrics > span {
+  display: flex; align-items: center; gap: 7px; padding: 6px 10px; border: 1px solid var(--wbg-line);
+  border-radius: 6px; color: var(--ng-muted); font-size: 11px;
+}
+.wbg-config-metrics b { color: var(--ng-title); font-weight: 650; font-variant-numeric: tabular-nums; }
+.wbg-config-metrics > span.is-warn b { color: var(--ng-combat); }
+.wbg-config-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); gap: 14px; flex: 1; min-height: 0; }
+.wbg-config-main, .wbg-config-side { display: flex; flex-direction: column; gap: 12px; overflow-y: auto; padding-right: 3px; min-height: 0; }
+.wbg-card { border: 1px solid var(--wbg-line); border-radius: 9px; background: var(--ng-card-bg); padding: 12px 14px; }
+.wbg-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 9px; }
+.wbg-card-head h4 { font-size: 13px; font-weight: 620; color: var(--ng-title); }
+.wbg-card-head .wbg-help { margin-top: 3px; max-width: 58ch; }
+.wbg-card-count {
+  flex-shrink: 0; min-width: 26px; padding: 3px 8px; border-radius: 999px; text-align: center;
+  color: var(--ng-title); background: var(--wbg-hover); font-size: 11px; font-variant-numeric: tabular-nums;
+}
+.wbg-row-list { display: flex; flex-direction: column; }
+.wbg-row {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 6px 4px;
+  border-top: 1px solid var(--wbg-line); font-size: 11px; color: var(--ng-body);
+}
+.wbg-row:first-child { border-top: none; }
+.wbg-row:hover { background: var(--wbg-hover); }
+.wbg-row-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wbg-row-arrow { color: var(--ng-muted); }
+.wbg-row .wbg-icon-button { margin-left: auto; }
+.wbg-sev { flex-shrink: 0; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; color: var(--ng-muted); background: var(--wbg-hover); }
+.wbg-row[data-wbg-severity="error"] .wbg-sev { color: var(--ng-combat); background: color-mix(in srgb, var(--ng-combat) 14%, transparent); }
+.wbg-row[data-wbg-severity="warning"] .wbg-sev { color: var(--ng-note); background: color-mix(in srgb, var(--ng-note) 14%, transparent); }
+.wbg-chip { flex-shrink: 0; padding: 2px 7px; border: 1px solid var(--wbg-line); border-radius: 999px; color: var(--ng-muted); font-size: 10px; }
+.wbg-chip.is-warn { color: var(--ng-note); border-color: color-mix(in srgb, var(--ng-note) 40%, transparent); }
+.wbg-warning { color: var(--ng-edge-color-hl); font-size: 11px; line-height: 1.7; }
+.wbg-uid { color: var(--ng-muted); font-size: 10px; margin-top: 3px; word-break: break-all; }
+.wbg-entry-excerpt { color: var(--ng-muted); font-size: 11px; line-height: 1.8; margin-top: 6px; max-height: 5.6em; overflow: hidden; }
+
+/* 角色分组与头像 */
+.wbg-char-group { border-top: 1px solid var(--wbg-line); padding-top: 9px; margin-top: 9px; }
+.wbg-char-group:first-of-type { border-top: none; margin-top: 0; padding-top: 0; }
+.wbg-char-group-head { display: flex; align-items: center; gap: 9px; margin-bottom: 5px; }
+.wbg-char-group-head strong { display: block; color: var(--ng-title); font-size: 12px; font-weight: 600; }
+.wbg-char-group-head small { display: block; color: var(--ng-muted); font-size: 10px; }
+.wbg-char-group-head .wbg-card-count { margin-left: auto; }
+.wbg-avatar {
+  width: 30px; height: 30px; flex-shrink: 0; border-radius: 6px; object-fit: cover;
+  border: 1px solid var(--wbg-line); background: var(--wbg-hover);
+}
+.wbg-avatar.is-empty {
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--ng-muted); font-size: 11px;
+}
+
+/* 试选阵容 */
+.wbg-roster-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 9px; }
+.wbg-roster-chips .wbg-fixed-chip { gap: 5px; padding: 3px 5px; }
+.wbg-roster-chips .wbg-fixed-chip img { width: 18px; height: 18px; border-radius: 4px; object-fit: cover; }
+.wbg-roster-chips .wbg-fixed-chip span { font-size: 11px; }
+.wbg-roster-picker { display: flex; flex-wrap: wrap; gap: 5px; max-height: 190px; overflow-y: auto; }
+.wbg-roster-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px 4px 4px;
+  border: 1px solid var(--wbg-line); border-radius: 999px; color: var(--ng-body); font-size: 11px;
+}
+.wbg-roster-chip img { width: 20px; height: 20px; border-radius: 999px; object-fit: cover; }
+.wbg-roster-chip:hover { color: var(--ng-title); background: var(--wbg-hover); }
+.wbg-roster-chip.is-on {
+  color: var(--ng-edge-color-hl); border-color: color-mix(in srgb, var(--ng-edge-color-hl) 42%, transparent);
+  background: var(--wbg-accent-soft);
+}
+.wbg-tree-list { display: flex; flex-direction: column; gap: 1px; font-size: 11px; }
+.wbg-tree-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 0; color: var(--ng-muted); }
+.wbg-tree-list small { color: var(--ng-muted); opacity: .75; font-size: 10px; }
+.wbg-tree-root { color: var(--ng-edge-color-hl); font-weight: 600; }
+
+/* ── AI 自动构建依赖面板 ── */
+.wbg-build { display: flex; flex-direction: column; gap: 10px; border: 1px solid color-mix(in srgb, var(--ng-edge-color-hl) 26%, transparent); border-radius: 9px; background: var(--ng-card-bg); padding: 13px 14px; }
+.wbg-build-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.wbg-build-head h4 { font-size: 13px; font-weight: 650; color: var(--ng-title); margin-top: 3px; }
+.wbg-build-head .wbg-help { margin-top: 4px; max-width: 46ch; }
+.wbg-build-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; flex-shrink: 0; }
+.wbg-build-stage { color: var(--ng-edge-color-hl); font-size: 11px; font-variant-numeric: tabular-nums; }
+.wbg-build-progress { height: 4px; border-radius: 999px; background: var(--wbg-hover); overflow: hidden; }
+.wbg-build-progress i { display: block; height: 100%; border-radius: 999px; background: var(--ng-edge-color-hl); transition: width .3s; }
+.wbg-build-issues { display: flex; flex-direction: column; gap: 4px; font-size: 11px; }
+.wbg-build-issues li { display: flex; gap: 8px; align-items: baseline; color: var(--ng-body); line-height: 1.7; }
+.wbg-build-issues li b { flex-shrink: 0; font-size: 10px; color: var(--ng-muted); }
+.wbg-build-issues li[data-wbg-severity="error"] b { color: var(--ng-combat); }
+.wbg-build-issues li[data-wbg-severity="warning"] b { color: var(--ng-note); }
+.wbg-build-records { display: flex; flex-direction: column; gap: 3px; max-height: 260px; overflow-y: auto; }
+.wbg-build-record { display: grid; grid-template-columns: auto 1fr; gap: 4px 9px; padding: 5px 4px; border-top: 1px solid var(--wbg-line); font-size: 11px; }
+.wbg-build-record:first-child { border-top: none; }
+.wbg-build-record small { grid-column: 2; color: var(--ng-muted); font-size: 10px; }
+.wbg-build-rel { padding: 1px 6px; border-radius: 4px; font-size: 10px; color: var(--ng-muted); background: var(--wbg-hover); }
+.wbg-build-rel[data-wbg-rel="requires"] { color: var(--ng-edge-color-hl); background: var(--wbg-accent-soft); }
+.wbg-build-rel[data-wbg-rel="unsure"] { color: var(--ng-note); background: color-mix(in srgb, var(--ng-note) 13%, transparent); }
+.wbg-build-rel[data-wbg-rel="related"] { color: var(--ng-body); }
+.wbg-build-apply { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--wbg-line); padding-top: 11px; }
+
+/* ── 条目与角色：列表 + 详情 ── */
+.wbg-entries-body { display: grid; grid-template-columns: minmax(260px, 330px) minmax(0, 1fr); gap: 13px; flex: 1; min-height: 0; }
+.wbg-entries-list { display: flex; flex-direction: column; min-height: 0; border: 1px solid var(--wbg-line); border-radius: 9px; background: var(--ng-card-bg); overflow: hidden; }
+.wbg-entries-filters { display: flex; flex-direction: column; gap: 7px; padding: 10px; border-bottom: 1px solid var(--wbg-line); flex-shrink: 0; }
+.wbg-entries-filters .wbg-search { margin: 0; }
+.wbg-entries-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 5px; }
+.wbg-entry-card {
+  display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 8px; text-align: left;
+  border: 1px solid transparent; border-radius: 7px; color: var(--ng-body);
+}
+.wbg-entry-card:hover { background: var(--wbg-hover); }
+.wbg-entry-card.is-active { border-color: color-mix(in srgb, var(--ng-edge-color-hl) 42%, transparent); background: var(--wbg-accent-soft); }
+.wbg-entry-card-main { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.wbg-entry-card-main strong { font-size: 12px; color: var(--ng-title); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wbg-entry-card-main small { font-size: 10px; color: var(--ng-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wbg-role-tag { flex-shrink: 0; padding: 2px 7px; border-radius: 999px; font-size: 10px; font-style: normal; color: var(--ng-muted); background: var(--wbg-hover); }
+.wbg-role-tag[data-wbg-rel="always"] { color: var(--ng-edge-color-hl); background: var(--wbg-accent-soft); }
+.wbg-role-tag[data-wbg-rel="roster"] { color: var(--ng-note); background: color-mix(in srgb, var(--ng-note) 13%, transparent); }
+.wbg-entries-detail { display: flex; flex-direction: column; gap: 11px; overflow-y: auto; padding-right: 3px; min-height: 0; }
+.wbg-action-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 9px 0; border-top: 1px solid var(--wbg-line);
+}
+.wbg-action-row:first-of-type { border-top: none; padding-top: 0; }
+.wbg-action-row strong { display: block; font-size: 12px; color: var(--ng-title); font-weight: 600; }
+.wbg-action-row small { display: block; color: var(--ng-muted); font-size: 10px; margin-top: 2px; }
+.wbg-action-controls { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.wbg-action-controls .wbg-field { min-width: 150px; }
+.wbg-form-label { display: flex; flex-direction: column; gap: 5px; color: var(--ng-muted); font-size: 11px; }
+
+@container (max-width: 980px) {
+  .wbg-config-grid, .wbg-entries-body { grid-template-columns: minmax(0, 1fr); }
+  .wbg-config-main, .wbg-config-side { overflow: visible; }
+}
