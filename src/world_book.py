@@ -28,6 +28,7 @@ import json
 import logging
 import random
 import re
+import threading
 import time
 import uuid
 import tempfile
@@ -38,6 +39,10 @@ from typing import Optional
 from worldbook_scope import (
     EXTENSION_KEY, UNCLASSIFIED, validate_categories, validate_policy,
     expand_sources, find_scope_extension,
+    ACTIVATION_ALWAYS, ACTIVATION_MANUAL, ACTIVATION_ROSTER_ANY,
+    EXPANSION_NONE, EXPANSION_REQUIRES_CLOSURE, EXPANSION_LEGACY_DEPTH,
+    SCHEMA_VERSION_V3, resolve_v3_scope, validate_v3_rules,
+    v2_rules_from_import_config,
 )
 from worldbook_classify import classify_entries, needs_classification
 
@@ -495,6 +500,29 @@ def estimate_tokens(text: str) -> int:
     return cjk + other // 4
 
 
+# 解析器版本：随解析语义变更递增。会话快照记录它，用于判断旧快照是否需重算。
+RESOLVER_VERSION = 3
+# 每个书保留的策略版本快照上限（不可变历史，供会话恢复绑定版本）。
+MAX_POLICY_REVISIONS = 40
+
+
+def content_revision(entries) -> str:
+    """条目正文指纹：只覆盖 uid + 正文哈希。
+
+    用于标记「分析证据是否过期」——正文变了，旧证据就不再可信；
+    它**不是**正文快照，正文仍按实时语义读取。
+    """
+    payload = sorted(
+        (str(getattr(e, "uid", "") or (e.get("uid") if isinstance(e, dict) else "")),
+         hashlib.sha256(
+             (str(getattr(e, "content", "") or (e.get("content") if isinstance(e, dict) else "")))
+             .encode("utf-8")).hexdigest())
+        for e in entries
+    )
+    text = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
 def _compile_pattern(key: str, case_sensitive: bool, whole_words: bool):
     """把酒馆关键词编译为正则（酒馆 key 本身就是正则）。
 
@@ -569,7 +597,9 @@ class WorldBook:
                  source: str = "imported", enabled: bool = True,
                  pack_rev: str = "", schema_version: int = 2,
                  categories: list = None, dependency_edges: list = None,
-                 import_config: dict = None, scope_mode: str = None):
+                 import_config: dict = None, scope_mode: str = None,
+                 dependency_rules: dict = None, related_edges: list = None,
+                 policy_revisions: list = None):
         self.id = book_id
         self.name = name or book_id
         self.source_format = source_format
@@ -584,7 +614,7 @@ class WorldBook:
         self.updated_at = time.time()
         self.pack_rev = str(pack_rev or "")
         self.entries: list[WorldBookEntry] = list(entries or [])
-        self.schema_version = 2
+        self.schema_version = 3 if dependency_rules else 2
         self.scope_mode = scope_mode or ("selective" if schema_version >= 2 and categories else "legacy")
         if self.scope_mode not in ("legacy", "selective"):
             raise ValueError("scope_mode 必须是 legacy 或 selective")
@@ -593,6 +623,88 @@ class WorldBook:
             entry.category_id = entry.category_id or "unclassified"
         self.dependency_edges = self._normalize_edges(dependency_edges)
         self.import_config = self._normalize_import_config(import_config)
+        # ── v3：全书底层有向图 + 条件起点（分类只负责组织，不决定候选）──
+        known = {e.uid for e in self.entries}
+        self.related_edges = []
+        self.dependency_rules = None
+        if dependency_rules is not None:
+            rules, requires, related = validate_v3_rules(
+                known, dependency_rules, self.dependency_edges)
+            self.dependency_rules = rules
+            self.dependency_edges = requires
+            self.related_edges = related
+        elif related_edges:
+            _, _, self.related_edges = validate_v3_rules(
+                known, {"roots": [], "requires_edges": [], "related_edges": related_edges})
+        # 不可变策略版本历史：会话可据此恢复「它创建时绑定的规则」，而不只是版本号。
+        self.policy_revisions = self._normalize_revisions(policy_revisions)
+
+    def _normalize_revisions(self, value) -> list[dict]:
+        result = []
+        for raw in value if isinstance(value, list) else []:
+            if not isinstance(raw, dict):
+                continue
+            revision = raw.get("revision")
+            if type(revision) is not int or revision < 1:
+                continue
+            result.append({
+                "revision": revision,
+                "resolver_version": int(raw.get("resolver_version", RESOLVER_VERSION) or RESOLVER_VERSION),
+                "scope_mode": raw.get("scope_mode", "selective"),
+                "rules": copy.deepcopy(raw.get("rules")) if isinstance(raw.get("rules"), dict) else None,
+                "requires_edges": copy.deepcopy(raw.get("requires_edges") or []),
+                "related_edges": copy.deepcopy(raw.get("related_edges") or []),
+                "fixed_entry_uids": list(raw.get("fixed_entry_uids") or []),
+                "dependency_sources": copy.deepcopy(raw.get("dependency_sources") or []),
+                "created_at": float(raw.get("created_at", time.time())),
+            })
+        result.sort(key=lambda item: item["revision"])
+        return result[-MAX_POLICY_REVISIONS:]
+
+    @property
+    def v3_enabled(self) -> bool:
+        """是否按 v3 规则解析（否则沿用 v2 语义，旧会话不受影响）。"""
+        return self.dependency_rules is not None
+
+    def rules_snapshot(self, revision: int = None) -> dict:
+        """返回可恢复的规则快照：优先取指定修订的不可变版本，否则用当前规则。"""
+        if revision is not None:
+            for item in reversed(self.policy_revisions):
+                if item["revision"] == revision:
+                    return copy.deepcopy(item)
+        return {
+            "revision": self.import_config["revision"],
+            "resolver_version": RESOLVER_VERSION,
+            "scope_mode": self.scope_mode,
+            "rules": copy.deepcopy(self.dependency_rules),
+            "requires_edges": copy.deepcopy(self.dependency_edges),
+            "related_edges": copy.deepcopy(self.related_edges),
+            "fixed_entry_uids": list(self.import_config["fixed_entry_uids"]),
+            "dependency_sources": copy.deepcopy(self.import_config["dependency_sources"]),
+            "created_at": time.time(),
+        }
+
+    def record_policy_revision(self):
+        """把当前策略固化为一个不可变版本（同一修订号只记一次）。"""
+        snapshot = self.rules_snapshot()
+        for item in self.policy_revisions:
+            if item["revision"] == snapshot["revision"]:
+                return
+        self.policy_revisions.append(snapshot)
+        self.policy_revisions = self.policy_revisions[-MAX_POLICY_REVISIONS:]
+
+    def adopt_v2_as_v3(self):
+        """把现有 v2 配置无损升级为 v3 起点（fixed → always+none，sources → always+legacy_depth）。
+
+        只显式调用：旧书/旧会话不会因为读一次就悄悄改变语义。
+        """
+        rules, requires, related = v2_rules_from_import_config(
+            self.import_config, self.dependency_edges)
+        self.dependency_rules = rules
+        self.dependency_edges = requires
+        self.related_edges = related
+        self.schema_version = 3
+        return self
 
     @staticmethod
     def _normalize_categories(categories) -> list[dict]:
@@ -649,6 +761,11 @@ class WorldBook:
             "dependency_edges": self.dependency_edges,
             "import_config": self.import_config,
         }
+        if self.dependency_rules is not None:
+            data["dependency_rules"] = self.dependency_rules
+            data["related_edges"] = self.related_edges
+        if self.policy_revisions:
+            data["policy_revisions"] = copy.deepcopy(self.policy_revisions)
         # 仅预装包携带指纹，用户导入/新建的书序列化形态保持不变
         if self.pack_rev:
             data["pack_rev"] = self.pack_rev
@@ -670,6 +787,9 @@ class WorldBook:
             dependency_edges=data.get("dependency_edges"),
             import_config=data.get("import_config"),
             scope_mode=data.get("scope_mode"),
+            dependency_rules=data.get("dependency_rules"),
+            related_edges=data.get("related_edges"),
+            policy_revisions=data.get("policy_revisions"),
         )
         book.created_at = float(data.get("created_at", time.time()))
         book.updated_at = float(data.get("updated_at", time.time()))
@@ -756,6 +876,156 @@ class WorldBook:
                               for reason in ("worldview", "roster", "fixed", "dependency", "legacy")},
                 "source_expansions": source_expansions,
                 "warnings": warnings}
+
+    # ── v3 解析 ──
+
+    def resolve_v3_import_scope(self, roster_character_ids=None, revision=None,
+                                manual_entry_uids=None):
+        """按 v3 规则解析候选范围。
+
+        revision 指定时使用该修订的**不可变规则版本**（会话恢复用），
+        否则使用当前规则。manual_entry_uids 是「只作用于本次会话」的手动追加。
+        """
+        snapshot = self.rules_snapshot(revision) if revision is not None else None
+        rules = (snapshot or {}).get("rules") or self.dependency_rules
+        requires = (snapshot or {}).get("requires_edges")
+        related = (snapshot or {}).get("related_edges")
+        if requires is None:
+            requires = self.dependency_edges
+        if related is None:
+            related = self.related_edges
+        if rules is None:
+            raise ValueError("这本书没有 v3 依赖规则")
+
+        result = resolve_v3_scope(
+            self.entries, rules, requires, related,
+            roster_character_ids=roster_character_ids,
+            policy_revision=(snapshot or {}).get("revision", self.import_config["revision"]),
+            content_revision=content_revision(self.entries),
+            book_id=self.id,
+        )
+
+        # 手动追加：只补进本次候选，不写回规则、不改变激活起点。
+        manual = [uid for uid in (manual_entry_uids or [])
+                  if isinstance(uid, str) and any(e.uid == uid for e in self.entries)]
+        if manual:
+            resolved = set(result["resolved_entry_uids"]) | set(manual)
+            reasons = result["selection_reasons"]
+            for uid in manual:
+                reasons.setdefault(uid, [])
+                if "manual" not in reasons[uid]:
+                    reasons[uid] = reasons[uid] + ["manual"]
+            result["resolved_entry_uids"] = sorted(resolved)
+            result["selection_reasons"] = {uid: reasons[uid] for uid in sorted(reasons)}
+            result["manual_entry_uids"] = sorted(set(manual))
+        else:
+            result["manual_entry_uids"] = []
+        result["resolver_version"] = RESOLVER_VERSION
+        return result
+
+    def preview_v3_scope(self, roster_character_ids=None, manual_entry_uids=None,
+                         revision=None):
+        """v3 预览：候选范围 + 解释 + 与草稿绑定的一致性指纹。"""
+        scope = self.resolve_v3_import_scope(roster_character_ids, revision, manual_entry_uids)
+        resolved = set(scope["resolved_entry_uids"])
+        costs = {e.uid: estimate_tokens(e.content) for e in self.entries}
+        full = [e for e in self.entries if e.enabled and e.content.strip()]
+        total = sum(costs.get(e.uid, 0) for e in full)
+        selected = sum(costs.get(uid, 0) for uid in resolved)
+        by_uid = {e.uid: e for e in self.entries}
+
+        warnings = []
+        pending = sum(e.category_id == "unclassified" for e in full)
+        if pending:
+            warnings.append(f"{pending} 条尚未分类；未分类条目不会被任何起点激活，"
+                            "可归类、设为起点或手动追加。")
+        unlinked = sum(self.category_scope_type(e.category_id) == "character"
+                       and not e.character_id for e in full)
+        if unlinked:
+            warnings.append(f"{unlinked} 条角色设定未关联角色，不能随阵容激活。")
+
+        unselected = [{"uid": e.uid, "name": e.name, "category_id": e.category_id}
+                      for e in full if e.uid not in resolved]
+        return {
+            "scope": scope,
+            "schema_version": SCHEMA_VERSION_V3,
+            "resolver_version": RESOLVER_VERSION,
+            "entry_count": len(resolved),
+            "full_entry_count": len(full),
+            "full_estimated_tokens": total,
+            "resolved_estimated_tokens": selected,
+            "saved_estimated_tokens": total - selected,
+            "saved_percent": round(100 * (total - selected) / total, 1) if total else 0,
+            "active_roots": scope["active_roots"],
+            "resolved_edges": scope["resolved_edges"],
+            "selection_reasons": scope["selection_reasons"],
+            "display_tree": scope["display_tree"],
+            "cross_references": scope["cross_references"],
+            "issues": scope["issues"],
+            "draft_hash": self.policy_draft_hash(roster_character_ids, manual_entry_uids, revision),
+            "policy_revision": scope["policy_revision"],
+            "content_revision": scope["content_revision"],
+            "breakdown": {
+                reason: {"entry_count": sum(reason in scope["selection_reasons"].get(uid, [])
+                                            for uid in resolved),
+                         "estimated_tokens": sum(costs.get(uid, 0) for uid in resolved
+                                                 if reason in scope["selection_reasons"].get(uid, []))}
+                for reason in ("always", "roster", "requires", "manual")},
+            "manual_entry_uids": scope["manual_entry_uids"],
+            "unselected_entries": unselected[:200],
+            "unselected_count": len(unselected),
+            "entry_names": {uid: (by_uid[uid].name or uid) for uid in scope["resolved_entry_uids"]
+                            if uid in by_uid},
+            "warnings": warnings,
+        }
+
+    def policy_draft_hash(self, roster_character_ids=None, manual_entry_uids=None,
+                          revision=None) -> str:
+        """草稿指纹：规则 + 边 + 阵容 + 手动追加。用于「预览与创建必须一致」。"""
+        snapshot = self.rules_snapshot(revision) if revision is not None else None
+        payload = {
+            "book_id": self.id,
+            "revision": (snapshot or {}).get("revision", self.import_config["revision"]),
+            "rules": (snapshot or {}).get("rules") or self.dependency_rules,
+            "requires_edges": (snapshot or {}).get("requires_edges") or self.dependency_edges,
+            "related_edges": (snapshot or {}).get("related_edges") or self.related_edges,
+            "roster": sorted({c.strip() for c in (roster_character_ids or []) if isinstance(c, str)}),
+            "manual": sorted(set(manual_entry_uids or [])),
+            "content_revision": content_revision(self.entries),
+        }
+        text = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+    def session_scope_snapshot(self, roster_character_ids=None, manual_entry_uids=None,
+                               revision=None) -> dict:
+        """生成会话要持久化的 v3 范围快照。
+
+        绑定的是**完整规则/关联/边的不可变版本**（不只是版本号），并记录解析器版本、
+        阵容、手动追加、激活根、UID、原因、参与边与展示路径。正文仍按实时语义读取，
+        因此这里保存的是规则与解析结果，不是条目正文副本。
+        """
+        scope = self.resolve_v3_import_scope(roster_character_ids, revision, manual_entry_uids)
+        snapshot = self.rules_snapshot(scope["policy_revision"])
+        return {
+            "book_id": self.id,
+            "schema_version": SCHEMA_VERSION_V3,
+            "resolver_version": RESOLVER_VERSION,
+            "policy_revision": scope["policy_revision"],
+            "content_revision": scope["content_revision"],
+            "rules": snapshot.get("rules"),
+            "requires_edges": snapshot.get("requires_edges"),
+            "related_edges": snapshot.get("related_edges"),
+            "roster_character_ids": sorted(scope["roster_character_ids"]),
+            "manual_entry_uids": scope["manual_entry_uids"],
+            "active_roots": scope["active_roots"],
+            "resolved_entry_uids": scope["resolved_entry_uids"],
+            "selection_reasons": scope["selection_reasons"],
+            "resolved_edges": [e for e in scope["resolved_edges"] if e.get("active")],
+            "display_tree": scope["display_tree"],
+            "issues": scope["issues"],
+            "legacy_full_scope": False,
+            "resolved_at": scope["resolved_at"],
+        }
 
     def eligible_uids_for(self, overlay):
         scope = getattr(overlay, "get_worldbook_scope", lambda: None)()
@@ -885,12 +1155,17 @@ class WorldBook:
                                                  "character_id": entry.character_id}}
             key = str(out.get("uid", i))
             entries_map[key] = out
-        return {"entries": entries_map, "extensions": {EXTENSION_KEY: {
-            "schema_version": 2, "scope_mode": self.scope_mode,
+        extension = {EXTENSION_KEY: {
+            "schema_version": self.schema_version, "scope_mode": self.scope_mode,
             "categories": copy.deepcopy(self.categories),
             "dependency_edges": copy.deepcopy(self.dependency_edges),
             "import_config": copy.deepcopy(self.import_config),
-        }}}
+        }}
+        if self.dependency_rules is not None:
+            extension[EXTENSION_KEY]["dependency_rules"] = copy.deepcopy(self.dependency_rules)
+            extension[EXTENSION_KEY]["related_edges"] = copy.deepcopy(self.related_edges)
+            extension[EXTENSION_KEY]["policy_revisions"] = copy.deepcopy(self.policy_revisions)
+        return {"entries": entries_map, "extensions": extension}
 
 
 def apply_auto_classification(book: WorldBook, first_install: bool = False):
@@ -947,9 +1222,21 @@ class WorldBookManager:
         self._dir.mkdir(parents=True, exist_ok=True)
         self._packs_dir = _PACKS_DIR
         self._cache: dict[str, WorldBook] = {}
+        # 按书锁：覆盖「读修订 → 校验 → 提交」整段，避免原子替换仍然丢更新。
+        self._book_locks: dict[str, threading.RLock] = {}
+        self._locks_guard = threading.Lock()
         # 仅默认数据目录自动安装整合包（自定义目录用于测试/隔离，不注入预装内容）
         if data_dir is None:
             self._ensure_packs_installed()
+
+    def book_lock(self, book_id: str) -> threading.RLock:
+        """取这本书的写锁（可重入）。同一本书的读-改-写必须整体持锁。"""
+        with self._locks_guard:
+            lock = self._book_locks.get(book_id)
+            if lock is None:
+                lock = threading.RLock()
+                self._book_locks[book_id] = lock
+            return lock
 
     # ── 整合包安装 ──
 
@@ -1185,6 +1472,16 @@ class WorldBookManager:
             book.import_config, book.dependency_edges = config, edges
             if any(e.category_id not in {c["id"] for c in book.categories} for e in entries):
                 raise ValueError("导入的条目引用了不存在的分类")
+            # v3 规则随书回灌；旧书（无 dependency_rules）保持 v2 语义不变。
+            rules = extension.get("dependency_rules")
+            if isinstance(rules, dict):
+                book.dependency_rules, book.dependency_edges, book.related_edges = (
+                    validate_v3_rules({e.uid for e in entries}, {
+                        **rules, "dependency_edges": extension.get("dependency_edges", []),
+                        "related_edges": extension.get("related_edges", []),
+                    }))
+                book.schema_version = 3
+                book.policy_revisions = book._normalize_revisions(extension.get("policy_revisions"))
         self.save(book)
         return book, report
 
@@ -1206,6 +1503,9 @@ class WorldBookManager:
             dependency_edges=copy.deepcopy(book.dependency_edges),
             import_config=copy.deepcopy(book.import_config),
             scope_mode=book.scope_mode,
+            dependency_rules=copy.deepcopy(book.dependency_rules),
+            related_edges=copy.deepcopy(book.related_edges),
+            policy_revisions=copy.deepcopy(book.policy_revisions),
         )
         new_book.created_at = time.time()
         new_book.updated_at = time.time()

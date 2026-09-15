@@ -149,8 +149,23 @@ def register(app, managers):
             for character in dict.fromkeys(name.strip() for name in roster):
                 if character != player_identity and not session.scene_manager.load_character(character):
                     raise ValueError(f"无法加载入队角色：{character}")
-            scope = (book.resolve_import_scope(session.scene_manager.get_scene_characters())
-                     if book else {"book_id": None, "resolved_entry_uids": []})
+            # 以**实际加载成功**的阵容解析候选范围（加载失败的角色已在上面抛错）。
+            roster_ids = session.scene_manager.get_scene_characters()
+            if book is not None and book.v3_enabled:
+                manual = data.get("manual_entry_uids") or []
+                if not isinstance(manual, list) or any(
+                        not isinstance(uid, str) or not uid.strip() for uid in manual):
+                    raise ValueError("manual_entry_uids 必须是非空字符串组成的数组")
+                # 预览版本校验：带了 draft_hash 就必须与当前实际阵容的解析一致，
+                # 否则说明预览已过期，宁可报错也不静默用一套不同的范围创建会话。
+                expected = data.get("expected_draft_hash")
+                if expected and expected != book.policy_draft_hash(roster_ids, manual):
+                    raise ValueError("候选范围预览已过期，请重新预览后再创建会话")
+                scope = book.session_scope_snapshot(roster_ids, manual)
+            elif book is not None:
+                scope = book.resolve_import_scope(roster_ids)
+            else:
+                scope = {"book_id": None, "resolved_entry_uids": []}
             session.overlay.set_worldbook_scope(scope)
 
         try:

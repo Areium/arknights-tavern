@@ -4,6 +4,8 @@ logs/
 .history/
 data/memory/
 data/worldbooks/
+data/worldbook_jobs/
+data/worldbook_analysis/
 config/llm_config.json
 venv/
 .venv/
