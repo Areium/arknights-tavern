@@ -166,6 +166,29 @@ def test_v2_session_still_uses_legacy_semantics(scene):
     assert scope["resolved_entry_uids"], "v2 会话入队后候选变空了"
 
 
+def test_v2_explicit_full_scope_and_manual_fields_survive_roster_changes(scene):
+    """v2 会话的显式全量覆盖是会话字段，入/离队不能把它换成当前书解析。"""
+    scene_manager, overlay, manager = scene
+    book = manager.load("book")
+    scope = book.resolve_import_scope([])
+    all_uids = sorted(entry.uid for entry in book.entries if entry.enabled and entry.content.strip())
+    scope.update({"resolved_entry_uids": all_uids,
+                  "selection_reasons": {uid: ["full_scope"] for uid in all_uids},
+                  "full_scope": True, "legacy_full_scope": True,
+                  "manual_entry_uids": ["tech"]})
+    overlay.set_worldbook_scope(scope)
+    assert scene_manager.load_character("A") is True
+    after_load = overlay.get_worldbook_scope()
+    assert after_load["full_scope"] is True
+    assert after_load["manual_entry_uids"] == ["tech"]
+    assert after_load["resolved_entry_uids"] == all_uids
+    assert scene_manager.unload_character("A") is True
+    after_unload = overlay.get_worldbook_scope()
+    assert after_unload["full_scope"] is True
+    assert after_unload["manual_entry_uids"] == ["tech"]
+    assert after_unload["resolved_entry_uids"] == all_uids
+
+
 def test_restore_does_not_recompute(scene):
     """恢复会话时不重算：磁盘上的快照就是真相。"""
     scene_manager, overlay, manager = scene

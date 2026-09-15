@@ -128,7 +128,7 @@ export default function DependencyBuildPanel({ detail, onApply, busy }: {
   const records = result?.records || [];
   const visible = showAllRecords ? records : records.slice(0, 40);
   const acceptedCount = result?.accepted?.length || 0;
-  const suggestedRoots = result?.roots || [];
+  const suggestedRoots = result?.configuration_roots || result?.roots || [];
   const uncertain = records.filter((r) => r.relation === "unsure");
   const running = !!job && !TERMINAL.includes(job.stage);
   const nameOf = (uid: string) => detail.entries.find((e) => e.uid === uid)?.name || uid;
@@ -159,9 +159,11 @@ export default function DependencyBuildPanel({ detail, onApply, busy }: {
           </span>
           <button className="wbg-button wbg-button-quiet" onClick={() => void cancel()}>取消</button>
         </>}
-        {!!job?.failed_batches?.length && !running &&
+        {!!job && !running && (!!job.failed_batches?.length || !!job.resumable
+          || !!job.pending_card_uids || !!job.pending_chunk_ids || !!job.pending_pairs) &&
           <button className="wbg-button wbg-button-quiet" onClick={() => void retry()}>
-            {job.resumable ? "继续未完成部分" : "重试失败批次"}（{job.failed_batches.length}）
+            {job.resumable ? "继续未完成部分" : "重试失败批次"}
+            {!!job.failed_batches?.length && `（${job.failed_batches.length}）`}
           </button>}
       </div>
     </header>
@@ -186,7 +188,7 @@ export default function DependencyBuildPanel({ detail, onApply, busy }: {
     </div>}
     {job?.resumable && <div role="status" className="wbg-notice wbg-warn">
       <span>
-        这次构建在预算内没有跑完（还差 {job.pending_card_uids || 0} 个条目分析、
+        这次构建在预算内没有跑完（还差 {job.pending_chunk_ids || job.pending_card_uids || 0} 个分块分析、
         {job.pending_pairs || 0} 对候选判定）。点「继续未完成部分」会接着上次的进度跑，不会重复计费。
       </span>
     </div>}

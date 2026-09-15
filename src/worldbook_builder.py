@@ -42,7 +42,7 @@ _ANALYSIS_DIR = _PROJECT_ROOT / "data" / "worldbook_analysis"
 _JOBS_DIR = _PROJECT_ROOT / "data" / "worldbook_jobs"
 
 # 提示词版本：参与缓存键。改动提示词/输出契约时必须递增，否则旧缓存会被误用。
-PROMPT_VERSION = "wb-dep-v2"
+PROMPT_VERSION = "wb-dep-v3"
 
 ANALYSIS_BATCH = 6        # 单次分析请求包含的条目数
 ADJUDICATION_BATCH = 8    # 单次判定请求包含的候选对数
@@ -100,6 +100,18 @@ def evidence_locatable(evidence, entries) -> bool:
 def _norm(text: str) -> str:
     """证据比对用的宽松规范化：去掉空白与常见标点差异。"""
     return re.sub(r"\s+", "", text or "")
+
+
+def _entity_name_alias(name: str) -> str:
+    """取展示名中真正的实体/概念名，去掉末尾的说明性括号。"""
+    text = str(name or "").strip()
+    stem = re.sub(r"\s*[（(][^）)]{1,24}[）)]\s*$", "", text).strip()
+    return stem if len(stem) >= 2 else ""
+
+
+def _chunk_id(uid: str, index: int, chunk: str) -> str:
+    """分块的稳定身份；模型返回顺序变化也不会张冠李戴。"""
+    return f"{uid}:{index}:{_sha(chunk)[:12]}"
 
 
 def extract_json(text: str):
@@ -228,6 +240,20 @@ def build_metadata_index(entries) -> dict:
     for entry in entries:
         uid = entry.uid
         aliases = {entry.name, uid}
+        entity_aliases = {entry.name, uid}
+        stem = _entity_name_alias(entry.name)
+        category_hint = classified.assignments.get(uid) or entry.category_id or ""
+        entity_category = category_hint in {
+            "characters", "locations", "races", "items", "enemies", "plots"}
+        entity_prefix = uid.lower().startswith((
+            "characters_", "locations_", "organizations_", "organisation_",
+            "factions_", "groups_", "nations_", "companies_"))
+        if stem and (entity_category or entity_prefix):
+            aliases.add(stem)
+            entity_aliases.add(stem)
+        if entry.character_id:
+            aliases.add(entry.character_id)
+            entity_aliases.add(entry.character_id)
         aliases.update(k for k in (entry.trigger_keys or []) if isinstance(k, str))
         by_uid[uid] = {
             "uid": uid,
@@ -235,6 +261,7 @@ def build_metadata_index(entries) -> dict:
             "category_id": entry.category_id or "unclassified",
             "character_id": entry.character_id or "",
             "aliases": sorted(a.strip() for a in aliases if a and a.strip()),
+            "entity_aliases": sorted(a.strip() for a in entity_aliases if a and a.strip()),
             "trigger_keys": [k for k in (entry.trigger_keys or []) if isinstance(k, str)],
             "content_hash": _sha(entry.content or ""),
             "chars": len(entry.content or ""),
@@ -320,7 +347,7 @@ def collect_candidates(metadata: dict, entries_by_uid: dict,
                 if len(needle) < 2 or len(needle) > 60:
                     continue
                 if needle in generic and needle not in {
-                        _norm(other.get("name", "")), _norm(other_uid)}:
+                        _norm(value) for value in other.get("entity_aliases", [])}:
                     continue
                 if needle and needle in haystack:
                     rank = _match_rank(alias, other)
@@ -390,7 +417,7 @@ def auto_budget(estimated_calls: int) -> int:
     """
     if estimated_calls <= 0:
         return MAX_CALLS_DEFAULT
-    return min(MAX_CALLS_HARD, max(20, int(estimated_calls * 1.25) + 10))
+    return min(MAX_CALLS_HARD, max(20, int(estimated_calls * 1.15) + 10))
 
 
 # ─────────────────────────────────────────────────────────────
@@ -406,9 +433,10 @@ _SYSTEM = (
     "4. 证据必须逐字来自你看到的正文片段。\n"
 )
 
-_ANALYSIS_INSTRUCTION = """分析下面这批世界书条目，为**每一条**输出一张分析卡。
+_ANALYSIS_INSTRUCTION = """分析下面这批世界书条目，为**每一个分块**输出一张分析卡。
 
 字段定义：
+- chunk_id: 原样抄回输入里的 chunk_id；这是分块的唯一身份，不能遗漏或改写。
 - uid: 原样抄回输入里的 uid。
 - summary: 一句话摘要（<=80 字）。
 - entities: 正文中提到的**专有名词**（人物/地点/组织/物品/事件/概念），最多 12 个。
@@ -418,7 +446,7 @@ _ANALYSIS_INSTRUCTION = """分析下面这批世界书条目，为**每一条**�
 - foundational: 是否为所有会话都需要的基础世界设定（布尔值）；人物介绍和仅仅提及角色不能算基础设定。
 - evidence: 支撑上述结论的原文片段（逐字引用，最多 3 条）。
 
-只输出形如 {"cards":[{...}, ...]} 的 JSON，cards 与输入条目一一对应。"""
+只输出形如 {"cards":[{...}, ...]} 的 JSON，cards 与输入分块一一对应。"""
 
 _ADJUDICATION_INSTRUCTION = """判断下列「条目 A → 条目 B」的关系。这是世界书依赖图构建，不是语义相似度任务。
 
@@ -439,11 +467,14 @@ _ADJUDICATION_INSTRUCTION = """判断下列「条目 A → 条目 B」的关系�
 "confidence":0.0,"reason":"..","evidence":".."}]} 的 JSON。"""
 
 
-def _entry_block(uid: str, name: str, content: str, aliases: list, part: str = "") -> str:
+def _entry_block(uid: str, name: str, content: str, aliases: list, part: str = "",
+                 chunk_id: str = "") -> str:
     alias_text = "、".join(aliases[:8])
     header = f'<entry uid="{uid}" name="{name}"'
     if part:
         header += f' part="{part}"'
+    if chunk_id:
+        header += f' chunk_id="{chunk_id}"'
     return (f"{header}>\n"
             f"[别名/关键词] {alias_text}\n"
             f"[正文]\n{content}\n</entry>")
@@ -550,6 +581,7 @@ class DependencyBuildJob:
         self.candidates = {}               # 候选识别报告（通用词 / 延迟候选）
         self.pending_pairs = []            # 预算耗尽时可续跑的剩余候选对
         self.pending_card_uids = []        # 预算耗尽时仍缺分析卡的条目
+        self.pending_chunk_ids = []        # 缺失分块的稳定身份（不能只靠 UID / 顺序）
         self.chunk_report = {}             # 长条目分块报告（分块数 / 被丢弃字符）
         self._save_lock = threading.RLock()
         self.running = False
@@ -575,6 +607,7 @@ class DependencyBuildJob:
             "chunk_report": self.chunk_report,
             "pending_pairs": len(self.pending_pairs),
             "pending_card_uids": len(self.pending_card_uids),
+            "pending_chunk_ids": len(self.pending_chunk_ids),
         }
         if include_result:
             data["result"] = self.result
@@ -594,6 +627,7 @@ class DependencyBuildJob:
         payload["judgments"] = self.judgments
         payload["pending_pairs"] = self.pending_pairs
         payload["pending_card_uids"] = self.pending_card_uids
+        payload["pending_chunk_ids"] = self.pending_chunk_ids
         try:
             temporary = path.with_suffix(".tmp")
             serialized = json.dumps(payload, ensure_ascii=False)
@@ -636,6 +670,7 @@ class DependencyBuildJob:
         job.chunk_report = data.get("chunk_report") or {}
         job.pending_pairs = data.get("pending_pairs") or []
         job.pending_card_uids = data.get("pending_card_uids") or []
+        job.pending_chunk_ids = data.get("pending_chunk_ids") or []
         job.created_at = float(data.get("created_at", time.time()))
         job.updated_at = float(data.get("updated_at", time.time()))
         return job
@@ -861,13 +896,33 @@ def validate_proposal(book, cards: dict, judgments: list, metadata: dict,
                                "message": f"{card_uid} 提到未识别的角色目录 ID：{cid}"})
 
     # 起点建议（角色关联 / 条件根）：允许「零边只有起点」的方案被应用
-    roots, root_issues = suggest_roots(book, cards, metadata, character_ids)
-    for root in roots:
+    suggested_roots, root_issues = suggest_roots(book, cards, metadata, character_ids)
+    roots, root_records = [], []
+    for root in suggested_roots:
         uid = root["entry_uid"]
-        root.update(model=model, prompt_version=PROMPT_VERSION,
-                    source_content_hash=_sha(by_uid[uid].content),
-                    evidence="\n".join((cards.get(uid) or {}).get("evidence", []))[:600])
+        snippets = (cards.get(uid) or {}).get("evidence", [])
+        evidence = next((text for text in snippets
+                         if isinstance(text, str) and evidence_locatable(text, [by_uid[uid]])), "")
+        candidate = {**root, "model": model, "prompt_version": PROMPT_VERSION,
+                     "source_content_hash": _sha(by_uid[uid].content),
+                     "evidence": evidence[:600]}
+        if not evidence:
+            candidate["review_status"] = "needs_review"
+            root_records.append(candidate)
+            issues.append({"code": "root_evidence_not_found", "severity": "warning",
+                           "uid": uid,
+                           "message": f"{by_uid[uid].name or uid} 的起点建议没有可定位原文证据，已转入待复核"})
+            continue
+        candidate["review_status"] = "proposed"
+        roots.append(candidate)
+        root_records.append(candidate)
     issues.extend(root_issues)
+
+    # 应用面板必须拿到完整、可编辑的根计划。确定性分类根（origin=rule）不依赖
+    # AI 证据；AI 新增的基础/角色根已经在上面逐条验证过。
+    configuration_roots = build_to_v3_rules(
+        book, {"roots": roots, "accepted": []},
+        existing_rules=book.dependency_rules or {})["roots"]
 
     # 阵容扩张自检：空阵容 / 单角色 / 多角色下分别会有多大
     expansion = _expansion_probe(book, accepted, extra_requires=roots)
@@ -879,6 +934,8 @@ def validate_proposal(book, cards: dict, judgments: list, metadata: dict,
         "records": records,
         "accepted": accepted,
         "roots": roots,
+        "root_records": root_records,
+        "configuration_roots": configuration_roots,
         "issues": issues,
         "cycles": cycles,
         "fanout": fanout,
@@ -1079,8 +1136,8 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
         job.stage = STAGE_CARDS
         job.message = "正在为条目生成分析卡"
         job.save()
-        units = []                 # (uid, chunk_index, chunk_text, cache_key)
-        expected = {}              # uid -> 该条目的分块数
+        units = []                 # (uid, chunk_id, chunk_index, chunk_text, cache_key)
+        expected = {}              # uid -> 按正文顺序排列的稳定 chunk_id
         chunk_report = {}
         for uid, info in metadata["entries"].items():
             if only_uids is not None and uid not in only_uids:
@@ -1095,23 +1152,34 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
                 chunk_report[uid] = {"chunks": len(chunks), "dropped_chars": dropped}
             if not chunks:
                 chunks = [""]
-            expected[uid] = len(chunks)
+            expected[uid] = [_chunk_id(uid, index, chunk) for index, chunk in enumerate(chunks)]
             for index, chunk in enumerate(chunks):
-                units.append((uid, index, chunk, key))
+                units.append((uid, expected[uid][index], index, chunk, key))
         job.chunk_report = chunk_report
         job.pending_card_uids = sorted(expected)
         job.save()
 
-        done_idx = {uid: {int(k): v for k, v in job.chunk_cards.get(uid, {}).items()}
-                    for uid in expected}
+        done_chunks = {}
+        for uid, chunk_ids in expected.items():
+            saved = job.chunk_cards.get(uid, {})
+            restored = {}
+            for saved_id, card in saved.items() if isinstance(saved, dict) else []:
+                # 兼容旧断点的数字索引：读入后立即迁移为当前稳定 chunk_id。
+                chunk_id = saved_id
+                if str(saved_id).isdigit() and int(saved_id) < len(chunk_ids):
+                    chunk_id = chunk_ids[int(saved_id)]
+                if chunk_id in chunk_ids and isinstance(card, dict):
+                    restored[chunk_id] = card
+            done_chunks[uid] = restored
+            job.chunk_cards[uid] = restored
         merged_ready = set()
 
         def settle_cards():
             """把所有分块都成功返回的条目合并成一张卡并写缓存（分块未齐不写）。"""
-            for uid, total in expected.items():
-                if uid in merged_ready or len(done_idx[uid]) < total:
+            for uid, chunk_ids in expected.items():
+                if uid in merged_ready or any(cid not in done_chunks[uid] for cid in chunk_ids):
                     continue
-                parts = [card for _, card in sorted(done_idx[uid].items())]
+                parts = [done_chunks[uid][cid] for cid in chunk_ids]
                 merged = _merge_cards(parts)
                 merged["uid"] = uid
                 job.cards[uid] = merged
@@ -1122,14 +1190,15 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
             if not guard():
                 return job
             batch = [unit for unit in units[start:start + ANALYSIS_BATCH]
-                     if unit[1] not in done_idx[unit[0]]]
+                     if unit[1] not in done_chunks[unit[0]]]
             if not batch:
                 settle_cards()
                 continue
             blocks = [_entry_block(uid, entries_by_uid[uid].name or uid, chunk,
                                    metadata["entries"][uid]["aliases"],
-                                   part=f"{index + 1}/{expected[uid]}" if expected[uid] > 1 else "")
-                      for uid, index, chunk, _ in batch]
+                                   part=f"{index + 1}/{len(expected[uid])}" if len(expected[uid]) > 1 else "",
+                                   chunk_id=chunk_id)
+                      for uid, chunk_id, index, chunk, _ in batch]
             try:
                 value = _chat_json(llm, [
                     {"role": "system", "content": _SYSTEM},
@@ -1138,27 +1207,51 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
                      + "\n\n" + "\n\n".join(blocks)},
                 ], job)
                 cards = value.get("cards") if isinstance(value, dict) else None
-                by_uid = {}
                 if not isinstance(cards, list):
                     raise LLMError("invalid_response", "响应缺少 cards 数组")
+                allowed = {chunk_id: uid for uid, chunk_id, _, _, _ in batch}
+                returned = {}
+                response_errors = []
                 for card in cards:
-                    if isinstance(card, dict) and card.get("uid") in {u[0] for u in batch}:
-                        by_uid.setdefault(card["uid"], []).append(_clean_card(card))
-                for uid, index, _, _ in batch:
-                    got = by_uid.get(uid)
+                    if not isinstance(card, dict):
+                        response_errors.append("响应含非对象分析卡")
+                        continue
+                    chunk_id = card.get("chunk_id")
+                    if not isinstance(chunk_id, str) or chunk_id not in allowed:
+                        response_errors.append(f"响应含未知或缺失 chunk_id：{chunk_id}")
+                        continue
+                    if chunk_id in returned:
+                        response_errors.append(f"响应重复 chunk_id：{chunk_id}")
+                        continue
+                    if card.get("uid") != allowed[chunk_id]:
+                        response_errors.append(f"chunk_id 与 uid 不匹配：{chunk_id}")
+                        continue
+                    returned[chunk_id] = _clean_card(card)
+                if response_errors:
+                    job.failed_batches.append({"stage": STAGE_CARDS,
+                                               "chunk_ids": sorted(allowed),
+                                               "code": "invalid_response",
+                                               "message": "；".join(response_errors[:4])})
+                for uid, chunk_id, _, _, _ in batch:
+                    got = returned.get(chunk_id)
                     if got:
-                        done_idx[uid][index] = got.pop(0)
-                        job.chunk_cards[uid] = {str(k): v for k, v in done_idx[uid].items()}
+                        done_chunks[uid][chunk_id] = got
+                        job.chunk_cards[uid] = dict(done_chunks[uid])
                     else:
                         job.failed_batches.append({"stage": STAGE_CARDS, "uids": [uid],
+                                                   "chunk_ids": [chunk_id],
                                                    "code": "invalid_response", "message": "响应遗漏分析分块"})
                 settle_cards()
             except LLMError as exc:
                 # 失败**不写缓存**、也不落空卡：留到 pending，等重试或如实报失败。
                 job.failed_batches.append({"stage": STAGE_CARDS,
-                                           "uids": sorted({uid for uid, _, _, _ in batch}),
+                                           "uids": sorted({uid for uid, _, _, _, _ in batch}),
+                                           "chunk_ids": [chunk_id for _, chunk_id, _, _, _ in batch],
                                            "code": exc.code, "message": exc.message})
             job.pending_card_uids = sorted(uid for uid in expected if uid not in job.cards)
+            job.pending_chunk_ids = sorted(
+                chunk_id for uid, chunk_ids in expected.items() for chunk_id in chunk_ids
+                if chunk_id not in done_chunks[uid])
             job.progress = min(job.total, len(job.cards))
             job.save()
 
@@ -1306,6 +1399,7 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
             if job.pending_card_uids:
                 job.failed_batches.append({"stage": STAGE_CARDS,
                                            "uids": list(job.pending_card_uids),
+                                           "chunk_ids": list(job.pending_chunk_ids),
                                            "code": "budget_exceeded", "resumable": True,
                                            "message": exc.message})
             if job.pending_pairs:
@@ -1343,6 +1437,7 @@ def _clean_card(card: dict) -> dict:
             return []
         return [str(v).strip() for v in value if isinstance(v, str) and v.strip()][:limit]
     return {
+        "chunk_id": str(card.get("chunk_id", "")),
         "uid": str(card.get("uid", "")),
         "summary": str(card.get("summary") or "")[:200],
         "entities": strings(card.get("entities")),
@@ -1367,8 +1462,9 @@ def _merge_card_pairs(pairs, cards, metadata, entries_by_uid) -> list[dict]:
         for other_uid, info in metadata["entries"].items():
             if other_uid == uid:
                 continue
+            entity_aliases = {_norm(value) for value in info.get("entity_aliases", [])}
             matches = {term for term in mentioned & set(info["aliases"])
-                       if (_norm(term) not in generic or term in (info["name"], other_uid))
+                       if (_norm(term) not in generic or _norm(term) in entity_aliases)
                        and _norm(term) in _norm(entries_by_uid[uid].content)}
             if matches:
                 index.setdefault((uid, other_uid),

@@ -63,17 +63,18 @@ class CardStub:
         if "上一个回复不是合法 JSON" in prompt:
             return {"type": "text", "content": "仍不是 JSON"}
         if "分析下面这批" in prompt:
-            uids = [line.split('uid="')[1].split('"')[0]
-                    for line in prompt.splitlines() if line.startswith("<entry uid=")]
+            entry_lines = [line for line in prompt.splitlines() if line.startswith("<entry uid=")]
+            uids = [line.split('uid="')[1].split('"')[0] for line in entry_lines]
+            chunk_ids = [line.split('chunk_id="')[1].split('"')[0] for line in entry_lines]
             if any(uid in self.fail_uids for uid in uids):
                 raise LLMConnectError("stub：分析阶段连接失败")
             if any(uid in self.bad_json_uids for uid in uids):
                 return {"type": "text", "content": "这不是 JSON"}
             return {"type": "text", "content": json.dumps({"cards": [
-                {"uid": uid, "summary": "", "entities": [], "defined_concepts": [],
+                {"uid": uid, "chunk_id": chunk_id, "summary": "", "entities": [], "defined_concepts": [],
                  "unexplained_concepts": [],
                  "candidate_characters": self.candidate_characters.get(uid, []),
-                 "evidence": []} for uid in uids]}, ensure_ascii=False)}
+                 "evidence": []} for uid, chunk_id in zip(uids, chunk_ids)]}, ensure_ascii=False)}
         if "判断下列" in prompt:
             pairs = []
             for line in prompt.splitlines():
@@ -157,6 +158,64 @@ def test_preinstalled_book_whole_build_completes_within_auto_budget(tmp_path):
     assert not job.resumable and not job.failed_batches
     print(f"[P1-1] 全书构建完成：{job.calls} 次调用 / 预算 {job.workload['budget']} · "
           f"{len(job.cards)} 张卡 · {job.result['stats']['records']} 条记录")
+
+
+@pytest.mark.skipif(not PREINSTALLED.is_file(), reason="仓库内没有预装世界书")
+def test_preinstalled_entity_names_survive_generic_alias_filter():
+    """人物实体名即使高频也保留；职业属性等普通触发词仍走频率过滤。"""
+    book = WorldBookManager(REPO / "data" / "worldbooks").load("arknights")
+    metadata = build_metadata_index(book.entries)
+    report = collect_candidates(metadata, {entry.uid: entry for entry in book.entries})
+    pairs = {(item["from_uid"], item["to_uid"]) for item in report["pairs"]}
+    assert ("rules_rarity-system_index", "characters_凯尔希_index") in pairs
+    assert sum(to_uid == "characters_凯尔希_index" for _, to_uid in pairs) >= 50
+    assert sum(to_uid == "characters_阿米娅_index" for _, to_uid in pairs) >= 35
+    assert sum(to_uid == "characters_银灰_index" for _, to_uid in pairs) >= 14
+    assert report["generic_aliases"], "通用职业/属性词过滤被整体关闭了"
+    workload = estimate_workload(metadata, report["pairs"])
+    assert workload["estimated_calls"] < MAX_CALLS_HARD
+
+
+def test_chunk_id_prevents_second_chunk_from_being_recorded_as_first(cache, store):
+    """模型只回第二块时第一块保持 pending；续跑只补第一块并最终合并。"""
+    class ChunkStub:
+        def __init__(self, omit_first=False):
+            self.omit_first = omit_first
+            self.calls = []
+
+        def chat(self, messages, **kwargs):
+            prompt = messages[-1]["content"]
+            self.calls.append(prompt)
+            if "分析下面这批" in prompt:
+                lines = [line for line in prompt.splitlines() if line.startswith("<entry uid=")]
+                cards = []
+                for line in lines:
+                    uid = line.split('uid="')[1].split('"')[0]
+                    chunk_id = line.split('chunk_id="')[1].split('"')[0]
+                    if self.omit_first and uid == "long" and ":0:" in chunk_id:
+                        continue
+                    cards.append({"uid": uid, "chunk_id": chunk_id, "summary": chunk_id,
+                                  "entities": [], "defined_concepts": [],
+                                  "unexplained_concepts": [], "candidate_characters": [],
+                                  "evidence": []})
+                return {"type": "text", "content": json.dumps({"cards": cards})}
+            return {"type": "text", "content": '{"judgments":[]}'}
+
+    book = WorldBook("chunks", "分块断点", [
+        entry("long", "第一块。" * 500 + "第二块。" * 500, name="长条目"),
+    ], categories=copy.deepcopy(DEFAULT_CATEGORIES))
+    job = store.create(book.id, "h", "m")
+    run_build(job, book, ChunkStub(omit_first=True), model="m", cache=cache)
+    assert job.outcome == "failed" and job.resumable
+    stored_ids = set(job.chunk_cards["long"])
+    assert stored_ids and all(":0:" not in chunk_id for chunk_id in stored_ids)
+    assert any(":0:" in chunk_id for chunk_id in job.pending_chunk_ids)
+
+    run_build(job, book, ChunkStub(), model="m", cache=cache,
+              only_uids=list(job.pending_card_uids), max_calls=20)
+    assert job.outcome == "success"
+    assert len(job.chunk_cards["long"]) == len(entry_chunks(book.entries[0].content)[0])
+    assert not job.pending_chunk_ids
 
 
 def test_budget_exhaustion_is_resumable_with_checkpoint(cache, store):
@@ -322,11 +381,24 @@ def test_card_candidate_characters_become_applicable_roster_roots():
 def test_validate_proposal_surfaces_root_suggestions():
     """起点建议要出现在校验结果里（stats + roots），而不是只打一条 warning。"""
     book = fixture_book()
-    cards = {"tech": {"uid": "tech", "candidate_characters": ["A"]}}
+    cards = {"tech": {"uid": "tech", "candidate_characters": ["A"],
+                       "evidence": ["源石技艺的定义与规则"]}}
     proposal = validate_proposal(book, cards, [], {}, character_ids=["A"])
     assert [r["entry_uid"] for r in proposal["roots"]] == ["tech"]
     assert proposal["stats"]["roots"] == 1
     assert proposal["expansion_probe"]["suggested_roots"] == 1
+
+
+def test_fabricated_root_evidence_is_never_default_applied():
+    book = fixture_book()
+    cards = {"tech": {"uid": "tech", "candidate_characters": ["A"],
+                       "evidence": ["MADE UP QUOTE"]}}
+    proposal = validate_proposal(book, cards, [], build_metadata_index(book.entries),
+                                 character_ids=["A"])
+    assert proposal["roots"] == []
+    assert proposal["root_records"][0]["review_status"] == "needs_review"
+    assert any(issue["code"] == "root_evidence_not_found" for issue in proposal["issues"])
+    assert all(root["entry_uid"] != "tech" for root in proposal["configuration_roots"])
 
 
 # ── P2-12：缓存键绑定真实模型身份 ──

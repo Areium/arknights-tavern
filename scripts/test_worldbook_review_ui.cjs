@@ -8,11 +8,15 @@ const categories = [{id:'worldview',name:'世界观',scope_type:'worldview',pare
   {id:'unclassified',name:'未分类',scope_type:'other',parent_id:null}];
 const detail = {id:'review',name:'返修验收书',enabled:true,schema_version:3,scope_mode:'selective',
   updated_at:1,categories,import_config:{revision:1,fixed_entry_uids:[],dependency_sources:[]},
-  dependency_rules:{roots:[],rejected:[]},dependency_edges:[],related_edges:[],
+  dependency_rules:{roots:[],rejected:[],edge_meta:{'a|b':{origin:'manual',locked:true}}},
+  dependency_edges:[],related_edges:[{from_uid:'a',to_uid:'b'}],
   entries:[{uid:'a',name:'角色甲设定',content:'角色甲使用术式。',category_id:'unclassified',enabled:true,trigger_keys:[]},
     {uid:'b',name:'术式定义',content:'术式的基础规则。',category_id:'unclassified',enabled:true,trigger_keys:[]}]};
-const job = {job_id:'saved-job',book_id:'review',stage:'done',outcome:'success',calls:2,
-  result:{model:'stub',records:[],accepted:[],roots:[{entry_uid:'a',activation:'roster_any',
+const job = {job_id:'saved-job',book_id:'review',stage:'failed',outcome:'partial',calls:2,
+  resumable:true,pending_card_uids:1,pending_chunk_ids:2,pending_pairs:0,failed_batches:[],
+  result:{model:'stub',records:[],accepted:[
+    {from_uid:'a',to_uid:'b',relation:'requires',confidence:.9},
+    {from_uid:'b',to_uid:'a',relation:'requires',confidence:.8}],roots:[{entry_uid:'a',activation:'roster_any',
     expansion:'requires_closure',character_ids:['A']}],issues:[],stats:{requires:0,related:0,unsure:0,none:0},expansion_probe:{}}};
 (async()=>{
   const browser = await chromium.launch({headless:true,channel:process.env.WB_BROWSER || 'chrome'});
@@ -53,6 +57,8 @@ const job = {job_id:'saved-job',book_id:'review',stage:'done',outcome:'success',
   const apply=page.getByRole('button',{name:/应用构建结果/});
   try { await apply.waitFor({timeout:10000}); }
   catch(e) {console.error(await page.locator('body').innerText());await browser.close();throw e;}
+  assert.ok(await page.getByRole('button',{name:/继续未完成部分/}).isVisible(),
+    'orphan resumable job without failed_batches must expose continuation');
   await page.waitForTimeout(700); const idle=previews;
   await page.waitForTimeout(1200); assert.equal(previews,idle,'idle preview must stop');
   assert.equal(await page.getByText('计算中…',{exact:true}).count(),0);
@@ -61,10 +67,15 @@ const job = {job_id:'saved-job',book_id:'review',stage:'done',outcome:'success',
   await apply.waitFor(); await page.waitForTimeout(400);
   assert.ok(jobGets>=2,'completed job must reload on return'); assert.equal(starts,0);
   await apply.click();
+  assert.ok(await page.getByText(/与人工锁定关系相反/).isVisible(),
+    'opposite AI relation must remain review-only');
   await page.getByRole('button',{name:'保存',exact:true}).click();
   await page.getByText(/保存被拒绝/).waitFor();
   assert.equal(writes.length,1);assert.equal(writes[0].roots[0].character_ids[0],'A');
   assert.equal(writes[0].proposal.materialized,true);
+  assert.deepEqual(writes[0].proposal.materialized_root_uids,['a']);
+  assert.deepEqual(writes[0].proposal.accepted_pairs,[['b','a']]);
+  assert.deepEqual(writes[0].related_edges,[{from_uid:'a',to_uid:'b'}]);
   await page.getByRole('button',{name:'高级图谱',exact:true}).click();
   await page.getByRole('button',{name:'配置概览',exact:true}).click();
   assert.ok(await page.getByText(/保存被拒绝/).isVisible(),'conflict preserves draft across views');
@@ -93,6 +104,7 @@ const job = {job_id:'saved-job',book_id:'review',stage:'done',outcome:'success',
   assert.deepEqual(errors,[]);
   if(process.env.WB_UI_SCREENSHOT) await page.screenshot({path:process.env.WB_UI_SCREENSHOT,fullPage:true});
   console.log(JSON.stringify({idlePreviews:idle,restoredJobRequests:jobGets,duplicateStarts:starts,
-    configurationWrites:writes.length,oldWrites,rootOnlyApply:true,conflictDraftPreserved:true,threeWayBookSwitch:true,errors}));
+    configurationWrites:writes.length,oldWrites,resumableWithoutFailedBatches:true,rootOnlyApply:true,
+    conflictDraftPreserved:true,threeWayBookSwitch:true,errors}));
   await browser.close();
 })().catch(e=>{console.error(e);process.exit(1)});

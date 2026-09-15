@@ -1119,7 +1119,32 @@ class WorldBook:
         if not isinstance(existing_scope, dict):
             existing_scope = {}
         if existing_scope.get("schema_version") != SCHEMA_VERSION_V3:
-            return self.resolve_import_scope(roster_character_ids)
+            refreshed = self.resolve_import_scope(roster_character_ids)
+            manual = [uid for uid in (existing_scope.get("manual_entry_uids") or [])
+                      if isinstance(uid, str)]
+            by_uid = {entry.uid: entry for entry in self.entries}
+            if existing_scope.get("full_scope"):
+                resolved = sorted(uid for uid, entry in by_uid.items()
+                                  if self.enabled and entry.enabled and (entry.content or "").strip())
+                refreshed.update({"resolved_entry_uids": resolved,
+                                  "selection_reasons": {uid: ["full_scope"] for uid in resolved},
+                                  "legacy_full_scope": True, "full_scope": True})
+            else:
+                resolved = list(refreshed.get("resolved_entry_uids") or [])
+                reasons = dict(refreshed.get("selection_reasons") or {})
+                for uid in manual:
+                    entry = by_uid.get(uid)
+                    if entry and self.enabled and entry.enabled and (entry.content or "").strip():
+                        if uid not in resolved:
+                            resolved.append(uid)
+                        reasons.setdefault(uid, []).append("manual")
+                refreshed.update({"resolved_entry_uids": resolved,
+                                  "selection_reasons": reasons,
+                                  "full_scope": False})
+            # 保留 v2 会话级覆盖字段；解析器版本仍保持 v2，不静默升级。
+            return {**existing_scope, **refreshed,
+                    "manual_entry_uids": manual,
+                    "roster_character_ids": sorted(set(roster_character_ids or []))}
         # 会话自带完整规则；即使书的历史版本被移除也能恢复。
         bound = copy.deepcopy(self)
         bound.dependency_rules = copy.deepcopy(existing_scope.get("rules") or {"roots": []})

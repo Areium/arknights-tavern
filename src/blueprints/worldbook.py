@@ -96,6 +96,43 @@ def _apply_full_scope(payload: dict, book) -> dict:
     return payload
 
 
+def _ai_evidence_issues(book) -> list[dict]:
+    """Report stale evidence for applied AI roots/edges without disabling them."""
+    by_uid = {entry.uid: entry for entry in book.entries}
+    issues = []
+    rules = book.dependency_rules or {}
+    for root in rules.get("roots", []):
+        if not isinstance(root, dict) or root.get("origin") != "llm":
+            continue
+        uid = root.get("entry_uid")
+        entry = by_uid.get(uid)
+        stale = (entry is None
+                 or root.get("source_content_hash") != content_hash(entry.content or "")
+                 or not evidence_locatable(root.get("evidence"), [entry]))
+        if stale:
+            issues.append({"code": "ai_root_evidence_stale", "severity": "warning", "uid": uid,
+                           "message": f"AI 起点 {getattr(entry, 'name', '') or uid} 的原文证据已过期，请重新构建或人工复核"})
+    formal = {(edge.get("from_uid"), edge.get("to_uid"))
+              for edge in list(book.dependency_edges or []) + list(book.related_edges or [])
+              if isinstance(edge, dict)}
+    for key, meta in (rules.get("edge_meta") or {}).items():
+        if not isinstance(meta, dict) or meta.get("origin") != "llm" or "|" not in key:
+            continue
+        a, b = key.split("|", 1)
+        if (a, b) not in formal:
+            continue
+        source, target = by_uid.get(a), by_uid.get(b)
+        stale = (source is None or target is None
+                 or meta.get("source_content_hash") != content_hash(source.content or "")
+                 or meta.get("target_content_hash") != content_hash(target.content or "")
+                 or not evidence_locatable(meta.get("evidence"), [source, target]))
+        if stale:
+            issues.append({"code": "ai_edge_evidence_stale", "severity": "warning", "uid": a,
+                           "from_uid": a, "to_uid": b,
+                           "message": f"AI 关系 {a} → {b} 的原文证据已过期；关系仍保留，请重新构建或人工复核"})
+    return issues
+
+
 def _merge_v3_payload(manual: dict, proposal: dict = None, existing: dict = None) -> dict:
     """把人工草稿与 AI 建议并入同一个 v3 规则集（人工优先，重复项跳过）。
 
@@ -147,12 +184,18 @@ def _merge_v3_payload(manual: dict, proposal: dict = None, existing: dict = None
         if isinstance(value, dict):
             edge_meta[key] = {**edge_meta.get(key, {}), **value}
 
+    manual_requires = union(manual.get("requires_edges", []), [])
+    manual_related = union(manual.get("related_edges", []), [])
+    manual_requires_pairs = {(e.get("from_uid"), e.get("to_uid")) for e in manual_requires}
+    manual_related_pairs = {(e.get("from_uid"), e.get("to_uid")) for e in manual_related}
+    proposal_requires = [e for e in proposal.get("requires_edges", [])
+                         if (e.get("from_uid"), e.get("to_uid")) not in manual_related_pairs]
+    proposal_related = [e for e in proposal.get("related_edges", [])
+                        if (e.get("from_uid"), e.get("to_uid")) not in manual_requires_pairs]
     return {
         "roots": roots,
-        "requires_edges": union(manual.get("requires_edges", []),
-                                proposal.get("requires_edges", [])),
-        "related_edges": union(manual.get("related_edges", []),
-                               proposal.get("related_edges", [])),
+        "requires_edges": union(manual_requires, proposal_requires),
+        "related_edges": union(manual_related, proposal_related),
         "rejected": rejected,
         "edge_meta": edge_meta,
     }
@@ -373,6 +416,7 @@ def register(app, managers):
                                   "resolver_version": item["resolver_version"],
                                   "created_at": item["created_at"]}
                                  for item in book.policy_revisions],
+            "evidence_issues": _ai_evidence_issues(book),
         }
         if include_entries:
             detail["entries"] = [e.to_dict() for e in book.entries]
@@ -749,7 +793,13 @@ def register(app, managers):
             full_scope = bool(data.get("full_scope"))
             if candidate.v3_enabled:
                 payload = candidate.preview_v3_scope(roster, manual, revision, full_scope)
-                return jsonify(_apply_full_scope(payload, candidate) if full_scope else payload)
+                if full_scope:
+                    payload = _apply_full_scope(payload, candidate)
+                stale_issues = _ai_evidence_issues(candidate)
+                payload["issues"] = list(payload.get("issues") or []) + stale_issues
+                if isinstance(payload.get("scope"), dict):
+                    payload["scope"]["issues"] = list(payload["scope"].get("issues") or []) + stale_issues
+                return jsonify(payload)
             # 未启用 v3 的书沿用 v2 预览（旧语义不静默改变）
             payload = candidate.preview_scope(roster)
             if full_scope:
@@ -842,7 +892,11 @@ def register(app, managers):
                     removed.extend(e for e in v3_payload[field]
                                    if (e["from_uid"], e["to_uid"]) not in keep)
                     v3_payload[field] = []
-                v3_payload["roots"] = []
+                materialized_roots = set(proposal.get("materialized_root_uids") or [])
+                # 新 UI 明确列出已经物化过的根：这些根随后从草稿删除就代表用户
+                # 明确删除。旧 UI 没这个字段时不能把服务端生成的完整根计划清空。
+                v3_payload["roots"] = [root for root in v3_payload.get("roots", [])
+                                       if root.get("entry_uid") not in materialized_roots]
                 existing_rules["rejected"] = _union_edges(existing_rules.get("rejected", []), removed)
 
         manual_keys = ("roots", "requires_edges", "related_edges")
@@ -875,6 +929,30 @@ def register(app, managers):
                     "requires_edges": data.get("requires_edges", candidate.dependency_edges),
                     "related_edges": data.get("related_edges", candidate.related_edges),
                 }
+
+            # 正式人工锁定关系优先。即使旧/恶意客户端把相反类型的 AI 建议也放进
+            # materialized 草稿，服务端仍恢复锁定类型并剔除相反类型；其他建议继续应用。
+            locked_meta = {key for key, meta in (existing_rules.get("edge_meta") or {}).items()
+                           if isinstance(meta, dict) and meta.get("locked")}
+            existing_requires = {(e["from_uid"], e["to_uid"]) for e in candidate.dependency_edges}
+            existing_related = {(e["from_uid"], e["to_uid"]) for e in candidate.related_edges}
+            manual_requires = {(e.get("from_uid"), e.get("to_uid")): e
+                               for e in manual.get("requires_edges", []) if isinstance(e, dict)}
+            manual_related = {(e.get("from_uid"), e.get("to_uid")): e
+                              for e in manual.get("related_edges", []) if isinstance(e, dict)}
+            for key in locked_meta:
+                if "|" not in key:
+                    continue
+                pair = tuple(key.split("|", 1))
+                edge = {"from_uid": pair[0], "to_uid": pair[1]}
+                if pair in existing_requires:
+                    manual_related.pop(pair, None)
+                    manual_requires[pair] = edge
+                elif pair in existing_related:
+                    manual_requires.pop(pair, None)
+                    manual_related[pair] = edge
+            manual["requires_edges"] = list(manual_requires.values())
+            manual["related_edges"] = list(manual_related.values())
             v3_payload = _merge_v3_payload(manual, v3_payload, existing_rules)
 
         if migrating and v3_payload is None:
@@ -1052,13 +1130,46 @@ def register(app, managers):
                 skipped += 1
                 continue
             accepted.append({**record, "relation": relation})
+        verified_roots = []
+        known_characters = set(_character_directory_ids()) or {
+            entry.character_id for entry in book.entries if entry.character_id}
+        for root in result.get("roots") or []:
+            if not isinstance(root, dict):
+                continue
+            uid = root.get("entry_uid")
+            entry = by_uid.get(uid)
+            if entry is None:
+                skipped += 1
+                continue
+            if root.get("origin") != "llm":
+                skipped += 1
+                continue
+            if root.get("source_content_hash") != content_hash(entry.content or ""):
+                raise ValueError(f"条目正文已变化（{uid}），AI 起点证据已过期；请重新构建")
+            if not evidence_locatable(root.get("evidence"), [entry]):
+                skipped += 1
+                continue
+            chars = root.get("character_ids") or []
+            if root.get("activation") == "roster_any" and (
+                    not chars or any(cid not in known_characters for cid in chars)):
+                skipped += 1
+                continue
+            verified_roots.append(dict(root))
+
+        # 服务端重建确定性分类根，只把上面逐条验过的 AI 根作为输入；不信客户端
+        # 传来的 configuration_roots。该完整计划会交给物化草稿。
+        configuration_roots = build_to_v3_rules(
+            book, {"roots": verified_roots, "accepted": []},
+            existing_rules=book.dependency_rules or {})["roots"]
         return {
             "accepted": accepted,
-            "roots": [r for r in (result.get("roots") or []) if isinstance(r, dict)],
+            "roots": configuration_roots,
             "model": result.get("model") or job.model,
             "proposal_version": result.get("proposal_version"),
             "job_id": job.id,
             "skipped": skipped,
+            "materialized_root_uids": [uid for uid in (raw.get("materialized_root_uids") or [])
+                                       if isinstance(uid, str)],
         }
 
     def _character_directory_ids() -> list[str]:

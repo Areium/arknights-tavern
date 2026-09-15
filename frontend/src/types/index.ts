@@ -683,6 +683,8 @@ export interface WorldBookDetail extends WorldBookSummary {
   content_revision?: string;
   resolver_version?: number;
   policy_revisions?: WorldBookPolicyRevisionDTO[];
+  /** 已应用 AI 根/边的正文证据在当前内容中失效；关系仍保留 */
+  evidence_issues?: WorldBookIssueDTO[];
 }
 
 export type WorldBookScopeType = "worldview" | "character" | "other";
@@ -710,6 +712,14 @@ export interface WorldBookRootDTO {
   expansion: WorldBookExpansion;
   character_ids?: string[];
   max_depth?: number;
+  locked?: boolean;
+  origin?: string;
+  model?: string;
+  prompt_version?: string;
+  source_content_hash?: string;
+  evidence?: string;
+  review_status?: string;
+  job_id?: string;
 }
 /** v3 规则集：分类只负责组织，起点与展开决定候选 */
 export interface WorldBookRulesDTO {
@@ -720,7 +730,7 @@ export interface WorldBookRulesDTO {
   /** 人工拒绝过的 AI 建议（持久化，防止「删掉又被重新应用」） */
   rejected?: WorldBookDependencyEdgeDTO[];
   /** 每条边的来源 / 证据 / 审阅状态，按 "from|to" 键控 */
-  edge_meta?: Record<string, Record<string, string>>;
+  edge_meta?: Record<string, Record<string, string | boolean>>;
 }
 export interface WorldBookPolicyRevisionDTO {
   revision: number;
@@ -779,6 +789,7 @@ export interface WorldBookConfigurationDraft {
    */
   proposal?: {
     materialized?: boolean;
+    materialized_root_uids?: string[];
     job_id: string;
     accepted_pairs?: Array<[string, string]>;
     accepted?: Array<{ from_uid: string; to_uid: string; relation?: string }>;
@@ -821,6 +832,9 @@ export interface DependencyProposalResultDTO {
   accepted: Array<{ from_uid: string; to_uid: string; relation: string; confidence: number }>;
   /** AI 建议的角色起点（只接受真实存在于角色目录的 id） */
   roots?: WorldBookRootDTO[];
+  /** 完整可编辑根计划：含确定性分类根与已验证的 AI 根 */
+  configuration_roots?: WorldBookRootDTO[];
+  root_records?: WorldBookRootDTO[];
   root_issues?: WorldBookIssueDTO[];
   issues: WorldBookIssueDTO[];
   cycles: string[][];
@@ -836,6 +850,7 @@ export interface DependencyFailedBatchDTO {
   message?: string;
   uids?: string[];
   pairs?: string[][];
+  chunk_ids?: string[];
   /** 预算耗尽等可续跑：重试只补这些批次 */
   resumable?: boolean;
 }
@@ -866,6 +881,7 @@ export interface DependencyProposalJobDTO {
   chunk_report?: { entries?: number; chunks?: number; dropped_chars?: number };
   pending_pairs?: number;
   pending_card_uids?: number;
+  pending_chunk_ids?: number;
   result: DependencyProposalResultDTO | null;
 }
 

@@ -61,12 +61,14 @@ class StubLLM:
                 raise LLMConnectError("stub 分析阶段失败")
             if self.raw is not None:
                 return {"type": "text", "content": self.raw}
-            uids = [line.split('uid="')[1].split('"')[0]
-                    for line in prompt.splitlines() if line.startswith("<entry uid=")]
-            payload = {"cards": [{"uid": uid, "summary": f"摘要-{uid}", "entities": [],
+            entry_lines = [line for line in prompt.splitlines() if line.startswith("<entry uid=")]
+            uids = [line.split('uid="')[1].split('"')[0] for line in entry_lines]
+            chunk_ids = [line.split('chunk_id="')[1].split('"')[0] for line in entry_lines]
+            payload = {"cards": [{"uid": uid, "chunk_id": chunk_id,
+                                  "summary": f"摘要-{uid}", "entities": [],
                                   "defined_concepts": [], "unexplained_concepts": [],
                                   "candidate_characters": [], "evidence": []}
-                                 for uid in uids]}
+                                 for uid, chunk_id in zip(uids, chunk_ids)]}
             if self.cards:
                 payload["cards"].extend(self.cards)
             return {"type": "text", "content": json.dumps(payload, ensure_ascii=False)}

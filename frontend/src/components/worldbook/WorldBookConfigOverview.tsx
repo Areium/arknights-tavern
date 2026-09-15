@@ -21,6 +21,7 @@ export default function WorldBookConfigOverview(props: WorldBookPanelProps) {
   const label = useMemo(() => makeLabeler(detail), [detail]);
   const [showAllBase, setShowAllBase] = useState(false);
   const [rosterOpen, setRosterOpen] = useState(true);
+  const [applyConflicts, setApplyConflicts] = useState<Array<{ from_uid: string; to_uid: string }>>([]);
 
   const byUid = useMemo(() => new Map(detail.entries.map((e) => [e.uid, e])), [detail.entries]);
   const alwaysRoots = draft.roots.filter((r) => r.activation === "always");
@@ -30,6 +31,19 @@ export default function WorldBookConfigOverview(props: WorldBookPanelProps) {
     [draft.requires_edges]);
   const rejectedSet = useMemo(() => new Set(draft.rejected.map((e) => `${e.from_uid}\u0000${e.to_uid}`)),
     [draft.rejected]);
+  const lockedRelations = useMemo(() => {
+    const out = new Map<string, "requires" | "related">();
+    const meta = detail.dependency_rules?.edge_meta || {};
+    for (const edge of detail.dependency_edges || []) {
+      if (meta[`${edge.from_uid}|${edge.to_uid}`]?.locked === true)
+        out.set(`${edge.from_uid}\u0000${edge.to_uid}`, "requires");
+    }
+    for (const edge of detail.related_edges || []) {
+      if (meta[`${edge.from_uid}|${edge.to_uid}`]?.locked === true)
+        out.set(`${edge.from_uid}\u0000${edge.to_uid}`, "related");
+    }
+    return out;
+  }, [detail.dependency_edges, detail.related_edges, detail.dependency_rules]);
 
   const rootPatch = (next: WorldBookRootDTO[]) => patch({ roots: next });
   const removeRoot = (uid: string) => rootPatch(draft.roots.filter((r) => r.entry_uid !== uid));
@@ -77,6 +91,14 @@ export default function WorldBookConfigOverview(props: WorldBookPanelProps) {
       out.push({ key: `${issue.code}:${issue.uid || ""}`, severity: issue.severity === "error" ? "error" : "warning",
         text: issue.message, uid: issue.uid });
     }
+    for (const issue of detail.evidence_issues || []) {
+      out.push({ key: `detail:${issue.code}:${issue.uid || ""}:${issue.message}`, severity: "warning",
+        text: issue.message, uid: issue.uid });
+    }
+    for (const edge of applyConflicts) {
+      out.push({ key: `locked-conflict:${edge.from_uid}:${edge.to_uid}`, severity: "warning",
+        text: `AI 对 ${label(edge.from_uid)} → ${label(edge.to_uid)} 建议了与人工锁定关系相反的类型，已留作待复核且未加入草稿` });
+    }
     for (const uid of draft.requires_edges.flatMap((e) => [e.from_uid, e.to_uid])
       .concat(draft.related_edges.flatMap((e) => [e.from_uid, e.to_uid]))) {
       if (!byUid.has(uid)) out.push({ key: `ghost:${uid}`, severity: "error", text: `依赖引用了不存在的条目 ${uid}` });
@@ -112,7 +134,8 @@ export default function WorldBookConfigOverview(props: WorldBookPanelProps) {
       }
     }
     return out;
-  }, [preview, draft.requires_edges, draft.related_edges, detail.entries, detail.categories, byUid, label, characterGroups, characters]);
+  }, [preview, draft.requires_edges, draft.related_edges, detail.entries, detail.categories,
+    detail.evidence_issues, byUid, label, characterGroups, characters, applyConflicts]);
 
   const baseVisible = showAllBase ? alwaysRoots : alwaysRoots.slice(0, 24);
 
@@ -259,16 +282,23 @@ export default function WorldBookConfigOverview(props: WorldBookPanelProps) {
                 .map((e) => ({ from_uid: e.from_uid, to_uid: e.to_uid }))];
             };
             // 已人工拒绝的建议不再并入，也不留在待应用列表里。
-            const accepted = proposal.accepted.filter((r) => !rejectedSet.has(key(r)));
+            const conflicts = proposal.accepted.filter((r) => {
+              const locked = lockedRelations.get(key(r));
+              return !!locked && locked !== r.relation;
+            });
+            setApplyConflicts(conflicts.map((r) => ({ from_uid: r.from_uid, to_uid: r.to_uid })));
+            const accepted = proposal.accepted.filter((r) => !rejectedSet.has(key(r))
+              && !conflicts.some((c) => key(c) === key(r)));
             const requires = accepted.filter((r) => r.relation === "requires");
             const related = accepted.filter((r) => r.relation === "related");
+            const proposalRootIds = new Set(proposal.roots.map((root) => root.entry_uid));
             patch({
               adopt_v3: true,
               scope_mode: "selective",
-              roots: [...draft.roots, ...proposal.roots.filter(
-                (root) => !draft.roots.some((old) => old.entry_uid === root.entry_uid))],
+              roots: [...draft.roots.filter((root) => !proposalRootIds.has(root.entry_uid)), ...proposal.roots],
               proposal: {
                 materialized: true,
+                materialized_root_uids: proposal.roots.map((root) => root.entry_uid),
                 job_id: proposal.job_id,
                 accepted,
                 accepted_pairs: accepted.map((r) => [r.from_uid, r.to_uid] as [string, string]),

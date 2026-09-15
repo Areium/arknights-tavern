@@ -13,7 +13,7 @@ from flask import Flask
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from world_book import DEFAULT_CATEGORIES, WorldBook, WorldBookEntry, WorldBookManager
-from worldbook_builder import AnalysisCache, DependencyJobStore
+from worldbook_builder import AnalysisCache, DependencyJobStore, content_hash
 from worldbook_scope import (
     ACTIVATION_ALWAYS, ACTIVATION_ROSTER_ANY, EXPANSION_REQUIRES_CLOSURE,
 )
@@ -47,12 +47,13 @@ class StubLLM:
         self.calls += 1
         prompt = messages[-1]["content"]
         if "分析下面这批" in prompt:
-            uids = [line.split('uid="')[1].split('"')[0]
-                    for line in prompt.splitlines() if line.startswith("<entry uid=")]
+            entry_lines = [line for line in prompt.splitlines() if line.startswith("<entry uid=")]
+            uids = [line.split('uid="')[1].split('"')[0] for line in entry_lines]
+            chunk_ids = [line.split('chunk_id="')[1].split('"')[0] for line in entry_lines]
             return {"type": "text", "content": json.dumps({"cards": [
-                {"uid": uid, "summary": "", "entities": [], "defined_concepts": [],
+                {"uid": uid, "chunk_id": chunk_id, "summary": "", "entities": [], "defined_concepts": [],
                  "unexplained_concepts": [], "candidate_characters": [], "evidence": []}
-                for uid in uids]}, ensure_ascii=False)}
+                for uid, chunk_id in zip(uids, chunk_ids)]}, ensure_ascii=False)}
         if "判断下列" in prompt:
             return {"type": "text", "content": json.dumps({"judgments": [
                 {"from_uid": "a", "to_uid": "tech", "relation": "requires",
@@ -750,6 +751,129 @@ def test_empty_selection_and_cancelled_proposal_are_not_applied(api):
     response=client.put('/api/worldbook/book/configuration',json={
         'proposal':{'job_id':job_id,'accepted_pairs':[['a','tech']]}})
     assert response.status_code==400
+
+
+def test_materialized_frontend_shape_keeps_full_root_plan_and_expands_requires(api):
+    """真实面板请求形状保存完整根计划；v2 的 none 根不会吞掉 AI requires 闭包。"""
+    client, manager, _ = api
+    job_id, final = run_job(client)
+    result = final["result"]
+    roots = result["configuration_roots"]
+    accepted = [item for item in result["accepted"] if item["relation"] == "requires"]
+    response = client.put("/api/worldbook/book/configuration", json={
+        "expected_revision": 1, "adopt_v3": True, "scope_mode": "selective",
+        "roots": roots,
+        "requires_edges": [{"from_uid": item["from_uid"], "to_uid": item["to_uid"]}
+                           for item in accepted],
+        "related_edges": [],
+        "proposal": {"materialized": True, "job_id": job_id,
+                     "materialized_root_uids": [root["entry_uid"] for root in roots],
+                     "accepted": accepted,
+                     "accepted_pairs": [[item["from_uid"], item["to_uid"]] for item in accepted]},
+    })
+    assert response.status_code == 200, response.json
+    stored = manager.load("book")
+    root = next(root for root in stored.dependency_rules["roots"] if root["entry_uid"] == "a")
+    assert root["expansion"] == EXPANSION_REQUIRES_CLOSURE
+    preview = client.post("/api/worldbook/book/scope-preview",
+                          json={"roster_character_ids": ["A"]}).json
+    assert {"a", "tech"} <= set(preview["scope"]["resolved_entry_uids"])
+
+
+def test_server_rejects_fabricated_root_evidence_inside_persisted_job(api):
+    """即使客户端或任务文件伪造 root，服务端也逐条复核而不是直接复制。"""
+    import blueprints.worldbook as module
+    client, manager, _ = api
+    job_id, _ = run_job(client)
+    job = module._JOB_STORE.get(job_id)
+    job.result["roots"] = [{
+        "entry_uid": "tech", "activation": "always", "expansion": "requires_closure",
+        "origin": "llm", "source_content_hash": content_hash("源石技艺的定义与规则。"),
+        "evidence": "MADE UP QUOTE", "review_status": "proposed",
+    }]
+    job.save()
+    response = client.put("/api/worldbook/book/configuration", json={
+        "expected_revision": 1, "adopt_v3": True,
+        "proposal": {"job_id": job_id, "accepted_pairs": []},
+    })
+    assert response.status_code == 200, response.json
+    assert all(root["entry_uid"] != "tech"
+               for root in manager.load("book").dependency_rules["roots"])
+
+
+def test_locked_manual_relation_wins_over_opposite_ai_relation(api):
+    """旧/恶意 materialized 请求含相反 AI 类型时不整单 400，其余建议继续应用。"""
+    import blueprints.worldbook as module
+    client, manager, _ = api
+    job_id, final = run_job(client)
+    job = module._JOB_STORE.get(job_id)
+    book = manager.load("book")
+    second = {
+        "from_uid": "b", "to_uid": "tech", "relation": "requires", "confidence": .8,
+        "reason": "测试", "evidence": "与角色A同属罗德岛",
+        "evidence_hash": content_hash("与角色A同属罗德岛")[:16],
+        "source_content_hash": content_hash(next(e.content for e in book.entries if e.uid == "b")),
+        "target_content_hash": content_hash(next(e.content for e in book.entries if e.uid == "tech")),
+        "origin": "llm", "model": job.model, "prompt_version": "test", "review_status": "proposed",
+    }
+    job.result["records"].append(second)
+    job.result["accepted"].append({"from_uid": "b", "to_uid": "tech",
+                                   "relation": "requires", "confidence": .8})
+    job.save()
+
+    book.schema_version = 3
+    book.dependency_rules = {
+        "roots": [], "root_rule": {"entry_uids": []}, "rejected": [],
+        "edge_meta": {"a|tech": {"origin": "manual", "locked": True}},
+    }
+    book.related_edges = [{"from_uid": "a", "to_uid": "tech"}]
+    book.dependency_edges = []
+    manager.save(book)
+    response = client.put("/api/worldbook/book/configuration", json={
+        "expected_revision": 1,
+        "roots": [],
+        "requires_edges": [{"from_uid": "a", "to_uid": "tech"},
+                           {"from_uid": "b", "to_uid": "tech"}],
+        "related_edges": [{"from_uid": "a", "to_uid": "tech"}],
+        "proposal": {"materialized": True, "job_id": job_id,
+                     "accepted_pairs": [["a", "tech"], ["b", "tech"]]},
+    })
+    assert response.status_code == 200, response.json
+    stored = manager.load("book")
+    assert {"from_uid": "a", "to_uid": "tech"} in stored.related_edges
+    assert {"from_uid": "a", "to_uid": "tech"} not in stored.dependency_edges
+    assert {"from_uid": "b", "to_uid": "tech"} in stored.dependency_edges
+
+
+def test_applied_ai_evidence_staleness_is_visible_in_detail_and_preview(api):
+    client, manager, _ = api
+    book = manager.load("book")
+    a = next(entry for entry in book.entries if entry.uid == "a")
+    tech = next(entry for entry in book.entries if entry.uid == "tech")
+    book.schema_version = 3
+    book.dependency_edges = [{"from_uid": "a", "to_uid": "tech"}]
+    book.dependency_rules = {
+        "roots": [{"entry_uid": "tech", "activation": "always", "expansion": "requires_closure",
+                   "character_ids": [],
+                   "origin": "llm", "source_content_hash": content_hash(tech.content),
+                   "evidence": "源石技艺的定义与规则", "review_status": "applied"}],
+        "root_rule": {"entry_uids": ["tech"]}, "rejected": [],
+        "edge_meta": {"a|tech": {"origin": "llm",
+            "source_content_hash": content_hash(a.content),
+            "target_content_hash": content_hash(tech.content),
+            "evidence": "他使用源石技艺", "review_status": "applied"}},
+    }
+    manager.save(book)
+    assert client.get("/api/worldbook/book").json["evidence_issues"] == []
+
+    changed = client.put("/api/worldbook/book/entries/tech", json={"content": "全新的正文。"})
+    assert changed.status_code == 200
+    detail = client.get("/api/worldbook/book").json
+    codes = {issue["code"] for issue in detail["evidence_issues"]}
+    assert {"ai_root_evidence_stale", "ai_edge_evidence_stale"} <= codes
+    preview = client.post("/api/worldbook/book/scope-preview", json={}).json
+    preview_codes = {issue["code"] for issue in preview["issues"]}
+    assert {"ai_root_evidence_stale", "ai_edge_evidence_stale"} <= preview_codes
 
 
 def test_v3_legacy_mode_and_v2_session_are_preserved(api):
