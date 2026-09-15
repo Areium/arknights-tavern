@@ -3,6 +3,7 @@ import type { WorldBookDependencyEdgeDTO, WorldBookRootDTO } from "../../types";
 import WorldBookScopePreview from "../WorldBookScopePreview";
 import WorldBookGraphIcon from "../WorldBookGraphIcon";
 import DependencyBuildPanel from "./DependencyBuildPanel";
+import { withManualExpansion } from "../../utils/worldbookRoot";
 import {
   ACTIVATION_LABELS, EXPANSION_LABELS, avatarUrl, characterName, makeLabeler,
   useCharacterDirectory, type WorldBookPanelProps,
@@ -48,7 +49,7 @@ export default function WorldBookConfigOverview(props: WorldBookPanelProps) {
   const rootPatch = (next: WorldBookRootDTO[]) => patch({ roots: next });
   const removeRoot = (uid: string) => rootPatch(draft.roots.filter((r) => r.entry_uid !== uid));
   const toggleExpansion = (root: WorldBookRootDTO) => rootPatch(draft.roots.map((r) => r.entry_uid !== root.entry_uid
-    ? r : { ...r, expansion: r.expansion === "requires_closure" ? "none" : "requires_closure" }));
+    ? r : withManualExpansion(r, r.expansion === "requires_closure" ? "none" : "requires_closure")));
   /**
    * 移除一条边。若它来自 AI 建议，必须**同时**记进 `rejected` 并把它从待应用的
    * `proposal.accepted` 里摘掉：否则保存时 AI 结果会重新并回来，删掉的边复活

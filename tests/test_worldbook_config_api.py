@@ -854,6 +854,88 @@ def test_materialized_human_rewrite_must_be_manual_and_uses_normal_rules(api):
     assert stored["activation"] == "manual" and stored["expansion"] == "none"
 
 
+def test_materialized_expansion_edit_as_manual_saves_like_real_overview_button(api):
+    """“改为只含自身”保留激活语义，但转人工来源并清掉 AI 专属元数据后可保存。"""
+    client, manager, _ = api
+    job_id, final = run_job(client)
+    roots = copy.deepcopy(final["result"]["configuration_roots"])
+    edited = next(root for root in roots if root["activation"] == "always")
+    edited["expansion"] = "none"
+    edited["origin"] = "manual"
+    for field in ("model", "prompt_version", "source_content_hash", "evidence",
+                  "review_status", "job_id", "reason"):
+        edited.pop(field, None)
+
+    response = client.put("/api/worldbook/book/configuration", json={
+        "expected_revision": 1, "adopt_v3": True, "roots": roots,
+        "requires_edges": [], "related_edges": [],
+        "proposal": {"materialized": True, "job_id": job_id,
+                     "materialized_root_uids": [root["entry_uid"] for root in roots],
+                     "accepted_pairs": []},
+    })
+    assert response.status_code == 200, response.json
+    stored = next(root for root in manager.load("book").dependency_rules["roots"]
+                  if root["entry_uid"] == edited["entry_uid"])
+    assert stored["activation"] == edited["activation"]
+    assert stored["expansion"] == "none" and stored["origin"] == "manual"
+    assert not ({"model", "prompt_version", "source_content_hash", "evidence",
+                 "review_status", "job_id"} & set(stored))
+
+
+def test_materialized_draft_preserves_exact_saved_ai_root_absent_from_current_job(api):
+    """完整草稿可原样带回旧正式 AI root；它无需被当前 job 再次建议。"""
+    client, manager, _ = api
+    book = manager.load("book")
+    old_root = {
+        "entry_uid": "tech", "activation": "always", "character_ids": [],
+        "expansion": "requires_closure", "origin": "llm",
+        "source_content_hash": content_hash("源石技艺的定义与规则。"),
+        "evidence": "源石技艺的定义与规则", "model": "old-model",
+        "prompt_version": "old-prompt", "review_status": "applied",
+        "job_id": "old-job",
+    }
+    book.schema_version = 3
+    book.dependency_rules = {
+        "roots": [copy.deepcopy(old_root)], "root_rule": {"entry_uids": ["tech"]},
+        "rejected": [], "edge_meta": {},
+    }
+    book.dependency_edges = []
+    book.related_edges = []
+    manager.save(book)
+
+    job_id, final = run_job(client)
+    current_roots = copy.deepcopy(final["result"]["configuration_roots"])
+    assert all(root["entry_uid"] != "tech" for root in current_roots)
+
+    for field, value in (
+        ("evidence", "伪造证据"),
+        ("source_content_hash", "bad-hash"),
+        ("character_ids", ["NO_SUCH_CHARACTER"]),
+        ("activation", "roster_any"),
+    ):
+        tampered = {**old_root, field: value}
+        rejected = client.put("/api/worldbook/book/configuration", json={
+            "expected_revision": 1, "roots": [tampered, *current_roots],
+            "requires_edges": [], "related_edges": [],
+            "proposal": {"materialized": True, "job_id": job_id,
+                         "materialized_root_uids": [root["entry_uid"] for root in current_roots],
+                         "accepted_pairs": []},
+        })
+        assert rejected.status_code == 400, (field, rejected.json)
+
+    response = client.put("/api/worldbook/book/configuration", json={
+        "expected_revision": 1, "roots": [old_root, *current_roots],
+        "requires_edges": [], "related_edges": [],
+        "proposal": {"materialized": True, "job_id": job_id,
+                     "materialized_root_uids": [root["entry_uid"] for root in current_roots],
+                     "accepted_pairs": []},
+    })
+    assert response.status_code == 200, response.json
+    stored = next(root for root in manager.load("book").dependency_rules["roots"]
+                  if root["entry_uid"] == "tech")
+    assert stored == old_root
+
+
 def test_server_rejects_fabricated_root_evidence_inside_persisted_job(api):
     """即使客户端或任务文件伪造 root，服务端也逐条复核而不是直接复制。"""
     import blueprints.worldbook as module

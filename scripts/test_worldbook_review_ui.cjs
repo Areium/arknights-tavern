@@ -16,8 +16,11 @@ const job = {job_id:'saved-job',book_id:'review',stage:'failed',outcome:'partial
   resumable:true,pending_card_uids:1,pending_chunk_ids:2,pending_pairs:0,failed_batches:[],
   result:{model:'stub',records:[],accepted:[
     {from_uid:'a',to_uid:'b',relation:'requires',confidence:.9},
-    {from_uid:'b',to_uid:'a',relation:'requires',confidence:.8}],roots:[{entry_uid:'a',activation:'roster_any',
-    expansion:'requires_closure',character_ids:['A']}],issues:[],stats:{requires:0,related:0,unsure:0,none:0},expansion_probe:{}}};
+    {from_uid:'b',to_uid:'a',relation:'requires',confidence:.8}],configuration_roots:[
+    {entry_uid:'a',activation:'roster_any',expansion:'requires_closure',character_ids:['A'],origin:'rule'},
+    {entry_uid:'b',activation:'always',expansion:'requires_closure',character_ids:[],origin:'llm',model:'stub',prompt_version:'p',
+    source_content_hash:'hash',evidence:'术式的基础规则',review_status:'proposed',job_id:'saved-job',reason:'AI'}],
+    roots:[],issues:[],stats:{requires:0,related:0,unsure:0,none:0},expansion_probe:{}}};
 (async()=>{
   const browser = await chromium.launch({headless:true,channel:process.env.WB_BROWSER || 'chrome'});
   const page = await browser.newPage({viewport:{width:1400,height:1000}});
@@ -69,11 +72,18 @@ const job = {job_id:'saved-job',book_id:'review',stage:'failed',outcome:'partial
   await apply.click();
   assert.ok(await page.getByText(/与人工锁定关系相反/).isVisible(),
     'opposite AI relation must remain review-only');
+  await page.getByRole('button',{name:'改为只含自身',exact:true}).click();
   await page.getByRole('button',{name:'保存',exact:true}).click();
   await page.getByText(/保存被拒绝/).waitFor();
   assert.equal(writes.length,1);assert.equal(writes[0].roots[0].character_ids[0],'A');
+  const editedRoot=writes[0].roots.find(root=>root.entry_uid==='b');
+  assert.equal(editedRoot.activation,'always');
+  assert.equal(editedRoot.expansion,'none');
+  assert.equal(editedRoot.origin,'manual');
+  for(const field of ['model','prompt_version','source_content_hash','evidence','review_status','job_id','reason'])
+    assert.equal(field in editedRoot,false,'AI-only metadata leaked after manual edit: '+field);
   assert.equal(writes[0].proposal.materialized,true);
-  assert.deepEqual(writes[0].proposal.materialized_root_uids,['a']);
+  assert.deepEqual(writes[0].proposal.materialized_root_uids,['a','b']);
   assert.deepEqual(writes[0].proposal.accepted_pairs,[['b','a']]);
   assert.deepEqual(writes[0].related_edges,[{from_uid:'a',to_uid:'b'}]);
   await page.getByRole('button',{name:'高级图谱',exact:true}).click();

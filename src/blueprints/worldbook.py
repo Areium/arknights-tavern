@@ -887,7 +887,7 @@ def register(app, managers):
                 # materialized 只是 UI 工作流标记，不是信任边界。仍标成 llm/rule 的根
                 # 必须逐字段匹配服务端任务；用户改写后须明确转成 manual。
                 data = {**data, "roots": _verified_materialized_roots(
-                    data.get("roots") or [], proposal)}
+                    data.get("roots") or [], proposal, book)}
             v3_payload = build_to_v3_rules(candidate, proposal, existing_rules)
             if raw_proposal.get("materialized"):
                 # UI has already put the proposal into its editable draft.
@@ -1178,7 +1178,7 @@ def register(app, managers):
                                        if isinstance(uid, str)],
         }
 
-    def _verified_materialized_roots(roots, proposal):
+    def _verified_materialized_roots(roots, proposal, book):
         """复核 UI 已物化根的来源，返回只含服务端或明确人工数据的根列表。"""
         if not isinstance(roots, list):
             raise ValueError("roots 必须是数组")
@@ -1200,6 +1200,19 @@ def register(app, managers):
             if isinstance(root, dict) and root.get("origin") in ("llm", "rule"):
                 verified[signature(root)] = root
 
+        # 当前 job 只证明它本次新物化的根。完整草稿还会带回当前书上已正式保存、
+        # 但本次没有再次建议的旧 AI / 规则根；这些只能与服务端正式记录原样核对。
+        def persisted_signature(root):
+            return signature(root) + (
+                root.get("job_id"), root.get("review_status"), root.get("reason"),
+                root.get("locked") is True,
+            )
+
+        persisted = {}
+        for root in (book.dependency_rules or {}).get("roots", []):
+            if isinstance(root, dict) and root.get("origin") in ("llm", "rule"):
+                persisted[persisted_signature(root)] = root
+
         sanitized = []
         for root in roots:
             if not isinstance(root, dict):
@@ -1212,16 +1225,21 @@ def register(app, managers):
                 raise ValueError(f"起点 {root.get('entry_uid') or '?'} 的 origin 无效；人工改写请使用 manual")
             expected = verified.get(signature(root))
             if expected is None:
-                label = "AI" if origin == "llm" else "规则"
-                raise ValueError(
-                    f"物化草稿中的{label}起点 {root.get('entry_uid') or '?'} "
-                    "与服务端构建任务的已验证建议不一致；人工改写请将 origin 设为 manual")
-            item = dict(expected)
-            if origin == "llm":
-                item["job_id"] = proposal.get("job_id") or ""
-                item["review_status"] = "applied"
-            if root.get("locked"):
-                item["locked"] = True
+                saved = persisted.get(persisted_signature(root))
+                if saved is None:
+                    label = "AI" if origin == "llm" else "规则"
+                    raise ValueError(
+                        f"物化草稿中的{label}起点 {root.get('entry_uid') or '?'} "
+                        "与服务端构建任务的已验证建议不一致，且不匹配这本书已保存的正式起点；"
+                        "人工改写请将 origin 设为 manual")
+                item = dict(saved)
+            else:
+                item = dict(expected)
+                if origin == "llm":
+                    item["job_id"] = proposal.get("job_id") or ""
+                    item["review_status"] = "applied"
+                if root.get("locked"):
+                    item["locked"] = True
             sanitized.append(item)
         return sanitized
 

@@ -25,6 +25,7 @@ const {
 const {
   batchAddEdges, batchFixed, batchMove, batchRemoveEdges, batchSource, categoryEntryUids, knownUids, pickedInRect,
 } = require(path.join(root, "frontend/src/utils/worldbookBatch.ts"));
+const { withManualExpansion } = require(path.join(root, "frontend/src/utils/worldbookRoot.ts"));
 const ScopeManager = require(path.join(root, "frontend/src/components/WorldBookScopeManager.tsx")).default;
 const Preview = require(path.join(root, "frontend/src/components/WorldBookScopePreview.tsx")).default;
 const categories = [
@@ -237,6 +238,13 @@ assert.equal(batchRemoveEdges(batchBase, depDetail, ["nope"]).removed, 0);
 assert.deepEqual(batchMove(depDetail, ["A", "nope"], "characters"), { A: "characters" });
 assert.deepEqual(batchMove(depDetail, ["A"], "no-such-category"), {}, "目标分类不存在时不产出 moves");
 assert.equal(JSON.stringify(batchBase), batchUntouched, "批量操作不得就地修改策略草稿");
+
+const aiRoot = { entry_uid: "ai", activation: "always", expansion: "requires_closure",
+  origin: "llm", model: "stub", prompt_version: "p", source_content_hash: "hash",
+  evidence: "evidence", review_status: "proposed", job_id: "job", reason: "AI reason", locked: true };
+assert.deepEqual(withManualExpansion(aiRoot, "none"), {
+  entry_uid: "ai", activation: "always", expansion: "none", origin: "manual", locked: true,
+}, "概览按钮修改 AI 根语义时必须转人工来源并移除 AI 专属元数据");
 
 const bareMarkup = renderToStaticMarkup(React.createElement(ScopeManager, { detail: {
   ...depDetail, import_config: { revision: 1, fixed_entry_uids: [], dependency_sources: [] },

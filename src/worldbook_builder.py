@@ -603,6 +603,7 @@ class DependencyBuildJob:
         self.pending_pairs = []            # 预算耗尽时可续跑的剩余候选对
         self.pending_card_uids = []        # 预算耗尽时仍缺分析卡的条目
         self.pending_chunk_ids = []        # 缺失分块的稳定身份（不能只靠 UID / 顺序）
+        self.rebuild_card_uids = []        # 旧数字断点污染：完整重建成功前禁止命中整条缓存
         self.chunk_report = {}             # 长条目分块报告（分块数 / 被丢弃字符）
         self._save_lock = threading.RLock()
         self.running = False
@@ -629,6 +630,7 @@ class DependencyBuildJob:
             "pending_pairs": len(self.pending_pairs),
             "pending_card_uids": len(self.pending_card_uids),
             "pending_chunk_ids": len(self.pending_chunk_ids),
+            "rebuild_card_uids": len(self.rebuild_card_uids),
         }
         if include_result:
             data["result"] = self.result
@@ -649,6 +651,7 @@ class DependencyBuildJob:
         payload["pending_pairs"] = self.pending_pairs
         payload["pending_card_uids"] = self.pending_card_uids
         payload["pending_chunk_ids"] = self.pending_chunk_ids
+        payload["rebuild_card_uids"] = self.rebuild_card_uids
         try:
             temporary = path.with_suffix(".tmp")
             serialized = json.dumps(payload, ensure_ascii=False)
@@ -692,6 +695,7 @@ class DependencyBuildJob:
         job.pending_pairs = data.get("pending_pairs") or []
         job.pending_card_uids = data.get("pending_card_uids") or []
         job.pending_chunk_ids = data.get("pending_chunk_ids") or []
+        job.rebuild_card_uids = data.get("rebuild_card_uids") or []
         job.created_at = float(data.get("created_at", time.time()))
         job.updated_at = float(data.get("updated_at", time.time()))
         return job
@@ -1161,6 +1165,7 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
         expected = {}              # uid -> 按正文顺序排列的稳定 chunk_id
         chunk_report = {}
         legacy_checkpoint_ids = {}
+        rebuild_required = {uid for uid in job.rebuild_card_uids if uid in entries_by_uid}
         for uid, info in metadata["entries"].items():
             if only_uids is not None and uid not in only_uids:
                 continue
@@ -1171,9 +1176,10 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
             if legacy_ids:
                 # 已污染的整条缓存也不能盖过数字断点迁移；本轮完整重问后会安全覆盖。
                 legacy_checkpoint_ids[uid] = legacy_ids
+                rebuild_required.add(uid)
                 job.cards.pop(uid, None)
             key = card_cache_key(uid)
-            cached = None if uid in legacy_checkpoint_ids else cache.get(key)
+            cached = None if uid in rebuild_required else cache.get(key)
             if cached is not None:
                 job.cards[uid] = cached
                 continue
@@ -1187,6 +1193,7 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
                 units.append((uid, expected[uid][index], index, chunk, key))
         job.chunk_report = chunk_report
         job.pending_card_uids = sorted(expected)
+        job.rebuild_card_uids = sorted(rebuild_required)
         job.save()
 
         done_chunks = {}
@@ -1219,6 +1226,8 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
                 merged["uid"] = uid
                 job.cards[uid] = merged
                 cache.put(card_cache_key(uid), merged)
+                rebuild_required.discard(uid)
+                job.rebuild_card_uids = sorted(rebuild_required)
                 merged_ready.add(uid)
 
         for start in range(0, len(units), ANALYSIS_BATCH):
