@@ -24,17 +24,20 @@ import logging
 import threading
 import uuid
 import copy
+import hashlib
+from contextlib import contextmanager
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, g
 
 from shared.helpers import json_error
 from world_book import (
     RESOLVER_VERSION, WorldBook, WorldBookEntry, apply_auto_classification,
-    content_revision, estimate_tokens,
+    auto_classification_patch, content_revision, estimate_tokens,
 )
 from worldbook_classify import classify_entries
 from worldbook_builder import (
-    AnalysisCache, DependencyJobStore, build_to_v3_rules, run_build,
+    AnalysisCache, DependencyJobStore, auto_budget, build_to_v3_rules,
+    content_hash, evidence_locatable, model_identity, run_build,
 )
 from worldbook_scope import (
     ACTIVATION_ALWAYS, ACTIVATION_MANUAL, ACTIVATION_ROSTER_ANY,
@@ -47,6 +50,20 @@ logger = logging.getLogger(__name__)
 # 依赖构建任务表（进程级）。任务本身持久化到磁盘，重启后仍可查询。
 _JOB_STORE = DependencyJobStore()
 _ANALYSIS_CACHE = AnalysisCache()
+
+
+def _union_edges(first, second) -> list[dict]:
+    """按 (from, to) 去重合并两组边（用于人工拒绝 / 锁定等持久化集合）。"""
+    out, seen = [], set()
+    for edge in list(first) + list(second):
+        if not isinstance(edge, dict):
+            continue
+        pair = (edge.get("from_uid"), edge.get("to_uid"))
+        if pair in seen or not all(isinstance(x, str) and x for x in pair):
+            continue
+        seen.add(pair)
+        out.append({"from_uid": pair[0], "to_uid": pair[1]})
+    return out
 
 
 def _apply_full_scope(payload: dict, book) -> dict:
@@ -79,17 +96,37 @@ def _apply_full_scope(payload: dict, book) -> dict:
     return payload
 
 
-def _merge_v3_payload(manual: dict, proposal: dict = None) -> dict:
+def _merge_v3_payload(manual: dict, proposal: dict = None, existing: dict = None) -> dict:
     """把人工草稿与 AI 建议并入同一个 v3 规则集（人工优先，重复项跳过）。
 
     顺序很重要：人工起点先占位，AI 只补人工没有的；边按 (from, to) 去重。
     这样「应用构建结果」是**追加**，不会静默重置用户已配好的起点与依赖。
+
+    `rejected`（人工删除过的建议）与 `edge_meta`（边的来源与证据）一并保留：
+    删掉一条 AI 边之后再次应用，不能把它复活。
     """
     proposal = proposal or {}
-    roots = [r for r in manual.get("roots", []) if isinstance(r, dict)]
-    seen = {r.get("entry_uid") for r in roots}
-    roots += [r for r in proposal.get("roots", [])
-              if isinstance(r, dict) and r.get("entry_uid") not in seen]
+    existing = existing or {}
+    locked = {r.get("entry_uid") for r in existing.get("roots", [])
+              if isinstance(r, dict) and r.get("locked")}
+
+    roots = []
+    seen = set()
+    for root in list(manual.get("roots", [])) + list(proposal.get("roots", [])):
+        if not isinstance(root, dict) or not root.get("entry_uid"):
+            continue
+        uid = root["entry_uid"]
+        if uid in seen:
+            continue
+        seen.add(uid)
+        roots.append({**root, "locked": True} if uid in locked else root)
+    # 人工锁定但两边都没出现的起点：必须保留
+    for root in existing.get("roots", []):
+        if not isinstance(root, dict) or not root.get("entry_uid"):
+            continue
+        if root.get("locked") and root["entry_uid"] not in seen:
+            seen.add(root["entry_uid"])
+            roots.append({**root, "locked": True})
 
     def union(first, second):
         out, pairs = [], set()
@@ -103,12 +140,21 @@ def _merge_v3_payload(manual: dict, proposal: dict = None) -> dict:
             out.append(edge)
         return out
 
+    rejected = union(existing.get("rejected", []), manual.get("rejected", []))
+    edge_meta = {k: dict(v) for k, v in (existing.get("edge_meta") or {}).items()
+                 if isinstance(v, dict)}
+    for key, value in (proposal.get("edge_meta") or {}).items():
+        if isinstance(value, dict):
+            edge_meta[key] = {**edge_meta.get(key, {}), **value}
+
     return {
         "roots": roots,
         "requires_edges": union(manual.get("requires_edges", []),
                                 proposal.get("requires_edges", [])),
         "related_edges": union(manual.get("related_edges", []),
                                proposal.get("related_edges", [])),
+        "rejected": rejected,
+        "edge_meta": edge_meta,
     }
 
 
@@ -265,11 +311,41 @@ def register(app, managers):
     wb_mgr = managers["worldbook"]
     session_mgr = managers.get("session")
 
+    @bp.before_request
+    def serialize_book_operations():
+        # Also covers export refresh, reinstall, metadata and job start/retry.
+        book_id = (request.view_args or {}).get("book_id")
+        if book_id:
+            lock = wb_mgr.book_lock(book_id)
+            lock.acquire()
+            g.worldbook_lock = lock
+
+    @bp.teardown_request
+    def release_book_lock(_error):
+        lock = g.pop("worldbook_lock", None)
+        if lock is not None:
+            lock.release()
+
     def _get_book_or_404(book_id):
         book = wb_mgr.load(book_id)
         if not book:
             return None, json_error("世界书不存在", 404)
         return copy.deepcopy(book), None
+
+    @contextmanager
+    def _locked_book(book_id):
+        """所有写路径共用同一把每书锁，覆盖「读取 → 校验 → 提交」全过程。
+
+        之前只有 `/configuration` 加锁，条目 CRUD / 分类 / 自动分类 / 导入配置
+        仍在锁外做整书读改写：两个请求交错时，后提交的会把先提交的更新整段覆盖掉
+        （例如先改了条目、再保存起点，起点保存会把条目改动回滚）。
+        """
+        with wb_mgr.book_lock(book_id):
+            book = wb_mgr.load(book_id)
+            if not book:
+                yield None, json_error("世界书不存在", 404)
+                return
+            yield copy.deepcopy(book), None
 
     def _book_detail(book: "WorldBook", include_entries: bool = True) -> dict:
         detail = {
@@ -405,23 +481,23 @@ def register(app, managers):
 
     @bp.route("/api/worldbook/<book_id>", methods=["PUT"])
     def update_book(book_id):
-        book, err = _get_book_or_404(book_id)
-        if err:
-            return err
-        data = request.json or {}
-        if "name" in data:
-            new_name = str(data["name"] or "").strip()
-            if new_name:
-                book.name = new_name
-        if "budget_tokens" in data:
-            try:
-                book.budget_tokens = max(0, int(data["budget_tokens"] or 0))
-            except (TypeError, ValueError):
-                return json_error("budget_tokens 必须是整数")
-        if "enabled" in data:
-            book.enabled = bool(data["enabled"])
-        wb_mgr.save(book)
-        return jsonify({"book": _book_detail(book, include_entries=False)})
+        with _locked_book(book_id) as (book, err):
+            if err:
+                return err
+            data = request.json or {}
+            if "name" in data:
+                new_name = str(data["name"] or "").strip()
+                if new_name:
+                    book.name = new_name
+            if "budget_tokens" in data:
+                try:
+                    book.budget_tokens = max(0, int(data["budget_tokens"] or 0))
+                except (TypeError, ValueError):
+                    return json_error("budget_tokens 必须是整数")
+            if "enabled" in data:
+                book.enabled = bool(data["enabled"])
+            wb_mgr.save(book)
+            return jsonify({"book": _book_detail(book, include_entries=False)})
 
     @bp.route("/api/worldbook/<book_id>", methods=["DELETE"])
     def delete_book(book_id):
@@ -471,74 +547,82 @@ def register(app, managers):
 
     @bp.route("/api/worldbook/<book_id>/entries", methods=["POST"])
     def create_entry(book_id):
-        book, err = _get_book_or_404(book_id)
-        if err:
-            return err
-        try:
-            entry = _entry_from_payload(request.json or {})
-            _validate_entry_scope(book, entry)
-            if any(e.uid == entry.uid for e in book.entries):
-                raise ValueError("条目 UID 已存在")
-        except (TypeError, ValueError) as e:
-            return json_error(str(e))
-        book.entries.append(entry)
-        book.import_config["revision"] += 1
-        wb_mgr.save(book)
-        return jsonify({"entry": entry.to_dict()}), 201
+        with _locked_book(book_id) as (book, err):
+            if err:
+                return err
+            try:
+                entry = _entry_from_payload(request.json or {})
+                _validate_entry_scope(book, entry)
+                if any(e.uid == entry.uid for e in book.entries):
+                    raise ValueError("条目 UID 已存在")
+            except (TypeError, ValueError) as e:
+                return json_error(str(e))
+            book.entries.append(entry)
+            book.import_config["revision"] += 1
+            wb_mgr.save(book)
+            return jsonify({"entry": entry.to_dict()}), 201
 
     @bp.route("/api/worldbook/<book_id>/entries/<entry_id>", methods=["PUT"])
     def update_entry(book_id, entry_id):
-        book, err = _get_book_or_404(book_id)
-        if err:
-            return err
-        for i, e in enumerate(book.entries):
-            if e.uid == entry_id:
-                try:
-                    if not isinstance(request.json, dict):
-                        raise ValueError("条目数据必须是对象")
-                    payload = {**e.to_dict(), **request.json}
-                    updated = _entry_from_payload(payload, uid=entry_id)
-                    _validate_entry_scope(book, updated)
-                except (TypeError, ValueError) as exc:
-                    return json_error(str(exc))
-                # 保留 raw 以便导出回灌（编辑过的字段在 export_st 时会被覆盖）
-                updated.raw = e.raw
-                book.entries[i] = updated
-                book.import_config["revision"] += 1
-                wb_mgr.save(book)
-                return jsonify({"entry": updated.to_dict()})
-        return json_error("条目不存在", 404)
+        with _locked_book(book_id) as (book, err):
+            if err:
+                return err
+            for i, e in enumerate(book.entries):
+                if e.uid == entry_id:
+                    try:
+                        if not isinstance(request.json, dict):
+                            raise ValueError("条目数据必须是对象")
+                        payload = {**e.to_dict(), **request.json}
+                        updated = _entry_from_payload(payload, uid=entry_id)
+                        _validate_entry_scope(book, updated)
+                    except (TypeError, ValueError) as exc:
+                        return json_error(str(exc))
+                    # 保留 raw 以便导出回灌（编辑过的字段在 export_st 时会被覆盖）
+                    updated.raw = e.raw
+                    book.entries[i] = updated
+                    book.import_config["revision"] += 1
+                    wb_mgr.save(book)
+                    return jsonify({"entry": updated.to_dict()})
+            return json_error("条目不存在", 404)
 
     @bp.route("/api/worldbook/<book_id>/entries/<entry_id>", methods=["DELETE"])
     def delete_entry(book_id, entry_id):
-        book, err = _get_book_or_404(book_id)
-        if err:
-            return err
-        for i, e in enumerate(book.entries):
-            if e.uid == entry_id:
-                book.entries.pop(i)
-                affected = {"dependency_edges": sum(entry_id in (edge["from_uid"], edge["to_uid"]) for edge in book.dependency_edges),
-                            "fixed_entries": int(entry_id in book.import_config["fixed_entry_uids"]),
-                            "dependency_sources": sum(s["entry_uid"] == entry_id for s in book.import_config["dependency_sources"])}
-                book.dependency_edges = [edge for edge in book.dependency_edges
-                                         if entry_id not in (edge["from_uid"], edge["to_uid"])]
-                book.related_edges = [edge for edge in book.related_edges
-                                      if entry_id not in (edge["from_uid"], edge["to_uid"])]
-                if book.dependency_rules is not None:
-                    book.dependency_rules["roots"] = [
-                        root for root in book.dependency_rules["roots"]
-                        if root["entry_uid"] != entry_id]
-                    book.dependency_rules["root_rule"]["entry_uids"] = [
-                        uid for uid in book.dependency_rules["root_rule"]["entry_uids"]
-                        if uid != entry_id]
-                config = book.import_config
-                config["fixed_entry_uids"] = [uid for uid in config["fixed_entry_uids"] if uid != entry_id]
-                config["dependency_sources"] = [s for s in config["dependency_sources"]
-                                                if s["entry_uid"] != entry_id]
-                config["revision"] += 1
-                wb_mgr.save(book)
-                return jsonify({"message": "已删除", "affected": affected})
-        return json_error("条目不存在", 404)
+        with _locked_book(book_id) as (book, err):
+            if err:
+                return err
+            for i, e in enumerate(book.entries):
+                if e.uid == entry_id:
+                    book.entries.pop(i)
+                    affected = {"dependency_edges": sum(entry_id in (edge["from_uid"], edge["to_uid"]) for edge in book.dependency_edges),
+                                "fixed_entries": int(entry_id in book.import_config["fixed_entry_uids"]),
+                                "dependency_sources": sum(s["entry_uid"] == entry_id for s in book.import_config["dependency_sources"])}
+                    book.dependency_edges = [edge for edge in book.dependency_edges
+                                             if entry_id not in (edge["from_uid"], edge["to_uid"])]
+                    book.related_edges = [edge for edge in book.related_edges
+                                          if entry_id not in (edge["from_uid"], edge["to_uid"])]
+                    if book.dependency_rules is not None:
+                        book.dependency_rules["roots"] = [
+                            root for root in book.dependency_rules["roots"]
+                            if root["entry_uid"] != entry_id]
+                        book.dependency_rules["root_rule"]["entry_uids"] = [
+                            uid for uid in book.dependency_rules["root_rule"]["entry_uids"]
+                            if uid != entry_id]
+                        # 入边与出边、以及被拒绝建议都要一起清掉（不留悬空引用）
+                        book.dependency_rules["rejected"] = [
+                            edge for edge in book.dependency_rules.get("rejected", [])
+                            if entry_id not in (edge.get("from_uid"), edge.get("to_uid"))]
+                        meta = book.dependency_rules.get("edge_meta") or {}
+                        book.dependency_rules["edge_meta"] = {
+                            key: value for key, value in meta.items()
+                            if entry_id not in key.split("|")}
+                    config = book.import_config
+                    config["fixed_entry_uids"] = [uid for uid in config["fixed_entry_uids"] if uid != entry_id]
+                    config["dependency_sources"] = [s for s in config["dependency_sources"]
+                                                    if s["entry_uid"] != entry_id]
+                    config["revision"] += 1
+                    wb_mgr.save(book)
+                    return jsonify({"message": "已删除", "affected": affected})
+            return json_error("条目不存在", 404)
 
     # ── 4.1 分类树 / 依赖导入配置 ──
 
@@ -557,39 +641,39 @@ def register(app, managers):
 
     @bp.route("/api/worldbook/<book_id>/taxonomy", methods=["PUT"])
     def update_taxonomy(book_id):
-        book, err = _get_book_or_404(book_id)
-        if err:
-            return err
-        data = request.json
-        try:
-            if not isinstance(data, dict):
-                raise ValueError("请求体必须是对象")
-            if data.get("expected_revision", book.import_config["revision"]) != book.import_config["revision"]:
-                return json_error("配置已变更，请重新加载后再保存", 409)
-            old_kinds = {e.uid: book.category_scope_type(e.category_id) for e in book.entries}
-            book.categories = validate_categories(data.get("categories"))
-            moves = data.get("entry_moves", {})
-            if not isinstance(moves, dict) or any(uid not in {e.uid for e in book.entries} for uid in moves):
-                raise ValueError("entry_moves 必须按有效条目 UID 指定目标分类")
-            category_ids = {c["id"] for c in book.categories}
-            for entry in book.entries:
-                if entry.uid in moves:
-                    target = moves[entry.uid]
-                    if not isinstance(target, str) or target not in category_ids:
-                        raise ValueError(f"条目 {entry.uid} 的目标分类不存在")
-                    entry.category_id = target
-                    if book.category_scope_type(target) != "character":
-                        entry.character_id = ""
-                if entry.category_id not in category_ids:
-                    raise ValueError(f"请先为分类中的条目 {entry.uid} 指定迁移目标")
-                if entry.uid in moves or old_kinds[entry.uid] != book.category_scope_type(entry.category_id):
-                    _validate_entry_scope(book, entry)
-        except (TypeError, ValueError) as exc:
-            return json_error(str(exc))
-        # 编辑分类不隐式退出旧书兼容模式；用户检查预览后显式启用按需模式。
-        book.import_config["revision"] += 1
-        wb_mgr.save(book)
-        return jsonify(_book_detail(book))
+        with _locked_book(book_id) as (book, err):
+            if err:
+                return err
+            data = request.json
+            try:
+                if not isinstance(data, dict):
+                    raise ValueError("请求体必须是对象")
+                if data.get("expected_revision", book.import_config["revision"]) != book.import_config["revision"]:
+                    return json_error("配置已变更，请重新加载后再保存", 409)
+                old_kinds = {e.uid: book.category_scope_type(e.category_id) for e in book.entries}
+                book.categories = validate_categories(data.get("categories"))
+                moves = data.get("entry_moves", {})
+                if not isinstance(moves, dict) or any(uid not in {e.uid for e in book.entries} for uid in moves):
+                    raise ValueError("entry_moves 必须按有效条目 UID 指定目标分类")
+                category_ids = {c["id"] for c in book.categories}
+                for entry in book.entries:
+                    if entry.uid in moves:
+                        target = moves[entry.uid]
+                        if not isinstance(target, str) or target not in category_ids:
+                            raise ValueError(f"条目 {entry.uid} 的目标分类不存在")
+                        entry.category_id = target
+                        if book.category_scope_type(target) != "character":
+                            entry.character_id = ""
+                    if entry.category_id not in category_ids:
+                        raise ValueError(f"请先为分类中的条目 {entry.uid} 指定迁移目标")
+                    if entry.uid in moves or old_kinds[entry.uid] != book.category_scope_type(entry.category_id):
+                        _validate_entry_scope(book, entry)
+            except (TypeError, ValueError) as exc:
+                return json_error(str(exc))
+            # 编辑分类不隐式退出旧书兼容模式；用户检查预览后显式启用按需模式。
+            book.import_config["revision"] += 1
+            wb_mgr.save(book)
+            return jsonify(_book_detail(book))
 
     @bp.route("/api/worldbook/<book_id>/auto-classify", methods=["POST"])
     def auto_classify(book_id):
@@ -601,43 +685,49 @@ def register(app, managers):
         book, err = _get_book_or_404(book_id)
         if err:
             return err
-        data = request.json if isinstance(request.json, dict) else {}
+        data = request.get_json(silent=True) or {}
         result = classify_entries(book.entries)
         payload = result.to_payload()
         payload["proposal"] = result.categories(existing=book.categories)
         payload["apply"] = False
+        # 统一草稿补丁：让「应用自动分类」也走草稿 + 一次原子保存，而不是绕过草稿写盘。
+        payload["draft_patch"] = auto_classification_patch(book, result) if result.matched else None
         if not result.matched:
             payload["reason"] = "这本书的条目没有可用的分类线索（uid 前缀 / group 字段 / 名称后缀），已保持原样。"
             return jsonify(payload)
         if not data.get("apply"):
             return jsonify(payload)
-        if data.get("expected_revision", book.import_config["revision"]) != book.import_config["revision"]:
-            return json_error("配置已变更，请重新加载后再保存", 409)
-        try:
-            apply_auto_classification(book)
-            for entry in book.entries:
-                _validate_entry_scope(book, entry)
-        except (TypeError, ValueError) as exc:
-            return json_error(str(exc))
-        book.import_config["revision"] += 1
-        wb_mgr.save(book)
-        payload["apply"] = True
-        return jsonify({"classification": payload, "book": _book_detail(book)})
+        # 应用分类会整书写回：与其它写路径共用同一把锁
+        with _locked_book(book_id) as (book, err):
+            if err:
+                return err
+            if data.get("expected_revision", book.import_config["revision"]) != book.import_config["revision"]:
+                return json_error("配置已变更，请重新加载后再保存", 409)
+            try:
+                apply_auto_classification(book)
+                for entry in book.entries:
+                    _validate_entry_scope(book, entry)
+            except (TypeError, ValueError) as exc:
+                return json_error(str(exc))
+            book.import_config["revision"] += 1
+            wb_mgr.save(book)
+            payload["apply"] = True
+            return jsonify({"classification": payload, "book": _book_detail(book)})
 
     @bp.route("/api/worldbook/<book_id>/import-config", methods=["PUT"])
     def update_import_config(book_id):
-        book, err = _get_book_or_404(book_id)
-        if err:
-            return err
-        data = request.json
-        try:
-            if isinstance(data, dict) and data.get("expected_revision", book.import_config["revision"]) != book.import_config["revision"]:
-                return json_error("配置已变更，请重新加载后再保存", 409)
-            book = _policy_candidate(book, data)
-        except (TypeError, ValueError) as exc:
-            return json_error(str(exc))
-        wb_mgr.save(book)
-        return jsonify(_book_detail(book))
+        with _locked_book(book_id) as (book, err):
+            if err:
+                return err
+            data = request.json
+            try:
+                if isinstance(data, dict) and data.get("expected_revision", book.import_config["revision"]) != book.import_config["revision"]:
+                    return json_error("配置已变更，请重新加载后再保存", 409)
+                book = _policy_candidate(book, data)
+            except (TypeError, ValueError) as exc:
+                return json_error(str(exc))
+            wb_mgr.save(book)
+            return jsonify(_book_detail(book))
 
     @bp.route("/api/worldbook/<book_id>/scope-preview", methods=["POST"])
     def preview_scope(book_id):
@@ -726,25 +816,78 @@ def register(app, managers):
             raise ValueError("scope_mode 必须是 legacy 或 selective")
         candidate.scope_mode = mode
 
-        # AI 建议一次应用：proposal 与手写草稿在同一次原子写入中生效。
-        # 两者并存时**并入**而不是互相覆盖 —— 应用 AI 结果不能把人工已经配好的
-        # 起点和依赖边冲掉，否则「一次点击」等于静默重置用户配置。
-        proposal = data.get("proposal")
-        v3_payload = None
-        if isinstance(proposal, dict) and "accepted" in proposal:
-            v3_payload = build_to_v3_rules(
-                candidate, proposal,
-                existing_rules={"roots": (candidate.dependency_rules or {}).get("roots", []),
-                                "rejected": data.get("rejected", [])})
-        if any(key in data for key in ("roots", "requires_edges", "related_edges")):
-            manual = {
-                "roots": data.get("roots", []),
-                "requires_edges": data.get("requires_edges", []),
-                "related_edges": data.get("related_edges", []),
-            }
-            v3_payload = _merge_v3_payload(manual, v3_payload)
+        # 是否采用 v3 按需规则：**显式**才迁移。
+        # v2 书普通保存（改分类、改边）绝不能隐式切到 v3 —— 预装书 fixed/sources
+        # 都是空的，一旦隐式启用就会把候选清成空集。
+        adopt_v3 = bool(book.v3_enabled or data.get("adopt_v3"))
 
-        if v3_payload is not None:
+        existing_rules = dict(candidate.dependency_rules or {})
+        request_rejected = [r for r in (data.get("rejected") or []) if isinstance(r, dict)]
+        if request_rejected:
+            existing_rules["rejected"] = _union_edges(
+                existing_rules.get("rejected") or [], request_rejected)
+
+        # AI 建议：服务端按持久化任务复核，客户端 accepted 只是「用户选了哪些」的提示
+        proposal = _verified_proposal(book, data.get("proposal"))
+        adopt_v3 = adopt_v3 or proposal is not None
+        v3_payload = None
+        if proposal is not None:
+            v3_payload = build_to_v3_rules(candidate, proposal, existing_rules)
+            if (data.get("proposal") or {}).get("materialized"):
+                # UI has already put the proposal into its editable draft.
+                # Retain provenance, but never re-add something the user removed.
+                removed = []
+                for field in ("requires_edges", "related_edges"):
+                    keep = {(e.get("from_uid"), e.get("to_uid")) for e in data.get(field, [])}
+                    removed.extend(e for e in v3_payload[field]
+                                   if (e["from_uid"], e["to_uid"]) not in keep)
+                    v3_payload[field] = []
+                v3_payload["roots"] = []
+                existing_rules["rejected"] = _union_edges(existing_rules.get("rejected", []), removed)
+
+        manual_keys = ("roots", "requires_edges", "related_edges")
+        migrating = adopt_v3 and not book.v3_enabled
+        if adopt_v3 and (any(key in data for key in manual_keys) or migrating
+                         or v3_payload is not None or "rejected" in data):
+            if migrating:
+                # 显式迁移：把旧来源（世界观 / 阵容 / 固定 / 导入源）按**等价**映射
+                # 并入起点。用并集而不是「客户端没给才补」——否则只要草稿漏了一类
+                # 旧来源，保存一次就会静默少载入一批条目。
+                base = candidate.equivalent_v3_rules()
+                # 客户端（用户当前草稿）在前：用户显式改过的起点优先，
+                # 等价映射只补草稿没提到的旧来源。
+                manual = {
+                    "roots": [r for r in ((data.get("roots") or []) + base["roots"])
+                              if isinstance(r, dict)],
+                    "requires_edges": [e for e in ((data.get("requires_edges") or [])
+                                                   + base["requires_edges"]) if isinstance(e, dict)],
+                    "related_edges": [e for e in ((data.get("related_edges") or [])
+                                                  + base["related_edges"]) if isinstance(e, dict)],
+                }
+            else:
+                # 已经是 v3：**已持久化的规则**就是草稿基线。
+                # 只覆盖本次请求显式给出的列表，没给的键保持不动 —— 否则一个
+                # 「只带 proposal」或「只带 rejected」的部分请求会把用户配好的
+                # 起点 / 依赖静默清空；反过来也不能把 v2 等价映射重新并进来，
+                # 那会让「收窄起点」永远不生效（P1-3 的第二段反证）。
+                manual = {
+                    "roots": data.get("roots", existing_rules.get("roots") or []),
+                    "requires_edges": data.get("requires_edges", candidate.dependency_edges),
+                    "related_edges": data.get("related_edges", candidate.related_edges),
+                }
+            v3_payload = _merge_v3_payload(manual, v3_payload, existing_rules)
+
+        if migrating and v3_payload is None:
+            # 显式迁移但请求体什么都没带（例如只有 {"adopt_v3": true}）：整体走等价映射
+            v3_payload = candidate.equivalent_v3_rules()
+
+        if v3_payload is not None and adopt_v3:
+            final_pairs = {(e["from_uid"], e["to_uid"]) for field in ("requires_edges", "related_edges")
+                           for e in v3_payload.get(field, [])}
+            removed_ai = [{"from_uid": k.split("|", 1)[0], "to_uid": k.split("|", 1)[1]}
+                          for k, meta in existing_rules.get("edge_meta", {}).items()
+                          if meta.get("origin") == "llm" and tuple(k.split("|", 1)) not in final_pairs]
+            v3_payload["rejected"] = _union_edges(v3_payload.get("rejected", []), removed_ai)
             candidate.dependency_rules, candidate.dependency_edges, candidate.related_edges = (
                 validate_v3_rules(known, v3_payload, candidate.dependency_edges))
             candidate.schema_version = SCHEMA_VERSION_V3
@@ -756,16 +899,34 @@ def register(app, managers):
                 {"entry_uid": r["entry_uid"], "max_depth": r["max_depth"]}
                 for r in candidate.dependency_rules["roots"]
                 if r["expansion"] == EXPANSION_LEGACY_DEPTH]
-        elif any(key in data for key in ("fixed_entry_uids", "dependency_sources",
-                                        "dependency_edges")):
-            config, edges = validate_policy(known, {
-                **candidate.import_config,
-                **{k: data[k] for k in ("fixed_entry_uids", "dependency_sources")
-                   if k in data},
-                "dependency_edges": data.get("dependency_edges", candidate.dependency_edges),
-            }, candidate.dependency_edges)
-            candidate.import_config.update(config)
-            candidate.dependency_edges = edges
+        elif not adopt_v3:
+            # v2 书普通保存：草稿里的起点按 v2 形态写回，范围**逐条等价**，
+            # 世界观 / 阵容仍然由分类决定，不因为保存一次而改变候选。
+            v2_data = {key: data[key] for key in
+                       ("fixed_entry_uids", "dependency_sources", "dependency_edges")
+                       if key in data}
+            if any(key in data for key in manual_keys):
+                roots = [r for r in (data.get("roots") or []) if isinstance(r, dict)]
+                v2_data["fixed_entry_uids"] = sorted({
+                    r.get("entry_uid") for r in roots
+                    if r.get("activation") == ACTIVATION_ALWAYS
+                    and r.get("expansion") == EXPANSION_NONE and r.get("entry_uid")})
+                v2_data["dependency_sources"] = [
+                    {"entry_uid": r["entry_uid"], "max_depth": r.get("max_depth", 0)}
+                    for r in roots
+                    if r.get("expansion") == EXPANSION_LEGACY_DEPTH and r.get("entry_uid")]
+                if "requires_edges" in data:
+                    v2_data["dependency_edges"] = data.get("requires_edges") or []
+            if "related_edges" in data:
+                _, _, candidate.related_edges = validate_v3_rules(
+                    known, {"roots": [], "requires_edges": [],
+                            "related_edges": data.get("related_edges") or []})
+            if v2_data:
+                config, edges = validate_policy(known, {
+                    **candidate.import_config, **v2_data,
+                }, candidate.dependency_edges)
+                candidate.import_config.update(config)
+                candidate.dependency_edges = edges
 
         if not preview:
             candidate.import_config["revision"] = book.import_config["revision"] + 1
@@ -809,16 +970,129 @@ def register(app, managers):
     # ── 4.3 AI 自动构建依赖（后台任务）──
 
     def _job_input_hash(book) -> str:
-        """任务输入指纹：正文 + 当前规则。过期结果不得直接覆盖当前数据。"""
-        return book.policy_draft_hash([], [], None)
+        """绑定正文和分析所用名称/别名/分类/角色；规则边编辑不改变该指纹。"""
+        payload = [{"uid": e.uid, "content": content_hash(e.content), "name": e.name,
+                    "aliases": e.trigger_keys, "category_id": e.category_id,
+                    "character_id": e.character_id} for e in book.entries]
+        return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+    def _model_identity(backend, backend_id: str, llm=None) -> str:
+        """真实模型身份：`类型:模型名`（不含密钥）。
+
+        `LLMBackendManager.get_llm()` 的第二个返回值是**后端 id**（cloud / ollama），
+        不是模型名；直接拿它当 model 会让「同一个后端换模型」复用旧缓存。
+        """
+        if not backend_id:
+            return ""
+        identity = model_identity(llm, backend_id)
+        if identity:
+            return identity
+        try:
+            endpoints = backend.get_status().get("endpoints") or []
+        except Exception:
+            return backend_id
+        for endpoint in endpoints:
+            if endpoint.get("id") == backend_id:
+                return f"{endpoint.get('type') or backend_id}:{endpoint.get('model') or 'unknown'}"
+        return backend_id
+
+    def _verified_proposal(book, raw):
+        """服务端校验 AI 建议 —— **不信任客户端传来的 accepted**。
+
+        只认持久化任务里的校验结果，并逐条复核：
+        任务身份（job_id + 书 id）、输入指纹、两端正文哈希、证据可定位性。
+        任一项不通过就报错要求重新构建，绝不把过期建议写进配置。
+        """
+        if raw is None:
+            return None
+        if not isinstance(raw, dict):
+            raise ValueError("proposal 必须是对象")
+        job_id = raw.get("job_id")
+        if not job_id:
+            raise ValueError("AI 建议缺少任务标识（job_id），无法校验来源；请重新构建后再应用")
+        job = _JOB_STORE.get(str(job_id))
+        if job is None or job.book_id != book.id:
+            raise ValueError("找不到这次构建的任务记录，结果已失效；请重新构建")
+        if job.cancelled or job.stage != "done" or job.outcome == "failed":
+            raise ValueError("任务尚未完成或已取消，不能应用")
+        result = job.result
+        if not isinstance(result, dict):
+            raise ValueError("这次构建没有可用的校验结果；请重新构建")
+        if job.input_hash != _job_input_hash(book):
+            raise ValueError("这本书在构建开始后已被修改，AI 结果已过期；请重新构建后再应用")
+
+        wanted = raw.get("accepted_pairs")
+        if wanted is None:
+            wanted = [[item.get("from_uid"), item.get("to_uid")]
+                      for item in (raw.get("accepted") or []) if isinstance(item, dict)]
+        wanted_set = {(item[0], item[1]) for item in wanted
+                      if isinstance(item, (list, tuple)) and len(item) == 2}
+
+        by_uid = {e.uid: e for e in book.entries}
+        accepted, skipped = [], 0
+        seen = set()
+        for record in result.get("records") or []:
+            if not isinstance(record, dict):
+                continue
+            pair = (record.get("from_uid"), record.get("to_uid"))
+            if pair in seen or pair not in wanted_set:
+                continue
+            seen.add(pair)
+            a, b = pair
+            if a not in by_uid or b not in by_uid:
+                raise ValueError(f"AI 建议引用了不存在的条目：{a} → {b}")
+            if record.get("source_content_hash") != content_hash(by_uid[a].content or "") or \
+                    record.get("target_content_hash") != content_hash(by_uid[b].content or ""):
+                raise ValueError(f"条目正文已变化（{a} → {b}），AI 证据已过期；请重新构建")
+            relation = record.get("relation")
+            if relation not in ("requires", "related"):
+                skipped += 1
+                continue
+            if not evidence_locatable(record.get("evidence"), [by_uid[a], by_uid[b]]):
+                skipped += 1
+                continue
+            accepted.append({**record, "relation": relation})
+        return {
+            "accepted": accepted,
+            "roots": [r for r in (result.get("roots") or []) if isinstance(r, dict)],
+            "model": result.get("model") or job.model,
+            "proposal_version": result.get("proposal_version"),
+            "job_id": job.id,
+            "skipped": skipped,
+        }
+
+    def _character_directory_ids() -> list[str]:
+        """真实角色目录 ID：AI 角色关联建议必须对着它校验，而不是「已关联过的角色」。"""
+        doc_mgr = managers.get("document")
+        if not doc_mgr:
+            return []
+        try:
+            docs = doc_mgr.list_documents("characters", include_content=False)
+        except Exception:
+            return []
+        return sorted({str(d.get("id") or "") for d in docs if d.get("id")})
+
+    def _active_job(book_id: str):
+        """这本书正在跑的任务（同一本书同时只允许一个，避免重复点击重复付费）。"""
+        for item in _JOB_STORE.list_for_book(book_id):
+            current = _JOB_STORE.get(item["job_id"])
+            if current.running or item.get("stage") not in ("done", "failed", "cancelled"):
+                return item
+        return None
 
     def _start_job(book, data):
         """创建并启动构建任务。无可用模型时返回 503，前端据此引导去设置。"""
         backend = managers.get("llm_backend")
-        llm, model = (backend.get_llm() if backend else (None, ""))
+        llm, backend_id = (backend.get_llm() if backend else (None, ""))
         if not llm:
             return None, json_error(
                 "尚未配置可用的 LLM。请先在「设置」里配置模型，再运行 AI 自动构建。", 503)
+        running = _active_job(book.id)
+        if running is not None:
+            return None, json_error(
+                f"这本书已有一个构建任务在进行中（{running.get('stage')}），"
+                "请先等待或取消它，避免重复消耗调用额度。", 409)
+        model = _model_identity(backend, backend_id, llm)
         job = _JOB_STORE.create(book.id, _job_input_hash(book), model)
         job.message = "已排队，正在准备条目"
         job.save()
@@ -829,10 +1103,17 @@ def register(app, managers):
             max_calls = None
         snapshot = copy.deepcopy(book)
         kwargs = {"max_calls": max_calls} if max_calls else {}
+        character_ids = _character_directory_ids()
 
         def worker():
-            run_build(job, snapshot, llm, model=model, cache=_ANALYSIS_CACHE, **kwargs)
+            try:
+                run_build(job, snapshot, llm, model=model, cache=_ANALYSIS_CACHE,
+                          character_ids=character_ids, **kwargs)
+            finally:
+                job.running = False
+                job.save()
 
+        job.running = True
         threading.Thread(target=worker, name=f"wb-build-{job.id}", daemon=True).start()
         return job, None
 
@@ -842,7 +1123,7 @@ def register(app, managers):
         book, err = _get_book_or_404(book_id)
         if err:
             return err
-        data = request.json if isinstance(request.json, dict) else {}
+        data = request.get_json(silent=True) or {}
         job, err = _start_job(book, data)
         if err:
             return err
@@ -850,11 +1131,23 @@ def register(app, managers):
 
     @bp.route("/api/worldbook/<book_id>/dependency-proposals", methods=["GET"])
     def list_dependency_proposals(book_id):
+        """列出这本书的任务，并指出「当前该看哪一个」。
+
+        前端据此在切视图 / 重开页面后恢复入口：后台任务不会因为面板卸载而消失，
+        也不该让用户再点一次（那是重复付费）。
+        """
         book, err = _get_book_or_404(book_id)
         if err:
             return err
-        return jsonify({"jobs": _JOB_STORE.list_for_book(book_id),
-                        "input_hash": _job_input_hash(book)})
+        jobs = _JOB_STORE.list_for_book(book_id)
+        active = _active_job(book_id)
+        latest = jobs[0] if jobs else None
+        return jsonify({
+            "jobs": jobs,
+            "input_hash": _job_input_hash(book),
+            "active_job_id": active.get("job_id") if active else None,
+            "latest_job_id": latest.get("job_id") if latest else None,
+        })
 
     @bp.route("/api/worldbook/<book_id>/dependency-proposals/<job_id>", methods=["GET"])
     def get_dependency_proposal(book_id, job_id):
@@ -891,31 +1184,61 @@ def register(app, managers):
 
     @bp.route("/api/worldbook/<book_id>/dependency-proposals/<job_id>/retry", methods=["POST"])
     def retry_dependency_proposal(book_id, job_id):
-        """只重跑失败批次：分析卡走缓存，不重复付费。"""
+        """只重跑失败批次（含预算耗尽留下的剩余工作）：分析卡走缓存，不重复付费。"""
         book, err = _get_book_or_404(book_id)
         if err:
             return err
         job = _JOB_STORE.get(job_id)
         if job is None or job.book_id != book_id:
             return json_error("任务不存在", 404)
-        if not job.failed_batches:
-            return json_error("没有失败批次需要重试")
-        backend = managers.get("llm_backend")
-        llm, model = (backend.get_llm() if backend else (None, ""))
-        if not llm:
-            return json_error("尚未配置可用的 LLM，无法重试", 503)
+        if job.stage not in ("done", "failed", "cancelled") or _active_job(book_id):
+            return json_error("这本书已有构建正在运行", 409)
+        if job.input_hash != _job_input_hash(book):
+            return json_error("正文已变化，请重新构建以更新入边和出边", 409)
+        # 预算耗尽留下的剩余工作也算「失败批次」，同样可续跑
         pairs = [{"from_uid": a, "to_uid": b}
                  for batch in job.failed_batches for a, b in batch.get("pairs", [])]
+        uids = sorted({uid for batch in job.failed_batches
+                       for uid in batch.get("uids", [])})
+        if not pairs and not uids and not job.pending_pairs and not job.pending_card_uids and not job.resumable:
+            return json_error("没有失败批次需要重试")
+        if not pairs:
+            pairs = list(job.pending_pairs)
+        if not uids:
+            uids = list(job.pending_card_uids)
+        backend = managers.get("llm_backend")
+        llm, backend_id = (backend.get_llm() if backend else (None, ""))
+        if not llm:
+            return json_error("尚未配置可用的 LLM，无法重试", 503)
+        model = _model_identity(backend, backend_id, llm) or job.model
+        if model != job.model:
+            return json_error("模型已变化，请重新构建", 409)
+        data = request.json if isinstance(request.json, dict) else {}
+        try:
+            max_calls = int(data.get("max_calls")) if data.get("max_calls") else None
+        except (TypeError, ValueError):
+            max_calls = None
+        if max_calls is None:
+            # 重试必须带足够预算，否则会在同一处再次撞墙
+            max_calls = auto_budget(int((job.workload or {}).get("estimated_calls") or 0))
         job.cancelled = False
         job.failed_batches = []
-        job.stage = "adjudication"
+        job.resumable = False
+        job.stage = "adjudication" if pairs and not uids else "cards"
         job.save()
         snapshot = copy.deepcopy(book)
+        character_ids = _character_directory_ids()
 
         def worker():
-            run_build(job, snapshot, llm, model=model or job.model, cache=_ANALYSIS_CACHE,
-                      only_pairs=pairs or None)
+            try:
+                run_build(job, snapshot, llm, model=model, cache=_ANALYSIS_CACHE,
+                          only_pairs=(pairs or None) if not uids else None, only_uids=uids or None,
+                          max_calls=max_calls, character_ids=character_ids)
+            finally:
+                job.running = False
+                job.save()
 
+        job.running = True
         threading.Thread(target=worker, name=f"wb-retry-{job.id}", daemon=True).start()
         return jsonify({"job": job.to_dict(include_result=False)}), 202
 

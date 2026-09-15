@@ -521,13 +521,43 @@ export default function WorldBookScopeManager({ detail: detailProp, onChanged, v
   };
   const applyClassification = async () => {
     if (!classification?.matched) return;
-    if (unified && dirty) {
-      // 应用自动分类会重新加载这本书，草稿会被替换；先让用户明确选择。
-      setError("自动分类会重新加载这本书。请先保存或撤销当前草稿，再应用分类。");
+    if (unified) {
+      // 统一模式：自动分类只是给草稿打一个补丁（分类 + 条目归属 + 角色关联），
+      // 由页面右上角一次保存。不调用旧接口，也就不会重新加载书、丢掉其它草稿。
+      const patchData = classification.draft_patch;
+      if (!patchData) { setError("这次分类没有可应用的结论。"); return; }
+      unifiedPatch!({
+        categories: patchData.categories,
+        entry_moves: { ...unifiedDraft!.entry_moves, ...patchData.entry_moves },
+        entry_updates: { ...unifiedDraft!.entry_updates, ...patchData.entry_updates },
+      });
+      setPanel(null);
+      setError("");
       return;
     }
-    // 应用会重新加载书，草稿里的导入策略会丢失，交给 run 统一确认。
+    // 旧用法（没有统一草稿）：应用会重新加载书，交给 run 统一确认。
     if (await run(() => api.applyWorldbookClassification(detail.id, detail.import_config?.revision))) setPanel(null);
+  };
+  /**
+   * 保存「归属分类 + 角色关联」。
+   *
+   * 统一模式必须走草稿：直接调旧接口会立刻写盘并重新加载，把用户正在编辑的其它
+   * 改动（分类、起点、AI 建议）一起丢掉（审核反证 P2-14）。草稿路径下这些改动
+   * 与其它视图共用同一个撤销栈和同一次保存。
+   */
+  const saveAssignment = async (uid: string) => {
+    if (!uid) return;
+    const kind = categories.find((category) => category.id === assignment.category_id)?.scope_type;
+    const payload = {
+      category_id: assignment.category_id,
+      character_id: kind === "character" ? assignment.character_id : "",
+    };
+    if (unified) {
+      unifiedPatch!({ entry_updates: { ...unifiedDraft!.entry_updates, [uid]: payload } });
+      setBatchNote(`已更新「${label(uid)}」的归属（尚未保存）。`);
+      return;
+    }
+    await run(() => api.updateWorldbookEntry(detail.id, uid, payload));
   };
 
   return <section className={"wbg-workbench" + (expanded ? " wbg-expanded" : "")} aria-label={view === "taxonomy" ? "世界书分类工作台" : treeView ? "世界书依赖树工作台" : "世界书依赖工作台"}>
@@ -761,7 +791,11 @@ export default function WorldBookScopeManager({ detail: detailProp, onChanged, v
               <button className="wbg-button wbg-button-primary" disabled={busy} onClick={() => void applyClassification()}>
                 <WorldBookGraphIcon name="tag" />应用分类（{classification.matched} 条）
               </button>
-              <p className="wbg-help">应用会写入分类树与条目归属并刷新页面；载入模式与依赖策略保持不变。</p>
+              <p className="wbg-help">
+                {unified
+                  ? "分类与条目归属会并入当前草稿，和别的改动一起用右上角「保存」一次性写入；载入模式与依赖策略保持不变。"
+                  : "应用会写入分类树与条目归属并刷新页面；载入模式与依赖策略保持不变。"}
+              </p>
             </>)}
           </> : panel === "preview" ? <>
             <div className="wbg-inspector-section"><p className="wbg-eyebrow">IMPORT SCOPE</p><h4>载入前，先看候选范围</h4><p className="wbg-help">预览不会修改会话。世界观、入队角色、固定条目与依赖展开合并后去重。</p></div>
@@ -904,7 +938,7 @@ export default function WorldBookScopeManager({ detail: detailProp, onChanged, v
                   <datalist id={controlId + "-characters"}>{characters?.map((character) => <option key={character.id} value={character.id}>{character.name || character.title || character.id}</option>)}</datalist>
                   {characters && assignment.character_id && !characters.some((character) => character.id === assignment.character_id) && <small className="wbg-warning">角色不存在：保留关联值，但不能自动入队载入。</small>}
                 </label>}
-                <button className="wbg-button wbg-button-primary" onClick={() => void run(() => api.updateWorldbookEntry(detail.id, focused.uid, assignment))}>保存归属</button>
+                <button className="wbg-button wbg-button-primary" onClick={() => void saveAssignment(focused.uid)}>保存归属</button>
               </fieldset>}
               <button className="wbg-button wbg-button-quiet" onClick={editEntry}>编辑条目正文 ↗</button>
             </>}

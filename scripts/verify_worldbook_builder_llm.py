@@ -25,6 +25,7 @@ import json
 import os
 import sys
 import time
+import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -34,7 +35,7 @@ import llm_backend_manager as backend_module          # noqa: E402
 from llm_backend_manager import LLMBackendManager     # noqa: E402
 from world_book import DEFAULT_CATEGORIES, WorldBook, WorldBookEntry  # noqa: E402
 from worldbook_builder import (                        # noqa: E402
-    AnalysisCache, DependencyBuildJob, PROMPT_VERSION, build_to_v3_rules, run_build,
+    AnalysisCache, DependencyBuildJob, PROMPT_VERSION, build_to_v3_rules, model_identity, run_build,
 )
 from worldbook_scope import validate_v3_rules          # noqa: E402
 
@@ -102,7 +103,8 @@ def main() -> int:
     # 让后端管理器读这份配置，但绝不打印其中的密钥。
     backend_module._CONFIG_PATH = config
     backend = LLMBackendManager()
-    llm, model = backend.get_llm()
+    llm, backend_id = backend.get_llm()
+    model = model_identity(llm, backend_id)
     if llm is None:
         print("[2] 未做真实验证：配置存在但当前没有可用端点（模型未就绪或处于冷却）。")
         return 2
@@ -112,10 +114,12 @@ def main() -> int:
     book = sample_book() if args.book == "sample" else preinstalled_book(args.limit)
     print(f"    世界书：{book.name}（{len(book.entries)} 条，{sum(len(e.content) for e in book.entries)} 字符）")
 
-    cache = AnalysisCache()
-    job = DependencyBuildJob("verify", book.id, "verify-input", model=model)
+    temporary = tempfile.TemporaryDirectory(prefix="worldbook-llm-verification-")
+    cache = AnalysisCache(Path(temporary.name) / "cache")
+    job = DependencyBuildJob("verify", book.id, "verify-input", model=model, directory=Path(temporary.name))
     started = time.time()
-    run_build(job, book, llm, model=model, cache=cache, max_calls=args.max_calls)
+    run_build(job, book, llm, model=model, cache=cache, max_calls=args.max_calls,
+              character_ids=sorted({e.character_id for e in book.entries if e.character_id}))
     elapsed = time.time() - started
 
     print(f"[2] 阶段结束于：{job.stage}（{elapsed:.1f}s，{job.calls} 次模型调用，"
@@ -123,7 +127,7 @@ def main() -> int:
     if job.error:
         print(f"[3] 真实调用失败：{job.error['code']} {job.error['message']}")
         return 3
-    if job.stage != "done" or not job.result:
+    if job.stage != "done" or job.outcome != "success" or not job.result:
         print(f"[3] 未产出结果：stage={job.stage} message={job.message}")
         return 3
 
@@ -178,8 +182,9 @@ def main() -> int:
     # ── 断言 4：缓存按 content_hash + model 生效，第二次不再重新分析 ──
     # 用同一个缓存目录再跑一遍：第二次应当直接命中磁盘缓存。
     cache2 = AnalysisCache(cache._dir)
-    job2 = DependencyBuildJob("verify-2", book.id, "verify-input", model=model)
-    run_build(job2, book, llm, model=model, cache=cache2, max_calls=args.max_calls)
+    job2 = DependencyBuildJob("verify-2", book.id, "verify-input", model=model, directory=Path(temporary.name))
+    run_build(job2, book, llm, model=model, cache=cache2, max_calls=args.max_calls,
+              character_ids=sorted({e.character_id for e in book.entries if e.character_id}))
     if job2.error:
         failures.append(f"第二次运行失败：{job2.error['code']} {job2.error['message']}")
     elif job2.calls >= job.calls:

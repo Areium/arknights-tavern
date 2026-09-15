@@ -440,8 +440,13 @@ export function useApi() {
           method: "POST", body: JSON.stringify(maxCalls ? { max_calls: maxCalls } : {}),
         }),
     listDependencyProposals: (bookId: string) =>
-      request<{ jobs: import("../types").DependencyProposalJobDTO[]; input_hash: string }>(
-        `/api/worldbook/${encodeURIComponent(bookId)}/dependency-proposals`),
+      request<{
+        jobs: import("../types").DependencyProposalJobDTO[];
+        input_hash: string;
+        /** 这本书当前正在跑的任务：切视图 / 重开页面后据此恢复入口，不重复付费 */
+        active_job_id?: string | null;
+        latest_job_id?: string | null;
+      }>(`/api/worldbook/${encodeURIComponent(bookId)}/dependency-proposals`),
     getDependencyProposal: (bookId: string, jobId: string, offset = 0, limit = 100) =>
       request<{ job: import("../types").DependencyProposalJobDTO }>(
         `/api/worldbook/${encodeURIComponent(bookId)}/dependency-proposals/${encodeURIComponent(jobId)}` +

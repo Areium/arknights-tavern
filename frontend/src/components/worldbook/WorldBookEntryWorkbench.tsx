@@ -31,7 +31,7 @@ export default function WorldBookEntryWorkbench(props: WorldBookPanelProps & { o
   const characterOf = (entry: WorldBookEntryDTO) =>
     draft.entry_updates[entry.uid]?.character_id ?? entry.character_id ?? "";
   const categoryOf = (entry: WorldBookEntryDTO) =>
-    draft.entry_moves[entry.uid] ?? draft.entry_updates[entry.uid]?.category_id ?? entry.category_id ?? "unclassified";
+    draft.entry_updates[entry.uid]?.category_id ?? draft.entry_moves[entry.uid] ?? entry.category_id ?? "unclassified";
 
   const rootOf = (uid: string) => draft.roots.find((r) => r.entry_uid === uid);
   const requiresFrom = (uid: string) => draft.requires_edges.filter((e) => e.from_uid === uid);
@@ -49,7 +49,7 @@ export default function WorldBookEntryWorkbench(props: WorldBookPanelProps & { o
 
   const setRoot = (uid: string, root: { activation: "always" | "roster_any" | "manual"; expansion: "none" | "requires_closure"; character_ids?: string[] } | null) => {
     const rest = draft.roots.filter((r) => r.entry_uid !== uid);
-    patch({ roots: root ? [...rest, { entry_uid: uid, ...root }] : rest });
+    patch({ adopt_v3: true, scope_mode: "selective", roots: root ? [...rest, { entry_uid: uid, ...root }] : rest });
   };
   const addEdge = (kind: "requires_edges" | "related_edges", from: string, to: string) => {
     if (!to || from === to) return;

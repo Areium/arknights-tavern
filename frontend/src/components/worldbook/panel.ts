@@ -8,6 +8,8 @@ export interface WorldBookPanelProps {
   detail: WorldBookDetail;
   draft: WorldBookDraft;
   patch: (changes: Partial<WorldBookDraft>) => void;
+  /** 显式改用按需载入（v3）：独立、可撤销的动作，迁移映射由服务端计算 */
+  adoptV3: () => void;
   dirty: boolean;
   saving: boolean;
   saveError: string;

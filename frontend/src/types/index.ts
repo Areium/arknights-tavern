@@ -715,6 +715,12 @@ export interface WorldBookRootDTO {
 export interface WorldBookRulesDTO {
   roots: WorldBookRootDTO[];
   root_rule?: { entry_uids: string[] };
+  requires_edges?: WorldBookDependencyEdgeDTO[];
+  related_edges?: WorldBookDependencyEdgeDTO[];
+  /** 人工拒绝过的 AI 建议（持久化，防止「删掉又被重新应用」） */
+  rejected?: WorldBookDependencyEdgeDTO[];
+  /** 每条边的来源 / 证据 / 审阅状态，按 "from|to" 键控 */
+  edge_meta?: Record<string, Record<string, string>>;
 }
 export interface WorldBookPolicyRevisionDTO {
   revision: number;
@@ -753,6 +759,12 @@ export interface WorldBookIssueDTO {
 /** 统一配置写入（PUT /api/worldbook/<id>/configuration）的请求体 */
 export interface WorldBookConfigurationDraft {
   expected_revision?: number;
+  /**
+   * 显式启用 v3 按需载入规则。**只有用户明确选择时才传**：
+   * v2 书的普通分类 / 角色编辑不能顺手把书切成按需载入（预装书 fixed/sources
+   * 都是空的，一旦隐式启用候选会被清成空集）。服务端也只认这个显式开关。
+   */
+  adopt_v3?: boolean;
   categories?: WorldBookCategoryDTO[];
   entry_moves?: Record<string, string>;
   entry_updates?: Record<string, { category_id?: string; character_id?: string }>;
@@ -760,8 +772,18 @@ export interface WorldBookConfigurationDraft {
   roots?: WorldBookRootDTO[];
   requires_edges?: WorldBookDependencyEdgeDTO[];
   related_edges?: WorldBookDependencyEdgeDTO[];
-  /** AI 构建结果：与手写草稿在同一次原子写入中生效 */
-  proposal?: { accepted: Array<{ from_uid: string; to_uid: string; relation: string }> } | null;
+  /**
+   * AI 构建结果：与手写草稿在同一次原子写入中生效。
+   * `job_id` 是**服务端复核**的依据（任务身份 + 正文哈希 + 证据可定位），
+   * 客户端传的 accepted 只是「用户选了哪几条」的提示。
+   */
+  proposal?: {
+    materialized?: boolean;
+    job_id: string;
+    accepted_pairs?: Array<[string, string]>;
+    accepted?: Array<{ from_uid: string; to_uid: string; relation?: string }>;
+  } | null;
+  /** 人工拒绝过的建议：再次应用同一份 AI 结果时不得复活 */
   rejected?: WorldBookDependencyEdgeDTO[];
 }
 export interface WorldBookConfigurationResultDTO {
@@ -797,11 +819,25 @@ export interface DependencyProposalResultDTO {
   records_total?: number;
   record_offset?: number;
   accepted: Array<{ from_uid: string; to_uid: string; relation: string; confidence: number }>;
+  /** AI 建议的角色起点（只接受真实存在于角色目录的 id） */
+  roots?: WorldBookRootDTO[];
+  root_issues?: WorldBookIssueDTO[];
   issues: WorldBookIssueDTO[];
   cycles: string[][];
   fanout: Record<string, number>;
   expansion_probe: Record<string, number>;
-  stats: { records: number; requires: number; related: number; unsure: number; none: number };
+  stats: { records: number; requires: number; related: number; unsure: number; none: number; roots?: number };
+}
+/** 终态必须三态可区分：success 全部成功 / partial 部分批次失败 / failed 没有任何产出 */
+export type DependencyJobOutcome = "" | "success" | "partial" | "failed";
+export interface DependencyFailedBatchDTO {
+  stage: string;
+  code?: string;
+  message?: string;
+  uids?: string[];
+  pairs?: string[][];
+  /** 预算耗尽等可续跑：重试只补这些批次 */
+  resumable?: boolean;
 }
 export interface DependencyProposalJobDTO {
   job_id: string;
@@ -817,11 +853,19 @@ export interface DependencyProposalJobDTO {
   cancelled: boolean;
   error: { code: string; message: string } | null;
   calls: number;
-  failed_batches: Array<{ stage: string; code?: string; message?: string; uids?: string[]; pairs?: string[][] }>;
+  failed_batches: DependencyFailedBatchDTO[];
   card_count: number;
   judgment_count: number;
   /** 输入快照已变化：结果不得直接覆盖当前数据 */
   stale?: boolean;
+  outcome?: DependencyJobOutcome;
+  /** 预算耗尽 / 批次失败后可以续跑（重试只补缺失部分） */
+  resumable?: boolean;
+  workload?: { entries?: number; pairs?: number; card_calls?: number; adjudication_calls?: number; estimated_calls?: number; budget?: number };
+  candidates?: { pairs?: number; candidates_total?: number; candidates_used?: number; deferred?: number; generic_aliases?: number };
+  chunk_report?: { entries?: number; chunks?: number; dropped_chars?: number };
+  pending_pairs?: number;
+  pending_card_uids?: number;
   result: DependencyProposalResultDTO | null;
 }
 
@@ -862,6 +906,15 @@ export interface WorldBookClassificationDTO {
   unlinked_characters: string[];
   /** 将要写入的完整分类数组 */
   proposal: WorldBookCategoryDTO[];
+  /**
+   * 统一草稿补丁：分类 + 条目归属 + 角色关联。统一模式下「应用分类」把这份补丁
+   * 并进草稿，与其它改动共用同一次保存，而不是绕过草稿直接写盘。
+   */
+  draft_patch?: {
+    categories: WorldBookCategoryDTO[];
+    entry_moves: Record<string, string>;
+    entry_updates: Record<string, { category_id?: string; character_id?: string }>;
+  } | null;
   apply: boolean;
   reason?: string;
 }

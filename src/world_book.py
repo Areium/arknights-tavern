@@ -42,7 +42,7 @@ from worldbook_scope import (
     ACTIVATION_ALWAYS, ACTIVATION_MANUAL, ACTIVATION_ROSTER_ANY,
     EXPANSION_NONE, EXPANSION_REQUIRES_CLOSURE, EXPANSION_LEGACY_DEPTH,
     SCHEMA_VERSION_V3, resolve_v3_scope, validate_v3_rules,
-    v2_rules_from_import_config,
+    v2_rules_from_import_config, equivalent_v3_roots,
 )
 from worldbook_classify import classify_entries, needs_classification
 
@@ -628,8 +628,13 @@ class WorldBook:
         self.related_edges = []
         self.dependency_rules = None
         if dependency_rules is not None:
+            # 关联补充边可能随规则集一起序列化，也可能独立存放（旧写入路径）。
+            # 两处都要认，否则「保存一次再读回」会把 related 边丢掉。
+            payload = dict(dependency_rules)
+            if related_edges and not payload.get("related_edges"):
+                payload["related_edges"] = list(related_edges)
             rules, requires, related = validate_v3_rules(
-                known, dependency_rules, self.dependency_edges)
+                known, payload, self.dependency_edges)
             self.dependency_rules = rules
             self.dependency_edges = requires
             self.related_edges = related
@@ -672,6 +677,8 @@ class WorldBook:
             for item in reversed(self.policy_revisions):
                 if item["revision"] == revision:
                     return copy.deepcopy(item)
+            if revision != self.import_config["revision"]:
+                raise ValueError("请求的规则版本不存在；请重新预览当前版本")
         return {
             "revision": self.import_config["revision"],
             "resolver_version": RESOLVER_VERSION,
@@ -693,13 +700,46 @@ class WorldBook:
         self.policy_revisions.append(snapshot)
         self.policy_revisions = self.policy_revisions[-MAX_POLICY_REVISIONS:]
 
+    def equivalent_v3_rules(self, extra_roots=None, requires_edges=None,
+                            related_edges=None) -> dict:
+        """把当前 v2 配置映射成**范围等价**的 v3 规则集。
+
+        这是显式迁移（用户在界面上确认「启用按需规则」）时用的：
+        - legacy → 每条 always + none；
+        - selective → 世界观分类 always + none，角色分类 roster_any + none；
+        - 固定导入 → always + none；导入源 → always + legacy_depth（保留 max_depth）。
+        结果与旧语义逐条等价，不会因为「保存一次」就悄悄少载入一堆条目。
+        """
+        rules, requires, related = v2_rules_from_import_config(
+            self.import_config, requires_edges if requires_edges is not None else self.dependency_edges)
+        known = {r["entry_uid"] for r in rules["roots"]}
+        roots = list(rules["roots"])
+        for root in equivalent_v3_roots(self.entries, self.categories, self.scope_mode,
+                                        self.category_scope_type):
+            if root["entry_uid"] in known:
+                continue
+            known.add(root["entry_uid"])
+            roots.append(root)
+        for root in extra_roots or []:
+            if isinstance(root, dict) and root.get("entry_uid") in known:
+                continue
+            if isinstance(root, dict) and root.get("entry_uid"):
+                known.add(root["entry_uid"])
+                roots.append(root)
+        return {"roots": roots,
+                "root_rule": {"entry_uids": sorted(known)},
+                "requires_edges": requires,
+                "related_edges": related if related_edges is None else related_edges,
+                "rejected": [], "edge_meta": {}}
+
     def adopt_v2_as_v3(self):
-        """把现有 v2 配置无损升级为 v3 起点（fixed → always+none，sources → always+legacy_depth）。
+        """把现有 v2 配置无损升级为 v3 起点（范围等价，不改候选）。
 
         只显式调用：旧书/旧会话不会因为读一次就悄悄改变语义。
         """
-        rules, requires, related = v2_rules_from_import_config(
-            self.import_config, self.dependency_edges)
+        payload = self.equivalent_v3_rules()
+        rules, requires, related = validate_v3_rules(
+            {e.uid for e in self.entries}, payload, self.dependency_edges)
         self.dependency_rules = rules
         self.dependency_edges = requires
         self.related_edges = related
@@ -763,6 +803,8 @@ class WorldBook:
         }
         if self.dependency_rules is not None:
             data["dependency_rules"] = self.dependency_rules
+        # related_edges 独立持久化：v3 书与「已配置关联补充但尚未启用 v3」的书都要能往返
+        if self.related_edges:
             data["related_edges"] = self.related_edges
         if self.policy_revisions:
             data["policy_revisions"] = copy.deepcopy(self.policy_revisions)
@@ -897,30 +939,25 @@ class WorldBook:
         if rules is None:
             raise ValueError("这本书没有 v3 依赖规则")
 
+        # 手动追加作为临时起点进入**同一次**解析：它会沿 requires 闭包补齐、
+        # 带上 manual 选用原因并进入展示树。解析完再并集会漏掉依赖，也没有解释。
+        manual = [uid for uid in (manual_entry_uids or [])
+                  if isinstance(uid, str) and any(e.uid == uid for e in self.entries)]
+
         result = resolve_v3_scope(
             self.entries, rules, requires, related,
             roster_character_ids=roster_character_ids,
             policy_revision=(snapshot or {}).get("revision", self.import_config["revision"]),
             content_revision=content_revision(self.entries),
             book_id=self.id,
+            manual_entry_uids=manual,
         )
-
-        # 手动追加：只补进本次候选，不写回规则、不改变激活起点。
-        manual = [uid for uid in (manual_entry_uids or [])
-                  if isinstance(uid, str) and any(e.uid == uid for e in self.entries)]
-        if manual:
-            resolved = set(result["resolved_entry_uids"]) | set(manual)
-            reasons = result["selection_reasons"]
-            for uid in manual:
-                reasons.setdefault(uid, [])
-                if "manual" not in reasons[uid]:
-                    reasons[uid] = reasons[uid] + ["manual"]
-            result["resolved_entry_uids"] = sorted(resolved)
-            result["selection_reasons"] = {uid: reasons[uid] for uid in sorted(reasons)}
-            result["manual_entry_uids"] = sorted(set(manual))
-        else:
-            result["manual_entry_uids"] = []
         result["resolver_version"] = RESOLVER_VERSION
+        if (snapshot or {}).get("scope_mode", self.scope_mode) == "legacy":
+            uids = sorted(e.uid for e in self.entries
+                          if self.enabled and e.enabled and e.content.strip())
+            result.update(resolved_entry_uids=uids, legacy_full_scope=True,
+                          selection_reasons={uid: ["legacy"] for uid in uids})
         return result
 
     def preview_v3_scope(self, roster_character_ids=None, manual_entry_uids=None,
@@ -962,6 +999,7 @@ class WorldBook:
         return {
             "scope": scope,
             "schema_version": SCHEMA_VERSION_V3,
+            "scope_mode": self.scope_mode,
             "resolver_version": RESOLVER_VERSION,
             "full_scope": bool(full_scope),
             "entry_count": len(resolved),
@@ -1030,6 +1068,7 @@ class WorldBook:
         scope = self.resolve_v3_import_scope(roster_character_ids, revision, manual_entry_uids)
         snapshot = self.rules_snapshot(scope["policy_revision"])
         result = {
+            "scope_mode": snapshot.get("scope_mode", self.scope_mode),
             "book_id": self.id,
             "schema_version": SCHEMA_VERSION_V3,
             "resolver_version": RESOLVER_VERSION,
@@ -1064,6 +1103,37 @@ class WorldBook:
             "full_scope": True,
         })
         return result
+
+    def refresh_session_scope(self, existing_scope, roster_character_ids=None) -> dict:
+        """按会话**已绑定**的规则版本重算范围（角色入队 / 离队时调用）。
+
+        关键：不能拿「这本书现在长什么样」去覆盖会话快照，否则
+        - 绑定的不可变规则版本会被换成最新版本；
+        - 手动追加（本会话作用域）会消失；
+        - 显式全量兼容会被悄悄取消；
+        - 选用原因 / 参与边 / 展示树会退化成一份没有解释的 UID 列表。
+
+        v3 快照沿用绑定的 revision / manual / full_scope 重算；
+        v2 快照沿用旧语义，不静默升级。
+        """
+        if not isinstance(existing_scope, dict):
+            existing_scope = {}
+        if existing_scope.get("schema_version") != SCHEMA_VERSION_V3:
+            return self.resolve_import_scope(roster_character_ids)
+        # 会话自带完整规则；即使书的历史版本被移除也能恢复。
+        bound = copy.deepcopy(self)
+        bound.dependency_rules = copy.deepcopy(existing_scope.get("rules") or {"roots": []})
+        bound.dependency_edges = copy.deepcopy(existing_scope.get("requires_edges") or [])
+        bound.related_edges = copy.deepcopy(existing_scope.get("related_edges") or [])
+        bound.scope_mode = existing_scope.get("scope_mode", "selective")
+        bound.import_config["revision"] = existing_scope.get("policy_revision", 1)
+        bound.policy_revisions = []
+        return bound.session_scope_snapshot(
+            roster_character_ids,
+            existing_scope.get("manual_entry_uids") or [],
+            None,
+            bool(existing_scope.get("full_scope")),
+        )
 
     def eligible_uids_for(self, overlay):
         scope = getattr(overlay, "get_worldbook_scope", lambda: None)()
@@ -1206,6 +1276,35 @@ class WorldBook:
         return {"entries": entries_map, "extensions": extension}
 
 
+def auto_classification_patch(book: WorldBook, result) -> dict:
+    """把一次分类结果折算成**统一草稿补丁**（分类 + 条目归属 + 角色关联）。
+
+    统一草稿模式下，自动分类不能绕过草稿直接写盘（否则会丢掉用户正在编辑的其它改动）。
+    服务端把结论算成一份可以直接 `patch` 进草稿的补丁，前端并入后照常走
+    `PUT /configuration` 一次原子提交 —— 校验口径与直接应用完全一致。
+    """
+    categories = validate_categories(result.categories(existing=book.categories))
+    known = {c["id"] for c in categories}
+    scope_of = {c["id"]: c.get("scope_type") for c in categories}
+    moves: dict[str, str] = {}
+    updates: dict[str, dict] = {}
+    for entry in book.entries:
+        target = result.assignments.get(entry.uid)
+        if not target or target not in known:
+            target = entry.category_id if entry.category_id in known else UNCLASSIFIED["id"]
+        character_id = ""
+        if scope_of.get(target) == "character":
+            character_id = result.character_ids.get(entry.uid) or entry.character_id or ""
+            if not character_id:
+                # 角色分类必须带角色目录名，否则保存会被 _validate_entry_scope 拒绝。
+                target = UNCLASSIFIED["id"]
+        if target != entry.category_id:
+            moves[entry.uid] = target
+        if character_id != (entry.character_id or ""):
+            updates[entry.uid] = {"character_id": character_id}
+    return {"categories": categories, "entry_moves": moves, "entry_updates": updates}
+
+
 def apply_auto_classification(book: WorldBook, first_install: bool = False):
     """按条目自带的可信元数据重建分类与角色关联。
 
@@ -1219,20 +1318,15 @@ def apply_auto_classification(book: WorldBook, first_install: bool = False):
     result = classify_entries(book.entries)
     if not result.matched:
         return result
-    book.categories = validate_categories(result.categories(existing=book.categories))
+    patch = auto_classification_patch(book, result)
+    book.categories = patch["categories"]
     known = {c["id"] for c in book.categories}
     for entry in book.entries:
-        # 未识别出类别的条目保留原分类；原分类被整体替换掉时落到未分类。
-        target = result.assignments.get(entry.uid)
-        if not target or target not in known:
-            target = entry.category_id if entry.category_id in known else UNCLASSIFIED["id"]
-        entry.category_id = target
-        if book.category_scope_type(target) == "character":
-            entry.character_id = result.character_ids.get(entry.uid) or entry.character_id
-            if not entry.character_id:
-                # 角色分类必须带角色目录名，否则保存会被 _validate_entry_scope 拒绝。
-                entry.category_id = UNCLASSIFIED["id"]
-        else:
+        if entry.uid in patch["entry_moves"]:
+            entry.category_id = patch["entry_moves"][entry.uid]
+        if entry.uid in patch["entry_updates"]:
+            entry.character_id = patch["entry_updates"][entry.uid]["character_id"]
+        elif entry.category_id in known and book.category_scope_type(entry.category_id) != "character":
             entry.character_id = ""
     if first_install:
         book.scope_mode = "selective"

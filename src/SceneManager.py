@@ -364,14 +364,27 @@ class SceneManager:
         return True
 
     def _refresh_worldbook_scope(self):
+        """角色入队 / 离队后按**会话已绑定的规则版本**重算候选范围。
+
+        之前这里直接调用 v2 的 `resolve_import_scope(实际阵容)`，会把 v3 会话快照
+        覆盖成一份 v2 结果：绑定的不可变规则版本、手动追加、显式全量兼容、
+        选用原因与参与边全部丢失。现在交给 `WorldBook.refresh_session_scope`，
+        由它按快照里记录的信息重算；v2 会话仍走旧语义。
+        """
         if getattr(self, "_restoring_scope", False):
             return
         scope = getattr(self._overlay, "get_worldbook_scope", lambda: None)()
         if scope is None:
             return  # 旧会话继续采用原语义，直到显式重新绑定
         book = self._resolve_worldbook()
-        if book:
-            self._overlay.set_worldbook_scope(book.resolve_import_scope(self.get_scene_characters()))
+        if not book:
+            return
+        try:
+            refreshed = book.refresh_session_scope(scope, self.get_scene_characters())
+        except (TypeError, ValueError) as exc:
+            logger.warning("重算世界书范围失败，保留原快照: %s", exc)
+            return
+        self._overlay.set_worldbook_scope(refreshed)
 
     def switch_active(self, name: str) -> bool:
         """切换对话目标。

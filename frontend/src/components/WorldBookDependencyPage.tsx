@@ -13,6 +13,9 @@ import WorldBookGraphIcon from "./WorldBookGraphIcon";
 /** 默认界面：三个视图。高级图谱里保留原有的分类 / 网络 / 树 / 批量能力。 */
 type PageView = "overview" | "entries" | "advanced";
 
+/** 稳定的空数组：预览的依赖项是语义键，但传新引用容易在别处被当依赖用。 */
+const EMPTY_UIDS: string[] = [];
+
 const PAGE_VIEWS: Array<{ id: PageView; label: string; hint: string }> = [
   { id: "overview", label: "配置概览", hint: "基础设定、角色设定、关联补充与待处理，一眼看完并一次保存" },
   { id: "entries", label: "条目与角色", hint: "逐条决定怎么用：加入基础设定、角色入队时选用、同时选用、仅标记相关" },
@@ -36,12 +39,13 @@ export default function WorldBookDependencyPage() {
   const [advancedView, setAdvancedView] = useState<WorldBookGraphView>("tree");
   const [roster, setRoster] = useState<string[]>([]);
   const [notice, setNotice] = useState("");
+  const [pendingBook, setPendingBook] = useState<string | null>(null);
   const sequence = useRef(0);
 
-  const { draft, patch, dirty, saving, error: saveError, conflict, save, undo, savedAt } = useWorldbookDraft(detail);
+  const { draft, patch, adoptV3, dirty, saving, error: saveError, conflict, save, undo, savedAt } = useWorldbookDraft(detail);
   // 预览始终按统一草稿计算：三个视图共用同一份「保存后会长成什么样」。
   const { preview, loading: previewing, error: previewError } =
-    useScopePreview(detail?.id || "", detail?.updated_at, draft, roster, [], !!detail);
+    useScopePreview(detail?.id || "", detail?.updated_at, draft, roster, EMPTY_UIDS, !!detail);
 
   useEffect(() => {
     let cancelled = false;
@@ -70,8 +74,8 @@ export default function WorldBookDependencyPage() {
   const switchBook = (id: string) => {
     if (id === selected) return;
     if (dirty) {
-      const choice = window.confirm("切换世界书会丢弃未保存的草稿。\n确定＝丢弃并切换；取消＝留在当前世界书。");
-      if (!choice) return;
+      setPendingBook(id);
+      return;
     }
     setSelected(id); setNotice("");
   };
@@ -82,11 +86,19 @@ export default function WorldBookDependencyPage() {
   };
 
   const panelProps: WorldBookPanelProps | null = detail && draft ? {
-    detail, draft, patch, dirty, saving, saveError, conflict, save: doSave, undo,
+    detail, draft, patch, adoptV3, dirty, saving, saveError, conflict, save: doSave, undo,
     preview, previewing, previewError, roster, setRoster,
   } : null;
 
   return <div className="wbg-page">
+    {pendingBook !== null && <section role="dialog" aria-label="切换世界书" className="wbg-notice">
+      <span>当前世界书有未保存改动。</span>
+      <button disabled={saving} onClick={async () => {
+        if (await save()) { setSelected(pendingBook); setPendingBook(null); }
+      }}>保存并切换</button>
+      <button disabled={saving} onClick={() => { setSelected(pendingBook); setPendingBook(null); }}>放弃并切换</button>
+      <button onClick={() => setPendingBook(null)}>取消</button>
+    </section>}
     <div className="wbg-page-bar">
       <label>世界书 <select aria-label="依赖图世界书" value={selected} onChange={(event) => switchBook(event.target.value)}>
         <option value="">请选择</option>{books.map((book) => <option key={book.id} value={book.id}>{book.name}{!book.enabled && "（已停用）"}</option>)}
