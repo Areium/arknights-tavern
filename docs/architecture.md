@@ -49,7 +49,8 @@
 
 - `world_book.py` — 世界书（酒馆 Lorebook 兼容）：4 源解析（v1/v2/卡内嵌/jsonl）+ 关键词触发匹配 + 注入格式化 + 回灌导出 + `WorldBookManager`（`data/worldbooks/`，gitignored）。
   **注入纪律：常驻 position-0 条目进稳定层，触发型条目一律进动态层（前缀缓存稳定）。**
-- `worldbook_scope.py` — 多级分类、角色关联与导入策略校验，有向依赖深度遍历；候选范围由世界观 / 阵容 / 固定 / 依赖去重合成。`world_book.py` 提供估算预览与旧书/旧会话快照兼容，两个 prompt 入口均过滤候选。详见 `worldbook-on-demand.md`。
+- `worldbook_scope.py` — 多级分类、角色关联与导入策略校验，有向依赖深度遍历。**v2 与 v3 并存**：v2 语义（世界观 / 阵容 / 固定 / 依赖四源去重）逐字保留；v3 把「分类」与「载入」分开——全书一张有向图，起点由 `activation`（always / roster_any / manual）× `expansion`（none / requires_closure / legacy_depth）描述，`requires` 参与闭包遍历、`related` 只浏览，环可终止并回报交叉引用，闭包超限报错而非静默截断。`world_book.py` 提供估算预览、旧书/旧会话快照兼容与**不可变规则版本历史**（`policy_revisions`，会话绑定完整规则版本而不只是版本号），两个 prompt 入口均过滤候选。详见 `worldbook-on-demand.md`。
+- `worldbook_builder.py` — 世界书依赖的 AI 自动构建：元数据索引（复用 `worldbook_classify`）→ 长条目分段 → 明确引用候选对（不被 top-k 丢弃）→ 分析卡 → 依赖判定 → 程序校验（UID / 重复 / 自环 / 证据可定位 / 角色 ID / 高扇出 / 环 / 阵容扩张探测）。分析卡与判定分别按 `内容哈希 + 模型 + prompt 版本` 缓存（判定额外绑定目标哈希）。后台任务持久化阶段/进度/结果，支持取消、失败批次重试、调用预算与有限 JSON 修复；无可用模型时接口返回 503，前端引导去设置。**正文按数据处理，不执行其中的指令**；置信度只用于排序，不宣称语义正确。真实模型验证见 `scripts/verify_worldbook_builder_llm.py`。
 - `worldbook_classify.py` — 条目自动分类：只认 uid 生成器前缀 / `group` 字段 / 名称括号后缀三类显式线索（取值为白名单，识别不出就不分类），产出分类树、条目归属与 `characters_<角色目录名>_index` → 角色关联。**不改变载入模式**：`from_dict` 只在分类形同未分类时对预装包自动补齐，其余走用户显式的「自动分类」。详见 `worldbook-on-demand.md`。
 - `memory.py` — `VectorMemory`：最近轮次滑动窗口 + ChromaDB 语义搜索，持久化于 `data/memory/`（gitignored）。
 
@@ -119,7 +120,7 @@
 - `components/AssetManager.tsx` — 资产目录：图片上传/裁剪/默认图，实体显示上级目录与来源世界书（frontmatter `worldbook_id`），按书筛选与归类
 - `components/CardManager.tsx` — 卡牌管理：角色/职业卡牌编辑（CardEditor），条目显示所属世界书，按书筛选
 - `components/WorldBookManager.tsx` — 世界书管理：导入（文件/粘贴，支持角色卡 PNG/JSON 连带导入角色 + 内嵌世界书）、分类图谱 / 条目正文切换、条目编辑器、会话绑定、酒馆格式导出
-- `components/WorldBookDependencyPage.tsx` / `WorldBookScopeManager.tsx` — 世界书分类与依赖工作台：节点目录、上下文属性、固定导入底栏、策略草稿与只读预览、按条目元数据的自动分类入口、批量选中与整类操作栏；`WorldBookScopePreview.tsx` 同时用于创建向导
+- `components/WorldBookDependencyPage.tsx` / `WorldBookScopeManager.tsx` — 世界书配置工作台：页面给三个视图（**配置概览 / 条目与角色 / 高级图谱**），共用一份**统一草稿**并由右上角一次 `PUT /configuration` 原子写入（409 保留草稿）。`components/worldbook/` 下是配置概览（基础设定 / 角色设定 / 关联补充 / 待处理 + 试选阵容 + 本次范围预览）、条目与角色（四个常见动作）、AI 自动构建面板与共享类型；`hooks/useWorldbookDraft.ts` 提供统一草稿与两个带防抖/过时响应保护的预览钩子。`WorldBookScopeManager` 是高级图谱（保留分类/网络/树/批量），由统一草稿投影而来并写回同一草稿，避免 AI 生成的条件起点被静默清掉；`WorldBookScopePreview.tsx` 同时用于创建向导
 - `components/WorldBookGraphCanvas.tsx` / `utils/worldbookGraph.ts` / `utils/worldbookDependency.ts` / `utils/worldbookBatch.ts` — Neo4j 风格圆形节点图：分类归属与有向依赖、拖动/平移/缩放、多选与框选、关系高亮、确定性布局及大书显示限额；节点角色分类（导入源/固定/中转/叶子/未配置）与按遍历深度展开的依赖树视图；批量策略变换（固定导入 / 导入源 / 建边 / 清边 / 移入分类）是纯函数，只改草稿不写盘；复用内容中心 `--ng-*` 配色，不修改战斗画布
 - `components/SettingsPanel.tsx` — LLM 配置/主题/叙述选项
 
@@ -156,7 +157,7 @@
 
 生成流程与硬性约束见 skill `combat-designer`，规格说明见 `docs/battle-spec.md`。
 
-其他脚本：`scripts/generate_builtin_worldbook.py`（世界书整合包）、`scripts/gen_skin_utils.py`（皮肤颜色工具类生成）、`scripts/run_tests.sh`（统一测试入口）。
+其他脚本：`scripts/generate_builtin_worldbook.py`（世界书整合包）、`scripts/gen_skin_utils.py`（皮肤颜色工具类生成）、`scripts/run_tests.sh`（统一测试入口）、`scripts/verify_worldbook_builder_llm.py`（世界书 AI 构建的**真实模型**端到端验证，需已配置 LLM；未配置时以退出码 2 明确报告「未做真实验证」）。
 
 ---
 

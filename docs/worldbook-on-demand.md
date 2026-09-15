@@ -4,9 +4,55 @@
 
 ## 使用入口
 
-- **世界书 → 分类图谱**：分类树、圆形分类/条目节点、条目归属与角色关联，工具栏提供「自动分类」（先预览再应用）。切换「条目正文」可浏览和编辑原有条目。
-- **内容中心 → 世界书图谱**：三个页签——「分类结构」「条目依赖」「依赖树」。分类结构编辑分类与归属；条目依赖是力导向关系网络；依赖树按导入源与遍历深度分层展开。三者共用同一份策略草稿、「导入预览」与批量操作栏（含分类树 `⋯` 菜单里的整类操作）。
-- **创建会话**：选定世界书和阵容后预览候选条目；创建时一次性初始化剧情、阵容、绑定与范围快照，失败不会留下半成品会话。
+**内容中心 → 世界书图谱**默认给三个视图，共用同一份**统一草稿**（分类、角色关联、起点规则、依赖边、AI 建议），右上角一次「保存」原子写入；切视图、切页签都不丢草稿，保存失败或版本冲突（409）也保留草稿。
+
+- **配置概览**：把「这本书怎么载入」压成四组——**基础设定**（所有会话候选）/ **角色设定**（入队时选用）/ **关联补充** / **待处理**，外加「试选阵容」与「本次范围预览」。待处理只列真要动手的项（依赖引用了不存在的条目、角色分类缺角色关联、起点指定的角色不在目录里、必要依赖成环等）；**条目没被当前试选阵容选中不算错误**。
+- **条目与角色**：条目列表 + 详情，四个常见动作覆盖绝大多数情况（见下）。显示角色名与头像，实际写入配置的仍然是角色目录 ID。
+- **高级图谱**：保留原有「分类结构 / 条目依赖 / 依赖树」与全部批量操作。它显示的是**统一草稿的投影**，保存走同一条 `PUT /configuration`；因此 AI 生成的条件起点不会被高级视图静默清掉。
+
+四个常见动作（条目与角色视图）：
+
+| 动作 | 写入 | 语义 |
+|---|---|---|
+| 加入基础设定 | 起点 `activation=always, expansion=none` | 不分角色，用这本书就是候选 |
+| 角色入队时选用 | 起点 `activation=roster_any, character_ids=[角色]`，`expansion=requires_closure` | 只有该角色入队才载入，并补齐它的必要依赖 |
+| 选用此条时同时选用… | `requires` 边 | 参与遍历，对方被一起补上 |
+| 仅标记相关 | `related` 边 | 只作浏览，**不展开** |
+
+**世界书 → 分类图谱**：分类树、圆形分类/条目节点、条目归属与角色关联，工具栏提供「自动分类」（先预览再应用）。切换「条目正文」可浏览和编辑原有条目。
+
+**创建会话**：选定世界书和阵容后展示服务端真实解析的候选统计、载入树与选用原因；创建时一次性初始化剧情、阵容、绑定与范围快照，失败不会留下半成品会话。创建全程**不调用任何 LLM**。
+
+## 载入规则模型（v3）
+
+v3 把「分类」和「载入」彻底分开：**分类只负责组织内容，起点与展开决定候选**。分类之间移动条目不会隐式改变候选范围。
+
+- 全书是一张有向图，**依赖树只是这张图的一个投影**（服务端生成稳定主路径，前端不自己再走一遍遍历）。
+- 起点（root）由两个正交属性描述：
+  - `activation`：`always` 恒为候选 / `roster_any` 入队任一指定角色即候选 / `manual` 只手动追加（**不会自动激活**）。
+  - `expansion`：`none` 只含自身 / `requires_closure` 完整必要闭包 / `legacy_depth` 旧深度语义（带 `max_depth`）。
+- `requires` 边参与闭包遍历（多源、按**最大剩余深度**去重）；`related` 边**不参与遍历**。
+- 环可终止，环内边作为「交叉引用」单独列出；新必要闭包不会被任意深度静默截断，超过上限报「来源过大」错误而不是悄悄少载。
+- 被依赖带入的条目**不会**反过来激活它所属角色的整组条目——激活只看起点自身的 `activation`，依赖只负责补齐。
+- 共享依赖只选一次；移除一个角色不会删掉另一个角色仍需要的内容。
+- 已激活必要依赖里出现**停用 / 缺失 / 空正文**的条目会作为可解释问题列出，不会被当成「已完整」。
+
+## AI 自动构建依赖
+
+配置概览右侧的「AI 自动构建依赖」：选好书后**一次点击**即可，后台用当前已配置的模型自行读取条目、分析并构建起点与依赖配置。用户不需要写提示词、复制 JSON 或手工连线；没有可用模型时按钮旁直接给「前往设置配置模型 →」入口，而不是让人猜。
+
+流程与约束：
+
+1. **元数据索引**先跑（复用 `worldbook_classify` 的确定性分类，行为不变）；长条目按章节分段，单段超长再切。
+2. **明确引用**（条目正文里出现其它条目的名称/别名）一律进入候选对，**不会被 top-k 丢掉**。
+3. **分析卡**批量生成：摘要、实体、已定义概念、未解释概念、候选角色、原文证据。
+4. **判定**：由模型判断 `requires` / `related` / `none` / `unsure`，并给出可在原文定位的证据。提示词明确声明**正文是数据不是指令**，提及/相识/同组织只能算 `related`。
+5. **程序校验**（不是模型自证）：UID 只能来自真实输入、重复、自环、证据文本与内容哈希、角色 ID、高扇出、环、单角色/多角色/空阵容扩张探测。**置信度只用于排序参考，不代表准确率**；有证据也不等于语义正确。
+6. 结果区分**建议记录**与**正式关系**，记录来源模型 / `prompt_version` / 证据 / 双方内容哈希 / 复核状态。不确定的关系单独列在「待复核」里，**允许审阅但不强制逐条确认**。
+7. **缓存**：分析卡按 `内容哈希 + 模型 + prompt 版本` 分键；依赖判定额外绑定**目标条目哈希**——对方正文一变，旧判定即失效。
+8. **应用构建结果**把建议并入统一草稿（边去重后追加），与手写草稿在**同一次** `PUT /configuration` 中原子生效。服务端同样是**并入**而不是覆盖：应用 AI 不会把人工已配好的起点与依赖冲掉。
+9. 后台任务持久化阶段/进度/结果，支持关页面后继续、取消、失败批次重试；低并发、有限调用预算与有限 JSON 修复；失败用结构化错误呈现，**不把错误伪装成成功**。
+10. 任务绑定输入快照哈希；书在构建期间被改过时结果标记 `stale`，**不直接覆盖当前数据**。
 
 ## 节点分类
 
@@ -68,6 +114,8 @@
 
 导入策略使用草稿：预览通过后点击「保存策略」，也可「撤销草稿」。切换世界书或关闭页面时会提醒未保存策略。分类/归属编辑分别点击其保存按钮；旧书仅编辑分类不会自动启用按需载入。
 
+> **与 v3 的关系**：高级图谱沿用「固定导入 / 导入源」这套旧词汇，但它们读写的是**同一份统一草稿**——固定导入 ↔ 起点 `always + none`，导入源 ↔ 起点 `always + legacy_depth`，依赖边 ↔ `requires` 边。写回时只替换这两类起点，`roster_any` / `manual` / `requires_closure` 这些 AI 生成或用户设定的条件起点原样保留；保存走页面的统一 `PUT /configuration`。
+
 ## 批量操作
 
 批量操作只改**策略草稿**，因此和单点编辑共用同一条校验路径：改完点「保存策略」才落盘，期间可以「撤销草稿」。实现集中在 `utils/worldbookBatch.ts`（纯函数，不改入参），UI 只负责收集 UID 与显示结果。
@@ -97,6 +145,21 @@
 
 ## 候选范围
 
+v3 书（`dependency_rules` 非空）按起点解析：
+
+| 来源 | 进入候选的条件 |
+|---|---|
+| 基础设定 | 起点 `activation=always`；`expansion=none` 只含自身，`requires_closure` 补齐必要闭包 |
+| 角色入队 | 起点 `activation=roster_any` 且 `character_ids` 与**实际成功加载的阵容**相交 |
+| 必要依赖 | 从已激活起点沿 `requires` 出边遍历（`legacy_depth` 受 `max_depth` 限制） |
+| 手动追加 | 会话创建时显式传入的 `manual_entry_uids`，只作用于该会话 |
+| 全量兼容 | 会话创建时显式选择 `full_scope`，载入全部启用且有正文的条目 |
+| 关联补充 | **不进入候选**，只作浏览 |
+
+各来源取并集并按 UID 去重；停用、空正文条目不参与注入。预览会返回 `active_roots`、`resolved_edges`（含 `active` 标记）、`selection_reasons`、`display_tree`、`cross_references`、`issues` 与 `draft_hash`。
+
+v2 书（未启用 v3）沿用旧语义：
+
 | 来源 | 进入候选的条件 |
 |---|---|
 | 世界观 | 条目所在分类的 `scope_type` 为 `worldview` |
@@ -105,7 +168,7 @@
 | 依赖展开 | 从 `dependency_sources` 沿 `from_uid → to_uid` 出边遍历 |
 | 旧书兼容 | `scope_mode=legacy` 时保留全部可用条目作为候选 |
 
-各来源取并集并去重；停用、空正文条目不参与注入。预览会列出来源分解、每个导入源的展开结果及排除原因。来源分解可能重叠，不应把各来源数目相加当成去重总数。
+**旧格式迁移是显式的**：v2 书在配置概览里会明确提示「仍是旧格式（全量兼容）」，并把旧 `fixed_entry_uids` 等价呈现为 `always + none`、旧 `dependency_sources` 为 `always + legacy_depth`；**只有用户显式预览并点保存之后**才真正改用 v3 按需规则。已存在的 v2 会话语义不变。
 
 每个依赖源有独立 `max_depth`，必须为 0–32 的整数：0 只包含源，1 包含一跳依赖，以此类推。自环、重复边和不存在的 UID 会被拒绝；多节点环允许存在，遍历用已访问的最佳剩余深度保证终止，并正确合并多个源。
 
@@ -113,13 +176,16 @@
 
 ## 会话与兼容
 
-书数据版本为 `schema_version=2`，`scope_mode` 明确区分 `legacy` 与 `selective`。
+书数据 `schema_version` 为 2 或 3；v3 书另有 `dependency_rules`（起点）、`related_edges`、`policy_revisions`（不可变规则版本历史）。
 
 - 普通外部酒馆文件没有本项目元数据时保持全量兼容；不根据名称猜测角色关联。预装整合包可按其可靠的生成器 UID 约定迁移。
 - 旧会话首次注入时懒迁移为全量候选快照，之后新增条目不会自动扩大其范围。
-- 新会话在发布/落盘前完成阵容和候选快照初始化。显式不绑定世界书时不回退到默认书；旧客户端未传 `worldbook_id` 则继续使用默认书并生成快照。
-- 快照保存在会话 overlay 的 `worldbook_scope` 中，包含书 ID、策略修订、阵容、候选 UID、来源及排除项。它是**候选 UID 快照，不是条目正文副本**。
-- 保存新策略不直接改写已有会话范围；调整阵容或重新绑定时重算。停用、删除快照所属的书不会偷偷替换成其他默认书。恢复会话不会因逐个加载角色而覆盖其快照。
+- **v3 会话绑定的是完整规则版本**，不只是版本号：快照里保存当时的 `rules` / `requires_edges` / `related_edges`、解析器版本、阵容、手动追加、激活起点、候选 UID、选用原因、参与边与展示路径。书后来改了规则，会话按绑定版本重算仍得到创建时的结果；书被编辑后**不会**自动换语义。
+- 会话创建会校验预览指纹 `expected_draft_hash`（覆盖规则、边、阵容、手动追加与是否全量兼容）：预览已过期时直接报错，而不是静默用另一套范围创建。
+- **手动追加只作用于本会话**，不写回世界书规则；取消追加只影响这一次创建。取消追加一个「同时被必要依赖需要」的条目时，界面会明确说明它仍会被载入——**必需关系要用的条目不会因为取消追加而消失**。
+- **全量兼容是显式选择**：`full_scope` 只影响本会话，不改变这本书的规则，也不会影响别的会话。
+- 内容仍按**实时语义**读取：快照冻结的是规则与解析结果，不是条目正文副本。正文改动会让 AI 证据标记为过期，但不会假装「内容已完全快照」。
+- 快照保存在会话 overlay 的 `worldbook_scope` 中；`resolved_entry_uids` 保留给原有消费者。导出会话时带上必要的规则版本。
 - `SceneManager` 和 `CharacterAgent` 都按候选 UID 过滤，并继续遵守「常驻 position-0 进稳定层，触发型进动态层」的前缀缓存约束。
 - 导出酒馆格式时，分类、导入策略和角色关联保存在 `extensions.arknights_tavern` 命名空间。复制与回灌保留这些元数据；其他客户端可以忽略该扩展。
 
@@ -128,22 +194,47 @@
 | API | 主要字段 / 行为 |
 |---|---|
 | `PUT /api/worldbook/<id>/taxonomy` | 完整 `categories`、按 UID 的 `entry_moves`、可选 `expected_revision`；校验及迁移原子应用 |
+| `PUT /api/worldbook/<id>/configuration` | **统一写入**：`categories`、`entry_moves`、`entry_updates`、`scope_mode`、`roots`、`requires_edges`、`related_edges`、AI `proposal`（+ `rejected`）、`expected_revision`。每书 RLock 覆盖「检查 → 提交」，版本不一致返回 409；AI 建议与人工草稿**并入**而非覆盖。一次原子提交，不是把多次旧保存串起来 |
 | `POST /api/worldbook/<id>/auto-classify` | 按条目元数据出分类方案；`apply=false` 只读预览，`apply=true` 写入分类树与条目归属（可选 `expected_revision`，冲突 409）。不改载入模式与依赖策略 |
 | `PUT /api/worldbook/<id>/entries/<uid>` | 合并条目字段，支持 `category_id` / `character_id`，保留未提供字段及零值 |
-| `PUT /api/worldbook/<id>/import-config` | `fixed_entry_uids`、`dependency_sources`、`dependency_edges`、`scope_mode`、可选 `expected_revision` |
-| `POST /api/worldbook/<id>/scope-preview` | 同上策略草稿与 `roster_character_ids`；只读预览，不更新缓存/磁盘/会话 |
-| `POST /api/sessions` | 现有创建参数加 `worldbook_id` 与 `roster_character_ids`；201 时已完成候选快照 |
+| `PUT /api/worldbook/<id>/import-config` | v2 路径：`fixed_entry_uids`、`dependency_sources`、`dependency_edges`、`scope_mode`、可选 `expected_revision` |
+| `POST /api/worldbook/<id>/scope-preview` | 接受完整草稿 / `roster_character_ids` / `manual_entry_uids` / `full_scope` / `policy_revision`；只读，返回 v3 解释字段与 `draft_hash`，不更新缓存/磁盘/会话 |
+| `POST /api/worldbook/<id>/dependency-proposals` | 创建 AI 构建任务（202）；无可用模型返回 503，前端据此引导去设置。可选 `max_calls` 预算 |
+| `GET /api/worldbook/<id>/dependency-proposals` | 列出该书任务与当前 `input_hash` |
+| `GET /api/worldbook/<id>/dependency-proposals/<job_id>` | 查询任务；`offset` / `limit` 分页返回建议记录，并返回 `stale`（输入快照已变化） |
+| `POST .../dependency-proposals/<job_id>/cancel` | 协作式取消 |
+| `POST .../dependency-proposals/<job_id>/retry` | 只重跑失败批次（分析卡走缓存） |
+| `POST /api/sessions` | 现有创建参数加 `worldbook_id`、`roster_character_ids`、`manual_entry_uids`、`expected_draft_hash`、`full_scope`；201 时已完成候选快照 |
 
-修订不一致返回 409，前端须重新加载，不能覆盖他人更新。删除条目会清理其固定项、依赖源与边引用。世界书保存采用同目录临时文件原子替换，成功后才更新缓存。
+修订不一致返回 409，前端须重新加载，不能覆盖他人更新。删除条目会清理其固定项、依赖源、边引用，以及 v3 的 `related_edges` 与相关起点。
 
-后端：`src/worldbook_scope.py` 负责纯校验与遍历；`src/worldbook_classify.py` 负责条目自动分类（纯函数，只读条目元数据）；`src/world_book.py` 负责候选解析、预览、迁移、兼容和存储。前端：`WorldBookScopeManager` 管理草稿、表单与视图控件，`WorldBookGraphCanvas` 管理图交互，`utils/worldbookGraph.ts` 提供确定性力导向布局和显示过滤，`utils/worldbookDependency.ts` 提供节点角色分类、依赖树建模与分层树布局。图谱不依赖额外图形库，也不改动战斗画布。
+后端：`src/worldbook_scope.py` 负责纯校验与遍历（v2 与 v3 并存，v2 函数逐字保留）；`src/worldbook_classify.py` 负责条目自动分类（纯函数，只读条目元数据）；`src/worldbook_builder.py` 负责 LLM 自动构建（元数据索引、分段、候选对、分析卡、判定、校验、任务、缓存）；`src/world_book.py` 负责候选解析、预览、迁移、兼容、不可变规则版本与存储。
 
-`worldbookDependency.ts` 的遍历与后端 `expand_sources` 同构（多源入队、最大剩余深度去重），因此前端展示的覆盖范围可以直接和后端预览互相印证；它不写盘、不改策略，只读 `WorldBookDetail` + `WorldBookPolicyDraft`。`worldbook_classify.py` 同样不写盘：`from_dict` 的自动补齐与接口的显式应用都通过同一份方案，前者额外受「预装包 + 分类形同未分类」两个条件约束。
+前端：`WorldBookDependencyPage` 管三个视图与统一草稿的保存条；`hooks/useWorldbookDraft.ts` 提供统一草稿（`draftFrom` / `policyFromDraft` / `patchFromPolicy`）与两个预览钩子（均带防抖 + 序号过时响应保护）；`components/worldbook/` 下是配置概览、条目与角色、AI 构建面板与共享类型；`WorldBookScopeManager` 是高级图谱，改为由草稿投影并写回同一草稿；`WorldBookGraphCanvas` 管理图交互；`utils/worldbookGraph.ts` 提供确定性力导向布局和显示过滤；`utils/worldbookDependency.ts` 提供节点角色分类、依赖树建模与分层树布局。图谱不依赖额外图形库，也不改动战斗画布。
+
+`worldbookDependency.ts` 的遍历与后端 v2 `expand_sources` 同构（多源入队、最大剩余深度去重），因此前端展示的覆盖范围可以直接和后端预览互相印证；v3 视图则以**服务端解析结果为准**，前端不再复制另一套会话遍历。它不写盘、不改策略，只读 `WorldBookDetail` + `WorldBookPolicyDraft`。`worldbook_classify.py` 同样不写盘：`from_dict` 的自动补齐与接口的显式应用都通过同一份方案，前者额外受「预装包 + 分类形同未分类」两个条件约束。
 
 ## 验证
 
-统一入口仍为 `bash scripts/run_tests.sh`。范围与原子性回归在 `tests/test_worldbook_scope.py`；自动分类在 `tests/test_worldbook_classify.py`（信号优先级与白名单、外部 group 不被猜测、角色分类必须有角色目录名、冲突上报、`categories: []` 与缺字段两种迁移守卫、已保存分类不被覆盖、导入书不自动分类、接口预览只读/应用落盘/不改载入模式/409 冲突）；前端纯工具与真实 React SSR 检查可单独运行 `node scripts/test_worldbook_scope_ui.cjs`，覆盖分类树、环、显示上限、确定性布局、双向边与控件结构、自动分类入口、批量语义（分类 UID 收集、未知 UID 过滤、框选命中与反向拖拽、固定/导入源的幂等与去重、建边跳过自环与已存在边、清边计数、移入分类的 moves、入参不可变）与批量入口的 SSR 结构，以及角色分类（多源覆盖、固定导入、中转/叶子/未配置）、依赖树建模（层级、父节点归属、交叉边、超深度边、未启用边、依赖环、未覆盖带）、分层树布局（确定性、层级上限、折叠、未覆盖带换行、角色筛选剪枝）与依赖树视图的 SSR 结构。前端构建在 `frontend/` 运行 `npm run build`。
+统一入口仍为 `bash scripts/run_tests.sh`。范围与原子性回归在 `tests/test_worldbook_scope.py`；自动分类在 `tests/test_worldbook_classify.py`；v3 解析语义在 `tests/test_worldbook_v3_scope.py`（单角色不激活他人、被依赖带入不激活整组、共享依赖去重与离开阵容仍保留、related 不展开、环终止与交叉引用、三种展开方式与 v2 对齐、闭包不被静默截断、超限报错、manual 不自动激活、停用/空正文可解释、展示树确定性、v2→v3 映射）；AI 构建在 `tests/test_worldbook_builder.py`（候选检索、证据降级、校验拒绝、环与高扇出、置信度只排序、卡片与**判定**缓存、结构化失败、取消、持久化、失败批次重试、调用预算、规则分离与人工保护）；统一写入 / 预览 / 任务 / 创建会话在 `tests/test_worldbook_config_api.py`（原子写、409 保留草稿、非法写入不落盘、AI 建议**并入**人工草稿、v3 解释只读、单角色与手动追加、`draft_hash` 稳定与阵容敏感、无模型 503 引导、任务轮询分页、取消与重试、stale 标记、会话绑定规则版本、预览过期拒绝、全量兼容一致性、手动追加的会话作用域）。
 
-SSR 不代替浏览器验收。浏览器还需验证拖动/平移/缩放、侧栏遮挡、键盘操作、分类迁移、策略持久化、深度 0、切书草稿提醒及大书搜索，依赖树的折叠手柄、层级上限、未覆盖带与角色筛选的联动，自动分类面板的预览 → 应用 → 分类树刷新，以及批量操作：Ctrl/Shift 点选、Shift 框选、批量连线模式的待定边、分类行 `⋯` 菜单的定位与滚动、批量结果提示、以及批量改动后的「保存策略 / 撤销草稿」往返。
+前端纯工具与真实 React SSR 检查可单独运行 `node scripts/test_worldbook_scope_ui.cjs`。前端构建在 `frontend/` 运行 `npm run build`。
 
-> Windows 中文环境下 `pytest tests/` 有 4 个战斗用例会因 subprocess 按 GBK 解码中文输出而失败（`stdout is None`）。加 `PYTHONUTF8=1` 后 24 项全过；这与世界书无关，属工作区环境问题。
+**真实 LLM 端到端验证**（不是 stub）在 `scripts/verify_worldbook_builder_llm.py`：
+
+```bash
+# 用仓库默认配置
+python scripts/verify_worldbook_builder_llm.py
+
+# 复用已有配置（不复制、不打印密钥）
+python scripts/verify_worldbook_builder_llm.py --config D:/Code/arknights-tavern/config/llm_config.json
+
+# 对预装世界书的一小段跑真实规模
+python scripts/verify_worldbook_builder_llm.py --book preinstalled --limit 10 --max-calls 24
+```
+
+脚本断言：UID 只能来自真实输入、必要/关联关系的证据必须能在原文定位、记录带模型与 `prompt_version`、角色条目成为 roster 起点而不是全局源、判定缓存第二次 0 次调用。退出码 `0` 通过 / `2` 没有可用模型（明确报告「未做真实验证」）/ `3` 真实调用失败或断言不过。
+
+SSR 与 stub 都不代替浏览器验收。浏览器还需验证：三视图切换不丢草稿、保存失败与 409 后草稿仍在、AI 面板的阶段进度/取消/重试/待复核列表、配置概览的试选阵容与范围预览联动、条目与角色的四个动作、高级图谱的拖动/平移/缩放与批量操作、会话向导阵容步骤的候选树与手动追加取消、以及依赖树的折叠手柄、层级上限与角色筛选联动。
+
+> Windows 中文环境下 `pytest tests/` 有 4 个战斗用例会因 subprocess 按 GBK 解码中文输出而失败（`stdout is None`）。加 `PYTHONUTF8=1` 后全过；这与世界书无关，属工作区环境问题。
