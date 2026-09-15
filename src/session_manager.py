@@ -21,6 +21,7 @@ from wiki_manager import WikiManager
 from llm_backend_manager import LLMBackendManager
 from session_overlay import SessionOverlay
 from session_context import SessionContext
+from combat_resume import read_resume, session_resume_path, summarize as _summarize_resume
 
 logger = logging.getLogger(__name__)
 
@@ -647,7 +648,26 @@ class Session:
             "backgrounds_dir": str(self.data_dir / "backgrounds"),
             "in_combat": self.combat is not None,
             "combat": self.combat.get_state() if self.combat else None,
+            # 可恢复的战斗：内存中仍在，或磁盘上有挂起存档（临时返回后继续打）
+            "combat_resumable": self.combat_resumable,
+            "combat_resume": self.combat_resume_summary(),
         }
+
+    # ── 战斗挂起存档 ──
+
+    @property
+    def combat_resumable(self) -> bool:
+        """是否存在可恢复的战斗（内存中仍在，或磁盘上有挂起存档）。"""
+        if self.combat is not None:
+            return True
+        return session_resume_path(self).is_file()
+
+    def combat_resume_summary(self) -> Optional[dict]:
+        """挂起存档摘要（轮数/遭遇战/手牌数），无存档返回 None。"""
+        if self.combat is not None:
+            # 未挂起：战斗仍在内存，无存档可摘要
+            return None
+        return _summarize_resume(read_resume(session_resume_path(self)))
 
 
 class SessionManager:

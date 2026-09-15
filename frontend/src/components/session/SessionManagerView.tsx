@@ -8,7 +8,8 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useAppStore } from "../../stores/appStore";
 import { useApi } from "../../hooks/useApi";
-import type { PlotInfo, WorldBookSummary, Session } from "../../types";
+import { useCombatResume } from "../../hooks/useCombatResume";
+import type { PlotInfo, WorldBookSummary, Session, CombatResumeTestDTO, CombatResumeSummaryDTO } from "../../types";
 import CreateSessionWizard from "./CreateSessionWizard";
 import { useDialogMinimize } from "../../hooks/useDialogMinimize";
 
@@ -28,6 +29,22 @@ const AVATAR_URL = (name: string) => `/api/characters/${encodeURIComponent(name)
 function formatDate(ts: number): string {
   const d = new Date(ts * 1000);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+/** 「继续战斗」按钮提示：把挂起存档摘要摊开，避免点进去才发现不是想续的那一场 */
+function resumeHint(r?: CombatResumeSummaryDTO | null): string {
+  if (!r) return "继续这场已挂起的战斗";
+  const when = r.suspended_at ? new Date(r.suspended_at * 1000) : null;
+  const stamp = when
+    ? `${when.getMonth() + 1}-${String(when.getDate()).padStart(2, "0")} ${String(when.getHours()).padStart(2, "0")}:${String(when.getMinutes()).padStart(2, "0")}`
+    : "";
+  return [
+    "继续战斗：" + (r.encounter_id || "未知节点"),
+    `第 ${r.round_num} 回合`,
+    `存活 ${r.player_alive}`,
+    r.pending_waves > 0 ? `余 ${r.pending_waves} 波` : "",
+    stamp ? `挂起于 ${stamp}` : "",
+  ].filter(Boolean).join(" · ");
 }
 
 export default function SessionManagerView() {
@@ -118,6 +135,35 @@ export default function SessionManagerView() {
     setCombatContext({ sessionId: null, testId: null, state: null, uiMode: "VIEWING", selectedCardIndex: null, selectedUnitId: null });
     setCurrentView("combat");
   }, [setCombatContext, setCurrentView]);
+
+  /** 继续战斗：恢复挂起的战斗（战斗页「临时返回」留下的存档）并进入战场 */
+  const { resumeSession, resumeTest, busyKey } = useCombatResume();
+
+  // 挂起的战斗测试（无会话，只存在于挂起存档里）：入口紧挨「战斗演练」，
+  // 否则用户临时返回后就再也找不到上次的试打。
+  const [testResumes, setTestResumes] = useState<CombatResumeTestDTO[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    api.listCombatResumes()
+      .then((res) => { if (!cancelled) setTestResumes(res?.tests || []); })
+      .catch(() => { if (!cancelled) setTestResumes([]); });
+    return () => { cancelled = true; };
+  }, [api]);
+
+  const handleResumeTest = useCallback(async (testId: string) => {
+    const ok = await resumeTest(testId);
+    if (ok) setTestResumes((prev) => prev.filter((t) => t.test_id !== testId));
+  }, [resumeTest]);
+
+  const handleDiscardTest = useCallback(async (testId: string) => {
+    if (!window.confirm("丢弃这场战斗测试的存档？此操作不可恢复。")) return;
+    try {
+      await api.combatTestDiscardSuspend(testId);
+      setTestResumes((prev) => prev.filter((t) => t.test_id !== testId));
+    } catch (e: any) {
+      alert("丢弃失败：" + (e?.message || "未知错误"));
+    }
+  }, [api]);
 
   const handleCreated = useCallback((session: Session) => {
     setSessions([...sessions, session]);
@@ -322,6 +368,39 @@ export default function SessionManagerView() {
         </div>
       </header>
 
+      {/* ═══ 挂起的战斗演练（战斗页「临时返回」留下的存档，无会话归属） ═══ */}
+      {testResumes.length > 0 && (
+        <div className="px-6 md:px-10 py-2 border-b border-gray-700/60 bg-gray-850/40 flex items-center gap-2 flex-wrap">
+          <span className="text-[11px] text-amber-200 font-display tracking-wider">⏸ 挂起的战斗演练</span>
+          {testResumes.map((t) => (
+            <span
+              key={t.test_id}
+              className="flex items-center gap-2 text-[11px] bg-gray-800/60 border border-gray-700/60 rounded-lg pl-2.5 pr-1 py-1"
+            >
+              <span className="text-gray-300">{t.encounter_id || "未知节点"}</span>
+              <span className="text-gray-500">
+                第 {t.round_num} 回合 · 存活 {t.player_alive}
+                {t.pending_waves > 0 ? ` · 余 ${t.pending_waves} 波` : ""}
+              </span>
+              <button
+                onClick={() => void handleResumeTest(t.test_id)}
+                disabled={busyKey === `test:${t.test_id}`}
+                className="px-2 py-0.5 rounded bg-gray-800/60 hover:bg-gray-700 text-emerald-200 disabled:opacity-40 transition-colors"
+              >
+                {busyKey === `test:${t.test_id}` ? "恢复中…" : "▶ 继续"}
+              </button>
+              <button
+                onClick={() => void handleDiscardTest(t.test_id)}
+                className="px-1.5 py-0.5 rounded text-gray-500 hover:text-red-400 transition-colors"
+                title="丢弃这场测试的存档"
+              >
+                ✕
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
       <div className="flex flex-1 overflow-hidden">
         {/* ═══ 左侧：会话列表 ═══ */}
         <aside className="w-80 xl:w-96 border-r border-gray-700/60 flex flex-col shrink-0">
@@ -431,6 +510,9 @@ export default function SessionManagerView() {
                       {s.in_combat && (
                         <span className="badge badge-tactical shrink-0 animate-pulse">⚔ 战斗中</span>
                       )}
+                      {!s.in_combat && s.combat_resumable && (
+                        <span className="badge badge-tactical shrink-0" title="战斗已挂起，可继续">⏸ 已挂起</span>
+                      )}
                     </div>
                     <div className="text-[10px] text-gray-600 mt-0.5">{formatDate(s.created_at)}</div>
                   </div>
@@ -443,6 +525,16 @@ export default function SessionManagerView() {
                           title="进入战斗（全屏战场）"
                         >
                           ⚔ 战斗
+                        </button>
+                      )}
+                      {!s.in_combat && s.combat_resumable && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); void resumeSession(s.id); }}
+                          disabled={busyKey === `session:${s.id}`}
+                          className="btn text-[11px] px-3 py-1 bg-gray-800/60 hover:bg-gray-700 text-emerald-200 disabled:opacity-40"
+                          title={resumeHint(s.combat_resume)}
+                        >
+                          {busyKey === `session:${s.id}` ? "恢复中…" : "▶ 继续战斗"}
                         </button>
                       )}
                       <button
@@ -545,6 +637,9 @@ export default function SessionManagerView() {
                     </span>
                     {selected.plot_id && <span className="badge badge-plot">🗺 {plotName(selected.plot_id)}</span>}
                     {selected.in_combat && <span className="badge badge-tactical animate-pulse">⚔ 战斗中</span>}
+                    {!selected.in_combat && selected.combat_resumable && (
+                      <span className="badge badge-tactical">⏸ 战斗已挂起</span>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -554,6 +649,16 @@ export default function SessionManagerView() {
                       className="btn px-5 py-2 text-sm bg-red-700/80 hover:bg-red-600 text-white animate-pulse"
                     >
                       ⚔ 进入战斗
+                    </button>
+                  )}
+                  {!selected.in_combat && selected.combat_resumable && (
+                    <button
+                      onClick={() => void resumeSession(selected.id)}
+                      disabled={busyKey === `session:${selected.id}`}
+                      className="btn px-5 py-2 text-sm bg-gray-800/60 hover:bg-gray-700 text-emerald-200 disabled:opacity-40"
+                      title={resumeHint(selected.combat_resume)}
+                    >
+                      {busyKey === `session:${selected.id}` ? "恢复中…" : "▶ 继续战斗"}
                     </button>
                   )}
                   <button onClick={() => enterSession(selected.id)} className="btn-hero btn px-6 py-2 text-sm">

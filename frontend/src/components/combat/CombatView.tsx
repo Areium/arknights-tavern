@@ -17,7 +17,7 @@ import CharacterIllustration from "./CharacterIllustration";
 import CombatQuestBar from "./CombatQuestBar";
 import CardFlyOverlay, { type CardFlight } from "./CardFlyOverlay";
 import CombatSettlement from "./CombatSettlement";
-import { getCombatConfig, type LayoutMode } from "./combatConfig";
+import { getCombatConfig, shortcutKeyToIndex, type LayoutMode } from "./combatConfig";
 
 const DEFAULT_ENCOUNTER = "初遇整合运动";
 
@@ -820,6 +820,39 @@ export default function CombatView() {
     setCurrentView("chat");
   }, [sessionId, combatTestId, api, setCombatContext, setCurrentView, setPendingAutoNarrate]);
 
+  /**
+   * 临时返回：把当前战斗态势（角色状态 / 手牌 / 牌堆 / 战场局势 / 待入场波次）
+   * 完整落盘后离开战场，内存态随之释放；回来后从「继续战斗」入口原样重建。
+   *
+   * 与「放弃战斗」的区别：放弃 = 战斗作废、剧情继续推进；临时返回 = 战斗仍在。
+   */
+  const handleTempReturn = useCallback(async () => {
+    if (!effectiveId || !combatState || combatState.battle_over) return;
+    if (!window.confirm("临时返回会保存当前战斗状态，稍后可从「继续战斗」恢复。\n（战斗不会作废，剧情也未推进）\n\n确定返回？")) {
+      return;
+    }
+    setLoading(true);
+    try {
+      if (combatTestId) {
+        await api.combatTestSuspend(combatTestId);
+      } else {
+        const resp = await api.combatSuspend(sessionId!);
+        // 乐观更新会话列表：立刻出现「继续战斗」入口，不必等 15s 轮询
+        setSessions(sessions.map((s) => s.id === sessionId
+          ? { ...s, in_combat: false, combat: null, combat_resumable: true, combat_resume: resp.resume ?? null }
+          : s));
+      }
+      sseRef.current?.close();
+      setCombatContext(null);
+      // 会话战回会话界面（可继续看剧情），无会话的测试战回主页
+      setCurrentView(combatTestId ? "home" : "chat");
+    } catch (e: any) {
+      setError(e?.message || "战斗状态保存失败，请重试");
+    } finally {
+      setLoading(false);
+    }
+  }, [effectiveId, combatState, combatTestId, sessionId, api, sessions, setSessions, setCombatContext, setCurrentView]);
+
   const handleEscape = useCallback(async () => {
     if (!sessionId || combatTestId) return;
     setLoading(true);
@@ -1150,6 +1183,10 @@ export default function CombatView() {
     const handler = (e: KeyboardEvent) => {
       if (!combatState || combatState.battle_over) return;
       if (cardPlayInProgressRef.current) return;
+      // 输入控件聚焦、或抽屉/结算等模态框打开时不抢键
+      if (showDeckViewer || settlement) return;
+      const target = e.target as HTMLElement | null;
+      if (target && /^(INPUT|SELECT|TEXTAREA)$/.test(target.tagName)) return;
       if (e.key === "f" || e.key === "F") {
         handleEndTurn();
         return;
@@ -1162,17 +1199,18 @@ export default function CombatView() {
         }
         return;
       }
-      const num = parseInt(e.key);
-      if (num >= 1 && num <= 5) {
-        const idx = num - 1;
-        if (idx < combatState.shared_hand.length) {
-          handleCardClick(idx);
-        }
-      }
+      // 数字键出牌：1–9 → 第 1–9 张，0 → 第 10 张（不再限制为 1–5）
+      const idx = shortcutKeyToIndex(e.key);
+      if (idx < 0 || idx >= combatState.shared_hand.length) return;
+      // 与鼠标一致：AP 不足的牌不可选（卡面同样是 disabled）
+      const card = combatState.shared_hand[idx];
+      if (card && getCardAp(card) < card.cost) return;
+      handleCardClick(idx);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [combatState, selectedUnitId, handleEndTurn, handleCancel, handleCardClick, setCombatContext]);
+  }, [combatState, selectedUnitId, handleEndTurn, handleCancel, handleCardClick, setCombatContext,
+      showDeckViewer, settlement, getCardAp]);
 
   if (!combatState) {
     return (
@@ -1326,6 +1364,10 @@ export default function CombatView() {
   const sharedAp = combatState.shared_ap ?? 0;
   const sharedApMax = combatState.shared_ap_max ?? 6;
   const bgUrl = combatState.background_url ?? null;
+  // 快捷键提示：按手牌实际张数给出可用的数字键范围
+  const shortcutHint = displayedHand.length <= 9
+    ? `按数字键 1–${displayedHand.length} 快捷出牌`
+    : "按数字键 1–9 / 0 快捷出牌";
 
   return (
     <div
@@ -1635,7 +1677,10 @@ export default function CombatView() {
               </span>
             )}
             {combatUIMode === "VIEWING" && !selectedUnit && combatState.phase === "PLAYER_TURN" && (
-              <span className="text-gray-500">点击角色头像或地图选中 · 按数字键 1-5 快捷出牌</span>
+              <span className="text-gray-500">
+                点击角色头像或地图选中
+                {displayedHand.length > 0 && ` · ${shortcutHint}`}
+              </span>
             )}
           </div>
         </div>
@@ -1734,6 +1779,16 @@ export default function CombatView() {
               返回对话
             </button>
           )}
+          {!combatState.battle_over && (
+            <button
+              className="px-4 py-1.5 text-xs bg-indigo-900/50 hover:bg-indigo-800/60 text-indigo-200 rounded-lg transition-all disabled:opacity-30 border border-indigo-700/40 font-display tracking-wider"
+              onClick={handleTempReturn}
+              disabled={loading || settlementBusy}
+              title="保存当前战斗状态并暂时离开（角色/手牌/牌堆/战场局势全部保留，稍后可从「继续战斗」恢复）"
+            >
+              ⏸ 临时返回
+            </button>
+          )}
           {!combatState.battle_over && !combatTestId && (
             <button
               className="px-4 py-1.5 text-xs bg-red-900/40 hover:bg-red-800/50 text-red-300 rounded-lg transition-all border border-red-800/30"
@@ -1741,8 +1796,7 @@ export default function CombatView() {
             >
               放弃战斗
             </button>
-          )}
-          {combatTestId && (
+          )}          {combatTestId && (
             <button
               className="px-4 py-1.5 text-xs bg-red-900/40 hover:bg-red-800/50 text-red-300 rounded-lg transition-all border border-red-800/30"
               onClick={handleEndTest}

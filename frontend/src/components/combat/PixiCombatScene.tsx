@@ -70,6 +70,36 @@ const ENEMY_SPINE_VARIANT: Record<string, string> = {
 
 const SPINE_VARIANT_ALL: Record<string, string> = { ...SPINE_VARIANT, ...ENEMY_SPINE_VARIANT };
 
+/**
+ * 战斗小人统一比例基准。
+ *
+ * Arknights 战斗模型本身共用同一美术尺度（各角色头部 region 高度稳定在 ~124px，
+ * 无装备的干净模型整体高 ~350–460px），因此**不能**逐角色按包围盒归一化：
+ * 包围盒是「所有可见 slot 的并集」，武器 / 披风 / 技能特效会被算进去，于是
+ *   锏（C_EX_Skill 把 setup 包围盒撑到 1176）被缩到 1/3 大小、
+ *   野鬃（三把武器 394px 竖举）偏小、雪原爪兽（本就矮小）反被放大到人形高度。
+ * 实测 34 个已注册变体的 idle 包围盒高度中位数 = 418，故取 420 作为
+ * 「标准战斗小人在骨骼空间的像素高度」，全阵容共用同一 scale，只保留模型自身的
+ * 比例差异（矮小的兽类依旧矮小、体型差异依旧存在），从而得到一致的视觉尺寸。
+ */
+const REF_MODEL_H = 420;
+
+/** 脚线：格心下方 0.2 格（沿用既有构图，脚底大致落在此处） */
+const FOOT_DROP_RATIO = 0.2;
+
+/**
+ * 逐角色比例微调（可选逃生口）：值为相对统一比例的倍率。
+ * 仅当某个模型因美术原因需要单独修正时才添加，默认空。
+ */
+const SPINE_SCALE_OVERRIDE: Record<string, number> = {};
+
+/** 归一化所需的最小信息：统一 scale 与「包围盒底边（脚底）到骨骼原点的距离」 */
+function unitScaleFor(name: string, team: string, cellSize: number, enemyScale: number): number {
+  const base = (cellSize * 1.6) / REF_MODEL_H;
+  const tuned = base * (SPINE_SCALE_OVERRIDE[name] ?? 1);
+  return team === "enemy" ? tuned * enemyScale : tuned;
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -121,10 +151,16 @@ interface UnitEntry {
   hpWidth?: number;
 }
 
-/** Compute the y-offset so a display object's origin maps to the cell center
- *  with a 1/4 cell downward nudge, plus 1 cell offset to align with grid. */
-function calcYOffset(renderHeight: number, cellSize: number): number {
-  return -renderHeight * 0.5 + cellSize * 1.0;
+/**
+ * 脚底锚点偏移：让单位包围盒底边（脚线）落在格心下方 FOOT_DROP_RATIO 格处。
+ *
+ * 用「底边」而非「包围盒中心」锚定——武器/技能特效把包围盒撑高时，
+ * 以中心锚定会把角色整体压低、脚不落地，这是尺寸不一的另一个来源。
+ * `localBottom` = 包围盒底边在骨骼本地空间（scale=1）的 y 值；
+ * 实测绝大多数模型的骨骼原点就在脚底（localBottom ≈ 0）。
+ */
+function calcFootAnchor(localBottom: number, scale: number, cellSize: number): number {
+  return cellSize * FOOT_DROP_RATIO - localBottom * scale;
 }
 
 /** Load a Spine 3.8 character from .atlas + .skel files. */
@@ -407,7 +443,12 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
             let spine: Spine;
             if (loadedRef.current.has(cacheKey)) {
               const pending = loadingRef.current.get(cacheKey);
-              spine = (pending ? await pending : null) as Spine;
+              const cached = (pending ? await pending : null) as Spine | null;
+              if (!cached) { loadingUnitsRef.current.delete(u.unit_id); return; }
+              // 复用模板的 spineData，但每个单位新建独立实例：直接复用同一个 Spine 对象
+              // 会被 addChild 重新挂到新父节点（同型单位 —— 例如第二波的同名敌人 ——
+              // 于是只剩一个可见），且上一实例残留的 scale/position 会污染本次包围盒测量。
+              spine = new Spine((cached as any).spineData);
             } else {
               const p = loadSpine(baseUrl, fn);
               loadingRef.current.set(cacheKey, p);
@@ -421,25 +462,35 @@ const PixiCombatScene = forwardRef<PixiCombatSceneHandle, PixiCombatSceneProps>(
             const latestPos = getCanvasPosRef.current(u.pos[0], u.pos[1]);
             const finalSx = latestPos?.[0] ?? sx;
             const finalSy = latestPos?.[1] ?? sy;
-            // 用实际渲染 bounds 高度归一化，避免不同角色的 spineData.height 不可靠
-            // 导致显示大小不一致（如银灰骨骼高度偏小 → scale 过大）。
-            // 敌方额外乘以 enemyScale 缩小体积；scale 为等比（x 取负仅做水平镜像），不拉伸。
-            const TARGET_H = cellSize * 1.6 * (u.team === "enemy" ? enemyScale : 1);
-            let renderHeight = TARGET_H;
+            // 解析动画规格（战斗变体动画名带角色后缀，用前缀匹配）
+            const spec = resolveAnimSpec(spine.spineData.animations.map((a: any) => a.name));
+
+            // ── 统一比例 + 脚底锚定 ──
+            // scale 为全阵容共用常数（仅敌方额外乘 enemyScale），不再逐角色归一化，
+            // 避免武器/技能特效污染包围盒导致的大小不一（详见 REF_MODEL_H 注释）。
+            // 脚线取自 idle 姿态包围盒底边：setup 姿态会带出技能特效（锏的 C_EX_Skill
+            // 底边比脚底低 38px），idle 才是玩家实际看到的站姿。
+            let localBottom = 0;
             try {
-              spine.update(0);
+              // 测量前归零：包围盒必须在骨骼本地空间（scale=1、位置 0）读取
+              spine.scale.set(1);
+              spine.position.set(0, 0);
+              const idleName = spec.idle || spec.start;
+              if (idleName) {
+                spine.state.setAnimation(0, idleName, true);
+                spine.update(0);
+              }
               const bounds = spine.getBounds();
-              if (bounds && bounds.height > 0) renderHeight = bounds.height;
-            } catch { /* 保持默认 */ }
-            const scale = TARGET_H / renderHeight;
-            // 实际渲染高度已被 scale 归一化为 TARGET_H，锚点基于它计算
-            const yOff = calcYOffset(TARGET_H, cellSize);
+              if (bounds && bounds.height > 0) localBottom = bounds.y + bounds.height;
+            } catch { /* 保持原点锚定 */ }
+
+            const scale = unitScaleFor(u.name, u.team, cellSize, enemyScale);
+            const yOff = calcFootAnchor(localBottom, scale, cellSize);
             spine.zIndex = zIndex;
             spine.x = finalSx;
             spine.y = finalSy + yOff;
-            // 解析动画规格（战斗变体动画名带角色后缀，用前缀匹配）
-            const spec = resolveAnimSpec(spine.spineData.animations.map((a: any) => a.name));
             const flipped = u.team === "enemy";
+            // 起始动画（spec.start 播完自动回 idle）
             const startAnim = spec.start ?? spec.idle;
             spine.state.setAnimation(0, startAnim, !spec.start);
             if (spec.start) {

@@ -38,6 +38,15 @@ _ATTR_KEY_MAP = {
 _DEFAULT_ATTR = 5  # Standard adult baseline for missing attributes
 
 
+def default_status() -> dict:
+    """运行时状态字段全集（缺字段会让 tick_status 的 status["burn"] 直取报 KeyError）。"""
+    return {
+        "shield": 0, "slow": 0, "bind": 0, "weaken": 0, "strengthen": 0,
+        "silence": 0, "burn": 0, "burn_damage": 0, "taunt": 0,
+        "evade": 0, "blind": 0,
+    }
+
+
 def _normalize_attributes(raw: dict) -> dict[str, int]:
     """Normalize attribute keys and fill missing values with default."""
     result = {}
@@ -91,11 +100,7 @@ class CombatUnit:
     pos: tuple[int, int] = (-1, -1)  # (row, col)
 
     # Runtime status effects: shield(护盾)/slow(减速)/bind(束缚)/weaken(虚弱)/strengthen(增幅)
-    status: dict = field(default_factory=lambda: {
-        "shield": 0, "slow": 0, "bind": 0, "weaken": 0, "strengthen": 0,
-        "silence": 0, "burn": 0, "burn_damage": 0, "taunt": 0,
-        "evade": 0, "blind": 0,
-    })
+    status: dict = field(default_factory=default_status)
 
     action_slots: int = 1
     power_tier: str = ""
@@ -333,3 +338,46 @@ class CombatUnit:
             "skin_url": self.skin_url,
             "skin_crop": copy.deepcopy(self.skin_crop),
         }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "CombatUnit":
+        """从 to_dict() 的快照重建单位（战斗挂起/恢复用）。
+
+        缺失字段一律取 dataclass 默认值，保证旧存档在新版本下仍可恢复。
+        """
+        status = default_status()
+        status.update(copy.deepcopy(d.get("status") or {}))
+        pos = d.get("pos")
+        try:
+            pos = (int(pos[0]), int(pos[1])) if pos else (-1, -1)
+        except (TypeError, ValueError, IndexError):
+            pos = (-1, -1)
+        return cls(
+            unit_id=d.get("unit_id", ""),
+            name=d.get("name", ""),
+            team=d.get("team", "player"),
+            char_class=d.get("char_class", ""),
+            ai_behavior=d.get("ai_behavior", "aggressive"),
+            ai_skills=list(d.get("ai_skills") or []),
+            max_hp=int(d.get("max_hp", 100)),
+            hp=int(d.get("hp", 100)),
+            PATK=float(d.get("PATK", 10)),
+            MATK=float(d.get("MATK", 10)),
+            HEAL=float(d.get("HEAL", 10)),
+            DEF=int(d.get("DEF", 5)),
+            RES=int(d.get("RES", 5)),
+            SPD=float(d.get("SPD", 10)),
+            HIT=int(d.get("HIT", 5)),
+            EVA=int(d.get("EVA", 5)),
+            AP=int(d.get("AP", 3)),
+            MAX_AP=int(d.get("MAX_AP", 3)),
+            attributes=copy.deepcopy(d.get("attributes") or {}),
+            skin_url=d.get("skin_url", ""),
+            skin_crop=copy.deepcopy(d.get("skin_crop")),
+            pos=pos,
+            status=status,
+            action_slots=int(d.get("action_slots", 1) or 0),
+            power_tier=d.get("power_tier", ""),
+            role=d.get("role", ""),
+            threat_points=int(d.get("threat_points", 0) or 0),
+        )

@@ -5,6 +5,7 @@ Manages a single battle's lifecycle: setup → player actions → enemy AI → e
 Integrates with the project's Session system and SSE event streaming.
 """
 
+import copy
 import queue
 import logging
 import os
@@ -49,9 +50,12 @@ class CombatSession:
         self._inventory: list[dict] = []
         self._reward_mult: float = 1.0
         self._enemy_scale: float = 1.0
+        self._band_scaling: tuple[float, float] = (1.0, 1.0)
         self._map = None                     # BattleMap（节点 JSON 的地图段）
         self._custom_enemies: dict = {}      # 会话自定义敌人定义
         self.last_activity_at: float = time.time()
+        # 挂起标记：置位后 SSE 生成器立即退出（战斗态已落盘，内存对象即将释放）
+        self.suspended: bool = False
 
     # ── Setup ──
 
@@ -701,9 +705,8 @@ class CombatSession:
     def snapshot(self) -> dict:
         """结算与历史记录所需的战斗快照。
 
-        战斗态只存在于内存（`session.combat`），不跨进程保存，因此这里只导出
-        结算要用的字段，不再提供状态重建入口。若将来需要"战斗中恢复"，
-        应以「节点 spec + 命令流重放」实现，而不是回填状态序列化。
+        只导出结算要用的字段，**不用于状态重建**；「临时返回 → 继续战斗」走
+        `suspend_snapshot()` / `from_suspend_snapshot()`（完整序列化引擎态）。
         """
         if not self.engine:
             return {"active": False}
@@ -727,6 +730,62 @@ class CombatSession:
             "units": {uid: u.to_dict() for uid, u in self.engine.units.items()},
             "character_metas": self._character_metas,
         }
+
+    # ── 挂起 / 恢复（战斗中途保存整局态势） ──
+
+    SUSPEND_VERSION = 1
+
+    def suspend_snapshot(self) -> dict:
+        """完整战斗态快照（含角色状态、手牌、牌堆、战场局势、待入场波次）。
+
+        用于「临时返回主页/会话后继续战斗」：由 combat_resume 落盘，恢复时经
+        `from_suspend_snapshot()` 原样重建。地图不序列化，恢复时按 encounter_id
+        重新读节点（避免存档与节点配置双份真相）。
+        """
+        if not self.engine:
+            raise ValueError("没有进行中的战斗")
+        return {
+            "version": self.SUSPEND_VERSION,
+            "session_id": self.session_id,
+            "encounter_id": self._encounter_id,
+            "session_dir": self._session_dir,
+            "background_url": self._background_url,
+            "inventory": copy.deepcopy(self._inventory),
+            "reward_mult": self._reward_mult,
+            "enemy_scale": self._enemy_scale,
+            "custom_enemies": copy.deepcopy(self._custom_enemies),
+            "character_metas": copy.deepcopy(self._character_metas),
+            "engine": self.engine.snapshot(),
+            "saved_at": time.time(),
+        }
+
+    @classmethod
+    def from_suspend_snapshot(cls, data: dict, session_id: str = "",
+                              session_dir: str | None = None) -> "CombatSession":
+        """从 `suspend_snapshot()` 重建战斗会话（挂起恢复）。
+
+        `session_dir` 非空时覆盖存档内的路径（会话可能被移动/导入到别处）。
+        """
+        combat = cls(session_id or data.get("session_id", ""))
+        combat._encounter_id = data.get("encounter_id", "")
+        combat._session_dir = session_dir if session_dir is not None else data.get("session_dir", "")
+        combat._background_url = data.get("background_url")
+        combat._inventory = copy.deepcopy(data.get("inventory") or [])
+        combat._reward_mult = float(data.get("reward_mult", 1.0) or 1.0)
+        combat._enemy_scale = float(data.get("enemy_scale", 1.0) or 1.0)
+        combat._custom_enemies = dict(data.get("custom_enemies") or {})
+        combat._character_metas = copy.deepcopy(data.get("character_metas") or [])
+
+        node = combat.loader.load_node(combat._encounter_id)
+        if not node:
+            raise ValueError(f"战斗节点不存在，无法恢复战斗: {combat._encounter_id}")
+        combat._map = combat.loader.load_map(node)
+        combat._band_scaling = combat._resolve_band_scaling(node)
+        combat.engine = CombatEngine.from_snapshot(
+            data.get("engine") or {}, battle_map=combat._map,
+            rules=combat.loader.rules_of(node))
+        combat.last_activity_at = time.time()
+        return combat
 
 
 class CombatTestSessionManager:

@@ -8,7 +8,7 @@ import { useMemo } from "react";
 import { getBaseUrl } from "../utils/baseUrl";
 import type {
   BattleNodeDTO, BattleNodeOverviewDTO, CombatNodeGraphDTO, CombatSettlementDTO, ValidationReportDTO,
-  StoryStateDTO, BranchChoice,
+  StoryStateDTO, BranchChoice, CombatResumeSummaryDTO, CombatResumesDTO,
 } from "../types";
 
 async function uploadMultipart(path: string, fields: Record<string, string>, file: File): Promise<any> {
@@ -777,6 +777,31 @@ export function useApi() {
         { method: "POST", body: JSON.stringify({ card_id: cardId }) },
       ),
 
+    // ── 战斗挂起 / 恢复（临时返回后继续打） ──
+    /** 挂起会话战：完整战斗态落盘并释放内存，返回存档摘要 */
+    combatSuspend: (sessionId: string) =>
+      request<{ ok: boolean; message: string; resume: CombatResumeSummaryDTO | null }>(
+        `/api/sessions/${sessionId}/combat/suspend`,
+        { method: "POST" },
+      ),
+
+    /** 恢复会话战（内存中仍在则直接返回当前态势，`resumed` 为 false） */
+    combatResume: (sessionId: string) =>
+      request<{ ok: boolean; resumed: boolean; state: any; resume?: CombatResumeSummaryDTO | null }>(
+        `/api/sessions/${sessionId}/combat/resume`,
+        { method: "POST" },
+      ),
+
+    /** 丢弃会话战的挂起存档（放弃这场战斗，不再提供恢复入口） */
+    combatDiscardSuspend: (sessionId: string) =>
+      request<{ ok: boolean; removed: boolean }>(
+        `/api/sessions/${sessionId}/combat/suspend`,
+        { method: "DELETE" },
+      ),
+
+    /** 全部可恢复的战斗（会话战 + 战斗测试） */
+    listCombatResumes: () => request<CombatResumesDTO>("/api/combat/resumes"),
+
     // ── Combat Test (no session required) ──
     combatTestStart: (nodeId?: string, characters?: string[]) =>
       request<{ test_id: string; node_id: string; state: any }>("/api/combat/test/start", {
@@ -808,6 +833,27 @@ export function useApi() {
       request<{ ok: boolean }>(`/api/combat/test/${testId}`, {
         method: "DELETE",
       }),
+
+    /** 挂起战斗测试（稍后接着试打；测试战斗不写剧情） */
+    combatTestSuspend: (testId: string) =>
+      request<{ ok: boolean; message: string; resume: CombatResumeSummaryDTO | null }>(
+        `/api/combat/test/${testId}/suspend`,
+        { method: "POST" },
+      ),
+
+    /** 恢复挂起的战斗测试（沿用原 test_id） */
+    combatTestResume: (testId: string) =>
+      request<{ ok: boolean; resumed: boolean; state: any; resume?: CombatResumeSummaryDTO | null }>(
+        `/api/combat/test/${testId}/resume`,
+        { method: "POST" },
+      ),
+
+    /** 丢弃战斗测试的挂起存档 */
+    combatTestDiscardSuspend: (testId: string) =>
+      request<{ ok: boolean; removed: boolean }>(
+        `/api/combat/test/${testId}/suspend`,
+        { method: "DELETE" },
+      ),
   }), []);
 }
 

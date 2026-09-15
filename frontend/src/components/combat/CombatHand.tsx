@@ -1,5 +1,6 @@
 import type { CardDTO, SkinCrop } from "../../types";
 import CombatCard from "./CombatCard";
+import { cardShortcutLabel } from "./combatConfig";
 
 interface Props {
   cards: CardDTO[];
@@ -55,6 +56,7 @@ export default function CombatHand({ cards, getCardAp, selectedIndex, disabled, 
               affordable={!disabled && card.cost <= getCardAp(card)}
               selected={selectedIndex === i}
               highlighted={!!highlightOwner && card.owner === highlightOwner}
+              shortcut={disabled ? null : cardShortcutLabel(i)}
               skinUrl={card.owner ? ownerSkins?.[card.owner]?.url : undefined}
               skinCrop={card.owner ? ownerSkins?.[card.owner]?.crop ?? undefined : undefined}
               playing={playingIndex === i}

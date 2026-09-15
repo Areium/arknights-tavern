@@ -120,8 +120,8 @@ html.skin-tavern body {
   .bg-gray-600\/50 { background-color: rgba(168, 152, 128, 0.5); }
   .hover\:bg-gray-600\/60:hover { background-color: rgba(168, 152, 128, 0.6); }
   .bg-gray-600\/70 { background-color: rgba(168, 152, 128, 0.7); }
-  .hover\:bg-gray-700:hover { background-color: #f3ead7; }
   .bg-gray-700 { background-color: #f3ead7; }
+  .hover\:bg-gray-700:hover { background-color: #f3ead7; }
   .bg-gray-700\/30 { background-color: rgba(243, 234, 215, 0.3); }
   .bg-gray-700\/40 { background-color: rgba(243, 234, 215, 0.4); }
   .hover\:bg-gray-700\/40:hover { background-color: rgba(243, 234, 215, 0.4); }
@@ -140,6 +140,7 @@ html.skin-tavern body {
   .bg-gray-800\/95 { background-color: rgba(251, 246, 233, 0.95); }
   .bg-gray-850 { background-color: #f7f0dd; }
   .bg-gray-850\/30 { background-color: rgba(247, 240, 221, 0.3); }
+  .bg-gray-850\/40 { background-color: rgba(247, 240, 221, 0.4); }
   .bg-gray-900 { background-color: #ece1c9; }
   .bg-gray-900\/30 { background-color: rgba(236, 225, 201, 0.3); }
   .bg-gray-900\/40 { background-color: rgba(236, 225, 201, 0.4); }
@@ -213,6 +214,7 @@ html.skin-tavern body {
   .focus\:border-amber-500\/50:focus { border-color: rgba(138, 100, 32, 0.5); }
   .border-amber-500\/50 { border-color: rgba(138, 100, 32, 0.5); }
   .hover\:border-amber-500\/60:hover { border-color: rgba(138, 100, 32, 0.6); }
+  .hover\:border-amber-500\/70:hover { border-color: rgba(138, 100, 32, 0.7); }
   .border-amber-600\/30 { border-color: rgba(122, 87, 24, 0.3); }
   .border-amber-600\/40 { border-color: rgba(122, 87, 24, 0.4); }
   .border-amber-600\/50 { border-color: rgba(122, 87, 24, 0.5); }
@@ -271,8 +273,6 @@ html.skin-tavern body {
   .bg-red-700\/80 { background-color: rgba(140, 58, 44, 0.8); }
   .bg-red-700\/90 { background-color: rgba(140, 58, 44, 0.9); }
   .bg-red-800 { background-color: #7c2d20; }
-  .bg-red-800\/30 { background-color: rgba(124, 45, 32, 0.3); }
-  .hover\:bg-red-800\/50:hover { background-color: rgba(124, 45, 32, 0.5); }
   .bg-red-800\/50 { background-color: rgba(124, 45, 32, 0.5); }
   .bg-red-800\/90 { background-color: rgba(124, 45, 32, 0.9); }
   .bg-red-900\/20 { background-color: rgba(107, 38, 24, 0.2); }
@@ -348,7 +348,6 @@ html.skin-tavern body {
   .bg-green-700 { background-color: #3f5237; }
   .bg-green-700\/30 { background-color: rgba(63, 82, 55, 0.3); }
   .bg-green-700\/40 { background-color: rgba(63, 82, 55, 0.4); }
-  .hover\:bg-green-700\/50:hover { background-color: rgba(63, 82, 55, 0.5); }
   .bg-green-700\/50 { background-color: rgba(63, 82, 55, 0.5); }
   .bg-green-700\/90 { background-color: rgba(63, 82, 55, 0.9); }
   .bg-green-800\/50 { background-color: rgba(63, 82, 55, 0.5); }
@@ -371,6 +370,7 @@ html.skin-tavern body {
   .hover\:bg-emerald-800\/70:hover { background-color: rgba(63, 82, 55, 0.7); }
   .border-emerald-500\/50 { border-color: rgba(91, 115, 80, 0.5); }
   .border-emerald-600\/50 { border-color: rgba(74, 96, 64, 0.5); }
+  .text-emerald-200 { color: #4a6040; }
   .text-emerald-300 { color: #4f6545; }
   .text-emerald-400 { color: #5b7350; }
 

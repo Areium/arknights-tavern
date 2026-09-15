@@ -8,6 +8,8 @@ interface Props {
   affordable: boolean;
   selected: boolean;
   highlighted?: boolean;
+  /** 键盘快捷键标签（1–9 / 0）；null 表示不显示 */
+  shortcut?: string | null;
   skinUrl?: string;
   skinCrop?: SkinCrop | null;
   playing?: boolean;
@@ -48,7 +50,7 @@ function renderStars(tier: string) {
   ));
 }
 
-export default function CombatCard({ card, index, affordable, selected, highlighted, skinUrl, skinCrop, playing, compact, onClick, onDragStart, onDragEnd }: Props) {
+export default function CombatCard({ card, index, affordable, selected, highlighted, shortcut, skinUrl, skinCrop, playing, compact, onClick, onDragStart, onDragEnd }: Props) {
   const classKey = CLASS_CSS[card.class_required] || "";
   const tierClass = card.tier === "elite" ? "elite" : "";
   const selectedClass = selected ? "selected" : "";
@@ -108,9 +110,12 @@ export default function CombatCard({ card, index, affordable, selected, highligh
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      {/* 顶部信息栏：星级、职业 */}
+      {/* 顶部信息栏：快捷键、星级、职业 */}
       <div className="card-header-bar">
         <div className="flex items-center gap-1">
+          {shortcut && (
+            <span className="card-shortcut" title={`快捷键 ${shortcut}`}>{shortcut}</span>
+          )}
           {renderStars(card.tier)}
         </div>
         {!compact && (

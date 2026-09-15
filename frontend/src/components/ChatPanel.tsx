@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useAppStore } from "../stores/appStore";
 import { useApi, createSSE } from "../hooks/useApi";
+import { useCombatResume } from "../hooks/useCombatResume";
 import { useDialogMinimize } from "../hooks/useDialogMinimize";
 import { parseDialogue, normalizeSegments } from "../utils/dialogueParser";
 import type { ChatMessage, BranchChoice } from "../types";
@@ -42,6 +43,9 @@ export default function ChatPanel() {
   const customPromptInitSession = useRef<string | null>(null);
 
   const api = useApi();
+  // 「继续战斗」：恢复被临时返回挂起的战斗（战斗态已落盘，需走 resume 重建引擎）
+  const { resumeSession, busyKey } = useCombatResume();
+  const resumeBusy = !!activeSessionId && busyKey === `session:${activeSessionId}`;
 
   // Fetch character colors from backend whenever session/scene changes
   useEffect(() => {
@@ -623,6 +627,16 @@ export default function ChatPanel() {
             <span className="text-[10px] text-gray-600">第{activeSession.narration_count ?? narrationCount}轮</span>
             {activeSession.in_combat && (
               <span className="text-[10px] text-orange-400 font-medium animate-pulse">⚔ 战斗中</span>
+            )}
+            {!activeSession.in_combat && activeSession.combat_resumable && (
+              <button
+                onClick={() => void resumeSession(activeSession.id!)}
+                disabled={resumeBusy}
+                className="text-[10px] px-1.5 py-0.5 rounded bg-gray-800/60 hover:bg-gray-700 text-emerald-200 transition-colors disabled:opacity-40"
+                title="继续这场已挂起的战斗（角色状态 / 手牌 / 战场局势均已保存）"
+              >
+                {resumeBusy ? "恢复中…" : "▶ 继续战斗"}
+              </button>
             )}
             {chatMode === "story" && activeSession.combat_mode === "tactical" && (
               <span className="text-[10px] text-orange-400/70 font-medium">⚔ 战术</span>

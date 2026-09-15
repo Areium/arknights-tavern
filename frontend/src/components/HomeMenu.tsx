@@ -4,10 +4,16 @@
  * 首次进入显示「点击进入」闸门（满足浏览器音频自动播放策略），
  * 点击后启动菜单 BGM 并展开菜单。菜单项进入各管理页面；
  * 「会话大厅」是进入故事与战斗的入口。
+ *
+ * 若存在被「临时返回」挂起的战斗，菜单最上方额外给出「继续战斗」入口
+ * （战斗页离开时会落盘完整战斗态，这里一键恢复并回到战场）。
  */
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAppStore } from "../stores/appStore";
+import { useApi } from "../hooks/useApi";
+import { useCombatResume } from "../hooks/useCombatResume";
 import { audioManager } from "../audio/audioManager";
+import type { CombatResumesDTO } from "../types";
 
 const asset = (p: string) => import.meta.env.BASE_URL + p;
 
@@ -30,14 +36,85 @@ const MENU_ITEMS: MenuItem[] = [
   { id: "settings", label: "设置", icon: "⚙️", desc: "LLM · 主题 · 叙述选项" },
 ];
 
+/** 主页「继续战斗」入口的展示数据 */
+interface ResumeEntry {
+  /** `session:<id>` / `test:<id>`，与 hook 的 busyKey 对齐 */
+  key: string;
+  kind: "session" | "test";
+  id: string;
+  badge: string;
+  desc: string;
+  hint: string;
+  /** 排序键：进行中的战斗（无挂起时间）排最前 */
+  at: number;
+}
+
 export default function HomeMenu() {
   const { setCurrentView, sessions, backend, llmStatus } = useAppStore();
+  const api = useApi();
+  const { resumeSession, resumeTest, busyKey } = useCombatResume();
   // 本次运行内已点过「进入」则不再显示闸门（sessionStorage 记忆）
   const [entered, setEntered] = useState(() => {
     try { return sessionStorage.getItem("ark_menu_entered") === "1"; } catch { return false; }
   });
   const [muted, setMuted] = useState(audioManager.getSettings().muted);
   const [bgmVol, setBgmVol] = useState(audioManager.getSettings().bgmVolume);
+  // 可恢复的战斗（挂起存档 + 仍在内存中的战斗）：后端是唯一真相
+  const [resumes, setResumes] = useState<CombatResumesDTO | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.listCombatResumes()
+      .then((res) => { if (!cancelled) setResumes(res); })
+      .catch(() => { if (!cancelled) setResumes(null); });
+    return () => { cancelled = true; };
+  }, [api]);
+
+  const resumeEntry = useMemo<ResumeEntry | null>(() => {
+    if (!resumes) return null;
+    const entries: ResumeEntry[] = [];
+    for (const s of resumes.sessions || []) {
+      const r = s.combat;
+      const name = s.name || "未命名会话";
+      entries.push({
+        key: `session:${s.session_id}`,
+        kind: "session",
+        id: s.session_id,
+        badge: r ? `第 ${r.round_num} 回合` : "进行中",
+        desc: r
+          ? `${name} · 存活 ${r.player_alive} · 手牌 ${r.hand_size}` +
+            (r.pending_waves > 0 ? ` · 余 ${r.pending_waves} 波` : "")
+          : `${name} · 战斗仍在进行（未挂起）`,
+        hint: r
+          ? `继续战斗：${r.encounter_id || "未知节点"} · 第 ${r.round_num} 回合（状态已保存）`
+          : `回到 ${name} 的战场`,
+        at: r?.suspended_at ?? Number.MAX_SAFE_INTEGER,
+      });
+    }
+    for (const t of resumes.tests || []) {
+      entries.push({
+        key: `test:${t.test_id}`,
+        kind: "test",
+        id: t.test_id,
+        badge: `第 ${t.round_num} 回合`,
+        desc: `战斗演练（无会话） · ${t.encounter_id || "未知节点"} · 存活 ${t.player_alive}` +
+          (t.pending_waves > 0 ? ` · 余 ${t.pending_waves} 波` : ""),
+        hint: `继续战斗演练：${t.encounter_id || "未知节点"} · 第 ${t.round_num} 回合（状态已保存）`,
+        at: t.suspended_at ?? 0,
+      });
+    }
+    if (entries.length === 0) return null;
+    entries.sort((a, b) => b.at - a.at);
+    const top = entries[0];
+    if (entries.length > 1) top.desc += ` · 另有 ${entries.length - 1} 场可继续（见会话大厅）`;
+    return top;
+  }, [resumes]);
+
+  const handleResume = useCallback(() => {
+    if (!resumeEntry) return;
+    if (resumeEntry.kind === "test") void resumeTest(resumeEntry.id);
+    else void resumeSession(resumeEntry.id);
+  }, [resumeEntry, resumeSession, resumeTest]);
 
   const combatCount = useMemo(() => sessions.filter((s) => s.in_combat).length, [sessions]);
 
@@ -91,6 +168,25 @@ export default function HomeMenu() {
 
           {/* 菜单项 */}
           <nav className="home-menu-nav">
+            {/* 挂起的战斗：置于最上方，一键续打（战斗态已落盘，恢复即重建战场） */}
+            {resumeEntry && (
+              <button
+                onClick={handleResume}
+                disabled={!!busyKey}
+                className="home-menu-item"
+                title={resumeEntry.hint}
+              >
+                <span className="home-menu-item-icon">⏸</span>
+                <span className="home-menu-item-text">
+                  <span className="home-menu-item-label">
+                    {busyKey ? "正在恢复战斗…" : "继续战斗"}
+                    <span className="home-menu-item-badge">{resumeEntry.badge}</span>
+                  </span>
+                  <span className="home-menu-item-desc">{resumeEntry.desc}</span>
+                </span>
+                <span className="home-menu-item-arrow">▶</span>
+              </button>
+            )}
             {MENU_ITEMS.map((item) => (
               <button
                 key={item.id}

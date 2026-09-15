@@ -128,6 +128,7 @@ html.light .border-gray-700 { border-color: rgb(229 231 235); }
 /* ── 背景色 ── */
 html.light .bg-gray-900 { background-color: rgb(249 250 251); }
 html.light .bg-gray-850 { background-color: rgb(229 231 235); }
+html.light .bg-gray-850\/40 { background-color: rgba(229,231,235,0.6); }
 html.light .bg-gray-800 { background-color: rgb(255 255 255); }
 html.light .bg-gray-700 { background-color: rgb(243 244 246); }
 html.light .bg-gray-600 { background-color: rgb(209 213 219); }
@@ -562,6 +563,25 @@ html.light .hover\:text-green-400:hover { color: rgb(21 128 61); }
   gap: 4px;
   line-height: 1;
 }
+/* 手牌快捷键键帽：贴在星级左侧，提示数字键（1–9 / 0）可直接选中该牌 */
+.card-shortcut {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 3px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  color: #1a1408;
+  background: #d8c07a;
+  border: 1px solid #8a7440;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.55);
+}
 .card-rarity-stars {
   display: flex;
   gap: 0;
@@ -782,6 +802,12 @@ html.light .bg-emerald-900\/60 { background-color: rgba(209,250,229,0.8); }
 html.light .bg-emerald-800\/60 { background-color: rgba(167,243,208,0.8); }
 html.light .text-emerald-200 { color: #065f46; }
 html.light .border-emerald-800\/50 { border-color: rgba(6,95,70,0.3); }
+
+/* ── Indigo 色系（战斗页「临时返回」等中性离开类按钮） ── */
+html.light .bg-indigo-900\/50 { background-color: rgba(199,210,254,0.45); }
+html.light .text-indigo-200 { color: #3730a3; }
+html.light .border-indigo-700\/40 { border-color: rgba(67,56,202,0.3); }
+html.light .hover\:bg-indigo-800\/60:hover { background-color: rgba(165,180,252,0.6); }
 
 html.light .bg-red-950\/50 { background-color: #fef2f2; }
 html.light .bg-red-950\/95 { background-color: rgba(254,242,242,0.95); }

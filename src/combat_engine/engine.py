@@ -1103,3 +1103,99 @@ class CombatEngine:
     def is_battle_over(self) -> bool:
         return self.state.phase == "END"
 
+    # ══════════════════════════════════════════════════════════════════════════
+    #  挂起 / 恢复（战斗中途保存整局态势）
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def snapshot(self) -> dict:
+        """完整战斗态快照：单位、手牌、牌堆、波次、回合与敌方意图。
+
+        与 `CombatSession.snapshot()`（结算用，只导出结算字段）区分：
+        本方法导出的数据可**原样重建**引擎，用于「临时返回后继续打」。
+        随机数状态（shuffle 用）不导出——恢复后重新洗牌只会影响后续抽牌顺序，
+        不会改变已发到手上的牌与场上态势。
+        """
+        return {
+            "balance_version": self.balance_version,
+            "range_metric": self.range_metric,
+            "corner_cut": self.corner_cut,
+            "shared_ap": self.shared_ap,
+            "shared_ap_max": self.SHARED_AP_MAX,
+            "max_rounds": self.max_rounds,
+            "escape_enabled": self.escape_enabled,
+            "wave_num": self.wave_num,
+            "state": {
+                "round_num": self.state.round_num,
+                "turn_order": list(self.state.turn_order),
+                "current_idx": self.state.current_idx,
+                "phase": self.state.phase,
+                "winner": self.state.winner,
+                "enemy_intents": copy.deepcopy(self.state.enemy_intents),
+            },
+            "units": {uid: u.to_dict() for uid, u in self.units.items()},
+            "shared_pool": self.shared_pool.to_dict() if self.shared_pool else None,
+            "enemy_pools": {uid: p.to_dict() for uid, p in self.enemy_pools.items()},
+            "pending_waves": [
+                [{"unit": unit.to_dict(), "pos": list(pos)} for unit, pos in wave]
+                for wave in self.pending_waves
+            ],
+            "initial_hp": dict(self.initial_hp),
+            "enemy_actions_taken": dict(self.enemy_actions_taken),
+            "telemetry": copy.deepcopy(self.telemetry),
+        }
+
+    @classmethod
+    def from_snapshot(cls, data: dict, battle_map: BattleMap | None = None,
+                      rules: dict | None = None) -> "CombatEngine":
+        """从 `snapshot()` 重建引擎（战斗挂起恢复）。
+
+        `battle_map` / `rules` 来自节点 JSON（不随快照序列化地图，避免存档与节点
+        配置双份真相）；缺省时退回默认地图。
+        """
+        engine = cls(battle_map=battle_map, rules=rules)
+        engine.range_metric = str(data.get("range_metric") or engine.range_metric)
+        engine.corner_cut = bool(data.get("corner_cut", engine.corner_cut))
+        engine.balance_version = int(data.get("balance_version", cls.BALANCE_VERSION) or 1)
+        engine.SHARED_AP_MAX = int(data.get("shared_ap_max", engine.SHARED_AP_MAX) or 0)
+        engine.shared_ap = int(data.get("shared_ap", 0) or 0)
+        engine.max_rounds = int(data.get("max_rounds", 0) or 0)
+        engine.escape_enabled = bool(data.get("escape_enabled", False))
+        engine.wave_num = int(data.get("wave_num", 0) or 0)
+
+        st = data.get("state") or {}
+        engine.state.round_num = int(st.get("round_num", 0) or 0)
+        engine.state.turn_order = list(st.get("turn_order") or [])
+        engine.state.current_idx = int(st.get("current_idx", 0) or 0)
+        engine.state.phase = st.get("phase") or "INIT"
+        engine.state.winner = st.get("winner") or ""
+        engine.state.enemy_intents = copy.deepcopy(st.get("enemy_intents") or {})
+
+        # 单位 + 网格占位：占位由 unit.pos 重建（阵亡单位已从网格移除，不再放回）
+        for _uid, ud in (data.get("units") or {}).items():
+            unit = CombatUnit.from_dict(ud)
+            if not unit.unit_id:
+                continue
+            engine.units[unit.unit_id] = unit
+            if unit.is_alive and tuple(unit.pos) != (-1, -1):
+                engine.grid.place_unit(unit, tuple(unit.pos))
+
+        if data.get("shared_pool"):
+            engine.shared_pool = CardPool.from_dict(data["shared_pool"])
+        engine.enemy_pools = {
+            uid: CardPool.from_dict(pd) for uid, pd in (data.get("enemy_pools") or {}).items()
+        }
+        engine.pending_waves = [
+            [(CombatUnit.from_dict(item["unit"]), tuple(item["pos"])) for item in wave]
+            for wave in (data.get("pending_waves") or [])
+        ]
+        engine.initial_hp = {k: int(v) for k, v in (data.get("initial_hp") or {}).items()}
+        engine.enemy_actions_taken = {
+            k: int(v) for k, v in (data.get("enemy_actions_taken") or {}).items()
+        }
+        telemetry = data.get("telemetry")
+        if isinstance(telemetry, dict):
+            engine.telemetry = {
+                "rounds": telemetry.get("rounds") or {},
+                "totals": telemetry.get("totals") or cls._empty_metrics(),
+            }
+        return engine

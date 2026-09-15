@@ -144,3 +144,16 @@ class CardPool:
             "exhaust": [c.to_dict() for c in self.exhaust],
             "hand_size": self.hand_size,
         }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "CardPool":
+        """从 to_dict() 的快照重建牌堆（战斗挂起/恢复用）。
+
+        直接赋值而非走 init_deck，避免恢复时重新洗牌打乱既定抽牌顺序。
+        """
+        pool = cls(hand_size=int(d.get("hand_size", 7) or 7))
+        pool.deck = [Card.from_dict(c) for c in d.get("deck") or []]
+        pool.hand = [Card.from_dict(c) for c in d.get("hand") or []]
+        pool.discard = [Card.from_dict(c) for c in d.get("discard") or []]
+        pool.exhaust = [Card.from_dict(c) for c in d.get("exhaust") or []]
+        return pool

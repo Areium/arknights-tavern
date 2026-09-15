@@ -51,7 +51,43 @@ export interface Session {
   };
   in_combat?: boolean;
   combat_mode: "narrative" | "tactical";
+  /** 是否存在可继续的战斗（内存中仍在，或磁盘上有挂起存档） */
+  combat_resumable?: boolean;
+  /** 挂起存档摘要（`in_combat` 为真时为 null，因为战斗未挂起） */
+  combat_resume?: CombatResumeSummaryDTO | null;
   custom_prompt?: string;
+}
+
+/** 挂起战斗摘要 —— 「继续战斗」入口展示所需的最小信息 */
+export interface CombatResumeSummaryDTO {
+  encounter_id: string;
+  suspended_at: number | null;
+  round_num: number;
+  phase: string;
+  battle_over: boolean;
+  player_alive: number;
+  hand_size: number;
+  pending_waves: number;
+}
+
+/** 可恢复的会话战（`/api/combat/resumes`） */
+export interface CombatResumeSessionDTO {
+  session_id: string;
+  name: string;
+  mode: string;
+  /** 战斗是否仍在后端内存中（false = 已挂起落盘，需走 resume 重建） */
+  in_memory: boolean;
+  combat: CombatResumeSummaryDTO | null;
+}
+
+/** 可恢复的战斗测试（无会话） */
+export interface CombatResumeTestDTO extends CombatResumeSummaryDTO {
+  test_id: string;
+}
+
+export interface CombatResumesDTO {
+  sessions: CombatResumeSessionDTO[];
+  tests: CombatResumeTestDTO[];
 }
 
 /** 文档类别 */

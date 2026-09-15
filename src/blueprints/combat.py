@@ -15,6 +15,15 @@ from combat_approaches import resolve_approach, list_approaches, roll_check
 from combat_map import MapError
 from combat_nodes import NodeError
 from combat_engine.engine import CombatEvent
+from combat_resume import (
+    clear_resume as _clear_resume_file,
+    list_test_resumes as _list_test_resumes,
+    read_resume as _read_resume_file,
+    session_resume_path as _session_resume_path,
+    summarize as _summarize_resume,
+    test_resume_path as _test_resume_path,
+    write_resume as _write_resume_file,
+)
 from combat_settlement import (
     SettlementApplyError,
     apply_settlement,
@@ -53,6 +62,47 @@ def _load_combat_test_config() -> dict:
         return dict(frontmatter.load(f).metadata)
 
 
+# ── 战斗挂起 / 恢复（临时返回后继续打） ──
+#
+# 挂起 = 完整快照落盘 + 把战斗从内存摘下来（会话恢复可用、内存释放）；
+# 恢复 = 从存档重建引擎。存档是唯一真相，内存态不保留，避免两份状态漂移。
+
+#: 挂起存档有效期：超过则视为过期（惰性清理，避免「继续战斗」入口永久残留）
+RESUME_TTL_SECONDS = 7 * 24 * 3600
+
+
+def _resume_payload(path):
+    """读取挂起存档；过期则顺手清掉并返回 None。"""
+    payload = _read_resume_file(path)
+    if not payload:
+        return None
+    saved_at = payload.get("suspended_at") or 0
+    if saved_at and time.time() - saved_at > RESUME_TTL_SECONDS:
+        logger.info("战斗挂起存档已过期，清理: %s", path)
+        _clear_resume_file(path)
+        return None
+    return payload
+
+
+def _detach_combat(session):
+    """把战斗从会话上摘下来：先让 SSE 生成器尽快退出，再释放内存态。
+
+    直接置 None 会让正在 `event_queue.get(timeout=30)` 阻塞的 SSE 线程白等 30 秒，
+    因此这里置 suspended 标记并投一个哨兵事件把它唤醒。
+    """
+    combat = session.combat
+    if combat is None:
+        return None
+    combat.suspended = True
+    try:
+        combat.event_queue.put_nowait(
+            CombatEvent("suspend", {"reason": "战斗已挂起"}))
+    except Exception:
+        pass
+    session.combat = None
+    return combat
+
+
 def _build_sse_generator(combat, stream_prefix="combat", session=None):
     """Return a generator function for SSE combat event streams.
 
@@ -67,7 +117,8 @@ def _build_sse_generator(combat, stream_prefix="combat", session=None):
         stream_id = f"{stream_prefix}_{_uuid.uuid4().hex[:8]}"
         yield f"data: {json.dumps({'type': 'meta', 'data': {'stream_id': stream_id}}, ensure_ascii=False)}\n\n"
 
-        while combat.engine and not combat.engine.is_battle_over():
+        while (combat.engine and not combat.engine.is_battle_over()
+               and not getattr(combat, "suspended", False)):
             try:
                 ev = combat.event_queue.get(timeout=30)
                 data = ev.data
@@ -330,6 +381,8 @@ def register(app, managers):
 
         try:
             combat = CombatSession(session_id)
+            # 新开一场：清掉上一场遗留的挂起存档，避免「继续战斗」指向旧局
+            _clear_resume_file(_session_resume_path(session))
             state = combat.start(
                 encounter_id,
                 character_metas=character_metas,
@@ -375,6 +428,86 @@ def register(app, managers):
 
         selected_unit = request.args.get("selected_unit", "")
         return jsonify(session.combat.get_state(selected_unit_id=selected_unit))
+
+    # ── 挂起 / 恢复：临时返回主页或会话界面，稍后继续打 ──
+
+    @bp.route("/api/sessions/<session_id>/combat/suspend", methods=["POST"])
+    def combat_suspend(session_id: str):
+        """保存当前战斗态势并离开（角色状态 / 手牌 / 牌堆 / 战场局势全部落盘）。"""
+        session = _get_session(session_mgr, session_id)
+        if not session:
+            return json_error("会话不存在", 404)
+        if not session.combat:
+            return json_error("没有进行中的战斗", 404)
+
+        path = _session_resume_path(session)
+        try:
+            payload = session.combat.suspend_snapshot()
+        except ValueError as e:
+            return json_error(str(e), 400)
+
+        try:
+            _write_resume_file(path, payload)
+        except OSError as e:
+            logger.exception("会话 %s: 战斗挂起存档写入失败", session_id)
+            return json_error(f"战斗状态保存失败：{e}", 500)
+
+        encounter_id = getattr(session.combat, "_encounter_id", "")
+        _detach_combat(session)
+        logger.info("会话 %s: 战斗已挂起 (encounter=%s, round=%s)",
+                    session_id, encounter_id, (payload.get("engine", {}).get("state") or {}).get("round_num"))
+        return jsonify({
+            "ok": True,
+            "message": "战斗状态已保存",
+            "resume": _summarize_resume(_read_resume_file(path)),
+        })
+
+    @bp.route("/api/sessions/<session_id>/combat/resume", methods=["POST"])
+    def combat_resume(session_id: str):
+        """恢复挂起的战斗并返回最新态势（内存中仍在时直接返回，不重复重建）。"""
+        from combat_session import CombatSession
+
+        session = _get_session(session_mgr, session_id)
+        if not session:
+            return json_error("会话不存在", 404)
+
+        if session.combat:
+            return jsonify({"ok": True, "resumed": False, "state": session.combat.get_state()})
+
+        path = _session_resume_path(session)
+        payload = _resume_payload(path)
+        if payload is None:
+            return json_error("没有可恢复的战斗", 404)
+
+        try:
+            combat = CombatSession.from_suspend_snapshot(
+                payload, session_id, session_dir=str(session.data_dir))
+        except ValueError as e:
+            # 节点已删除等不可恢复的情形：清掉存档，避免入口永久卡住
+            logger.warning("会话 %s: 战斗恢复失败，清理挂起存档: %s", session_id, e)
+            _clear_resume_file(path)
+            return json_error(f"战斗恢复失败：{e}", 410)
+
+        session.combat = combat
+        # 存档是一次性交接件：恢复后内存态即真相源。留着会让「继续战斗」多出
+        # 一条指向进行中战斗的陈旧入口，且进程重启会悄悄回滚到恢复前的态势。
+        _clear_resume_file(path)
+        logger.info("会话 %s: 战斗已恢复 (encounter=%s, round=%d)",
+                    session_id, combat._encounter_id, combat.engine.state.round_num)
+        return jsonify({
+            "ok": True, "resumed": True,
+            "state": combat.get_state(),
+            "resume": _summarize_resume(payload),
+        })
+
+    @bp.route("/api/sessions/<session_id>/combat/suspend", methods=["DELETE"])
+    def combat_discard_suspend(session_id: str):
+        """丢弃挂起存档（放弃这场战斗，不再提供恢复入口）。"""
+        session = _get_session(session_mgr, session_id)
+        if not session:
+            return json_error("会话不存在", 404)
+        removed = _clear_resume_file(_session_resume_path(session))
+        return jsonify({"ok": True, "removed": removed})
 
     @bp.route("/api/sessions/<session_id>/combat/action", methods=["POST"])
     def combat_action(session_id: str):
@@ -486,6 +619,7 @@ def register(app, managers):
         session.overlay._data["pending_card_choices"] = []
         session.overlay.clear_pending_settlement()
         session.combat = None
+        _clear_resume_file(_session_resume_path(session))
 
         rewards = legacy_rewards_view(settlement)
 
@@ -598,6 +732,7 @@ def register(app, managers):
                 pass
 
         session.combat = None
+        _clear_resume_file(_session_resume_path(session))
         # 放弃战斗不结算：清掉可能已生成的待结算记录与卡牌候选，避免泄漏到下一场
         session.overlay._data["pending_card_choices"] = []
         session.overlay.clear_pending_settlement()
@@ -656,6 +791,7 @@ def register(app, managers):
         test_id = uuid.uuid4().hex[:12]
         try:
             combat = CombatSession(test_id)
+            _clear_resume_file(_test_resume_path(test_id))
             state = combat.start(node_id, character_names=character_names)
             combat_test_mgr.create(test_id, combat)
             return jsonify({"test_id": test_id, "node_id": node_id, "state": state})
@@ -696,6 +832,100 @@ def register(app, managers):
             return json_error("测试战斗不存在或已过期", 404)
         selected_unit = request.args.get("selected_unit", "")
         return jsonify(combat.get_state(selected_unit_id=selected_unit))
+
+    # ── 战斗测试的挂起 / 恢复（无会话，存档按 test_id 落在 data/memory 下） ──
+
+    @bp.route("/api/combat/test/<test_id>/suspend", methods=["POST"])
+    def combat_test_suspend(test_id: str):
+        """保存测试战斗态势并离开；测试战斗不写剧情，存档仅为「稍后接着试打」。"""
+        combat = combat_test_mgr.get(test_id)
+        if not combat:
+            return json_error("测试战斗不存在或已过期", 404)
+
+        path = _test_resume_path(test_id)
+        try:
+            payload = combat.suspend_snapshot()
+        except ValueError as e:
+            return json_error(str(e), 400)
+
+        try:
+            _write_resume_file(path, payload)
+        except OSError as e:
+            logger.exception("战斗测试 %s: 挂起存档写入失败", test_id)
+            return json_error(f"战斗状态保存失败：{e}", 500)
+
+        # 测试战斗没有 SSE 会话外的清理责任：先让流退出再摘掉内存态
+        combat.suspended = True
+        try:
+            combat.event_queue.put_nowait(
+                CombatEvent("suspend", {"reason": "战斗已挂起"}))
+        except Exception:
+            pass
+        combat_test_mgr.remove(test_id)
+        logger.info("战斗测试 %s: 已挂起 (encounter=%s)", test_id, combat._encounter_id)
+        return jsonify({
+            "ok": True,
+            "message": "战斗状态已保存",
+            "resume": _summarize_resume(_read_resume_file(path)),
+        })
+
+    @bp.route("/api/combat/test/<test_id>/resume", methods=["POST"])
+    def combat_test_resume(test_id: str):
+        """恢复挂起的测试战斗（沿用原 test_id，前端无需改上下文）。"""
+        from combat_session import CombatSession
+
+        combat = combat_test_mgr.get(test_id)
+        if combat:
+            return jsonify({"ok": True, "resumed": False, "state": combat.get_state()})
+
+        path = _test_resume_path(test_id)
+        payload = _resume_payload(path)
+        if payload is None:
+            return json_error("没有可恢复的战斗测试", 404)
+
+        try:
+            restored = CombatSession.from_suspend_snapshot(payload, test_id)
+        except ValueError as e:
+            logger.warning("战斗测试 %s: 恢复失败，清理挂起存档: %s", test_id, e)
+            _clear_resume_file(path)
+            return json_error(f"战斗恢复失败：{e}", 410)
+
+        combat_test_mgr.create(test_id, restored)
+        # 同会话战：恢复即消费存档，避免 /api/combat/resumes 里残留已在进行中的入口
+        _clear_resume_file(path)
+        logger.info("战斗测试 %s: 已恢复 (encounter=%s)", test_id, restored._encounter_id)
+        return jsonify({
+            "ok": True, "resumed": True,
+            "state": restored.get_state(),
+            "resume": _summarize_resume(payload),
+        })
+
+    @bp.route("/api/combat/test/<test_id>/suspend", methods=["DELETE"])
+    def combat_test_discard_suspend(test_id: str):
+        """丢弃测试战斗的挂起存档。"""
+        removed = _clear_resume_file(_test_resume_path(test_id))
+        return jsonify({"ok": True, "removed": removed})
+
+    @bp.route("/api/combat/resumes", methods=["GET"])
+    def combat_resumes():
+        """全部可恢复的战斗：会话战（按会话挂起存档）+ 战斗测试。
+
+        会话战的判据直接复用会话 DTO 的 `combat_resumable`，避免两处口径漂移。
+        """
+        sessions = [s for s in session_mgr.list_sessions() if s.get("combat_resumable")]
+        return jsonify({
+            "sessions": [
+                {
+                    "session_id": s.get("id"),
+                    "name": s.get("name"),
+                    "mode": s.get("mode"),
+                    "in_memory": bool(s.get("in_combat")),
+                    "combat": s.get("combat_resume"),
+                }
+                for s in sessions
+            ],
+            "tests": _list_test_resumes(),
+        })
 
     @bp.route("/api/combat/test/<test_id>/action", methods=["POST"])
     def combat_test_action(test_id: str):
@@ -739,8 +969,9 @@ def register(app, managers):
 
     @bp.route("/api/combat/test/<test_id>", methods=["DELETE"])
     def combat_test_delete(test_id: str):
-        """Delete a test combat session."""
+        """Delete a test combat session（含挂起存档）。"""
         combat_test_mgr.remove(test_id)
+        _clear_resume_file(_test_resume_path(test_id))
         return jsonify({"ok": True})
 
     app.register_blueprint(bp)

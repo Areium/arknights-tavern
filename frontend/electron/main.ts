@@ -7,7 +7,7 @@
  * - IPC 通信桥接
  */
 
-import { app, BrowserWindow, ipcMain, shell } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, shell } from "electron";
 import { PythonProcessManager } from "./processManager";
 import path from "path";
 
@@ -32,6 +32,8 @@ function createWindow() {
     title: "Arknights Tavern - 明日方舟文字角色扮演",
     icon: LOGO_PATH,
     backgroundColor: "#0f1117",
+    // 不显示系统菜单栏（默认菜单 File/Edit/View/Window/Help 与本项目无关）
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -39,6 +41,11 @@ function createWindow() {
     },
     show: false,
   });
+
+  // 彻底移除应用菜单：Electron 未显式设置菜单时会挂上默认菜单，
+  // 在窗口左上角渲染出 File / Edit / View / Window / Help，属于遗留项。
+  // 设 null 后菜单栏与 Alt 唤起都不再出现（autoHideMenuBar 仅作双保险）。
+  mainWindow.setMenuBarVisibility(false);
 
   // 窗口准备好后再显示（避免白屏闪烁）
   mainWindow.once("ready-to-show", () => {
@@ -119,6 +126,8 @@ ipcMain.handle("open-directory", async (_event, dirPath: string) => {
 // ── 应用生命周期 ──
 
 app.whenReady().then(() => {
+  // 全局清空应用菜单（必须在创建窗口前）：避免默认的 File/Edit/View/Window/Help
+  Menu.setApplicationMenu(null);
   createWindow();
   startBackend();
 
