@@ -29,6 +29,20 @@ const KINDS = { worldview: "世界观", character: "角色", other: "其他" };
 const clampZoom = (value: number) => Math.max(0.15, Math.min(2.5, value));
 /** 批量连线时最多画这么多条待定边，避免上百个源把画布糊住。 */
 const PENDING_EDGE_LIMIT = 12;
+/** 「拖动跟随」开关的持久化键。它是全局画布偏好，与具体世界书无关。 */
+const FOLLOW_PREF_KEY = "ark_wbg_drag_follow";
+
+/**
+ * 读取「拖动跟随」开关，默认开启（与跟随功能引入时的行为一致，老用户不会突然发现手感变了）。
+ * 只有用户显式关掉才写 "0"；localStorage 不可用（隐私模式等）时静默回落到默认值。
+ */
+function readFollowPref(): boolean {
+  try { return localStorage.getItem(FOLLOW_PREF_KEY) !== "0"; } catch { return true; }
+}
+
+function writeFollowPref(enabled: boolean) {
+  try { localStorage.setItem(FOLLOW_PREF_KEY, enabled ? "1" : "0"); } catch { /* ignore */ }
+}
 
 /**
  * 拖动跟随集合：被拖动节点自身 + 与它在**当前图上真实存在的边**直接相连的节点。
@@ -36,6 +50,7 @@ const PENDING_EDGE_LIMIT = 12;
  * 只取一跳，所以不会顺着链条无限展开，也就不存在递归；用 Set 去重，
  * 双向边（A→B 与 B→A 同时存在）或平行边不会让同一节点被位移两次。
  * 节点自身恒为集合第一项，拖动高亮按 `follow[0]` 取被拖动节点。
+ * 关闭「拖动跟随」时不调用本函数，集合退化为只含被拖动节点自身。
  */
 function followSetFor(graph: WorldBookGraphData, nodeId: string): string[] {
   const ids = new Set<string>([nodeId]);
@@ -95,6 +110,8 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
   // positions 是 N 个节点的整表，只在抬手时写一次，避免每帧重建整表导致卡顿。
   const [follow, setFollow] = useState<string[] | null>(null);
   const [dragOffset, setDragOffset] = useState<GraphPoint | null>(null);
+  /** 拖动跟随开关：关掉后拖动只移动被拖动的那个节点，其余节点留在原地。 */
+  const [followEnabled, setFollowEnabled] = useState(readFollowPref);
   const [layoutVersion, setLayoutVersion] = useState(0);
   const dependencyView = view !== "taxonomy";
   // 依赖树只画条目：层级语义由 depth 承担，分类归属交给「分类结构」视图与节点目录。
@@ -242,7 +259,9 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
     const marqueeMode = !node && (event.shiftKey || event.altKey);
     const origin = node ? positions[node.id] : marqueeMode ? worldPoint(event) : { x: camera.x, y: camera.y };
     // 跟随集合在按下时定一次：拖动过程中图与筛选不变，不需要每帧重算。
-    const followIds = node ? followSetFor(graph, node.id) : undefined;
+    // 关闭「拖动跟随」时集合退化为只含被拖动节点自身 —— 后面的位移、提交、渲染
+    // 全都走同一条路径，不需要为「单节点拖动」再写一套分支。
+    const followIds = node ? (followEnabled ? followSetFor(graph, node.id) : [node.id]) : undefined;
     gesture.current = { kind: node ? "node" : marqueeMode ? "marquee" : "pan", pointerId: event.pointerId,
       startX: event.clientX, startY: event.clientY, origin, nodeId: node?.id, follow: followIds, moved: false,
     };
@@ -306,6 +325,14 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
     autoFit.current = false;
     const point = selectedId ? positions[selectedId] : null;
     if (point) setCamera((current) => ({ ...current, x: size.width / 2 - point.x * current.zoom, y: size.height / 2 - point.y * current.zoom }));
+  };
+  /** 切换「拖动跟随」并持久化。拖动过程中不可切换：手势按下时已定好跟随集合，中途改会让本次拖动语义不一致。 */
+  const toggleFollow = () => {
+    setFollowEnabled((current) => {
+      const next = !current;
+      writeFollowPref(next);
+      return next;
+    });
   };
   // Small graphs stay readable at fit-to-view zoom. Dense graphs reveal entry
   // labels on focus instead of rendering hundreds of illegible tiny captions.
@@ -492,9 +519,17 @@ export default function WorldBookGraphCanvas({ graph, view, selectedId, selected
         <button aria-label="全选可见条目" title="全选可见条目（并入当前批量选择）" disabled={!visibleEntryUids.length}
           onClick={() => onPickMany(visibleEntryUids, true)}>▣</button>
         <button aria-label={treeLayout ? "重置依赖树布局" : "重新布局图谱"} title={treeLayout ? "重置布局（清除手动拖动，不改变策略）" : "重新布局（仅调整视图，不改变分类与依赖）"} onClick={() => setLayoutVersion((value) => value + 1)}><WorldBookGraphIcon name="layout" /></button>
+        <span className="wbg-control-divider" />
+        {/* 拖动跟随开关：按下的语义是「设置」而不是一次性动作，所以用 aria-pressed + 常驻高亮表达状态。 */}
+        <button aria-label="拖动跟随" aria-pressed={followEnabled} data-wbg-follow={followEnabled ? "on" : "off"}
+          className={followEnabled ? "is-active" : undefined}
+          title={followEnabled
+            ? "拖动跟随：开 —— 拖动节点时，与它直接相连的节点一起位移（点击关闭）"
+            : "拖动跟随：关 —— 拖动节点只移动它自己（点击开启）"}
+          onClick={toggleFollow}><WorldBookGraphIcon name="link" /></button>
       </div>
     </div>
-    <span className="wbg-gesture-hint" data-wbg-control>{treeLayout ? "点击 ⊕ 折叠分支 · " : ""}拖动节点（直接相连的节点同步跟随） · Shift 拖拽框选 · Ctrl/Shift 点击多选 · 空白平移 · 滚轮缩放</span>
+    <span className="wbg-gesture-hint" data-wbg-control>{treeLayout ? "点击 ⊕ 折叠分支 · " : ""}拖动节点{followEnabled ? "（直接相连的节点同步跟随）" : "（仅移动该节点）"} · Shift 拖拽框选 · Ctrl/Shift 点击多选 · 空白平移 · 滚轮缩放</span>
     {visibleCount > 4 && <svg className="wbg-minimap" aria-label="图谱缩略图" viewBox={`${bounds.left} ${bounds.top} ${bounds.width} ${bounds.height}`} data-wbg-control>
       {graph.edges.map((edge) => positions[edge.from] && positions[edge.to] ? <line key={edge.id} x1={positions[edge.from].x} y1={positions[edge.from].y} x2={positions[edge.to].x} y2={positions[edge.to].y} /> : null)}
       {graph.nodes.map((node) => positions[node.id] ? <circle key={node.id} cx={positions[node.id].x} cy={positions[node.id].y} r={node.kind === "category" ? 12 : 6} data-wbg-kind={node.scopeType} data-wbg-role={node.role} /> : null)}

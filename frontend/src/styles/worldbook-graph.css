@@ -154,6 +154,9 @@ html.light .wbg-workbench { color-scheme: light; }
 .wbg-canvas-controls button { display: inline-flex; justify-content: center; align-items: center; width: 29px; height: 29px; border-radius: 5px; font-size: 14px; color: var(--ng-body); }
 .wbg-canvas-controls button:hover:not(:disabled) { background: var(--wbg-hover); color: var(--ng-title); }
 .wbg-canvas-controls .wbg-zoom-value { width: 43px; font-size: 10px; font-variant-numeric: tabular-nums; }
+/* 开关型按钮（如「拖动跟随」）：开启时用强调色常驻高亮，与旁边的一次性动作按钮区分开。 */
+.wbg-canvas-controls button.is-active { background: var(--wbg-accent-soft); color: var(--ng-edge-color-hl); }
+.wbg-canvas-controls button.is-active:hover:not(:disabled) { background: var(--wbg-accent-soft); color: var(--ng-edge-color-hl); }
 .wbg-control-divider { height: 17px; width: 1px; background: var(--wbg-line); margin-inline: 3px; }
 .wbg-gesture-hint { position: absolute; bottom: 10px; left: 18px; color: var(--ng-muted); font-size: 9px; letter-spacing: .02em; pointer-events: none; }
 .wbg-minimap { position: absolute; bottom: 85px; right: 16px; width: 112px; height: 76px; background: var(--ng-float-bg); border: 1px solid var(--wbg-line); border-radius: 6px; opacity: .8; pointer-events: none; }
