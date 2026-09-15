@@ -31,4 +31,4 @@
 - **LLM 错误**：走 LLMError 系列结构化错误，**绝不把错误伪装成模型回复**。
 - **战斗内容**：节点/敌人/地图改动走 skill `combat-designer` + `tools/`（先 `validate_battle_spec.py` 校验、再 `simulate_battle.py` 试跑，达标才入库），规格见 `docs/battle-spec.md`。
 - **测试**：统一入口 `bash scripts/run_tests.sh`（pytest + `tests/legacy/`）。
-`n设计提案：`docs/combat-value-curve-redesign.md`（未实现的目标态，现状以代码为准）。
+设计提案：`docs/combat-value-curve-redesign.md`（未实现的目标态，现状以代码为准）。
