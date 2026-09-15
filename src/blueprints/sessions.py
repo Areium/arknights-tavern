@@ -15,6 +15,7 @@ import frontmatter
 from flask import Blueprint, jsonify, request
 
 from shared.helpers import json_error
+from session_manager import SessionCleanupError
 from session_resources import is_safe_entity_name
 
 logger = logging.getLogger(__name__)
@@ -201,8 +202,17 @@ def register(app, managers):
 
     @bp.route("/api/sessions/<session_id>", methods=["DELETE"])
     def delete_session(session_id: str):
-        """删除会话。"""
-        ok = session_mgr.delete_session(session_id)
+        """删除会话（级联删除该会话下所有战斗与挂起存档）。
+
+        清理失败必须如实返回错误：`delete_session` 在任何一项资源没清干净时
+        都会抛 `SessionCleanupError` 并保持会话可用，前端可以重试。若这里
+        静默吞掉，玩家会看到「删除成功」但磁盘上仍留着会话目录 / 挂起存档。
+        """
+        try:
+            ok = session_mgr.delete_session(session_id)
+        except SessionCleanupError as exc:
+            logger.error("删除会话 %s 失败：%s", session_id, exc)
+            return json_error(str(exc), 500)
         if not ok:
             return json_error("会话不存在", 404)
         return jsonify({"message": "会话已删除"})

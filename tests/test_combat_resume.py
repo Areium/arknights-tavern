@@ -188,13 +188,22 @@ def session_id(client):
         client.delete(f"/api/sessions/{sid}")
 
 
-def _session_resume_file(client, session_id: str) -> Path:
-    """会话战存档路径：从会话 DTO 的 data_dir 推不出来，直接扫会话目录。"""
+def _managers(client):
+    """取 app 上挂的 Manager 注册表（app factory 在 `app._managers` 暴露）。"""
+    return client.application._managers
+
+
+def _session_dir(client, session_id: str) -> Path:
+    """会话数据目录：DTO 未直接暴露，经 backgrounds_dir 的父目录反推。"""
     sessions = client.get("/api/sessions").get_json()
     dto = next((s for s in sessions if s["id"] == session_id), None)
-    assert dto is not None
-    # session_manager 的 DTO 暴露 backgrounds_dir，其父目录即会话数据目录
-    return Path(dto["backgrounds_dir"]).parent / "combat_resume.json"
+    assert dto is not None, f"会话 {session_id} 不在列表中"
+    return Path(dto["backgrounds_dir"]).parent
+
+
+def _session_resume_file(client, session_id: str) -> Path:
+    """会话战存档路径（会话目录内的 combat_resume.json）。"""
+    return _session_dir(client, session_id) / "combat_resume.json"
 
 
 def test_session_combat_suspend_resume_round_trip(client, session_id):
@@ -272,3 +281,225 @@ def test_abandon_leaves_no_resumable_entry(client, session_id):
 
 def test_suspend_without_combat_is_404(client, session_id):
     assert client.post(f"/api/sessions/{session_id}/combat/suspend").status_code == 404
+
+
+# ── 删除会话的级联清理 ──
+
+def test_delete_session_cascades_suspended_combat(client):
+    """删除会话必须级联清掉挂起存档，否则「继续战斗」入口指向已死会话。
+
+    回归点：`delete_session` 曾是「摘内存 + 删覆盖目录」，挂起存档只因恰好
+    落在会话目录内而被 `rmtree` 顺带带走；一旦目录删除失败（占用/权限），
+    存档就残留成孤儿入口。
+    """
+    res = client.post("/api/sessions", json={"mode": "free", "combat_mode": "tactical"})
+    sid = res.get_json()["id"]
+    client.post(f"/api/sessions/{sid}/characters/load", json={"character": "临光"})
+    try:
+        client.post(f"/api/sessions/{sid}/combat/start",
+                    json={"encounter_id": SESSION_NODE_ID})
+        assert client.post(f"/api/sessions/{sid}/combat/suspend").status_code == 200
+
+        # 路径必须在删除前取好：会话一旦删掉就查不到目录了
+        session_dir = _session_dir(client, sid)
+        path = session_dir / "combat_resume.json"
+        assert path.is_file(), "挂起后存档应落盘"
+
+        deleted = client.delete(f"/api/sessions/{sid}")
+        assert deleted.status_code == 200, deleted.get_json()
+
+        assert not path.is_file(), "会话删除必须级联删除挂起战斗存档"
+        assert not session_dir.exists(), "会话目录应随之清除"
+
+        # 内存与入口都不应再提到这场战斗
+        assert sid not in [s["id"] for s in client.get("/api/sessions").get_json()]
+        listed = client.get("/api/combat/resumes").get_json()["sessions"]
+        assert all(s["session_id"] != sid for s in listed), \
+            "已删除会话不得残留在「继续战斗」列表里"
+    finally:
+        client.delete(f"/api/sessions/{sid}")
+
+
+def test_delete_session_removes_resume_even_if_dir_survives(client, monkeypatch):
+    """目录还在时，挂起存档也必须已被删除（不靠 `rmtree` 顺带带走）。
+
+    这是本条 bug 的核心：旧实现把挂起存档的清理**隐式**寄托在「整个会话目录
+    会被递归删掉」上。目录一旦因占用/权限没能删掉，存档就成了孤儿——前端
+    「继续战斗」入口指向一个已不存在的会话。因此存档必须独立、先行删除。
+    """
+    from session_overlay import SessionOverlay
+
+    res = client.post("/api/sessions", json={"mode": "free", "combat_mode": "tactical"})
+    sid = res.get_json()["id"]
+    client.post(f"/api/sessions/{sid}/characters/load", json={"character": "临光"})
+    try:
+        client.post(f"/api/sessions/{sid}/combat/start",
+                    json={"encounter_id": SESSION_NODE_ID})
+        assert client.post(f"/api/sessions/{sid}/combat/suspend").status_code == 200
+        session_dir = _session_dir(client, sid)
+        path = session_dir / "combat_resume.json"
+        assert path.is_file()
+
+        # 让目录删除无声失败（模拟被占用）：旧实现下存档这时会残留
+        monkeypatch.setattr(SessionOverlay, "delete_session_overlays",
+                            staticmethod(lambda *a, **k: None))
+        client.delete(f"/api/sessions/{sid}")
+
+        assert not path.is_file(), \
+            "挂起存档必须独立删除，不能指望会话目录的 rmtree 顺带清掉"
+    finally:
+        monkeypatch.undo()
+        client.delete(f"/api/sessions/{sid}")
+        import shutil
+        shutil.rmtree(_path_probe(sid), ignore_errors=True)
+
+
+def _path_probe(sid: str) -> Path:
+    """删除前没抓到目录时，按 id 在 free/story 下兜底定位（仅测试清理用）。"""
+    root = ROOT / "data" / "memory" / "sessions"
+    for mode in ("free", "story"):
+        d = root / mode / sid
+        if d.is_dir():
+            return d
+    return root / "_nonexistent_" / sid
+
+
+def test_delete_session_releases_in_memory_combat(client):
+    """会话战仍在内存（未挂起）时删除：内存战斗态必须被摘下并作废。
+
+    `suspended` 标记不只是记账——它让阻塞在 `event_queue.get(timeout=30)`
+    的 SSE 线程立刻退出，否则线程会攥着已删会话的战斗对象多活 30 秒。
+    """
+    res = client.post("/api/sessions", json={"mode": "free", "combat_mode": "tactical"})
+    sid = res.get_json()["id"]
+    client.post(f"/api/sessions/{sid}/characters/load", json={"character": "临光"})
+    try:
+        client.post(f"/api/sessions/{sid}/combat/start",
+                    json={"encounter_id": SESSION_NODE_ID})
+        # 取到内存中的战斗对象（删除后应已作废）
+        live = _managers(client)["session"].get_session(sid)
+        assert live is not None and live.combat is not None
+        combat = live.combat
+
+        assert client.delete(f"/api/sessions/{sid}").status_code == 200
+        assert live.combat is None, "会话实例上的战斗引用应被摘下"
+        assert getattr(combat, "suspended", False) is True, \
+            "应置 suspended 以唤醒阻塞中的 SSE 线程"
+    finally:
+        client.delete(f"/api/sessions/{sid}")
+
+
+def test_delete_session_failure_keeps_session_and_reports_error(client, monkeypatch):
+    """目录清理失败时必须如实报错且**不**返回成功，会话保持可重试。
+
+    事务性要求：宁可直接失败，也不能静默留下残留数据（半删比不删更难排查）。
+    """
+    from session_overlay import SessionOverlay
+
+    res = client.post("/api/sessions", json={"mode": "free", "combat_mode": "tactical"})
+    sid = res.get_json()["id"]
+    client.post(f"/api/sessions/{sid}/characters/load", json={"character": "临光"})
+    try:
+        client.post(f"/api/sessions/{sid}/combat/start",
+                    json={"encounter_id": SESSION_NODE_ID})
+        client.post(f"/api/sessions/{sid}/combat/suspend")
+        path = _session_resume_file(client, sid)
+        assert path.is_file()
+
+        def _boom(session_id, mode="free"):
+            raise OSError("模拟目录被占用")
+
+        monkeypatch.setattr(SessionOverlay, "delete_session_overlays",
+                            staticmethod(_boom))
+        failed = client.delete(f"/api/sessions/{sid}")
+        assert failed.status_code == 500, "清理失败不得谎报成功"
+        assert sid in [s["id"] for s in client.get("/api/sessions").get_json()], \
+            "失败后会话应保留，供用户重试"
+
+        # 战斗存档是先一步清掉的：即便目录删不掉，也不该留一个指向死会话的入口
+        assert not path.is_file(), "存档应在目录清理之前就删除"
+
+        monkeypatch.undo()
+        assert client.delete(f"/api/sessions/{sid}").status_code == 200, "重试应成功"
+    finally:
+        monkeypatch.undo()
+        client.delete(f"/api/sessions/{sid}")
+
+
+def test_delete_session_rejects_bogus_mode_without_touching_disk(client):
+    """`session.mode` 被写坏时必须拒绝删除，既不越界删目录也不假装删成功。
+
+    `mode` 会参与拼接磁盘路径，非法值可能让 `rmtree` 打到 `sessions/` 之外；
+    同时也不能当作「没有目录要删」放行 —— 那会丢一个其实还在盘上的会话。
+    """
+    from session_manager import SessionCleanupError
+
+    res = client.post("/api/sessions", json={"mode": "free", "combat_mode": "tactical"})
+    sid = res.get_json()["id"]
+    try:
+        session_dir = _session_dir(client, sid)
+        live = _managers(client)["session"].get_session(sid)
+        live.mode = "../../etc"  # 制造越界 mode
+
+        with pytest.raises(SessionCleanupError):
+            _managers(client)["session"].delete_session(sid)
+
+        assert session_dir.exists(), "非法 mode 下不得删除任何目录"
+        assert _managers(client)["session"].get_session(sid) is not None, \
+            "拒绝删除时会话必须保留"
+    finally:
+        live = _managers(client)["session"].get_session(sid)
+        if live:
+            live.mode = "free"
+        client.delete(f"/api/sessions/{sid}")
+
+
+def test_delete_session_twice_is_404(client):
+    res = client.post("/api/sessions", json={"mode": "free", "combat_mode": "tactical"})
+    sid = res.get_json()["id"]
+    assert client.delete(f"/api/sessions/{sid}").status_code == 200
+    assert client.delete(f"/api/sessions/{sid}").status_code == 404
+
+
+# ── 存档摘要（前端入口展示用）──
+
+def test_summarize_handles_missing_and_partial_payload():
+    # 空载荷视为「无存档」：调用方（list_test_resumes / 会话 DTO）据此跳过入口
+    assert summarize(None) is None
+    assert summarize({}) is None
+
+    # 部分载荷：缺的字段补零，不能让前端入口崩在 undefined 上
+    assert summarize({"encounter_id": "enc_x"}) == {
+        "encounter_id": "enc_x", "suspended_at": None, "round_num": 0, "phase": "",
+        "battle_over": False, "player_alive": 0, "hand_size": 0, "pending_waves": 0,
+    }
+
+    info = summarize({
+        "encounter_id": "enc_x",
+        "engine": {
+            "state": {"round_num": 4, "phase": "END"},
+            "units": {"a": {"team": "player", "is_alive": True},
+                      "b": {"team": "player", "is_alive": False},
+                      "c": {"team": "enemy", "is_alive": True}},
+            "shared_pool": {"hand": [1, 2, 3]},
+            "pending_waves": [{"enemies": []}],
+        },
+    })
+    assert info["round_num"] == 4
+    assert info["battle_over"] is True
+    assert info["player_alive"] == 1
+    assert info["hand_size"] == 3
+    assert info["pending_waves"] == 1
+
+
+def test_read_resume_tolerates_corrupt_file(tmp_path):
+    bad = tmp_path / "bad.json"
+    bad.write_text("{ not json", encoding="utf-8")
+    assert read_resume(bad) is None, "损坏存档不应让恢复流程抛错"
+
+
+def test_session_resume_path_lives_in_session_dir(client, session_id):
+    dto = next(s for s in client.get("/api/sessions").get_json() if s["id"] == session_id)
+    path = _session_resume_file(client, session_id)
+    assert path.name == "combat_resume.json"
+    assert path.parent == Path(dto["backgrounds_dir"]).parent

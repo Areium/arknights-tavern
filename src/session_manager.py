@@ -22,6 +22,7 @@ from llm_backend_manager import LLMBackendManager
 from session_overlay import SessionOverlay
 from session_context import SessionContext
 from combat_resume import read_resume, session_resume_path, summarize as _summarize_resume
+from combat_engine.engine import CombatEvent
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,19 @@ _SESSIONS_DIR = _PROJECT_ROOT / "data" / "memory" / "sessions"
 
 # Shared registry — all sessions share the same entity index
 _registry: Optional[WikiManager] = None
+
+#: 会话目录所属的合法 mode 子目录。删除会话时据此校验路径口径，
+#: 避免用错误的 mode 拼出别的会话目录（见 `_session_dir`）。
+_VALID_MODES = ("free", "story")
+
+
+class SessionCleanupError(RuntimeError):
+    """删除会话时的资源清理失败。
+
+    会话删除是「级联 + 事务性」操作：挂起战斗存档、内存战斗态、会话目录必须
+    一并清除，且**不能只删一半**。该异常表示某一项清理未成功，调用方应把它
+    转成结构化错误返回给前端，让用户重试，而不是静默留下残留数据。
+    """
 
 
 def _get_registry() -> WikiManager:
@@ -669,6 +683,42 @@ class Session:
             return None
         return _summarize_resume(read_resume(session_resume_path(self)))
 
+    def release_combat(self) -> bool:
+        """摘下并作废本会话的战斗（内存态 + 挂起存档）。
+
+        供删除会话时级联调用。返回值表示**是否清理干净**：
+        - 无战斗、无存档 → True（本就干净）
+        - 有存档 → 删除成功才 True；删除失败留待调用方中止删除
+        - 内存中仍有战斗 → 先标记 `suspended` 并投哨兵事件唤醒阻塞在
+          `event_queue.get(timeout=30)` 的 SSE 线程，再释放引用（理由同
+          `blueprints/combat.py::_detach_combat`：直接置 None 会让 SSE 白等 30 秒）。
+          内存态释放不会失败，因此不影响返回值。
+        """
+        combat = self.combat
+        if combat is not None:
+            try:
+                combat.suspended = True
+                combat.event_queue.put_nowait(
+                    CombatEvent("suspend", {"reason": "会话已删除"}))
+            except Exception:
+                # 哨兵投递失败只是让 SSE 线程多等一个 timeout，不应阻断删除
+                logger.debug("会话 %s: 投递战斗挂起哨兵失败", self.id, exc_info=True)
+            self.combat = None
+
+        try:
+            session_resume_path(self).unlink()
+            removed_resume = True
+        except FileNotFoundError:
+            removed_resume = True  # 本就没有存档
+        except OSError as e:
+            logger.error("会话 %s: 删除战斗挂起存档失败: %s", self.id, e)
+            removed_resume = False
+
+        if combat is not None or not removed_resume:
+            logger.info("会话 %s: 已释放战斗资源 (in_memory=%s, resume_removed=%s)",
+                        self.id, combat is not None, removed_resume)
+        return removed_resume
+
 
 class SessionManager:
     """管理多个并行会话。"""
@@ -869,17 +919,77 @@ class SessionManager:
         logger.info("导入会话: %s (mode=%s)", _sid, _mode)
         return session
 
+    def _session_dir(self, session_id: str, mode: str) -> Optional[Path]:
+        """该会话的数据目录（经路径口径校验）。
+
+        `mode` 会被拼进文件路径，因此必须确认它是 `free`/`story` 之一：拼错
+        或传入奇怪的 mode 会让 `delete_session_overlays` 的 `rmtree` 作用在
+        `sessions/` 之外的路径上。非法 mode 返回 None，由调用方拒绝删除 ——
+        **不能**当成「没有目录可删」放行，那等于静默丢一个删不掉的会话。
+        """
+        if mode not in _VALID_MODES:
+            logger.error("会话 %s: 非法 mode %r，拒绝磁盘清理", session_id, mode)
+            return None
+        return _SESSIONS_DIR / mode / session_id
+
     def delete_session(self, session_id: str) -> bool:
-        """销毁会话（含覆盖数据）。"""
+        """销毁会话：内存态、挂起战斗、覆盖数据一并清除（事务性）。
+
+        删除顺序刻意设计成「先清战斗资源，再删目录」：
+
+        1. **校验**：`session_id` 必须在内存注册表中，否则返回 False（路由
+           据此回 404）。`session.mode` 非法则抛错中止 —— 既不能拿它去拼
+           目录路径（可能删到 `sessions/` 之外），也不能当作「无目录可删」
+           放行（那会静默丢一个会话）。
+        2. **清战斗**：`release_combat()` 摘下内存战斗态（唤醒阻塞的 SSE
+           线程）并删除挂起存档 `combat_resume.json`。挂起存档就在会话目录
+           内，虽然随后的 `rmtree` 也会带走它，但若目录删除失败（被占用、
+           权限不足）存档就会残留 —— 而残留的存档会让前端「继续战斗」入口
+           指向一个已经不存在的会话。故这一步独立执行并**校验结果**。
+        3. **清目录**：前两步都干净后才 `rmtree` 会话目录（覆盖数据、记忆、
+           背景图等）；删除失败同样中止，保留内存态以便重试。
+
+        任一步失败即抛 `SessionCleanupError`（内存态保持不变），调用方应
+        转成 5xx 让用户重试，而不是静默返回成功留下残留数据。
+        """
         with self._lock:
-            if session_id in self._sessions:
-                session = self._sessions[session_id]
-                mode = session.mode
-                del self._sessions[session_id]
+            session = self._sessions.get(session_id)
+            if session is None:
+                return False
+
+            mode = session.mode
+
+            # 校验磁盘路径口径：mode 非法时既不删也不放行（放行会静默丢会话）
+            session_dir = self._session_dir(session_id, mode)
+            if session_dir is None:
+                raise SessionCleanupError(
+                    f"会话 {session_id} 的存储位置（mode={mode!r}）异常，已中止删除")
+            existed = session_dir.exists()
+
+            # ── 1. 级联清理该会话下的战斗（内存态 + 挂起存档）──
+            if not session.release_combat():
+                raise SessionCleanupError(
+                    f"会话 {session_id} 的战斗挂起存档清理失败，请重试")
+
+            # ── 2. 删除会话目录（覆盖数据 / 记忆 / 资源）──
+            try:
                 SessionOverlay.delete_session_overlays(session_id, mode)
-                logger.info("删除会话: %s (mode=%s)", session_id, mode)
-                return True
-            return False
+            except OSError as e:
+                logger.exception("会话 %s: 删除覆盖数据失败，中止删除", session_id)
+                raise SessionCleanupError(
+                    f"会话 {session_id} 的覆盖数据删除失败：{e}") from e
+
+            # ── 3. 校验：确认磁盘上确无残留 ──
+            if existed and session_dir.exists():
+                logger.error("会话 %s: 删除后目录仍存在 %s", session_id, session_dir)
+                raise SessionCleanupError(
+                    f"会话 {session_id} 的目录未能删除：{session_dir}")
+
+            # 全部清理成功后才摘掉内存注册（此前失败都可重试）
+            del self._sessions[session_id]
+
+            logger.info("删除会话: %s (mode=%s, 已清理战斗与覆盖数据)", session_id, mode)
+            return True
 
     def rename_session(self, session_id: str, new_name: str) -> bool:
         """重命名会话。"""

@@ -1718,7 +1718,16 @@ class SessionOverlay:
 
     @staticmethod
     def delete_session_overlays(session_id: str, mode: str = "free"):
-        """删除整个会话的覆盖目录。"""
+        """删除整个会话的覆盖目录（连目录内一切文件一并删除）。
+
+        失败时**不吞异常**：`shutil.rmtree` 的 `OSError`（目录被占用、权限
+        不足等）直接向上抛，由 `SessionManager.delete_session` 转成
+        `SessionCleanupError`。会话删除是事务性的，静默半删会留下残留数据，
+        比直接报错更难排查。
+
+        `mode` 必须由调用方校验过（见 `SessionManager._session_dir`），
+        否则本方法可能被指向 `sessions/` 之外。
+        """
         import shutil
         session_dir = _SESSIONS_DIR / mode / session_id
         if session_dir.exists():
