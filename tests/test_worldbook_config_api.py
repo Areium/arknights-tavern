@@ -780,6 +780,80 @@ def test_materialized_frontend_shape_keeps_full_root_plan_and_expands_requires(a
     assert {"a", "tech"} <= set(preview["scope"]["resolved_entry_uids"])
 
 
+def test_materialized_fabricated_ai_root_is_rejected_by_real_route(api):
+    """materialized 不是信任边界：真实 UI 形状也不能把伪 AI 根写入配置。"""
+    client, manager, _ = api
+    job_id, _ = run_job(client)
+    response = client.put("/api/worldbook/book/configuration", json={
+        "expected_revision": 1, "adopt_v3": True,
+        "roots": [{
+            "entry_uid": "tech", "activation": "roster_any",
+            "character_ids": ["NO_SUCH_CHARACTER"], "expansion": "requires_closure",
+            "origin": "llm", "source_content_hash": content_hash("源石技艺的定义与规则。"),
+            "evidence": "MADE UP QUOTE", "model": "forged", "prompt_version": "forged",
+        }],
+        "requires_edges": [], "related_edges": [],
+        "proposal": {"materialized": True, "job_id": job_id,
+                     "materialized_root_uids": ["tech"], "accepted_pairs": []},
+    })
+    assert response.status_code == 400
+    assert "与服务端构建任务的已验证建议不一致" in response.json["error"]
+    assert all(root.get("entry_uid") != "tech" or root.get("origin") != "llm"
+               for root in (manager.load("book").dependency_rules or {}).get("roots", []))
+
+
+def test_materialized_verified_ai_root_is_preserved_and_stamped(api):
+    """合法的物化 AI 根逐字段匹配任务后保留，并由服务端写入任务身份。"""
+    import blueprints.worldbook as module
+    client, manager, _ = api
+    job_id, _ = run_job(client)
+    job = module._JOB_STORE.get(job_id)
+    root = {
+        "entry_uid": "tech", "activation": "always", "character_ids": [],
+        "expansion": "requires_closure", "origin": "llm",
+        "source_content_hash": content_hash("源石技艺的定义与规则。"),
+        "evidence": "源石技艺的定义与规则", "model": job.model,
+        "prompt_version": "wb-dep-v3", "review_status": "proposed",
+        "reason": "分析卡建议作为基础世界设定",
+    }
+    job.result["roots"] = [root]
+    job.save()
+    response = client.put("/api/worldbook/book/configuration", json={
+        "expected_revision": 1, "adopt_v3": True, "roots": [root],
+        "requires_edges": [], "related_edges": [],
+        "proposal": {"materialized": True, "job_id": job_id,
+                     "materialized_root_uids": ["tech"], "accepted_pairs": []},
+    })
+    assert response.status_code == 200, response.json
+    stored = next(item for item in manager.load("book").dependency_rules["roots"]
+                  if item["entry_uid"] == "tech")
+    assert stored["origin"] == "llm"
+    assert stored["job_id"] == job_id
+    assert stored["review_status"] == "applied"
+    assert stored["evidence"] == root["evidence"]
+
+
+def test_materialized_human_rewrite_must_be_manual_and_uses_normal_rules(api):
+    """用户可改写建议，但必须显式转 manual；此后按普通根规则校验和保存。"""
+    client, manager, _ = api
+    job_id, _ = run_job(client)
+    manual_root = {
+        "entry_uid": "tech", "activation": "manual", "character_ids": [],
+        "expansion": "none", "origin": "manual", "reason": "用户改写",
+    }
+    response = client.put("/api/worldbook/book/configuration", json={
+        "expected_revision": 1, "adopt_v3": True, "roots": [manual_root],
+        "requires_edges": [], "related_edges": [],
+        "proposal": {"materialized": True, "job_id": job_id,
+                     "materialized_root_uids": ["tech"], "accepted_pairs": []},
+    })
+    assert response.status_code == 200, response.json
+    stored = next(item for item in manager.load("book").dependency_rules["roots"]
+                  if item["entry_uid"] == "tech")
+    assert stored["origin"] == "manual"
+    assert stored["activation"] == "manual" and stored["expansion"] == "none"
+
+
 def test_server_rejects_fabricated_root_evidence_inside_persisted_job(api):
     """即使客户端或任务文件伪造 root，服务端也逐条复核而不是直接复制。"""
     import blueprints.worldbook as module

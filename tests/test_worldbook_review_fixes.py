@@ -30,10 +30,10 @@ from worldbook_builder import (
 PREINSTALLED = REPO / "data" / "worldbooks" / "arknights.json"
 
 
-def entry(uid, content, name="", character_id="", category_id="unclassified"):
+def entry(uid, content, name="", character_id="", category_id="unclassified", **kwargs):
     return WorldBookEntry(uid, content=content, name=name or uid,
                           character_id=character_id, category_id=category_id,
-                          always_active=True)
+                          always_active=True, **kwargs)
 
 
 def fixture_book():
@@ -156,8 +156,13 @@ def test_preinstalled_book_whole_build_completes_within_auto_budget(tmp_path):
     assert job.calls <= MAX_CALLS_HARD
     assert job.workload["estimated_calls"] == workload["estimated_calls"]
     assert not job.resumable and not job.failed_batches
+    replay = store.create(book.id, "preinstalled-replay", "stub-model")
+    replay_llm = CardStub()
+    run_build(replay, book, replay_llm, model="stub-model", cache=cache)
+    assert replay.outcome == "success"
+    assert replay.calls == 0 and replay_llm.calls == [], "完整缓存回跑仍然调用了模型"
     print(f"[P1-1] 全书构建完成：{job.calls} 次调用 / 预算 {job.workload['budget']} · "
-          f"{len(job.cards)} 张卡 · {job.result['stats']['records']} 条记录")
+          f"{len(job.cards)} 张卡 · {job.result['stats']['records']} 条记录 · 缓存回跑 0 调用")
 
 
 @pytest.mark.skipif(not PREINSTALLED.is_file(), reason="仓库内没有预装世界书")
@@ -174,6 +179,34 @@ def test_preinstalled_entity_names_survive_generic_alias_filter():
     assert report["generic_aliases"], "通用职业/属性词过滤被整体关闭了"
     workload = estimate_workload(metadata, report["pairs"])
     assert workload["estimated_calls"] < MAX_CALLS_HARD
+
+
+def test_plain_import_entity_names_survive_but_generic_profession_does_not():
+    """普通导入书没有预装 UID 前缀时，人物/组织真名仍召回，职业通用词仍过滤。"""
+    targets = [
+        entry("target-001", "凯尔希的角色档案。", name="凯尔希（角色设定）",
+              trigger_keys=["凯尔希"]),
+        entry("target-002", "罗德岛的组织档案。", name="罗德岛（组织设定）",
+              trigger_keys=["罗德岛"]),
+        entry("target-003", "近卫职业的通用说明。", name="近卫（职业设定）",
+              trigger_keys=["近卫"]),
+        entry("target-004", "博士的外部说明。", name="博士（自定义备注）",
+              trigger_keys=["博士"]),
+    ]
+    sources = [entry(f"source-{index}", "凯尔希在罗德岛担任近卫并协助博士。")
+               for index in range(20)]
+    book = WorldBook("plain", "普通导入书", targets + sources,
+                     categories=copy.deepcopy(DEFAULT_CATEGORIES))
+    metadata = build_metadata_index(book.entries)
+    assert metadata["assignments"]["target-001"] == "characters_unlinked"
+    report = collect_candidates(metadata, {item.uid: item for item in book.entries})
+    pairs = {(item["from_uid"], item["to_uid"]) for item in report["pairs"]}
+
+    assert all((f"source-{index}", "target-001") in pairs for index in range(20))
+    assert all((f"source-{index}", "target-002") in pairs for index in range(20))
+    assert all((f"source-{index}", "target-003") not in pairs for index in range(20))
+    assert all((f"source-{index}", "target-004") not in pairs for index in range(20))
+    assert {"近卫", "博士"} <= set(report["generic_aliases"])
 
 
 def test_chunk_id_prevents_second_chunk_from_being_recorded_as_first(cache, store):
@@ -216,6 +249,103 @@ def test_chunk_id_prevents_second_chunk_from_being_recorded_as_first(cache, stor
     assert job.outcome == "success"
     assert len(job.chunk_cards["long"]) == len(entry_chunks(book.entries[0].content)[0])
     assert not job.pending_chunk_ids
+
+
+def test_duplicate_chunk_ids_are_not_cached_and_retry_reasks_them(cache, store):
+    """同一合法 chunk_id 返回两张冲突卡时，整块 pending，不能保留第一张后报 success。"""
+    class DuplicateStub:
+        def __init__(self):
+            self.calls = []
+
+        def chat(self, messages, **kwargs):
+            prompt = messages[-1]["content"]
+            self.calls.append(prompt)
+            if "分析下面这批" in prompt:
+                lines = [line for line in prompt.splitlines() if line.startswith("<entry uid=")]
+                cards = []
+                for line in lines:
+                    uid = line.split('uid="')[1].split('"')[0]
+                    chunk_id = line.split('chunk_id="')[1].split('"')[0]
+                    for summary in ("互相矛盾-A", "互相矛盾-B"):
+                        cards.append({"uid": uid, "chunk_id": chunk_id, "summary": summary,
+                                      "entities": [], "defined_concepts": [],
+                                      "unexplained_concepts": [], "candidate_characters": [],
+                                      "evidence": []})
+                return {"type": "text", "content": json.dumps({"cards": cards})}
+            return {"type": "text", "content": '{"judgments":[]}'}
+
+    book = WorldBook("duplicate", "重复分块", [
+        entry("long", "第一段。" * 500 + "第二段。" * 500, name="长条目"),
+    ], categories=copy.deepcopy(DEFAULT_CATEGORIES))
+    job = store.create(book.id, "h", "m")
+    run_build(job, book, DuplicateStub(), model="m", cache=cache)
+
+    expected_count = len(entry_chunks(book.entries[0].content)[0])
+    assert job.outcome == "failed" and job.resumable is True
+    assert not job.cards
+    assert job.chunk_cards["long"] == {}
+    assert len(job.pending_chunk_ids) == expected_count
+    assert any(batch["code"] == "invalid_response" and "重复 chunk_id" in batch["message"]
+               for batch in job.failed_batches)
+
+    retry = CardStub()
+    run_build(job, book, retry, model="m", cache=cache,
+              only_uids=list(job.pending_card_uids), max_calls=20)
+    analysis_prompts = [call[-1]["content"] for call in retry.calls
+                        if "分析下面这批" in call[-1]["content"]]
+    assert analysis_prompts, "冲突卡被错误缓存，续跑没有重新调用模型"
+    assert job.outcome == "success" and not job.pending_chunk_ids
+
+
+def test_unknown_chunk_id_invalidates_batch_and_cannot_report_success(cache, store):
+    class UnknownStub(CardStub):
+        def chat(self, messages, **kwargs):
+            response = super().chat(messages, **kwargs)
+            prompt = messages[-1]["content"]
+            if "分析下面这批" not in prompt:
+                return response
+            payload = json.loads(response["content"])
+            payload["cards"].append({"uid": "long", "chunk_id": "unknown:0:bad",
+                                     "summary": "未知", "entities": [],
+                                     "defined_concepts": [], "unexplained_concepts": [],
+                                     "candidate_characters": [], "evidence": []})
+            return {"type": "text", "content": json.dumps(payload)}
+
+    book = WorldBook("unknown", "未知分块", [entry("long", "正文", name="条目")],
+                     categories=copy.deepcopy(DEFAULT_CATEGORIES))
+    job = store.create(book.id, "h", "m")
+    run_build(job, book, UnknownStub(), model="m", cache=cache)
+    assert job.outcome == "failed" and job.resumable
+    assert not job.cards and job.pending_chunk_ids
+    assert any("未知或缺失 chunk_id" in batch["message"] for batch in job.failed_batches)
+
+
+def test_legacy_numeric_chunk_checkpoint_is_discarded_and_all_chunks_reasked(cache, store):
+    """旧数字索引不含正文 hash，不能猜成当前块；即使看似齐全也必须整条重问。"""
+    book = WorldBook("legacy-chunks", "旧断点", [
+        entry("long", "甲" * 1800 + "乙" * 1000, name="长条目"),
+    ], categories=copy.deepcopy(DEFAULT_CATEGORIES))
+    priming = store.create(book.id, "h0", "m")
+    run_build(priming, book, CardStub(), model="m", cache=cache)
+    assert priming.outcome == "success"  # 模拟历史错误迁移已经留下整条缓存
+    job = store.create(book.id, "h", "m")
+    job.cards["long"] = {"uid": "long", "summary": "旧错误合并卡"}
+    job.chunk_cards["long"] = {
+        "0": {"uid": "long", "summary": "其实来自第二块"},
+        "1": {"uid": "long", "summary": "其实来自第一块"},
+    }
+    llm = CardStub()
+    run_build(job, book, llm, model="m", cache=cache)
+
+    prompts = [call[-1]["content"] for call in llm.calls
+               if "分析下面这批" in call[-1]["content"]]
+    assert prompts, "旧数字断点被直接当成完整卡，相关块没有重新询问"
+    stable_ids = set(job.chunk_cards["long"])
+    assert len(stable_ids) == len(entry_chunks(book.entries[0].content)[0])
+    assert all(not chunk_id.isdigit() for chunk_id in stable_ids)
+    assert all(chunk_id in "\n".join(prompts) for chunk_id in stable_ids)
+    assert job.chunk_report["long"]["discarded_legacy_chunk_ids"] == ["0", "1"]
+    assert job.outcome == "success" and job.cards["long"]["summary"] != "旧错误合并卡"
 
 
 def test_budget_exhaustion_is_resumable_with_checkpoint(cache, store):

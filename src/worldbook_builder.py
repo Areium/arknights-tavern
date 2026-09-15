@@ -102,11 +102,26 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", "", text or "")
 
 
-def _entity_name_alias(name: str) -> str:
-    """取展示名中真正的实体/概念名，去掉末尾的说明性括号。"""
+_ENTITY_NAME_SUFFIXES = {
+    "角色", "角色设定", "人物", "人物设定", "干员", "干员设定",
+    "组织", "组织设定", "机构", "机构设定", "阵营", "阵营设定",
+    "势力", "势力设定", "公司", "公司设定", "国家", "国家设定",
+    "地点", "地点设定", "地区", "地区设定", "城市", "城市设定",
+    "种族", "种族设定", "物品", "物品设定", "敌人", "敌人设定",
+}
+
+
+def _entity_name_alias(name: str) -> tuple[str, str]:
+    """返回受控实体后缀前的真名及后缀；未知括号说明不提供实体豁免。"""
     text = str(name or "").strip()
-    stem = re.sub(r"\s*[（(][^）)]{1,24}[）)]\s*$", "", text).strip()
-    return stem if len(stem) >= 2 else ""
+    match = re.search(r"\s*[（(]([^（）()]{1,24})[）)]\s*$", text)
+    if not match:
+        return (text if len(text) >= 2 else ""), ""
+    suffix = match.group(1).strip()
+    if suffix not in _ENTITY_NAME_SUFFIXES:
+        return "", ""
+    stem = text[:match.start()].strip()
+    return (stem if len(stem) >= 2 else ""), suffix
 
 
 def _chunk_id(uid: str, index: int, chunk: str) -> str:
@@ -241,14 +256,20 @@ def build_metadata_index(entries) -> dict:
         uid = entry.uid
         aliases = {entry.name, uid}
         entity_aliases = {entry.name, uid}
-        stem = _entity_name_alias(entry.name)
+        stem, entity_suffix = _entity_name_alias(entry.name)
         category_hint = classified.assignments.get(uid) or entry.category_id or ""
         entity_category = category_hint in {
-            "characters", "locations", "races", "items", "enemies", "plots"}
+            "characters", "characters_unlinked", "locations", "races", "items", "enemies",
+            "plots", "organizations", "organisations", "factions", "groups", "nations",
+            "companies"}
         entity_prefix = uid.lower().startswith((
             "characters_", "locations_", "organizations_", "organisation_",
             "factions_", "groups_", "nations_", "companies_"))
-        if stem and (entity_category or entity_prefix):
+        trigger_names = {_norm(k) for k in (entry.trigger_keys or []) if isinstance(k, str)}
+        # 普通外部书没有 UID 前缀或预建分类时，受控实体后缀还必须由同名 trigger
+        # 交叉确认；这样「罗德岛（组织设定）」可召回，而任意括号备注或职业名不会豁免。
+        suffix_confirmed = bool(entity_suffix and _norm(stem) in trigger_names)
+        if stem and (entity_category or entity_prefix or suffix_confirmed):
             aliases.add(stem)
             entity_aliases.add(stem)
         if entry.character_id:
@@ -1139,11 +1160,20 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
         units = []                 # (uid, chunk_id, chunk_index, chunk_text, cache_key)
         expected = {}              # uid -> 按正文顺序排列的稳定 chunk_id
         chunk_report = {}
+        legacy_checkpoint_ids = {}
         for uid, info in metadata["entries"].items():
             if only_uids is not None and uid not in only_uids:
                 continue
+            saved = job.chunk_cards.get(uid, {})
+            legacy_ids = (sorted(str(saved_id) for saved_id in saved
+                                 if str(saved_id).isdigit())
+                          if isinstance(saved, dict) else [])
+            if legacy_ids:
+                # 已污染的整条缓存也不能盖过数字断点迁移；本轮完整重问后会安全覆盖。
+                legacy_checkpoint_ids[uid] = legacy_ids
+                job.cards.pop(uid, None)
             key = card_cache_key(uid)
-            cached = cache.get(key)
+            cached = None if uid in legacy_checkpoint_ids else cache.get(key)
             if cached is not None:
                 job.cards[uid] = cached
                 continue
@@ -1163,13 +1193,18 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
         for uid, chunk_ids in expected.items():
             saved = job.chunk_cards.get(uid, {})
             restored = {}
-            for saved_id, card in saved.items() if isinstance(saved, dict) else []:
-                # 兼容旧断点的数字索引：读入后立即迁移为当前稳定 chunk_id。
-                chunk_id = saved_id
-                if str(saved_id).isdigit() and int(saved_id) < len(chunk_ids):
-                    chunk_id = chunk_ids[int(saved_id)]
-                if chunk_id in chunk_ids and isinstance(card, dict):
-                    restored[chunk_id] = card
+            saved_items = list(saved.items()) if isinstance(saved, dict) else []
+            legacy_ids = legacy_checkpoint_ids.get(uid, [])
+            if legacy_ids:
+                # 旧实现把同 UID 多块响应按返回顺序编号；数字 0 不一定是正文第 1 块。
+                # 没有稳定 chunk_id + 正文 hash 就不能猜测迁移，整条重新分析才不会漏块。
+                job.cards.pop(uid, None)
+                chunk_report.setdefault(uid, {"chunks": len(chunk_ids), "dropped_chars": 0})
+                chunk_report[uid]["discarded_legacy_chunk_ids"] = sorted(legacy_ids)
+            else:
+                for saved_id, card in saved_items:
+                    if saved_id in chunk_ids and isinstance(card, dict):
+                        restored[saved_id] = card
             done_chunks[uid] = restored
             job.chunk_cards[uid] = restored
         merged_ready = set()
@@ -1211,24 +1246,40 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
                     raise LLMError("invalid_response", "响应缺少 cards 数组")
                 allowed = {chunk_id: uid for uid, chunk_id, _, _, _ in batch}
                 returned = {}
+                conflicted = set()
+                invalidate_batch = False
                 response_errors = []
                 for card in cards:
                     if not isinstance(card, dict):
                         response_errors.append("响应含非对象分析卡")
+                        invalidate_batch = True
                         continue
                     chunk_id = card.get("chunk_id")
                     if not isinstance(chunk_id, str) or chunk_id not in allowed:
                         response_errors.append(f"响应含未知或缺失 chunk_id：{chunk_id}")
+                        invalidate_batch = True
                         continue
                     if chunk_id in returned:
+                        response_errors.append(f"响应重复 chunk_id：{chunk_id}")
+                        conflicted.add(chunk_id)
+                        returned.pop(chunk_id, None)
+                        continue
+                    if chunk_id in conflicted:
                         response_errors.append(f"响应重复 chunk_id：{chunk_id}")
                         continue
                     if card.get("uid") != allowed[chunk_id]:
                         response_errors.append(f"chunk_id 与 uid 不匹配：{chunk_id}")
+                        conflicted.add(chunk_id)
                         continue
                     returned[chunk_id] = _clean_card(card)
+                if invalidate_batch:
+                    # 未知/非对象响应无法可靠归属，整批重问；不能在有协议错误时缓存成功。
+                    returned.clear()
+                for chunk_id in conflicted:
+                    returned.pop(chunk_id, None)
                 if response_errors:
                     job.failed_batches.append({"stage": STAGE_CARDS,
+                                               "uids": sorted(set(allowed.values())),
                                                "chunk_ids": sorted(allowed),
                                                "code": "invalid_response",
                                                "message": "；".join(response_errors[:4])})
@@ -1377,7 +1428,7 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
             job.error = {"code": "cards_failed",
                          "message": "全部分析卡生成失败：没有拿到任何可用产出，请检查模型后重试"}
             job.message = job.error["message"]
-        elif missing or adjudication_failures:
+        elif missing or adjudication_failures or job.failed_batches:
             job.outcome = "partial"
             job.stage = STAGE_DONE
             job.message = (f"部分完成：{job.result['stats']['requires']} 条必要依赖，"

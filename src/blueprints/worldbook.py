@@ -882,8 +882,14 @@ def register(app, managers):
         adopt_v3 = adopt_v3 or proposal is not None
         v3_payload = None
         if proposal is not None:
+            raw_proposal = data.get("proposal") or {}
+            if raw_proposal.get("materialized"):
+                # materialized 只是 UI 工作流标记，不是信任边界。仍标成 llm/rule 的根
+                # 必须逐字段匹配服务端任务；用户改写后须明确转成 manual。
+                data = {**data, "roots": _verified_materialized_roots(
+                    data.get("roots") or [], proposal)}
             v3_payload = build_to_v3_rules(candidate, proposal, existing_rules)
-            if (data.get("proposal") or {}).get("materialized"):
+            if raw_proposal.get("materialized"):
                 # UI has already put the proposal into its editable draft.
                 # Retain provenance, but never re-add something the user removed.
                 removed = []
@@ -1171,6 +1177,53 @@ def register(app, managers):
             "materialized_root_uids": [uid for uid in (raw.get("materialized_root_uids") or [])
                                        if isinstance(uid, str)],
         }
+
+    def _verified_materialized_roots(roots, proposal):
+        """复核 UI 已物化根的来源，返回只含服务端或明确人工数据的根列表。"""
+        if not isinstance(roots, list):
+            raise ValueError("roots 必须是数组")
+
+        def signature(root):
+            chars = root.get("character_ids") or []
+            if not isinstance(chars, list):
+                chars = []
+            return (
+                root.get("entry_uid"), root.get("origin"), root.get("activation"),
+                tuple(sorted({str(cid) for cid in chars if isinstance(cid, str)})),
+                root.get("expansion"), root.get("max_depth"),
+                root.get("source_content_hash"), root.get("evidence"),
+                root.get("model"), root.get("prompt_version"),
+            )
+
+        verified = {}
+        for root in proposal.get("roots") or []:
+            if isinstance(root, dict) and root.get("origin") in ("llm", "rule"):
+                verified[signature(root)] = root
+
+        sanitized = []
+        for root in roots:
+            if not isinstance(root, dict):
+                raise ValueError("roots 的每一项必须是对象")
+            origin = root.get("origin") or "manual"
+            if origin == "manual":
+                sanitized.append({**root, "origin": "manual"})
+                continue
+            if origin not in ("llm", "rule"):
+                raise ValueError(f"起点 {root.get('entry_uid') or '?'} 的 origin 无效；人工改写请使用 manual")
+            expected = verified.get(signature(root))
+            if expected is None:
+                label = "AI" if origin == "llm" else "规则"
+                raise ValueError(
+                    f"物化草稿中的{label}起点 {root.get('entry_uid') or '?'} "
+                    "与服务端构建任务的已验证建议不一致；人工改写请将 origin 设为 manual")
+            item = dict(expected)
+            if origin == "llm":
+                item["job_id"] = proposal.get("job_id") or ""
+                item["review_status"] = "applied"
+            if root.get("locked"):
+                item["locked"] = True
+            sanitized.append(item)
+        return sanitized
 
     def _character_directory_ids() -> list[str]:
         """真实角色目录 ID：AI 角色关联建议必须对着它校验，而不是「已关联过的角色」。"""
