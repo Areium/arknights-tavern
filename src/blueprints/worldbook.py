@@ -1404,7 +1404,7 @@ def register(app, managers):
         model = _model_identity(backend, backend_id, llm) or job.model
         if model != job.model:
             return json_error("模型已变化，请重新构建", 409)
-        data = request.json if isinstance(request.json, dict) else {}
+        data = request.get_json(silent=True) or {}
         if "reading_mode" in data:
             try:
                 requested_mode = normalize_reading_mode(data.get("reading_mode"))

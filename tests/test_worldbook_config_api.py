@@ -459,6 +459,28 @@ def test_retry_rejects_reading_mode_change(api):
     assert module._JOB_STORE.get(job_id).reading_mode == "adaptive"
 
 
+def test_retry_accepts_frontend_post_without_body(api):
+    """前端续跑只发 POST + JSON Content-Type，不附带可选请求体。"""
+    client, _, _ = api
+    job_id, _ = run_job(client)
+    import blueprints.worldbook as module
+    job = module._JOB_STORE.get(job_id)
+    job.stage = "failed"
+    job.resumable = True
+    job.failed_batches = [{"stage": "cards", "uids": ["a"], "code": "probe"}]
+    job.pending_card_uids = ["a"]
+    job.save()
+
+    response = client.post(
+        f"/api/worldbook/book/dependency-proposals/{job_id}/retry",
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 202, response.get_data(as_text=True)
+    assert response.is_json
+    assert wait_for(client, "book", job_id)["stage"] == "done"
+
+
 def test_proposal_job_can_be_cancelled_and_retried(api):
     client, _, _ = api
     job_id = client.post("/api/worldbook/book/dependency-proposals", json={}).json["job"]["job_id"]
