@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useApi } from "../../hooks/useApi";
 import { useAppStore } from "../../stores/appStore";
-import type { DependencyProposalJobDTO, WorldBookDetail, WorldBookRootDTO } from "../../types";
+import type { DependencyProposalJobDTO, WorldBookDetail, WorldBookReadingMode, WorldBookRootDTO } from "../../types";
 import WorldBookGraphIcon from "../WorldBookGraphIcon";
 
 const STAGE_LABELS: Record<string, string> = {
@@ -45,12 +45,15 @@ function BuildCostSummary({ job }: { job: DependencyProposalJobDTO | null }) {
   return <details className="wbg-details" open={!job?.result}>
     <summary>请求与用量</summary>
     {!!estimatedCalls && <p className="wbg-help">
-      <b>估算</b>（不是账单）：预计 {workload?.card_calls ?? 0} 次分析 +
+      <b>首轮估算</b>（不是固定总成本）：预计 {workload?.card_calls ?? 0} 次分析 +
       {" "}{workload?.adjudication_calls ?? 0} 次判定 = {estimatedCalls} 次请求
       {!!estimatedTokens && <> · 输入约 {formatTokens(estimatedTokens)} token</>}
       {!!workload?.expected_output_tokens && <> · 输出预算约 {formatTokens(workload.expected_output_tokens)} token</>}
       {workload?.planned === false && "（缺正文/卡片，只有保守近似）"}
       {!!workload?.budget && <> · 本次预算 {workload.budget} 次</>}
+    </p>}
+    {!!workload?.possible_supplement_note && <p className="wbg-help">
+      {workload.possible_supplement_note}
     </p>}
     {!!requests && <p className="wbg-help">
       <b>实际</b>：已发出 {requests} 次请求
@@ -100,6 +103,7 @@ export default function DependencyBuildPanel({ detail, onApply, busy }: {
   const [starting, setStarting] = useState(false);
   const [showAllRecords, setShowAllRecords] = useState(false);
   const [restoring, setRestoring] = useState(true);
+  const [readingMode, setReadingMode] = useState<WorldBookReadingMode>("adaptive");
   const timer = useRef<number | null>(null);
 
   const stopPolling = useCallback(() => {
@@ -148,7 +152,7 @@ export default function DependencyBuildPanel({ detail, onApply, busy }: {
     if (starting || busy) return;
     setStarting(true); setError(""); setNeedsSettings(false); setJob(null); setShowAllRecords(false);
     try {
-      const { job: created } = await api.createDependencyProposal(detail.id);
+      const { job: created } = await api.createDependencyProposal(detail.id, undefined, readingMode);
       setJob(created);
       poll(created.job_id);
     } catch (e) {
@@ -198,6 +202,15 @@ export default function DependencyBuildPanel({ detail, onApply, busy }: {
         </p>
       </div>
       <div className="wbg-build-actions">
+        {!running && <label className="wbg-help">
+          阅读模式
+          <select className="wbg-field" aria-label="世界书阅读模式" value={readingMode}
+            onChange={(event) => setReadingMode(event.target.value as WorldBookReadingMode)}>
+            <option value="adaptive">智能局部阅读（推荐）</option>
+            <option value="full">完整阅读</option>
+          </select>
+          <small>程序始终扫描全文明确引用；模型按需补读。局部阅读仍可能遗漏隐含关系，可用完整阅读审计。</small>
+        </label>}
         {!running && <button className="wbg-button wbg-button-primary" disabled={starting || busy || restoring}
           onClick={() => void start()}>
           <WorldBookGraphIcon name="graph" size={14} />
@@ -254,6 +267,18 @@ export default function DependencyBuildPanel({ detail, onApply, busy }: {
     {job && running && <div className="wbg-build-progress" role="progressbar"
       aria-valuenow={job.progress} aria-valuemax={job.total || 1}>
       <i style={{ width: `${job.total ? Math.round(100 * job.progress / job.total) : 8}%` }} />
+    </div>}
+
+    {job?.reading_report && typeof job.reading_report.total_chars === "number" &&
+      typeof job.reading_report.read_chars === "number" && <div className="wbg-notice" role="status">
+      <span>
+        阅读模式：{(job.reading_mode || "full") === "full" ? "完整阅读" : "智能局部阅读"} ·
+        覆盖 {job.reading_report.read_chars}/{job.reading_report.total_chars} 字符 ·
+        {job.reading_report.coverage === "full"
+          ? "正文已完整覆盖"
+          : `${job.reading_report.partial_entries} 条为局部阅读，未读 ${job.reading_report.unread_chars} 字符`}
+        {!!job.metrics?.supplement_requests && ` · 补充阅读 ${job.metrics.supplement_requests} 次`}
+      </span>
     </div>}
 
     {job && !running && !result && !job.error && <p className="wbg-help" role="status">

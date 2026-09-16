@@ -880,6 +880,7 @@ export interface DependencyProposalResultDTO {
 }
 /** 终态必须三态可区分：success 全部成功 / partial 部分批次失败 / failed 没有任何产出 */
 export type DependencyJobOutcome = "" | "success" | "partial" | "failed";
+export type WorldBookReadingMode = "adaptive" | "full";
 export interface DependencyFailedBatchDTO {
   stage: string;
   code?: string;
@@ -895,6 +896,7 @@ export interface DependencyProposalJobDTO {
   book_id: string;
   input_hash: string;
   model: string;
+  reading_mode: WorldBookReadingMode;
   stage: DependencyJobStage;
   progress: number;
   total: number;
@@ -932,6 +934,12 @@ export interface DependencyProposalJobDTO {
     /** 估算是否走了真实规划器（false = 只有保守近似） */
     planned?: boolean;
     budget?: number;
+    reading_mode?: WorldBookReadingMode;
+    reading_coverage?: "full" | "partial";
+    reading_read_chars?: number;
+    reading_unread_chars?: number;
+    analysis_supplement_requests?: number;
+    possible_supplement_note?: string;
   };
   candidates?: { pairs?: number; candidates_total?: number; candidates_used?: number; deferred?: number; generic_aliases?: number };
   chunk_report?: { entries?: number; chunks?: number; dropped_chars?: number };
@@ -947,6 +955,7 @@ export interface DependencyProposalJobDTO {
     json_repair_calls?: number;
     cache_hits?: number;
     analysis_requests?: number;
+    supplement_requests?: number;
     adjudication_requests?: number;
     actual_known?: boolean;
     usage_partial?: boolean;
@@ -958,6 +967,20 @@ export interface DependencyProposalJobDTO {
   pending_pairs?: number;
   pending_card_uids?: number;
   pending_chunk_ids?: number;
+  reading_report?: {
+    mode?: WorldBookReadingMode;
+    coverage: "full" | "partial";
+    total_chars: number;
+    read_chars: number;
+    unread_chars: number;
+    omitted_chars: number;
+    partial_entries: number;
+    full_entries: number;
+    planned_selected_chars?: number;
+    fallback_entries?: number;
+    supplement_entries?: number;
+  };
+  supplement?: { escalated?: boolean; pending_entries?: string[]; complete_entries?: string[] };
   result: DependencyProposalResultDTO | null;
 }
 

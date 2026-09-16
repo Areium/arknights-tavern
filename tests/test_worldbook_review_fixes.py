@@ -265,7 +265,7 @@ def test_chunk_id_prevents_second_chunk_from_being_recorded_as_first(cache, stor
     ], categories=copy.deepcopy(DEFAULT_CATEGORIES))
     job = store.create(book.id, "h", "m")
     run_build(job, book, ChunkStub(omit_first=True), model="m", cache=cache)
-    assert job.outcome == "failed" and job.resumable
+    assert job.outcome == "partial" and job.resumable
     stored_ids = set(job.chunk_cards["long"])
     assert stored_ids and all(":0:" not in chunk_id for chunk_id in stored_ids)
     assert any(":0:" in chunk_id for chunk_id in job.pending_chunk_ids)
@@ -455,7 +455,7 @@ def test_partial_failure_is_partial_and_retryable(cache, store):
     original_budget = module.ANALYSIS_INPUT_TOKEN_BUDGET
     original_max = module.ANALYSIS_MAX_UNITS
     try:
-        module.ANALYSIS_INPUT_TOKEN_BUDGET = 620   # 含 system 后一次只装得下一条
+        module.ANALYSIS_INPUT_TOKEN_BUDGET = 2000  # max_units=1 仍保证每批只有一条
         module.ANALYSIS_MAX_UNITS = 1
         run_build(job, book, llm, model="m", cache=cache)
     finally:

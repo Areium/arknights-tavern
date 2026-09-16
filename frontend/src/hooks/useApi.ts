@@ -434,10 +434,12 @@ export function useApi() {
           method: "PUT", body: JSON.stringify(draft),
         }),
     /** AI 自动构建依赖：一次点击即在后台开始，不需要用户写提示词或 JSON。 */
-    createDependencyProposal: (bookId: string, maxCalls?: number) =>
+    createDependencyProposal: (bookId: string, maxCalls?: number,
+      readingMode: import("../types").WorldBookReadingMode = "adaptive") =>
       request<{ job: import("../types").DependencyProposalJobDTO }>(
         `/api/worldbook/${encodeURIComponent(bookId)}/dependency-proposals`, {
-          method: "POST", body: JSON.stringify(maxCalls ? { max_calls: maxCalls } : {}),
+          method: "POST", body: JSON.stringify({ ...(maxCalls ? { max_calls: maxCalls } : {}),
+            reading_mode: readingMode }),
         }),
     listDependencyProposals: (bookId: string) =>
       request<{

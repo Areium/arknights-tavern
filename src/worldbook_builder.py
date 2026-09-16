@@ -31,6 +31,11 @@ from load_llm import LLMError
 from world_book import content_revision, estimate_tokens
 from worldbook_builder_plan import ExactPacker, RequestPlan, Unit, packs_all_units
 from worldbook_classify import classify_entries
+from worldbook_reading import (
+    READING_MODE_ADAPTIVE, READING_MODE_DEFAULT, READING_MODE_FULL, READING_MODES,
+    READING_POLICY_VERSION, ReadingSelection, Span, build_reading_plan,
+    selection_cache_identity, slice_spans, summarize_reading_plan,
+)
 from worldbook_scope import (
     ACTIVATION_ALWAYS, ACTIVATION_ROSTER_ANY, EXPANSION_REQUIRES_CLOSURE,
 )
@@ -47,7 +52,7 @@ PROMPT_VERSION = "wb-dep-v4"
 # - 分析契约（字段 / 单位 / 缓存语义）没变，但提示词正文改了 → 分析卡可以继续复用，
 #   只有判定需要重问。两者共用一个版本号会白白作废整本书的分析卡。
 ANALYSIS_PROMPT_VERSION = "wb-analysis-v4"
-ADJUDICATION_PROMPT_VERSION = "wb-adjudication-v4"
+ADJUDICATION_PROMPT_VERSION = "wb-adjudication-v5"
 
 MAX_ENTRY_CHARS = 6000    # 单条送审正文字符上限（超出按章节截取）
 CHUNK_CHARS = 1800        # 长条目切块粒度
@@ -115,6 +120,32 @@ RELATIONS = (REL_REQUIRES, REL_RELATED, REL_NONE, REL_UNSURE)
 # 只读浏览的判定来源，与正式关系区分
 ORIGIN_LLM = "llm"
 ORIGIN_RULE = "rule"
+
+# ── 自适应选择性阅读（第一遍分析的输入量）──
+# 分析阶段的提示词契约在 adaptive 下**多一个必需字段** `needs_more_context`，
+# 因此它有自己的版本号：与 full 模式共用版本号会让两种模式的缓存互相污染。
+ADAPTIVE_ANALYSIS_PROMPT_VERSION = "wb-analysis-adaptive-v3"
+# 缺少/格式错误的 `needs_more_context` → 保守补齐（不把「模型没答」当成「读够了」）。
+# 每个条目**只升级一次**：补齐的是「尚未成功读过」的跨度，已读过的绝不重发。
+MAX_SUPPLEMENT_ROUNDS = 1
+
+
+def normalize_reading_mode(mode, default: str = READING_MODE_DEFAULT) -> str:
+    """校验阅读模式；**未知模式报错，绝不静默回退**。
+
+    缺省（`None` / 空串）按 `default` 处理 —— 新建任务走 API 时默认自适应，
+    而旧任务与直接调用方（含既有测试）默认仍是「读全文」，语义与改造前一致；
+    但一个拼错的显式值（如 `"adaptiv"`）必须抛错 —— 静默回退会让「选的是全文」
+    和「其实只读了片段」在结果上无法区分。
+    """
+    text = str(mode or "").strip()
+    if not text:
+        if default not in READING_MODES:
+            raise ValueError(f"未知的阅读模式：{default!r}（只能是 {READING_MODES}）")
+        return default
+    if text not in READING_MODES:
+        raise ValueError(f"未知的阅读模式：{mode!r}（只能是 {READING_MODES}）")
+    return text
 
 
 def _sha(text: str) -> str:
@@ -350,13 +381,17 @@ ENTRY_ALIAS_LIMIT = 8
 
 
 def _entry_block(uid: str, name: str, content: str, aliases: list, part: str = "",
-                 chunk_id: str = "") -> str:
+                 chunk_id: str = "", span: str = "") -> str:
     alias_text = "、".join(aliases[:ENTRY_ALIAS_LIMIT])
     header = f'<entry uid="{uid}" name="{name}"'
     if part:
         header += f' part="{part}"'
     if chunk_id:
         header += f' chunk_id="{chunk_id}"'
+    # `span` 标出这段切片在原条目里的**角色**（导语 / 限定语 / 引用邻域 / 全文）。
+    # 它只是元数据，不改变正文一个字符：正文始终逐字来自原文。
+    if span and span != "full":
+        header += f' span="{span}"'
     return (f"{header}>\n"
             f"[别名/关键词] {alias_text}\n"
             f"[正文]\n{content}\n</entry>")
@@ -383,15 +418,18 @@ def _system_tokens() -> int:
     return _SYSTEM_TOKENS
 
 
-def plan_analysis(units, metadata, entries_by_uid, character_ids=None) -> list[RequestPlan]:
+def plan_analysis(units, metadata, entries_by_uid, character_ids=None,
+                  reading=None, adaptive: bool = False) -> list[RequestPlan]:
     """把分析单元装箱成请求计划（估算与执行共用同一份渲染）。
 
     `render` 直接调用 `build_analysis_prompt` —— 规划时量到的就是一个真实请求
-    的正文长度（含提示词、角色目录、`<entry>` 块），不存在「估算算术与真实
-    发送漂移」的空间。贪心保持传入顺序，因此分块按条目、按索引连续排布。
+    的正文长度（含提示词、角色目录、`<entry>` 块、未读章节提示），不存在
+    「估算算术与真实发送漂移」的空间。贪心保持传入顺序，因此分块按条目、
+    按索引连续排布。
     """
     render = (lambda batch: (build_analysis_prompt(batch, metadata, entries_by_uid,
-                                                   character_ids), None))
+                                                   character_ids, reading=reading,
+                                                   adaptive=adaptive), None))
     packer = ExactPacker(
         render=render,
         instruction_tokens=_system_tokens(),
@@ -415,9 +453,11 @@ def group_pairs_by_source(pairs) -> list[dict]:
 
 
 def _batch_over_budget(batch, metadata, entries_by_uid, character_ids,
-                       input_budget: int, output_budget: int, output_of) -> bool:
+                       input_budget: int, output_budget: int, output_of,
+                       reading=None, adaptive: bool = False) -> bool:
     """该批次**真实渲染**后是否超出预算（用于「不发送超限请求」的显式护栏）。"""
-    text = build_analysis_prompt(batch, metadata, entries_by_uid, character_ids)
+    text = build_analysis_prompt(batch, metadata, entries_by_uid, character_ids,
+                                 reading=reading, adaptive=adaptive)
     if _system_tokens() + estimate_tokens(text) > input_budget:
         return True
     return sum(output_of(item[3]) for item in batch) > output_budget
@@ -444,27 +484,69 @@ def plan_adjudication(pairs, entries_by_uid, cards) -> list[RequestPlan]:
     return packer.plan(units)
 
 
-def build_analysis_prompt(plan, metadata, entries_by_uid, character_ids=None) -> str:
+def build_analysis_prompt(plan, metadata, entries_by_uid, character_ids=None,
+                          reading=None, adaptive: bool = False) -> str:
     """一次分析请求的完整 user 文本。
 
     **估算与执行都调用它** —— 这样「预计发送多少 token」与「实际发了什么」
     不可能漂移；基准脚本也用它复现历史与当前的真实请求。
 
-    `plan` 可传 `Unit`（规划器用）或四元组（执行时按 chunk_id 取回），
-    这里统一解包。
+    `plan` 可传 `Unit`（规划器用）或元组（执行时按 chunk_id 取回），这里统一解包。
+
+    `adaptive=True` 时（选择性阅读）额外做两件事：
+    - 用 `<unread_sections>` 列出**本条没读到的章节标题**，并在提示词里明确要求
+      把「可能被省略内容影响」的判断标注为需要补充上下文（`needs_more_context`）；
+    - 保留原有 `<entry>` 结构，切片逐字来自原文，不添加任何编造的省略号。
     """
     items = [unit.payload if isinstance(unit, Unit) else unit for unit in (plan or [])]
     total = len(items)
     blocks = []
-    for position, (uid, chunk_id, index, chunk) in enumerate(items):
+    per_entry_parts = {}
+    for position, item in enumerate(items):
+        uid, chunk_id, index, chunk = item[0], item[1], item[2], item[3]
+        reason = item[5] if len(item) > 5 else ""
         part = f"{position + 1}/{total}" if total > 1 else ""
         blocks.append(_entry_block(uid, entries_by_uid[uid].name or uid, chunk,
                                    metadata["entries"][uid]["aliases"],
-                                   part=part, chunk_id=chunk_id))
-    return (_ANALYSIS_INSTRUCTION
+                                   part=part, chunk_id=chunk_id, span=reason))
+        per_entry_parts.setdefault(uid, set()).add(reason)
+    instruction = _ADAPTIVE_ANALYSIS_INSTRUCTION if adaptive else _ANALYSIS_INSTRUCTION
+    text = (instruction
             + "\n角色目录 ID（只允许从这里选择）："
             + json.dumps(character_ids or [], ensure_ascii=False)
             + "\n\n" + "\n\n".join(blocks))
+    if adaptive:
+        text += _adaptive_reading_hint(plan, items, metadata, entries_by_uid, reading)
+    return text
+
+
+def _adaptive_reading_hint(plan, items, metadata, entries_by_uid, reading) -> str:
+    """选择性阅读的**未读章节提示**（带可信偏移量的目录）。
+
+    只列标题与偏移量，不列正文：目的是让模型知道「这条还有哪些章节没读到」，
+    从而在 `needs_more_context` 上如实回答，而不是把「没看到」当成「没有」。
+    """
+    lines = []
+    seen = set()
+    for item in items:
+        uid = item[0]
+        if uid in seen:
+            continue
+        seen.add(uid)
+        selection = (reading or {}).get(uid)
+        if selection is None or selection.full or not selection.outline:
+            continue
+        read_ranges = [(span.start, span.end) for span in selection.spans]
+        unread = [item_out for item_out in selection.outline
+                  if not any(start <= item_out["offset"] < end for start, end in read_ranges)]
+        if not unread:
+            continue
+        compact = "；".join(f'{entry["title"]}@{entry["offset"]}' for entry in unread[:24])
+        lines.append(f'<unread_sections uid="{uid}">未读章节（仅标题与偏移量）：{compact}'
+                     f'</unread_sections>')
+    if not lines:
+        return ""
+    return "\n\n[未读章节提示]\n" + "\n".join(lines)
 
 
 def _evidence_key(uid: str, window: str) -> tuple:
@@ -565,7 +647,12 @@ def build_adjudication_prompt(plan, cards, entries_by_uid) -> tuple[str, list]:
 
 
 def _merge_cards(cards: list) -> dict:
-    """合并同一条件下的多张分块卡片：并集去重，摘要取第一个非空。"""
+    """合并同一条件下的多张分块卡片：并集去重，摘要取第一个非空。
+
+    `needs_more_context` **按保守方向合并**：任一分块为真（或缺失 / 非布尔）即为真。
+    合并后仍缺失该字段本身是有意义的信号 —— 调用方按「缺失 ⇒ 保守」处理，
+    因此这里只在**所有**分块都明确给出 `false` 时才输出 `false`。
+    """
     def union(field, limit):
         out, seen = [], set()
         for card in cards:
@@ -575,7 +662,7 @@ def _merge_cards(cards: list) -> dict:
                     out.append(value.strip())
         return out
     summary = next((str(c.get("summary") or "") for c in cards if c.get("summary")), "")
-    return {
+    merged = {
         "uid": str(cards[0].get("uid", "")) if cards else "",
         "summary": summary[:200],
         "entities": union("entities", 12),
@@ -585,6 +672,16 @@ def _merge_cards(cards: list) -> dict:
         "foundational": any(c.get("foundational") is True for c in cards),
         "evidence": union("evidence", 3),
     }
+    if "needs_more_context" in merged or any("needs_more_context" in c for c in cards):
+        merged["needs_more_context"] = any(_needs_more_context(c) for c in cards)
+    reasons = [str(c.get("needs_context_reason")).strip() for c in cards
+               if c.get("needs_context_reason")]
+    if reasons:
+        merged["needs_context_reason"] = reasons[0][:200]
+    sections = union("needs_sections", 12)
+    if sections:
+        merged["needs_sections"] = sections
+    return merged
 
 
 # ─────────────────────────────────────────────────────────────
@@ -754,30 +851,557 @@ def explicit_reference_pairs(metadata: dict, entries_by_uid: dict) -> list[dict]
     return collect_candidates(metadata, entries_by_uid)["pairs"]
 
 
-def analysis_plan_units(metadata: dict, entries_by_uid: dict) -> list[Unit]:
-    """全书分块的分析单元。
+def analysis_plan_units(metadata: dict, entries_by_uid: dict,
+                        reading: dict = None) -> list[Unit]:
+    """分析单元。
 
-    `payload` 是 `build_analysis_prompt` 需要的四元组
-    `(uid, chunk_id, index, chunk, cache_key)`；规划与执行都从这里取单元，
+    `payload` 是 `build_analysis_prompt` 需要的五元组
+    `(uid, chunk_id, index, chunk, cache_key, reason)`；规划与执行都从这里取单元，
     保证两边看到的是同一批分块。
+
+    `reading` 为空（或某条为 full）时，按 `entry_chunks` 切分**全文** —— 与改造前
+    逐字一致。给了自适应选择结果时，同一条目的选中跨度联合成一个 canonical
+    bundle 单元；身份绑定全部 span_id，规划器与执行看到完全相同的输入。
     """
     units = []
     for uid, info in metadata["entries"].items():
         entry = entries_by_uid.get(uid)
         if entry is None:
             continue
-        chunks, _ = entry_chunks(entry.content or "")
+        content = entry.content or ""
+        selection = (reading or {}).get(uid)
+        if selection is not None and not selection.full:
+            chunk_id = _selection_bundle_id(uid, selection)
+            units.append(Unit(key=chunk_id,
+                              payload=(uid, chunk_id, 0,
+                                       _selection_bundle_text(content, selection),
+                                       None, "selected-bundle")))
+            continue
+        chunks, _ = entry_chunks(content)
         if not chunks:
             chunks = [""]
         for index, chunk in enumerate(chunks):
             units.append(Unit(key=_chunk_id(uid, index, chunk),
-                              payload=(uid, _chunk_id(uid, index, chunk), index, chunk)))
+                              payload=(uid, _chunk_id(uid, index, chunk), index, chunk,
+                                       None, "full")))
     return units
+
+
+def _span_chunk_id(uid: str, span) -> str:
+    """跨度单元的身份：`uid + span_id`。
+
+    `span_id` 已绑定正文 hash + 起止 + 策略版本，因此正文改动或策略升级后
+    身份自然失效，续跑不会把旧响应安到新跨度上。
+    """
+    return f"{uid}@{span.span_id}"
+
+
+def _selection_bundle_id(uid: str, selection) -> str:
+    """一条部分阅读的联合种子身份，绑定全部 canonical span identity。"""
+    digest = _sha("|".join(span.span_id for span in selection.spans))[:24]
+    return f"{uid}@selection-{digest}"
+
+
+def _selection_bundle_text(content: str, selection) -> str:
+    """把同一条目的所选原文范围联合送审；边界标签不属于原文证据。"""
+    blocks = []
+    for span in selection.spans:
+        reason = str(span.reason or "selected").replace('"', "'")
+        blocks.append(
+            f'<selected_span start="{span.start}" end="{span.end}" reason="{reason}">'
+            f'{content[span.start:span.end]}</selected_span>')
+    return "\n".join(blocks)
+
+
+def _needs_more_context(card: dict) -> bool:
+    """部分阅读卡是否要求更多上下文。
+
+    缺字段 / 非布尔一律按**保守**处理（视为需要）：漏读的代价是判定依据不全，
+    多读的代价只是多花一点预算 —— 两者不对称，所以不赌模型会老实给 `false`。
+    """
+    value = card.get("needs_more_context")
+    if isinstance(value, bool):
+        return value
+    return True
+
+
+def _validate_card_batch(batch, value) -> tuple:
+    """**严格的**分析卡响应校验（种子与补充**共用同一套**）。
+
+    返回 `(returned, errors)`：`returned` 是 `chunk_id -> 清洗后的卡`，
+    只包含**可完全归属**的卡；`errors` 是人类可读的协议错误列表。
+
+    规则（种子与补充一视同仁，补充不得放宽）：
+    - 非对象卡 / 未知或缺失 `chunk_id` → 整批**不可信**（`returned` 清空）；
+    - 重复 `chunk_id` / `chunk_id` 与 `uid` 不匹配 → 该 `chunk_id` 作废；
+    - `uid` 必须与批内映射严格一致 —— 否则响应无法归属到某条正文切片。
+    遗漏的 `chunk_id` **不算错误**，但也不会进 `returned`，调用方据此留在待办。
+    """
+    if not isinstance(value, dict) or not isinstance(value.get("cards"), list):
+        return {}, ["响应缺少 cards 数组"]
+    allowed = {item[1]: item[0] for item in batch}
+    returned, conflicted = {}, set()
+    invalidate, errors = False, []
+    for card in value.get("cards"):
+        if not isinstance(card, dict):
+            errors.append("响应含非对象分析卡")
+            invalidate = True
+            continue
+        chunk_id = card.get("chunk_id")
+        if not isinstance(chunk_id, str) or chunk_id not in allowed:
+            errors.append(f"响应含未知或缺失 chunk_id：{chunk_id}")
+            invalidate = True
+            continue
+        if chunk_id in returned or chunk_id in conflicted:
+            errors.append(f"响应重复 chunk_id：{chunk_id}")
+            conflicted.add(chunk_id)
+            returned.pop(chunk_id, None)
+            continue
+        if card.get("uid") != allowed[chunk_id]:
+            errors.append(f"chunk_id 与 uid 不匹配：{chunk_id}")
+            conflicted.add(chunk_id)
+            continue
+        returned[chunk_id] = _clean_card(card)
+    if invalidate:
+        # 未知/非对象响应无法可靠归属，整批重问；不能在有协议错误时缓存成功。
+        returned.clear()
+    for chunk_id in conflicted:
+        returned.pop(chunk_id, None)
+    return returned, errors
+
+
+def _finalize_reading_on_abort(job, reading, entries_by_uid) -> None:
+    """中断路径（预算耗尽 / 取消 / 异常）的阅读状态收尾。
+
+    做两件事，缺一不可：
+    - 刷新每个条目的 `pending`（还差哪些补集切片）—— 重试据此继续补全；
+    - 按**实际成功覆盖**重算阅读报告 —— 中断时不得报告「已读完全文」。
+
+    对非自适应任务 / 尚未选择阅读的任务是**无操作**（保持 FULL 模式语义不变）。
+    """
+    if not reading:
+        return
+    if isinstance(job.entry_read_state, dict) and job.entry_read_state:
+        _refresh_entry_read_state(job.entry_read_state, job.chunk_cards, {})
+        job.supplement["pending_entries"] = sorted(
+            uid for uid, state in job.entry_read_state.items() if state.get("pending"))
+    _finalize_reading_report(job, reading, entries_by_uid)
+
+
+def _refresh_entry_read_state(entry_phase: dict, done_chunks: dict, expected: dict) -> None:
+    """按当前已成功的切片刷新每个条目的阶段 / 待办。
+
+    只做一件事：从 `expected` 里去掉已经成功的 ID，剩下的就是 pending；
+    全部完成则标 `complete`。**不新增** expected —— 补集的展开只在升级决策那一步
+    发生，中断路径只负责如实记录「还差什么」。
+    """
+    for uid, state in (entry_phase or {}).items():
+        done = set((done_chunks or {}).get(uid, {}))
+        ids = set(state.get("expected") or (expected or {}).get(uid) or [])
+        state["done"] = sorted(done & ids)
+        state["pending"] = sorted(ids - done)
+        if ids and not state["pending"] and state.get("decision_made"):
+            state["phase"] = "complete"
+        elif state.get("supplement_started"):
+            state["phase"] = "supplement"
+
+
+def _union_chars(intervals: list) -> int:
+    """区间的**并集**字符长度（重叠只算一次）。用于「实际读到多少原始正文」。"""
+    total, cursor = 0, None
+    for start, end in sorted(intervals):
+        if end <= start:
+            continue
+        if cursor is None or start > cursor:
+            total += end - start
+        else:
+            total += max(0, end - cursor)
+        cursor = max(cursor or 0, end)
+    return total
+
+
+def _finalize_reading_report(job, reading: dict, entries_by_uid: dict = None) -> None:
+    """把阅读报告收尾为**实际成功覆盖**（不是计划覆盖）。
+
+    报告是**紧凑**的：不 dump 每条跨度表（那要在 DTO 里放进 262 条条目的细节），
+    只保留判断覆盖面所需的聚合量与理由分布。
+
+    关键口径（P1，见 `review-checklist.md`）：`read_chars` / `coverage` 反映的是
+    **真正成功返回并缓存**的正文跨度，而不是开始时的计划选择 ——
+    种子失败、取消、预算耗尽都会让实际覆盖小于计划，报告必须如实反映，
+    否则会给出「已经全读了」的假象。`planned_*` 单独保留计划口径，供对照。
+
+    全读（`selection.full`）的条目只有在**它的单元确实成功**之后才算已读；
+    部分覆盖的条目则按已成功的不同原始字符去重累计。
+    """
+    selection = reading or {}
+    if not selection:
+        job.reading_report = {}
+        return
+    report = dict(job.reading_report or summarize_reading_plan(selection))
+    report["planned_selected_chars"] = report.get("selected_chars", 0)
+    report["planned_omitted_chars"] = report.get("omitted_chars", 0)
+
+    entry_phase = job.entry_read_state if isinstance(job.entry_read_state, dict) else {}
+    restored = job.reading_restored if isinstance(job.reading_restored, dict) else {}
+    covered = {}          # uid -> 已成功读到的字符（去重后的原始字符数）
+    incomplete = []       # uid -> 选择范围内的切片还没全部成功
+    full_done, partial_done = 0, 0
+    for uid, item in selection.items():
+        done = set((job.chunk_cards or {}).get(uid, {}))
+        state = entry_phase.get(uid) or {}
+        expected = set(state.get("expected") or [])
+        # ── 命中**已定型缓存信封**的条目：按信封记录的成功区间直接还原覆盖 ──
+        # 这是 warm 路径：条目早已定型、不再发请求，但「它当时读到了多少正文」
+        # 必须与冷启动完全一致，否则同一份书在不同任务里会报出两个覆盖面。
+        hit = restored.get(uid)
+        if isinstance(hit, dict):
+            intervals = [tuple(pair) for pair in (hit.get("intervals") or [])]
+            if hit.get("coverage") == "full" or (item.full and not intervals):
+                covered[uid] = item.total_chars
+                full_done += 1
+            else:
+                covered[uid] = _union_chars(intervals)
+                partial_done += 1
+            continue
+        # ── 已成功读到的**原始字符**：按不同跨度的并集去重累计 ──
+        # 这是「模型到底看到了多少正文」的唯一可信口径，与「切片是否全部成功」
+        # （完成度）是两件事：切片全部成功但覆盖只有 partial，是**正常且预期**的
+        # 选择性阅读结果（显式 false 时就是如此），不能被记成 full。
+        content = ""
+        entry = (entries_by_uid or {}).get(uid)
+        if entry is not None:
+            content = entry.content or ""
+        ranges = {}
+        if item.full:
+            ranges[_chunk_id(uid, 0, "")] = (0, item.total_chars)
+            # 全读条目按实际成功的分块累计（部分分块失败时如实反映）。
+            chunks, _ = entry_chunks(content)
+            if not chunks:
+                chunks = [""]
+            cursor = 0
+            ranges = {}
+            for index, chunk in enumerate(chunks):
+                ranges[_chunk_id(uid, index, chunk)] = (cursor, cursor + len(chunk))
+                cursor += len(chunk)
+        else:
+            ranges[_selection_bundle_id(uid, item)] = [
+                (span.start, span.end) for span in item.spans]
+            for span in item.unread_spans(content):
+                ranges[_span_chunk_id(uid, span)] = [(span.start, span.end)]
+        covered_ranges = []
+        for cid, value in ranges.items():
+            if cid not in done:
+                continue
+            if isinstance(value, list):
+                covered_ranges.extend(value)
+            else:
+                covered_ranges.append(value)
+        covered[uid] = _union_chars(covered_ranges)
+        # ── 完成度（选择范围内的切片是否全部成功）──
+        if item.full:
+            if expected:
+                if expected <= done:
+                    full_done += 1
+                else:
+                    incomplete.append(uid)
+            else:
+                full_done += 1
+        else:
+            if expected and not expected <= done:
+                incomplete.append(uid)
+            else:
+                partial_done += 1
+
+    read_chars = sum(covered.values())
+    report["read_chars"] = read_chars
+    report["unread_chars"] = max(0, report.get("total_chars", 0) - read_chars)
+    supplemented = [uid for uid in (job.supplement or {}).get("uids", [])
+                    if uid in selection and not selection[uid].full]
+    report["supplement_entries"] = len(supplemented)
+    report["supplement_requests"] = job.metrics.get("supplement_requests", 0)
+    report["supplement_pending"] = len(incomplete)
+    # **覆盖状态只看实际读到的原始字符**，不看完成度：
+    # - 全部条目都读全（含升级补齐）→ full；
+    # - 只要还有未读正文 → partial（哪怕所有选中的切片都成功返回）。
+    # 「选择范围内的切片全部成功」由 `incomplete_entries` 单独表达，
+    # 这样「成功 + 部分覆盖」（显式 false 的选择性阅读）不会被误报为全读。
+    report["coverage"] = "full" if read_chars >= report.get("total_chars", 0) else "partial"
+    report["incomplete_entries"] = len(incomplete)
+    report["partial_entries"] = sum(1 for item in selection.values()
+                                    if not item.full and covered.get(item.uid, 0) < item.total_chars)
+    report["full_entries"] = sum(1 for item in selection.values()
+                                 if covered.get(item.uid, 0) >= item.total_chars)
+    # 逐条目的覆盖量回写到阅读状态：`suggest_roots` 的全局根安全判定**必须**能
+    # 区分「决策已落定但只读了部分」（显式 false）与「真的把正文读全了」——
+    # `phase` 两者都是 complete，光看阶段会误把部分条目当全读。这两个数随任务
+    # 持久化，warm 命中也一样可用。
+    for uid, item in selection.items():
+        state = (job.entry_read_state or {}).get(uid)
+        if isinstance(state, dict):
+            state["read_chars"] = int(covered.get(uid, 0))
+            state["total_chars"] = int(item.total_chars)
+    report["policy_version"] = READING_POLICY_VERSION
+    job.reading_report = report
+
+
+def _span_uid(chunk_id: str) -> str:
+    """从跨度单元身份 `uid@span_id` 还原 uid（与 `_span_chunk_id` 严格互逆）。"""
+    return chunk_id.split("@", 1)[0] if "@" in chunk_id else ""
+
+
+# 记忆分析缓存的「已定型信封」标记：把最终卡与**产出它的阅读覆盖面**绑在一起。
+# 只存一张合并卡是不够的：换一个任务命中同一份缓存时，`chunk_cards` 与
+# `entry_read_state` 都是空的，阅读报告会算成 0 覆盖、甚至再去补一轮 ——
+# 明明这条早已定型。信封让「命中 = 这条已按某套选择读完并定型」成为事实。
+_CACHE_ENVELOPE_VERSION = "wb-reading-cache-v1"
+
+
+def _settled_envelope(uid: str, card: dict, selection, state: dict,
+                      order: dict) -> dict:
+    """把条目**定型结果**打包成缓存信封（卡 + 覆盖面出处）。
+
+    信封里的 `spans` 是**该条目最终成功读到的原始区间** —— 由 `state["done"]`
+    里的成功切片身份经 `order`（`chunk_id -> (start, end)`）映射回原文偏移，
+    **不是**计划要读的全部跨度。这个区别是必须的：显式 `needs_more_context:false`
+    的条目只读了种子跨度，若信封记成「种子 + 补集」，warm 命中就会把
+    partial 覆盖误报成 full。
+
+    命中信封的任务据此把阅读报告算成与冷启动**完全一致**的覆盖，且不再发起
+    任何请求（定型结果不可再被改写）。`policy_version` / `mode` 参与负载，
+    策略或模式改变时旧信封不被当作新策略的结果（键本身也含这些分量）。
+    全读条目（`selection` 为空或 `full`）记 `spans=[]`、`coverage="full"`。
+    """
+    full = selection is None or bool(getattr(selection, "full", False))
+    spans = []
+    if not full:
+        # 用**实际成功的切片**映射回原文偏移；对不上的 ID 直接丢弃，
+        # 绝不按计划跨度补齐 —— 那会把没读的字符算成读过。
+        for cid in sorted(state.get("done") or []):
+            bounds = order.get(cid)
+            if bounds:
+                values = bounds if isinstance(bounds, list) else [bounds]
+                for start, end in values:
+                    spans.append([int(start), int(end)])
+        spans.sort()
+    return {
+        "envelope_version": _CACHE_ENVELOPE_VERSION,
+        "card": card,
+        "uid": uid,
+        "mode": READING_MODE_FULL if full else READING_MODE_ADAPTIVE,
+        "policy_version": READING_POLICY_VERSION,
+        "coverage": "full" if full else None,   # None = 由 spans 与正文长度判定
+        "spans": spans,
+        # 正文总长取自选择结果（`ReadingSelection.total_chars == len(content)`），
+        # 与报告口径一致，不必再单独传一遍正文。选择缺失时退回 spans 的最大端点
+        # （至少不会把总长记成 0 而误判成 full）。
+        "total_chars": int(getattr(selection, "total_chars", 0) or 0)
+        or (max((end for _, end in spans), default=0)),
+        "state": {
+            "phase": "complete",
+            "expected": list(state.get("expected") or []),
+            "done": list(state.get("done") or []),
+            "pending": [],
+            "decision_made": True,
+            "supplement_started": bool(state.get("supplement_started")),
+        },
+    }
+
+
+def _is_envelope(value) -> bool:
+    """判断缓存负载是**已定型信封**还是**裸卡**（v4 兼容）。
+
+    裸卡（改造前的 `{uid, summary, ...}`）没有信封标记；旧缓存必须继续可用，
+    因此按裸卡处理（当作全读、无跨度信息）。
+    """
+    return isinstance(value, dict) and value.get("envelope_version") == _CACHE_ENVELOPE_VERSION
+
+
+def _restore_settled(job, uid: str, envelope: dict) -> dict:
+    """把一个**已定型信封**恢复成当前任务的最终状态，返回其中的最终卡。
+
+    三件事：
+    - 卡进 `job.cards`（定型结果，不再发起任何请求）；
+    - `entry_read_state[uid]` 标为 `complete` 且带上信封记录的跨度身份，
+      让 `suggest_roots` 知道「这条是读全了还是部分读」；
+    - `job.reading_restored[uid]` 记下信封的成功区间与正文总长，
+      `_finalize_reading_report` 据此算出与冷启动**一致**的覆盖，
+      而不必重建切片、也不重发请求。
+    """
+    state = _entry_read_state(job.entry_read_state, uid)
+    saved = dict(envelope.get("state") or {})
+    state.clear()
+    state.update({
+        "phase": "complete",
+        "expected": list(saved.get("expected") or []),
+        "done": list(saved.get("done") or []),
+        "pending": [],
+        "decision_made": True,
+        "supplement_started": bool(saved.get("supplement_started")),
+    })
+    intervals, total = _entry_settled_ids(envelope, uid)
+    job.reading_restored[uid] = {
+        "coverage": envelope.get("coverage"),
+        "intervals": intervals,
+        "total_chars": total,
+        "mode": envelope.get("mode"),
+    }
+    return envelope.get("card") or {}
+
+
+def _entry_settled_ids(envelope: dict, uid: str) -> tuple[list, int]:
+    """从信封取出**已定型条目**的成功区间与正文总长，供报告聚合。"""
+    spans = envelope.get("spans") or []
+    intervals = []
+    for pair in spans:
+        try:
+            intervals.append((int(pair[0]), int(pair[1])))
+        except (TypeError, ValueError, IndexError):
+            continue
+    total = int(envelope.get("total_chars") or 0)
+    return intervals, total
+
+
+def _entry_read_state(entry_phase: dict, uid: str) -> dict:
+    """某条目的阅读阶段状态（**按条目持久化**，不用全局轮次标记）。
+
+    结构：
+      - `phase`: `seed`（只读了选中跨度）/ `supplement`（正在补全）/ `complete`
+      - `expected`: 本轮应完成的**全部**跨度 chunk_id（种子 + 补集）
+      - `done`: 已成功返回并缓存的分析卡 chunk_id
+      - `pending`: 尚未成功完成的 chunk_id（失败 / 预算耗尽留下的部分）
+      - `decision_made`: 是否已经**决定过**要不要升级（无论结论是升还是不升）
+      - `supplement_started`: 决定升级且已展开补集（`decision_made` 的子集情形）
+    续跑按同一批 chunk_id 恢复：**已完成的不重发**，未完成的继续补，
+    并且不会因为「已经补过一轮」而拒绝继续补 —— 只要还有 pending 就继续。
+
+    `decision_made` 与 `supplement_started` 必须分开：显式 `needs_more_context:false`
+    时决策**已做出**（不需补，`phase=complete`，覆盖仍是 partial），
+    此时绝不能再被当成「尚未决策」而反复补全。
+    """
+    return entry_phase.setdefault(uid, {"phase": "seed", "expected": [], "done": [],
+                                        "pending": [], "decision_made": False,
+                                        "supplement_started": False})
+
+
+def _merged_read_flag(chunk_ids: list, done_chunks: dict, uid: str) -> dict:
+    """按**原文顺序**合并已成功的种子分块响应，得到决策所需的原始字段。
+
+    关键点：升级决策必须基于**真正返回并成功保存的分块卡原字段**，
+    而不是 `job.cards` —— 后者是「合并后的最终卡」，在升级落定前刻意不写
+    （P1-4）。若拿最终卡做判断，`cards.get(uid)` 恒为空，缺字段会被保守逻辑
+    当成「需要补」，于是显式 `false` 的正确路径被误判为必须升级。
+    """
+    parts = [done_chunks.get(uid, {}).get(cid) for cid in chunk_ids]
+    present = [part for part in parts if isinstance(part, dict)]
+    if not present:
+        return {"needs_more_context": True, "foundational": False, "missing": True}
+    flags = [_needs_more_context(part) for part in present]
+    return {
+        "needs_more_context": any(flags),
+        # 显式 false 才算「明确说不用」；只要有一块缺失该字段就仍是保守。
+        "explicit_no": all(part.get("needs_more_context") is False for part in present),
+        "foundational": any(part.get("foundational") is True for part in present),
+        "missing": False,
+    }
+
+
+def _supplement_units(entries_by_uid: dict, reading: dict, done_chunks: dict,
+                      cards: dict, expected: dict, entry_phase: dict,
+                      only_uids=None) -> list:
+    """挑出需要**升级为全读**的条目，返回**完整补集**的补充单元。
+
+    触发条件（任一成立即升级，各自独立判断）：
+    - 模型在部分阅读卡上要求更多上下文（`needs_more_context` 为真，或缺失/非布尔）；
+    - 部分阅读的卡片给出 `foundational: true`（全局根建议必须全读才可信）。
+
+    **本地线索不是升级理由**（设计更正）：选择器对「规则/公式/属性类」与
+    「含限定语段落」的处置是**在首次调用之前**完成的 —— 前者整条回退全读
+    （`rule_or_table_heavy` 只出现在 `selection.full` 的条目上，本来就不进本函数），
+    后者**整段保留、命中被裁则回退全文**。也就是说：只要一个条目还是**部分选择**，
+    它命中的限定语段落就已经**全部被读到了**（`qualifier_uids` 是「已覆盖」的证据，
+    不是「被省略」的证据）。把「存在限定语」当成升级理由，会让几乎每条有例外的
+    长条目都升级为全读，选择性阅读省下的量就白省了 —— 这正是真实样本里
+    自适应比全读更贵的原因。只有**真正被省略/被切断的关键限定语**才触发升级，
+    而那由本地选择器在**首调用之前**的回退保证，不需要事后靠存在性命中补救。
+
+    决策依据是**已成功返回的种子分块原始字段**（`_merged_read_flag`），
+    不是最终合并卡 —— 最终卡在决策落定前不写（见 `settle_cards`）。
+
+    要读的是「已成功读到跨度的**逐字补集**」—— 整个补集，不是再抽样一次。
+    每个补集切片一个单元，`chunk_id` 由 `span_id` 派生（与种子跨度同一套稳定身份）：
+    - 已完成的不重发（`done_chunks` 里已有就不再进 `expected`）；
+    - 失败 / 预算耗尽留下的切片留在 `pending`，重试继续补，不重跑整轮；
+    - 决策**只做一次**：显式 false 即 `decision_made` 且 `phase=complete`；
+      决定升级后只按 `pending` 续跑。
+    """
+    supplement = []
+    for uid, selection in (reading or {}).items():
+        if only_uids is not None and uid not in only_uids:
+            continue
+        if selection is None or selection.full or not selection.spans:
+            continue
+        entry = entries_by_uid.get(uid)
+        if entry is None:
+            continue
+        state = _entry_read_state(entry_phase, uid)
+        done_ids = set(done_chunks.get(uid, {}))
+        # **统一口径**：状态里存放的永远是单元身份 `uid@span_id`
+        # （`selection.span_ids` 是裸 `span_id`，两者不能混用）。
+        seed_ids = [_selection_bundle_id(uid, selection)]
+        # 种子跨度还没全部成功：先让种子跑完，不要抢跑补集。
+        if any(sid not in done_ids for sid in seed_ids):
+            continue
+        # **只在尚未决策时**校准 expected：一旦决定升级，expected 就是
+        # 「种子 + 补集」的完整集合，绝不能被重新缩回种子（那会让补集凭空消失、
+        # 报告误判为已读全）。
+        if not state.get("decision_made") and set(state.get("expected") or []) != set(seed_ids):
+            state["expected"] = list(seed_ids)
+        if not state.get("decision_made"):
+            flags = _merged_read_flag(seed_ids, done_chunks, uid)
+            # 升级只看**卡片真正表达的「还需要上下文」**与**部分卡的全局基础结论**。
+            # 限定语/规则类线索不在此处升级：选择器已在首调用前保证它们要么已被
+            # 完整读到，要么已整条回退全读（`selection.full`，本函数直接跳过）。
+            escalate = flags["needs_more_context"] or flags["foundational"]
+            state["decision_made"] = True
+            state["done"] = sorted(done_ids & set(seed_ids))
+            if not escalate:
+                # **显式不必补**：决策完成，覆盖仍是 partial（种子本来就没读完）。
+                state["phase"] = "complete"
+                continue
+            state["supplement_started"] = True
+            state["phase"] = "supplement"
+            content = entry.content or ""
+            complement = selection.unread_spans(content)
+            state["expected"] = list(seed_ids) + [
+                _span_chunk_id(uid, span) for span in complement]
+            state["pending"] = list(state["expected"])
+        pending = [cid for cid in (state.get("pending") or []) if cid not in done_ids]
+        state["pending"] = pending
+        if not pending:
+            state["phase"] = "complete"
+            state["done"] = sorted(done_ids)
+            continue
+        content = entry.content or ""
+        wanted, seen = [], set()
+        for span in list(selection.spans) + selection.unread_spans(content):
+            cid = _span_chunk_id(uid, span)
+            if cid in pending and cid not in seen:
+                seen.add(cid)
+                wanted.append((span.start, span.end, cid, span.reason))
+        # 按原文顺序发送；逐字来自原文，绝不重发已成功读到的字符。
+        for start, end, cid, reason in sorted(wanted):
+            text = content[start:end]
+            if not text:
+                continue
+            supplement.append((uid, cid, 0, text, None, reason))
+    return supplement
 
 
 def estimate_workload(metadata: dict, pairs: list, model: str = "",
                       entries_by_uid: dict = None, cards: dict = None,
-                      character_ids=None) -> dict:
+                      character_ids=None, reading: dict = None,
+                      reading_mode: str = READING_MODE_FULL) -> dict:
     """开工前估算工作量。
 
     **这是一个真正的规划器，不是除法**：它调用与分析/判定执行完全相同的
@@ -785,16 +1409,26 @@ def estimate_workload(metadata: dict, pairs: list, model: str = "",
     量长度，因此「预计几次请求、多少输入 token」与真实请求逐字节一致 ——
     含 system 提示词与角色目录。
 
+    选择性阅读下传入 `reading`（`uid -> ReadingSelection`）与 `reading_mode`，
+    规划器按**选中的跨度**渲染，因此这里报的**第一遍**分析成本就是执行时
+    真正会发出的量（不含可能的补齐开销 —— 那要等卡片回来才知道，见
+    `job.reading_report`）。
+
     没有 `entries_by_uid` 时无法渲染，`planned` 为 False 且 token 估算留空
     （**不**退化成一套假的除法近似，那只会给出误导性的数字）。
     """
     entries = len(metadata["entries"])
     units = sum(info.get("chunks", 1) for info in metadata["entries"].values())
 
+    adaptive = reading_mode == READING_MODE_ADAPTIVE
     analysis_plans = []
     if entries_by_uid:
-        analysis_plans = plan_analysis(analysis_plan_units(metadata, entries_by_uid),
-                                       metadata, entries_by_uid, character_ids)
+        analysis_units = analysis_plan_units(metadata, entries_by_uid, reading)
+        units = len(analysis_units)
+        analysis_plans = plan_analysis(
+            analysis_units,
+            metadata, entries_by_uid, character_ids,
+            reading=reading, adaptive=adaptive)
     card_calls = len(analysis_plans) or (units + ANALYSIS_MAX_UNITS - 1) // ANALYSIS_MAX_UNITS
     analysis_tokens = sum(plan.input_tokens for plan in analysis_plans)
 
@@ -828,6 +1462,7 @@ def estimate_workload(metadata: dict, pairs: list, model: str = "",
         "planned": bool(analysis_plans or not units) and (not pairs or bool(adjudication_plans)),
         "budget": auto_budget(estimated),
         "model": model,
+        "reading_mode": reading_mode,
     }
 
 
@@ -875,11 +1510,46 @@ _ANALYSIS_INSTRUCTION = """分析下面这批世界书条目，为**每一个分
 
 只输出形如 {"cards":[{...}, ...]} 的 JSON，cards 与输入分块一一对应。"""
 
+# 选择性阅读下的分析提示词：契约在基础字段上**多一个必需布尔字段**
+# `needs_more_context`。缺这个字段或格式不对 → 执行侧按**保守补齐**处理
+# （补的是尚未读过的跨度），绝不把「模型没答」当成「读够了」。
+_ADAPTIVE_ANALYSIS_INSTRUCTION = """分析下面这批世界书条目。**注意：长条目只给了部分正文切片，
+不是全文** —— 未给出的部分不代表不存在。
+
+字段定义（在基础字段之外**必须**多输出一个字段）：
+- chunk_id: 原样抄回输入里的 chunk_id；这是切片的唯一身份，不能遗漏或改写。
+- uid: 原样抄回输入里的 uid。
+- summary: 一句话摘要（<=80 字，**只写最核心的一句**，不要复述正文）。
+- entities: 正文中提到的**专有名词**（人物/地点/组织/物品/事件/概念），最多 10 个，每项 <=20 字。
+- defined_concepts: 这条**自身定义/解释**的概念，最多 8 个，每项 <=20 字。
+- unexplained_concepts: 这条提到但**没有解释**、需要靠别的条目补充的概念，最多 8 个，每项 <=20 字。
+- candidate_characters: 与这条内容相关的角色目录 ID 候选（只填你能从正文明确判断的，最多 5 个）。
+- foundational: 是否为所有会话都需要、应当全局常驻的基础世界设定（布尔值）；某个流程的
+  必要前提、外部条目定义、人物介绍和仅仅提及角色都不能算全局基础设定。
+- evidence: 支撑上述结论的原文片段（逐字引用，最多 2 条，每条 <=60 字）。
+- needs_more_context: **布尔值，必填**。只表示「本条尚未展示的正文」缺少某个具体定义、
+  前提、例外或限定条件，且它会影响依赖索引结论时填 true。例如：正文指向本条未给出的章节、依赖/例外条款可能
+  被截断、`<unread_sections>` 里有与当前依赖结论直接相关的章节。仅仅因为还有普通叙事
+  未展示，不能据此默认填 true。若缺的是其它条目的定义，应写入 unexplained_concepts；
+  补读本条无法取得外部定义，不能以此设置 needs_more_context。填 true 时另给 needs_context_reason（<=80 字，
+  说明缺哪部分、为什么重要）与 needs_sections（可选，列出相关章节标题）。
+
+严格约束：
+- 卡片是**给下游判定看的索引**，不是正文复述：宁短勿长，不要抄整段原文。
+- 本任务只建立依赖索引，不负责补全人物传记。仅仅想了解更多背景、完整身份档案或
+  叙事细节，不是补读理由；true 必须说明哪项未读定义或条件可能改变依赖方向或例外判断。
+- 只依据**你看到的切片**下结论；看不到的部分**不要假设它没有依赖**。程序已经在全文
+  本地扫描所有明确引用候选，因此本卡是依赖判定索引，不是全文语义完整性的证明。
+- 输出长度必须收敛，绝不要为了「完整」而把正文重新写一遍。
+
+只输出形如 {"cards":[{...}, ...]} 的 JSON，cards 与输入切片一一对应。"""
+
 _ADJUDICATION_INSTRUCTION = """判断下列「条目 A → 条目 B」的关系。这是世界书依赖图构建，不是语义相似度任务。
 
 输入分三部分：
 1. `[条目上下文]`：每条目的**分析卡摘要**（摘要 / 自身定义 / 提到但未解释的概念）。
-   这不是全文，是已经读过全文后提炼出的索引。
+   这不是全文；它是已成功阅读范围提炼出的索引，阅读范围可能是全文，也可能是经过
+   保守选择的原文片段。不要把卡片没有列出的内容当作全文不存在。
 2. `[证据窗口]`：`<evidence id="e0" uid=".." span="..">…</evidence>` —— 引用出现位置
    **附近的原文窗口**（逐字），不是全文。同一片段只列一次，多个候选对共享。
    窗口被裁掉的部分会写 `…（上文已截断）` / `…（下文已截断）`；
@@ -955,8 +1625,15 @@ class AnalysisCache:
         except OSError as exc:
             logger.warning("分析缓存写入失败: %s", exc)
 
-    def card_key(self, content_hash: str, model: str) -> str:
-        return self._key("card", ANALYSIS_PROMPT_VERSION, model, content_hash)
+    def card_key(self, content_hash: str, model: str, version: str = None) -> str:
+        """分析卡键。`version` 允许调用方传**自适应**提示词版本。
+
+        自适应用的是另一套提示词（要求标注 `needs_more_context`），因此它的
+        卡与全文提示词产出的卡不可互换 —— 版本参与键，两者各存各的。
+        `version` 默认在**调用时**读 `ANALYSIS_PROMPT_VERSION`（而非定义时求值），
+        这样运行期替换提示词版本仍然会让旧缓存失效。
+        """
+        return self._key("card", version or ANALYSIS_PROMPT_VERSION, model, content_hash)
 
     def judgment_key(self, from_hash: str, to_hash: str, model: str) -> str:
         """兼容旧签名的判定键：只绑双方正文 hash（不含卡片/别名/窗口输入）。"""
@@ -993,11 +1670,16 @@ class DependencyBuildJob:
     """
 
     def __init__(self, job_id: str, book_id: str, input_hash: str, model: str = "",
-                 total: int = 0, directory: Path = None):
+                 total: int = 0, directory: Path = None,
+                 reading_mode: str = READING_MODE_DEFAULT):
         self.id = job_id
         self.book_id = book_id
         self.input_hash = input_hash      # 绑定输入快照 hash：过期结果不得直接覆盖当前数据
         self.model = model
+        # 阅读模式：创建时确定，**不可更改**。旧任务 / 缺省时是 full，
+        # 与改造前的「读全文」语义逐字一致；直接调用 run_build 的旧调用方
+        # 与测试也默认 full，不因本功能改变行为。
+        self.reading_mode = normalize_reading_mode(reading_mode)
         # 任务自己的持久化目录：由创建它的 store 注入，避免默认写到仓库目录。
         self.directory = Path(directory) if directory else None
         self.stage = STAGE_QUEUED
@@ -1025,10 +1707,25 @@ class DependencyBuildJob:
         self.pending_chunk_ids = []        # 缺失分块的稳定身份（不能只靠 UID / 顺序）
         self.rebuild_card_uids = []        # 旧数字断点污染：完整重建成功前禁止命中整条缓存
         self.chunk_report = {}             # 长条目分块报告（分块数 / 被丢弃字符）
+        # ── 选择性阅读状态（adaptive）──
+        # **按条目**持久化的阅读阶段：`uid -> {phase, expected, done, pending,
+        # supplement_started}`。断点续跑按**跨度身份**（`span_id`）恢复：正文任意
+        # 位置改动或策略版本变化都会让身份失效，因此不会张冠李戴。
+        # 刻意不用「全局轮次标记」：那会让「补过一轮」变成「再也不补」，失败/取消后
+        # 重试就会跳过补全并加载不完整的卡。
+        self.entry_read_state = {}         # uid -> 阅读阶段状态（种子/补全/完成）
+        self.supplement = {}               # 升级阅读的汇总（uids / escalated / requests）
+        self.reading_report = {}           # 紧凑的阅读报告（对外，不含全量跨度表）
+        # 命中**已定型分析缓存信封**的条目：`uid -> {coverage, intervals,
+        # total_chars, mode}`。报告据此还原命中条目的真实覆盖（否则 warm 任务会
+        # 把「缓存里早就读完的条目」算成 0 覆盖）。这是**只读**还原，不再发请求。
+        self.reading_restored = {}
         # 检查点版本：持久化的卡片/判定只有在**同一提示词版本**下才允许复用。
         # 旧任务在提示词升级后续跑时，若直接沿用旧的 judgments/cards，就会绕过
         # 新的缓存失效规则（判定依据早已改变），因此恢复时按版本作废。
-        self.analysis_version = ANALYSIS_PROMPT_VERSION
+        self.analysis_version = (ADAPTIVE_ANALYSIS_PROMPT_VERSION
+                                if self.reading_mode == READING_MODE_ADAPTIVE
+                                else ANALYSIS_PROMPT_VERSION)
         self.adjudication_version = ADJUDICATION_PROMPT_VERSION
         # 运行计数：真实用量（provider 报告）/ 缓存命中 / 规划请求数。
         # `actual_known=False` 表示**未知**，不是 0 —— 不能把「provider 没报」
@@ -1072,6 +1769,11 @@ class DependencyBuildJob:
             "outcome": self.outcome, "resumable": self.resumable,
             "workload": self.workload, "candidates": self.candidates,
             "chunk_report": self.chunk_report,
+            "reading_mode": self.reading_mode,
+            # 紧凑阅读报告：总字符 / 实读字符 / 未读字符 / 部分与全文条数 /
+            # 回退与补齐计数。**不**在这里 dump 全量跨度表：那是逐条目的内部
+            # 状态，每次 DTO 轮询都带上会让响应体无谓膨胀。
+            "reading": dict(self.reading_report),
             "metrics": dict(self.metrics),
             "pending_pairs": len(self.pending_pairs),
             "pending_card_uids": len(self.pending_card_uids),
@@ -1100,6 +1802,14 @@ class DependencyBuildJob:
         payload["pending_card_uids"] = self.pending_card_uids
         payload["pending_chunk_ids"] = self.pending_chunk_ids
         payload["rebuild_card_uids"] = self.rebuild_card_uids
+        # 逐条目的阅读阶段必须落盘：中断后要按**同一批跨度身份**恢复，
+        # 「读过哪些跨度」「还差哪些补集切片」不能只靠内存
+        # （进程重启就丢了，会重复计费或永远补不全）。
+        payload["entry_read_state"] = self.entry_read_state
+        payload["supplement"] = self.supplement
+        payload["reading_report"] = self.reading_report
+        payload["reading_restored"] = self.reading_restored
+        payload["reading_policy_version"] = READING_POLICY_VERSION
         try:
             temporary = path.with_suffix(".tmp")
             serialized = json.dumps(payload, ensure_ascii=False)
@@ -1122,7 +1832,8 @@ class DependencyBuildJob:
             return None
         job = DependencyBuildJob(data.get("job_id", job_id), data.get("book_id", ""),
                                  data.get("input_hash", ""), data.get("model", ""),
-                                 directory=target_dir)
+                                 directory=target_dir,
+                                 reading_mode=data.get("reading_mode") or READING_MODE_DEFAULT)
         job.stage = data.get("stage", STAGE_QUEUED)
         job.progress = int(data.get("progress", 0) or 0)
         job.total = int(data.get("total", 0) or 0)
@@ -1146,6 +1857,16 @@ class DependencyBuildJob:
         job.pending_card_uids = data.get("pending_card_uids") or []
         job.pending_chunk_ids = data.get("pending_chunk_ids") or []
         job.rebuild_card_uids = data.get("rebuild_card_uids") or []
+        # 阅读阶段按**跨度身份**恢复：`load` 不重新选择，只在核对策略版本后沿用。
+        # 策略版本变化 → 旧跨度身份已失效，整体作废（见下面的版本核对）。
+        job.entry_read_state = (data.get("entry_read_state")
+                                if isinstance(data.get("entry_read_state"), dict) else {})
+        job.supplement = data.get("supplement") if isinstance(data.get("supplement"), dict) else {}
+        job.reading_report = data.get("reading_report") or {}
+        # 命中已定型缓存信封的条目（warm 路径）：报告要还原它们的真实覆盖，
+        # 否则重启/续跑会把「早就读完的条目」算成 0 覆盖。跨度区间随任务持久化。
+        job.reading_restored = (data.get("reading_restored")
+                                if isinstance(data.get("reading_restored"), dict) else {})
         # 失败批次必须随任务一起恢复：重启后续跑的 API 只认 failed_batches，
         # 不载入就等于把「哪些还没做完」丢了，重试会以为无事可做。
         job.failed_batches = [b for b in (data.get("failed_batches") or [])
@@ -1155,9 +1876,28 @@ class DependencyBuildJob:
         # 版本核对放在**所有字段载入之后**：提示词升级后，旧卡片与旧判定都不再可信
         # （判定依据已变），必须作废重算，否则续跑会绕过新的缓存失效规则。
         # 已完成的方案（result）保持可读，只是标注为非当前版本。
-        if job.analysis_version != ANALYSIS_PROMPT_VERSION:
+        # 自适应阅读策略版本变化 → 旧跨度身份失效（span_id 里绑定了策略版本），
+        # 逐条目阅读状态与补齐计划整体作废；已完成的整条卡片另由分析缓存版本把关。
+        # 这里只作废**进度**，不动已落盘的成功卡片（它们仍可能命中缓存）。
+        if job.reading_mode == READING_MODE_ADAPTIVE:
+            stored_policy = str(data.get("reading_policy_version") or "")
+            if stored_policy != READING_POLICY_VERSION:
+                job.entry_read_state = {}
+                job.supplement = {}
+                job.reading_restored = {}
+        if job.analysis_version != ANALYSIS_PROMPT_VERSION and job.reading_mode == READING_MODE_FULL:
             job.cards = {}
             job.chunk_cards = {}
+            job.rebuild_card_uids = sorted(set(job.rebuild_card_uids)
+                                           | set(data.get("cards") or {}))
+        if (job.reading_mode == READING_MODE_ADAPTIVE
+                and job.analysis_version != ADAPTIVE_ANALYSIS_PROMPT_VERSION):
+            # 自适应分析契约（含 needs_more_context）变了：旧卡与进度都不可信。
+            job.cards = {}
+            job.chunk_cards = {}
+            job.entry_read_state = {}
+            job.supplement = {}
+            job.reading_restored = {}
             job.rebuild_card_uids = sorted(set(job.rebuild_card_uids)
                                            | set(data.get("cards") or {}))
         if job.adjudication_version != ADJUDICATION_PROMPT_VERSION:
@@ -1168,7 +1908,9 @@ class DependencyBuildJob:
             job.pending_pairs = []
             job.failed_batches = [b for b in job.failed_batches
                                   if b.get("stage") != STAGE_ADJUDICATION]
-        job.analysis_version = ANALYSIS_PROMPT_VERSION
+        job.analysis_version = (ADAPTIVE_ANALYSIS_PROMPT_VERSION
+                                if job.reading_mode == READING_MODE_ADAPTIVE
+                                else ANALYSIS_PROMPT_VERSION)
         job.adjudication_version = ADJUDICATION_PROMPT_VERSION
         return job
 
@@ -1181,9 +1923,10 @@ class DependencyJobStore:
         self._jobs = {}
         self._lock = threading.Lock()
 
-    def create(self, book_id: str, input_hash: str, model: str = "") -> DependencyBuildJob:
+    def create(self, book_id: str, input_hash: str, model: str = "",
+               reading_mode: str = READING_MODE_DEFAULT) -> DependencyBuildJob:
         job = DependencyBuildJob(uuid.uuid4().hex[:16], book_id, input_hash, model,
-                                 directory=self._dir)
+                                 directory=self._dir, reading_mode=reading_mode)
         with self._lock:
             self._jobs[job.id] = job
         job.save()
@@ -1243,7 +1986,8 @@ class DependencyJobStore:
 # 校验：把「建议」变成可应用的方案
 # ─────────────────────────────────────────────────────────────
 
-def suggest_roots(book, cards: dict, metadata: dict, character_ids=None) -> tuple[list, list]:
+def suggest_roots(book, cards: dict, metadata: dict, character_ids=None,
+                  reading: dict = None, job_read_state: dict = None) -> tuple[list, list]:
     """从分析卡生成**可应用**的起点建议（角色关联 / 基础设定 / 条件根）。
 
     这是把「AI 读到的东西」真正落成配置的一步：之前 `candidate_characters`
@@ -1252,6 +1996,12 @@ def suggest_roots(book, cards: dict, metadata: dict, character_ids=None) -> tupl
     - 卡片给出的角色候选 → `roster_any` 条件根（该角色入队时才载入）；
     - 角色目录里的真实 ID 才接受，不在目录里的只作为问题回报；
     - 角色分类但尚未关联角色的条目 → 用卡片候选补齐关联建议（归属建议）。
+
+    **选择性阅读下的额外约束（重要）**：`ACTIVATION_ALWAYS` 是**全局根**——
+    它会让这条设定进入每一次会话。只读了部分正文的卡片**不足以**支撑这个结论：
+    「我没看到别的依赖」和「这条没有别的依赖」是两回事。因此部分覆盖的条目
+    即使卡片说 `foundational=true`，也**不会**自动成为全局根；改为回报一条
+    待复核问题（也可由人工锁定后自行设为全局根）。全读条目不受影响。
     """
     known = set(character_ids or [])
     existing = {r["entry_uid"] for r in (book.dependency_rules or {}).get("roots", [])}
@@ -1271,6 +2021,30 @@ def suggest_roots(book, cards: dict, metadata: dict, character_ids=None) -> tupl
         if entry.uid in existing:
             continue
         if card.get("foundational") is True and not accepted:
+            selection = (reading or {}).get(entry.uid)
+            # 全局根安全：只有**这条正文确实被全读**时才允许自动成为全局起点。
+            # 部分阅读时不得凭「没看到别的依赖」推出全局根，改为回报待复核问题。
+            #
+            # 判定不能只看 `phase == "complete"`：显式 `needs_more_context:false`
+            # 的条目决策已落定、阶段也是 complete，但**它只读了种子跨度**，
+            # 正文并未全读 —— 那种情况下自动全局根同样是不安全的。因此这里要求
+            # 「选择本身是全读」**或**「条目读到的原始字符确实覆盖全文」。
+            fully_read = selection is None or bool(getattr(selection, "full", False))
+            if not fully_read and job_read_state:
+                state = job_read_state.get(entry.uid) or {}
+                read_chars = state.get("read_chars")
+                total_chars = state.get("total_chars")
+                if isinstance(read_chars, int) and isinstance(total_chars, int) \
+                        and total_chars > 0 and read_chars >= total_chars:
+                    fully_read = True
+            if not fully_read:
+                issues.append({
+                    "code": "foundational_needs_review", "severity": "warning",
+                    "uid": entry.uid,
+                    "message": f"{entry.name or entry.uid} 被建议为全局基础设定，"
+                               "但本次只阅读了部分正文；未自动设为全局根，请人工确认后"
+                               "在「起点」里手动启用（或改用全文模式重建）"})
+                continue
             suggestions.append({"entry_uid": entry.uid, "activation": ACTIVATION_ALWAYS,
                                 "expansion": EXPANSION_REQUIRES_CLOSURE,
                                 "origin": ORIGIN_LLM, "review_status": "proposed",
@@ -1291,7 +2065,8 @@ def suggest_roots(book, cards: dict, metadata: dict, character_ids=None) -> tupl
 
 
 def validate_proposal(book, cards: dict, judgments: list, metadata: dict,
-                      model: str = "", character_ids=None) -> dict:
+                      model: str = "", character_ids=None,
+                      reading: dict = None, job_read_state: dict = None) -> dict:
     """程序校验 LLM 建议，产出「建议记录」「正式关系」与「起点建议」。
 
     校验项（产品要求）：UID 存在性、重复、自环、证据原文/内容哈希、角色 ID、
@@ -1392,8 +2167,11 @@ def validate_proposal(book, cards: dict, judgments: list, metadata: dict,
                                "uid": card_uid,
                                "message": f"{card_uid} 提到未识别的角色目录 ID：{cid}"})
 
-    # 起点建议（角色关联 / 条件根）：允许「零边只有起点」的方案被应用
-    suggested_roots, root_issues = suggest_roots(book, cards, metadata, character_ids)
+    # 起点建议（角色关联 / 条件根）：允许「零边只有起点」的方案被应用。
+    # `reading` 用于**全局根安全**：部分阅读的卡片不自动产生全局起点。
+    suggested_roots, root_issues = suggest_roots(book, cards, metadata, character_ids,
+                                                 reading=reading,
+                                                 job_read_state=job_read_state)
     roots, root_records = [], []
     for root in suggested_roots:
         uid = root["entry_uid"]
@@ -1642,6 +2420,8 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
     cache = cache or AnalysisCache()
     job.model = model or job.model
     entries_by_uid = {e.uid: e for e in book.entries}
+    # 提前初始化：任意异常路径都要能安全收尾阅读状态（见 `_finalize_reading_on_abort`）。
+    reading = {}
     def entry_identity(uid):
         """条目身份指纹：正文 + uid 之外还绑定**名称与触发别名**。
 
@@ -1654,9 +2434,28 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
                                ensure_ascii=False, sort_keys=True))
 
     def card_cache_key(uid):
+        """分析缓存键。
+
+        **覆盖状态必须参与键**：自适应模式下这张卡只读了选中的跨度，读全文的卡
+        与只读片段的卡在语义上不等价（前者能断言「这条没有其它依赖」，后者不能）。
+        键里带 `reading_mode + 策略版本 + 正文 hash + 选中跨度身份`，因此：
+        - 部分阅读的卡**永远不会**满足全文模式（模式不同 → 键不同）；
+        - 正文改动导致跨度身份变化 → 自适应缓存自动失效（即便改的地方没被选中，
+          正文 hash 也变了，宁可重读也不复用可能过期的判断）；
+        - 策略版本升级 → 旧跨度不再被当成新策略的结果。
+        """
         entry = entries_by_uid[uid]
-        identity = _sha(json.dumps([uid, entry.name, entry.trigger_keys, character_ids or []],
+        info = (metadata.get("entries") or {}).get(uid) or {}
+        identity = _sha(json.dumps([uid, entry.name, entry.trigger_keys,
+                                    info.get("category_id"), info.get("character_id"),
+                                    character_ids or []],
                                    ensure_ascii=False, sort_keys=True))
+        selection = (reading or {}).get(uid)
+        if job.reading_mode == READING_MODE_ADAPTIVE:
+            return cache.card_key(
+                _sha(entry.content) + identity + "|adaptive|" +
+                selection_cache_identity(selection),
+                job.model, version=ADAPTIVE_ANALYSIS_PROMPT_VERSION)
         return cache.card_key(_sha(entry.content) + identity, job.model)
 
     def card_fingerprint(a, b):
@@ -1685,10 +2484,30 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
     job.resumable = False
     adjudication_failures = 0
 
+    def _sync_reading_progress(entry_phase=None, done_chunks=None):
+        """把**已成功的阅读**随时落进状态与报告（每次成功 / 取消 / 中断）。
+
+        不能只在终态收尾时才刷新：取消发生在两次请求之间、或某批刚成功就收到
+        取消信号时，报告必须已经反映「确实读到了哪些正文」，否则界面上会显示
+        一个比实际更差的覆盖面（或更差的假象是反过来）。这里是**幂等**的。
+        """
+        if not reading:
+            return
+        phase = entry_phase if isinstance(entry_phase, dict) else job.entry_read_state
+        done = done_chunks if isinstance(done_chunks, dict) else {
+            uid: dict(cards) for uid, cards in (job.chunk_cards or {}).items()}
+        if isinstance(phase, dict) and phase:
+            _refresh_entry_read_state(phase, done, {})
+            job.supplement["pending_entries"] = sorted(
+                uid for uid, state in phase.items() if state.get("pending"))
+        _finalize_reading_report(job, reading, entries_by_uid)
+
     def guard():
         if job.cancelled:
             job.stage = STAGE_CANCELLED
             job.message = "任务已取消"
+            # 取消不是「什么都没读」：把此刻的成功覆盖如实落进报告再退出。
+            _sync_reading_progress()
             job.save()
             return False
         if job.calls >= job.call_limit:
@@ -1708,9 +2527,32 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
 
         # 候选识别先算：它决定这次要花多少调用，是预算的来源。
         report = collect_candidates(metadata, entries_by_uid)
+
+        # ── 选择性阅读：本地选跨度（纯本地、确定性，不调模型）──
+        # FULL 模式：每条全读（`build_reading_plan(mode=full)` 只构造 full 选择，
+        # 不切分正文），分析路径与改造前逐字一致；同时让报告有一份**紧凑覆盖**
+        # 可报（全读模式也要能说清「读了多少」，不是只给自适应用）。
+        # ADAPTIVE 模式：长条目只读选中的原始跨度。**候选对不受影响**：
+        # `collect_candidates` 已在整篇正文上产出全部明确引用，判定阶段照旧
+        # 拿到引用附近的原文窗口，因此 1621 对候选一个不少。
+        # `reading` 已在函数开头初始化为 {}（异常路径需要它）。
+        reference_terms = {}
+        for pair in report["pairs"]:
+            matched = pair.get("matched")
+            if matched:
+                reference_terms.setdefault(pair["from_uid"], set()).add(matched)
+        categories = {uid: info.get("category_id", "")
+                      for uid, info in metadata["entries"].items()}
+        reading = build_reading_plan(
+            book.entries,
+            {uid: sorted(terms) for uid, terms in reference_terms.items()},
+            mode=job.reading_mode, categories=categories)
+        job.reading_report = summarize_reading_plan(reading)
+
         # 开工前的估算用**真实规划器**（分析阶段此时还没有卡片，判定按保守近似）。
         workload = estimate_workload(metadata, report["pairs"], job.model,
-                                     entries_by_uid=entries_by_uid, cards=job.cards)
+                                     entries_by_uid=entries_by_uid, cards=job.cards,
+                                     reading=reading, reading_mode=job.reading_mode)
         job.workload = workload
         job.workload["budget"] = budget
         job.candidates = {key: value for key, value in report.items() if key != "pairs"}
@@ -1740,27 +2582,66 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
             key = card_cache_key(uid)
             cached = None if uid in rebuild_required else cache.get(key)
             if cached is not None:
-                job.cards[uid] = cached
+                # 命中可能有两种负载：
+                # - **已定型信封**（本功能写入）：卡 + 覆盖面出处。恢复成
+                #   `entry_read_state=complete` 并记下成功区间，报告据此还原覆盖，
+                #   **不再为该条目发起任何请求**（定型结果不可改写）；
+                # - **裸卡**（改造前的 v4 缓存，无信封标记）：按全读处理，保持兼容。
+                if _is_envelope(cached):
+                    card = _restore_settled(job, uid, cached)
+                    job.cards[uid] = card if isinstance(card, dict) else {}
+                else:
+                    # 裸卡（改造前的 v4 缓存）：按全读处理，保持兼容。
+                    job.cards[uid] = cached
                 # 整条命中分析缓存也要记进「缓存命中」：否则界面上会把
                 # 「这本书大部分没花钱」显示成「全都重新分析过」。
                 job.metrics["analysis_cache_hits"] = (
                     job.metrics.get("analysis_cache_hits", 0) + 1)
                 job.metrics["cache_hits"] = job.metrics.get("cache_hits", 0) + 1
                 continue
-            chunks, dropped = entry_chunks(entries_by_uid[uid].content)
-            if dropped:
-                chunk_report[uid] = {"chunks": len(chunks), "dropped_chars": dropped}
-            if not chunks:
-                chunks = [""]
-            expected[uid] = [_chunk_id(uid, index, chunk) for index, chunk in enumerate(chunks)]
-            for index, chunk in enumerate(chunks):
-                units.append((uid, expected[uid][index], index, chunk, key))
+            selection = reading.get(uid)
+            if selection is not None and not selection.full:
+                # 自适应种子：同一条目的全部所选跨度联合成**一张卡**。联合身份绑定
+                # 每个 canonical span_id，正文用带偏移的 selected_span 标签分隔；
+                # 模型能同时看到导语、限定段和中尾代表片段，避免逐片卡造成假补读。
+                # 若该条目已进入「补全」阶段，**补集切片也要一起建单元** ——
+                # 否则续跑时 `done_chunks` 会把补集卡当成未知 ID 丢掉，
+                # 已补的正文白读、未补的补集也永远进不了这一轮的 expected。
+                content = entries_by_uid[uid].content or ""
+                bundle_id = _selection_bundle_id(uid, selection)
+                units_for_entry = [(uid, bundle_id, 0,
+                                    _selection_bundle_text(content, selection), key,
+                                    "selected-bundle")]
+                prior_ids = set((job.entry_read_state.get(uid) or {}).get("expected") or [])
+                if prior_ids:
+                    for index, span in enumerate(selection.unread_spans(content), start=1):
+                        cid = _span_chunk_id(uid, span)
+                        if cid in prior_ids:
+                            units_for_entry.append((uid, cid, index,
+                                                    content[span.start:span.end], key,
+                                                    span.reason))
+                if not units_for_entry:
+                    units_for_entry = [(uid, _chunk_id(uid, 0, ""), 0, "", key, "empty")]
+            else:
+                chunks, dropped = entry_chunks(entries_by_uid[uid].content)
+                if dropped:
+                    chunk_report[uid] = {"chunks": len(chunks), "dropped_chars": dropped}
+                if not chunks:
+                    chunks = [""]
+                units_for_entry = [
+                    (uid, _chunk_id(uid, index, chunk), index, chunk, key, "full")
+                    for index, chunk in enumerate(chunks)]
+            expected[uid] = [item[1] for item in units_for_entry]
+            units.extend(units_for_entry)
         job.chunk_report = chunk_report
         job.pending_card_uids = sorted(expected)
         job.rebuild_card_uids = sorted(rebuild_required)
         job.save()
 
         done_chunks = {}
+        # 自适应装箱：**估算与执行共用**同一份规划（`plan_analysis`），
+        # 且规划时真实渲染请求正文，因此量到的长度就是会发出的长度。
+        adaptive_reading = job.reading_mode == READING_MODE_ADAPTIVE
         for uid, chunk_ids in expected.items():
             saved = job.chunk_cards.get(uid, {})
             restored = {}
@@ -1773,37 +2654,133 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
                 chunk_report.setdefault(uid, {"chunks": len(chunk_ids), "dropped_chars": 0})
                 chunk_report[uid]["discarded_legacy_chunk_ids"] = sorted(legacy_ids)
             else:
+                # 只接受**本条目认识的**切片身份：种子跨度 + 已持久化的补集切片。
+                # 不接受任意 key，否则旧格式 / 串号响应会被当成成功结果。
+                allowed_ids = set(chunk_ids) | set(
+                    (job.entry_read_state.get(uid) or {}).get("expected") or [])
                 for saved_id, card in saved_items:
-                    if saved_id in chunk_ids and isinstance(card, dict):
+                    if saved_id in allowed_ids and isinstance(card, dict):
                         restored[saved_id] = card
             done_chunks[uid] = restored
             job.chunk_cards[uid] = restored
         merged_ready = set()
 
+        # 按条目持久化的阅读阶段（种子 / 补全 / 完成），跨重试恢复。
+        entry_phase = job.entry_read_state if isinstance(job.entry_read_state, dict) else {}
+        job.entry_read_state = entry_phase
+        if adaptive_reading:
+            # 只补记**该条目 expected 范围内**的成功切片（含补集切片）；
+            # 不能用本轮种子跨度去覆盖 done —— 那会把上一轮补成功的正文抹掉。
+            # 全读条目没有补集，决策天然落定（直接标 complete）。
+            for uid in expected:
+                state = _entry_read_state(entry_phase, uid)
+                ids = set(state.get("expected") or expected.get(uid) or [])
+                state["done"] = sorted(set(done_chunks.get(uid, {})) & ids)
+                selection = reading.get(uid)
+                if selection is not None and selection.full:
+                    state["decision_made"] = True
+                    if ids and ids <= set(state["done"]):
+                        state["phase"] = "complete"
+            job.save()
+
+        def _card_source_order(uid):
+            """条目的**全部**单元按原文顺序排列（种子跨度 + 补集），用于最终合并。
+
+            合并必须按原文偏移排序，而不是按响应到达顺序：两轮请求（种子 / 补集）
+            的返回顺序不代表正文顺序，按到达顺序合并会让摘要取自错误的一段。
+            """
+            order = {}
+            selection = reading.get(uid)
+            content = entries_by_uid[uid].content or ""
+            if selection is not None and not selection.full:
+                order[_selection_bundle_id(uid, selection)] = [
+                    (span.start, span.end) for span in selection.spans]
+                for span in selection.unread_spans(content):
+                    order[_span_chunk_id(uid, span)] = (span.start, span.end)
+            else:
+                chunks, _ = entry_chunks(content)
+                if not chunks:
+                    chunks = [""]
+                cursor = 0
+                for index, chunk in enumerate(chunks):
+                    order[_chunk_id(uid, index, chunk)] = (cursor, cursor + len(chunk))
+                    cursor += len(chunk)
+            return order
+
+        def _entry_settled(uid):
+            """该条目是否**真正收尾**：升级决策已落定，且所有 expected 单元成功。
+
+            自适应下的硬门槛是**部分阅读条目**的 `decision_made`：在决定要不要
+            升级之前，「种子都成功了」并不代表这条读全了 —— 此时写缓存等于把部分
+            阅读定型为最终结果（P1-4）。全读条目（短条目 / 规则类回退 / 全文模式）
+            没有补集可言，决策天然落定，不受此门槛影响。
+            """
+            state = _entry_read_state(entry_phase, uid)
+            selection = reading.get(uid)
+            partial = selection is not None and not selection.full
+            if partial and not state.get("decision_made"):
+                return False
+            ids = set(state.get("expected") or [])
+            if partial and not ids:
+                ids = set(expected.get(uid) or [])
+            if any(cid not in done_chunks[uid] for cid in ids):
+                return False
+            if state.get("pending"):
+                return False
+            return True
+
         def settle_cards():
-            """把所有分块都成功返回的条目合并成一张卡并写缓存（分块未齐不写）。"""
+            """把**真正收尾**的条目合并成一张卡并写缓存。
+
+            两个「不写缓存」的门槛（都是 P1 级正确性要求）：
+            - 分块未齐不写；
+            - 自适应下**升级决定尚未落定**不写：部分阅读的卡一旦进了正式缓存，
+              重试就会命中它并把「只读了一半」当成完成，永远不会再补全。
+            因此缓存里只可能有「最终状态」的卡：要么全读，要么补全完成。
+            """
             for uid, chunk_ids in expected.items():
-                if uid in merged_ready or any(cid not in done_chunks[uid] for cid in chunk_ids):
+                if uid in merged_ready:
                     continue
-                parts = [done_chunks[uid][cid] for cid in chunk_ids]
+                if adaptive_reading:
+                    # 只有在**升级决策已经落定**（不再需要补，或补集已经补齐）
+                    # 之后才允许写入。迁移中 / 潜在待补的条目一律不写。
+                    if not _entry_settled(uid):
+                        continue
+                if any(cid not in done_chunks[uid] for cid in chunk_ids):
+                    continue
+                order = _card_source_order(uid)
+                parts = [done_chunks[uid][cid] for cid in
+                         sorted(done_chunks[uid], key=lambda cid:
+                                ((order.get(cid) or [(0, 0)])[0]
+                                 if isinstance(order.get(cid), list)
+                                 else order.get(cid, (0, 0))))]
                 merged = _merge_cards(parts)
                 merged["uid"] = uid
                 job.cards[uid] = merged
-                cache.put(card_cache_key(uid), merged)
+                # 信封要用**当下真实成功**的切片：`state["done"]` 在种子循环里可能
+                # 还停留在上一轮，先按 `done_chunks` 与本条目已知身份刷新一次。
+                state = _entry_read_state(entry_phase, uid)
+                known = set(order)
+                state["done"] = sorted(cid for cid in done_chunks[uid] if cid in known)
+                # 缓存写的是**信封**（卡 + 实际读到的原始区间），不是裸卡：换一个
+                # 任务命中同一份缓存时，`chunk_cards` / `entry_read_state` 都是空的，
+                # 只存裸卡会让报告算成 0 覆盖、甚至再去补一轮。信封让命中即定型。
+                cache.put(card_cache_key(uid),
+                          _settled_envelope(uid, merged, reading.get(uid), state, order))
                 rebuild_required.discard(uid)
                 job.rebuild_card_uids = sorted(rebuild_required)
                 merged_ready.add(uid)
 
-        # 自适应装箱：**估算与执行共用**同一份规划（`plan_analysis`），
-        # 且规划时真实渲染请求正文，因此量到的长度就是会发出的长度。
-        def analysis_plan():
-            available = [Unit(key=chunk_id, payload=(uid, chunk_id, index, chunk))
-                         for uid, chunk_id, index, chunk, _key in units
-                         if chunk_id not in done_chunks[uid]]
+        def analysis_plan(extra_units=None):
+            source = list(extra_units) if extra_units is not None else units
+            available = [Unit(key=item[1], payload=item)
+                         for item in source
+                         if item[1] not in done_chunks.get(item[0], {})]
             if not available:
                 return []
             by_chunk = {unit.key: unit.payload for unit in available}
-            plans = plan_analysis(available, metadata, entries_by_uid, character_ids)
+            plans = plan_analysis(available, metadata, entries_by_uid, character_ids,
+                                  reading=reading, adaptive=adaptive_reading)
             return [[by_chunk[unit.key] for unit in plan.units] for plan in plans]
 
         planned = analysis_plan()
@@ -1815,7 +2792,8 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
             # 一旦真的超限，**不静默发送超预算请求**，而是结构化失败留给重试/调参。
             if _batch_over_budget(batch, metadata, entries_by_uid, character_ids,
                                   ANALYSIS_INPUT_TOKEN_BUDGET, ANALYSIS_OUTPUT_TOKEN_BUDGET,
-                                  _analysis_output_tokens):
+                                  _analysis_output_tokens,
+                                  reading=reading, adaptive=adaptive_reading):
                 job.failed_batches.append({
                     "stage": STAGE_CARDS,
                     "uids": sorted({item[0] for item in batch}),
@@ -1824,55 +2802,23 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
                     "message": "单个分析分块超出请求预算；已保留待重试，未发送超限请求"})
                 continue
             try:
-                prompt = build_analysis_prompt(batch, metadata, entries_by_uid, character_ids)
+                prompt = build_analysis_prompt(batch, metadata, entries_by_uid, character_ids,
+                                               reading=reading, adaptive=adaptive_reading)
                 job.metrics["analysis_requests"] = job.metrics.get("analysis_requests", 0) + 1
                 value = _chat_json(llm, [
                     {"role": "system", "content": _SYSTEM},
                     {"role": "user", "content": prompt},
                 ], job)
-                cards = value.get("cards") if isinstance(value, dict) else None
-                if not isinstance(cards, list):
-                    raise LLMError("invalid_response", "响应缺少 cards 数组")
                 allowed = {item[1]: item[0] for item in batch}
-                returned = {}
-                conflicted = set()
-                invalidate_batch = False
-                response_errors = []
-                for card in cards:
-                    if not isinstance(card, dict):
-                        response_errors.append("响应含非对象分析卡")
-                        invalidate_batch = True
-                        continue
-                    chunk_id = card.get("chunk_id")
-                    if not isinstance(chunk_id, str) or chunk_id not in allowed:
-                        response_errors.append(f"响应含未知或缺失 chunk_id：{chunk_id}")
-                        invalidate_batch = True
-                        continue
-                    if chunk_id in returned:
-                        response_errors.append(f"响应重复 chunk_id：{chunk_id}")
-                        conflicted.add(chunk_id)
-                        returned.pop(chunk_id, None)
-                        continue
-                    if chunk_id in conflicted:
-                        response_errors.append(f"响应重复 chunk_id：{chunk_id}")
-                        continue
-                    if card.get("uid") != allowed[chunk_id]:
-                        response_errors.append(f"chunk_id 与 uid 不匹配：{chunk_id}")
-                        conflicted.add(chunk_id)
-                        continue
-                    returned[chunk_id] = _clean_card(card)
-                if invalidate_batch:
-                    # 未知/非对象响应无法可靠归属，整批重问；不能在有协议错误时缓存成功。
-                    returned.clear()
-                for chunk_id in conflicted:
-                    returned.pop(chunk_id, None)
+                returned, response_errors = _validate_card_batch(batch, value)
                 if response_errors:
                     job.failed_batches.append({"stage": STAGE_CARDS,
                                                "uids": sorted(set(allowed.values())),
                                                "chunk_ids": sorted(allowed),
                                                "code": "invalid_response",
                                                "message": "；".join(response_errors[:4])})
-                for uid, chunk_id, _, _ in batch:
+                for item in batch:
+                    uid, chunk_id = item[0], item[1]
                     got = returned.get(chunk_id)
                     if got:
                         done_chunks[uid][chunk_id] = got
@@ -1888,11 +2834,130 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
                                            "uids": sorted({item[0] for item in batch}),
                                            "chunk_ids": [item[1] for item in batch],
                                            "code": exc.code, "message": exc.message})
+            # 每批结束后立刻刷新覆盖：即便下一批就触发取消 / 预算耗尽，
+            # 报告也已经反映这一批真实读到的正文（不是等到终态才算）。
+            _sync_reading_progress(entry_phase, done_chunks)
             job.pending_card_uids = sorted(uid for uid in expected if uid not in job.cards)
             job.pending_chunk_ids = sorted(
                 chunk_id for uid, chunk_ids in expected.items() for chunk_id in chunk_ids
                 if chunk_id not in done_chunks[uid])
             job.progress = min(job.total, len(job.cards))
+            job.save()
+
+        # ── 2b. 升级为**全读**的补充阅读（按条目持久化，不是一次性轮次）──
+        # 触发条件（任一，各自独立）：模型要求更多上下文（`needs_more_context` 为真，
+        # 或缺失/非布尔 → 保守视为需要）、部分卡的 `foundational: true`、
+        # 本地确定性线索（规则/属性类、依赖与否定限定词）。
+        # 要读的是「已成功读到跨度的**逐字补集**」——整段补集，按 chunk 切开后走
+        # 同一个 `ExactPacker` 装箱；**已成功读到的字符绝不重发**。
+        #
+        # 重发纪律（P1：重试不能烧预算）：本轮已经**尝试过**的切片身份记进
+        # `supplement_attempted`，同一轮内**绝不重发**同一未决切片 —— 无论上一发是
+        # 返回空、畸形、重复、未知 ID 还是抛异常。失败/未回应的切片留在 pending，
+        # 交给**下一次显式重试**（`run_build` 重新进入）去尝试。因此「空补充响应」
+        # 一轮只会消耗「种子 + 一次补充」，而不是把整个预算烧在同一批请求上。
+        supplement_attempted = set()
+        while adaptive_reading:
+            supplement_units = _supplement_units(
+                entries_by_uid, reading, done_chunks, job.cards, expected,
+                entry_phase, only_uids)
+            # 未尝试过的切片才允许本轮发送；尝试过的一律留待重试。
+            supplement_units = [item for item in supplement_units
+                                if item[1] not in supplement_attempted]
+            job.supplement["escalated"] = bool(job.supplement.get("escalated")) or bool(supplement_units)
+            job.supplement["uids"] = sorted({item[0] for item in supplement_units}
+                                            if supplement_units
+                                            else set(job.supplement.get("uids") or []))
+            if not supplement_units:
+                break
+            job.metrics.setdefault("supplement_requests", 0)
+            for batch in analysis_plan(supplement_units):
+                if not guard():
+                    return job
+                # 记录尝试**先于**发送：即便这次抛异常 / 空响应，本轮也不再重发它。
+                supplement_attempted.update(item[1] for item in batch)
+                if _batch_over_budget(batch, metadata, entries_by_uid, character_ids,
+                                      ANALYSIS_INPUT_TOKEN_BUDGET,
+                                      ANALYSIS_OUTPUT_TOKEN_BUDGET,
+                                      _analysis_output_tokens,
+                                      reading=reading, adaptive=adaptive_reading):
+                    job.failed_batches.append({
+                        "stage": STAGE_CARDS,
+                        "uids": sorted({item[0] for item in batch}),
+                        "chunk_ids": [item[1] for item in batch],
+                        "code": "oversized_request",
+                        "message": "补充阅读请求超出预算；已保留待重试"})
+                    continue
+                try:
+                    prompt = build_analysis_prompt(batch, metadata, entries_by_uid,
+                                                   character_ids, reading=reading,
+                                                   adaptive=adaptive_reading)
+                    job.metrics["analysis_requests"] = (
+                        job.metrics.get("analysis_requests", 0) + 1)
+                    job.metrics["supplement_requests"] = (
+                        job.metrics.get("supplement_requests", 0) + 1)
+                    value = _chat_json(llm, [
+                        {"role": "system", "content": _SYSTEM},
+                        {"role": "user", "content": prompt},
+                    ], job)
+                    # **与种子完全同一套**严格校验：缺失/重复/未知一律不放行，
+                    # 缺失的切片留在 pending，缓存不会被不完整的响应凑齐。
+                    returned, response_errors = _validate_card_batch(batch, value)
+                    if response_errors:
+                        job.failed_batches.append({
+                            "stage": STAGE_CARDS,
+                            "uids": sorted({item[0] for item in batch}),
+                            "chunk_ids": [item[1] for item in batch],
+                            "code": "invalid_response",
+                            "message": "；".join(response_errors[:4])})
+                    for item in batch:
+                        uid, chunk_id = item[0], item[1]
+                        got = returned.get(chunk_id)
+                        if got:
+                            # 补充卡只落在**还没读到**的切片上；已读切片保留首次结果，
+                            # 避免同一跨度被两轮响应覆盖出不确定的内容。
+                            done_chunks.setdefault(uid, {}).setdefault(chunk_id, got)
+                            job.chunk_cards[uid] = dict(done_chunks[uid])
+                        else:
+                            job.failed_batches.append({
+                                "stage": STAGE_CARDS, "uids": [uid],
+                                "chunk_ids": [chunk_id], "code": "invalid_response",
+                                "message": "响应遗漏补充阅读切片"})
+                    settle_cards()
+                except LLMError as exc:
+                    job.failed_batches.append({
+                        "stage": STAGE_CARDS,
+                        "uids": sorted({item[0] for item in batch}),
+                        "chunk_ids": [item[1] for item in batch],
+                        "code": exc.code, "message": exc.message})
+                for uid in {item[0] for item in batch}:
+                    state = _entry_read_state(entry_phase, uid)
+                    state["done"] = sorted(set(done_chunks.get(uid, {}))
+                                           & set(state.get("expected") or []))
+                    state["pending"] = [cid for cid in (state.get("pending") or [])
+                                        if cid not in done_chunks.get(uid, {})]
+                # 补充批结束后同样立刻刷新覆盖：升级过程中的部分成功必须立刻可见。
+                _sync_reading_progress(entry_phase, done_chunks)
+                job.save()
+            # 循环条件由「本轮有没有可发的**未尝试**切片」决定：所有未决切片本轮都
+            # 尝试过了（成功 / 失败 / 超预算 / 取消前），就不再自动重发，
+            # 失败项留在 pending 交下一次显式重试。避免同一批请求被反复发送烧预算。
+        if adaptive_reading:
+            for uid, state in entry_phase.items():
+                state["done"] = sorted(set(done_chunks.get(uid, {}))
+                                       & set(state.get("expected") or []))
+                state["pending"] = [cid for cid in (state.get("pending") or [])
+                                    if cid not in done_chunks.get(uid, {})]
+                if not state["pending"] and set(state.get("expected") or []):
+                    state["phase"] = "complete"
+            job.supplement["pending_entries"] = sorted(
+                uid for uid, state in entry_phase.items() if state.get("pending"))
+            job.supplement["complete_entries"] = sorted(
+                uid for uid, state in entry_phase.items()
+                if state.get("phase") == "complete")
+            # **升级决策落定之后的唯一写入点**：此时部分阅读的条目要么确实
+            # 不需要补（模型明确说 false 且无本地线索），要么补集已经补齐。
+            settle_cards()
             job.save()
 
         # ── 3. 候选对（明确引用一律保留；通用词过滤与延迟候选都如实回报）──
@@ -1901,8 +2966,25 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
         job.save()
         pairs = _merge_card_pairs(report["pairs"], job.cards, metadata, entries_by_uid)
         job.candidates["after_card_merge"] = len(pairs)
+        # **保留阅读模式与第一遍阅读选择**：候选对确定后重算的是「判定阶段」的
+        # 工作量，分析阶段的成本已经发生。丢掉 `reading` 会让报告的
+        # `estimated_analysis_input_tokens` 从自适应值退回全文值 —— 那不是
+        # 「按自适应模式预估」，而是把已经发生的成本改写成另一个数。
         workload = estimate_workload(metadata, pairs, job.model,
-                                     entries_by_uid=entries_by_uid, cards=job.cards)
+                                     entries_by_uid=entries_by_uid, cards=job.cards,
+                                     reading=reading, reading_mode=job.reading_mode)
+        # 已经发生的分析成本用**实际成功覆盖**口径标注，和判定阶段预估区分开。
+        report_snapshot = dict(job.reading_report or {})
+        workload["analysis_stage_completed"] = bool(job.cards)
+        workload["analysis_supplement_requests"] = job.metrics.get("supplement_requests", 0)
+        workload["reading_coverage"] = report_snapshot.get("coverage", "full")
+        workload["reading_read_chars"] = report_snapshot.get("read_chars")
+        workload["reading_unread_chars"] = report_snapshot.get("unread_chars")
+        # 可能的补齐开销**不是固定的上界**：它取决于模型在部分卡片上的回答，
+        # 只有真的补过才有确定数字；没补过时如实标注为「可能发生、未包含」。
+        workload["possible_supplement_note"] = (
+            "分析阶段的估算只覆盖第一遍阅读；若部分卡片要求更多上下文，"
+            "升级为全读会产生额外请求（取决于模型回答，不是固定上界）")
         job.workload = workload
         job.workload["budget"] = budget
         job.save()
@@ -2048,7 +3130,8 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
         job.message = "正在校验建议"
         job.save()
         job.result = validate_proposal(book, job.cards, judgments, metadata, job.model,
-                                       character_ids=character_ids)
+                                       character_ids=character_ids, reading=reading,
+                                       job_read_state=job.entry_read_state)
 
         missing = sorted(uid for uid in metadata["entries"] if uid not in job.cards)
         job.pending_card_uids = missing
@@ -2060,12 +3143,25 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
         job.resumable = bool(job.failed_batches or job.pending_card_uids
                              or job.pending_pairs)
         uncovered = len(job.pending_pairs) > 0
+        # 阅读报告收尾：把覆盖面落成**如实**的一行 —— 哪些条目只读了部分正文、
+        # 有没有做过补充阅读。调用方据此知道「没有发现依赖」不等于「没有依赖」。
+        _finalize_reading_report(job, reading, entries_by_uid)
         if missing and len(missing) == len(metadata["entries"]):
-            job.outcome = "failed"
-            job.stage = STAGE_FAILED
-            job.error = {"code": "cards_failed",
-                         "message": "全部分析卡生成失败：没有拿到任何可用产出，请检查模型后重试"}
-            job.message = job.error["message"]
+            # 自适应卡只有在升级决定落定后才进入 job.cards；因此已有成功种子切片、
+            # 但补集响应失败时，cards 仍可能为空。这是可续跑的部分产出，不是零产出。
+            has_read_progress = any(chunk_map for chunk_map in job.chunk_cards.values())
+            if has_read_progress:
+                job.outcome = "partial"
+                job.stage = STAGE_DONE
+                job.resumable = True
+                job.message = ("部分完成：已保留成功阅读切片，补充阅读尚未完成；"
+                               "可重试剩余切片")
+            else:
+                job.outcome = "failed"
+                job.stage = STAGE_FAILED
+                job.error = {"code": "cards_failed",
+                             "message": "全部分析卡生成失败：没有拿到任何可用产出，请检查模型后重试"}
+                job.message = job.error["message"]
         elif missing or adjudication_failures or job.failed_batches or uncovered:
             job.outcome = "partial"
             job.stage = STAGE_DONE
@@ -2081,6 +3177,13 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
             job.message = (f"完成：{job.result['stats']['requires']} 条必要依赖，"
                            f"{job.result['stats']['related']} 条关联补充，"
                            f"{job.result['stats']['unsure']} 条待复核")
+            # 选择性阅读的**诚实性要求**：存在未读正文时不得宣称「全部依赖都已发现」。
+            # 仍然可以报 success（流程确实跑完了），但措辞必须写明覆盖面。
+            report = job.reading_report or {}
+            if job.reading_mode == READING_MODE_ADAPTIVE and report.get("coverage") != "full":
+                job.message += (f"（选择性阅读：{report.get('partial_entries', 0)} 条长条目"
+                                f"只阅读了部分正文，共省略 {report.get('omitted_chars', 0)} 字符；"
+                                "这不是「全部依赖都已发现」，未读正文可能仍含依赖）")
         job.save()
     except BuilderError as exc:
         # 预算耗尽等可续跑状态：把剩余工作记进 failed_batches，重试即可继续。
@@ -2098,23 +3201,39 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
                                                      for p in job.pending_pairs],
                                            "code": "budget_exceeded", "resumable": True,
                                            "message": exc.message})
-            job.outcome = "partial" if (job.cards or job.judgments) else "failed"
+            # 有**部分成功产物**（卡片 / 判定 / 已成功读到的正文切片）都算 partial：
+            # 自适应下卡片要等升级决策落定才写，因此不能用 `job.cards` 单独判断
+            # 进度，否则「读了一半被预算打断」会被误报为 failed。
+            produced = bool(job.cards or job.judgments
+                            or any(chunk_map for chunk_map in job.chunk_cards.values()))
+            job.outcome = "partial" if produced else "failed"
         else:
             job.outcome = "failed"
+        # 预算耗尽 / 取消 / 异常等中断路径也必须收尾阅读状态与报告：
+        # 否则「还差哪些补集切片」会丢，重试时无从继续 —— 这正是 P1-5 的成因。
+        _finalize_reading_on_abort(job, reading, entries_by_uid)
         job.stage = STAGE_FAILED
         job.error = {"code": exc.code, "message": exc.message}
         job.message = exc.message
         job.save()
     except LLMError as exc:
-        job.outcome = "failed"
+        produced = bool(job.cards or job.judgments
+                        or any(chunk_map for chunk_map in job.chunk_cards.values()))
+        job.outcome = "partial" if produced else "failed"
+        job.resumable = bool(produced or job.pending_card_uids or job.pending_pairs)
         job.stage = STAGE_FAILED
+        _finalize_reading_on_abort(job, reading, entries_by_uid)
         job.error = {"code": exc.code, "message": exc.message}
         job.message = f"LLM 调用失败（{exc.code}）：{exc.message}"
         job.save()
     except Exception as exc:  # 兜底：任何异常都不伪装成成功
         logger.exception("依赖构建失败")
-        job.outcome = "failed"
+        produced = bool(job.cards or job.judgments
+                        or any(chunk_map for chunk_map in job.chunk_cards.values()))
+        job.outcome = "partial" if produced else "failed"
+        job.resumable = bool(produced or job.pending_card_uids or job.pending_pairs)
         job.stage = STAGE_FAILED
+        _finalize_reading_on_abort(job, reading, entries_by_uid)
         job.error = {"code": "internal", "message": str(exc)}
         job.message = f"构建失败：{exc}"
         job.save()
@@ -2132,7 +3251,7 @@ def _clean_card(card: dict) -> dict:
             return []
         return [str(v).strip()[:width] for v in value
                 if isinstance(v, str) and v.strip()][:limit]
-    return {
+    cleaned = {
         "chunk_id": str(card.get("chunk_id", "")),
         "uid": str(card.get("uid", "")),
         "summary": str(card.get("summary") or "")[:ANALYSIS_SUMMARY_CHARS],
@@ -2147,6 +3266,17 @@ def _clean_card(card: dict) -> dict:
         "evidence": strings(card.get("evidence"), ANALYSIS_EVIDENCE_LIMIT,
                             ANALYSIS_EVIDENCE_PER_CARD),
     }
+    # 自适应契约字段：**必须原样保留**（缺失就是缺失，不填默认值）。
+    # 「模型没答」与「模型答了 false」在执行侧含义完全不同 —— 前者按保守补齐处理，
+    # 后者才允许认为读够了。清洗阶段抹掉这个字段会让契约静默失效。
+    if "needs_more_context" in card:
+        value = card.get("needs_more_context")
+        cleaned["needs_more_context"] = value if isinstance(value, bool) else None
+    if card.get("needs_context_reason"):
+        cleaned["needs_context_reason"] = str(card.get("needs_context_reason")).strip()[:200]
+    if card.get("needs_sections"):
+        cleaned["needs_sections"] = strings(card.get("needs_sections"), 12, 80)
+    return cleaned
 
 
 def _merge_card_pairs(pairs, cards, metadata, entries_by_uid) -> list[dict]:

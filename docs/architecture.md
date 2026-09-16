@@ -52,6 +52,7 @@
 - `worldbook_scope.py` — 多级分类、角色关联与导入策略校验，有向依赖深度遍历。**v2 与 v3 并存**：v2 语义（世界观 / 阵容 / 固定 / 依赖四源去重）逐字保留；v3 把「分类」与「载入」分开——全书一张有向图，起点由 `activation`（always / roster_any / manual）× `expansion`（none / requires_closure / legacy_depth）描述，`requires` 参与闭包遍历、`related` 只浏览，环可终止并回报交叉引用，闭包超限报错而非静默截断。`world_book.py` 提供估算预览、旧书/旧会话快照兼容与**不可变规则版本历史**（`policy_revisions`，会话绑定完整规则版本而不只是版本号），两个 prompt 入口均过滤候选。详见 `worldbook-on-demand.md`。
 - `worldbook_builder.py` — 世界书依赖的 AI 自动构建：元数据索引（复用 `worldbook_classify`）→ 长条目分段（稳定 `chunk_id = uid:index:hash` 断点）→ 明确引用候选对（不被 top-k 丢弃）→ 分析卡 → 依赖判定 → 程序校验（UID / 重复 / 自环 / 证据可定位 / 角色 ID / 高扇出 / 环 / 阵容扩张探测）。**请求按 token/条数自适应装箱**（估算与执行共用 `worldbook_builder_plan.py` 的同一个规划器）；判定只发**引用附近的证据窗口 + 分析卡提炼的有限上下文**，不再重发整段正文，窗口缺失/截断时强制 `unsure`。分析卡与判定分别按 `内容哈希 + 模型 + prompt 版本` 缓存，判定额外绑定双方 uid / 目标哈希 / 卡片上下文指纹 / 证据窗口指纹。后台任务持久化阶段/进度/结果/指标（估算与真实用量分开，provider 不报 usage 记「未知」而非 0），支持取消、失败批次重试、调用预算与有限 JSON 修复；无可用模型时接口返回 503，前端引导去设置。**正文按数据处理，不执行其中的指令**；置信度只用于排序，不宣称语义正确。性能设计与实测见 `worldbook-builder-performance.md`；真实模型验证见 `scripts/verify_worldbook_builder_llm.py`。
 - `worldbook_builder_plan.py` — 世界书构建的**确定性请求规划器**：`Unit`（分块/候选对，仅带 key + payload）+ `ExactPacker`（持有生产代码真正的 `render` 回调，**按真实渲染结果**量 token，按输入预算 / 输出预算 / 最大单元数贪心装箱且**保持来源顺序**，超大单元独占请求）+ `plan_cost` / `packs_all_units` 覆盖断言。纯函数、无循环依赖（不 import `worldbook_builder`），被估算与执行共用，因此界面上的请求数与费用预估就是真实开销。
+- `worldbook_reading.py` — 依赖构建的纯本地阅读选择器：全文扫描结构与引用，adaptive 模式选择逐字原文范围并保守回退复杂规则；`worldbook_builder.py` 将同条目的选中范围联合成一张卡，按需补读完整未读补集。模式、实际覆盖、断点与缓存身份持久化，完整设计和真实基准见 `worldbook-selective-reading.md`。
 - `worldbook_classify.py` — 条目自动分类：只认 uid 生成器前缀 / `group` 字段 / 名称括号后缀三类显式线索（取值为白名单，识别不出就不分类），产出分类树、条目归属与 `characters_<角色目录名>_index` → 角色关联。**不改变载入模式**：`from_dict` 只在分类形同未分类时对预装包自动补齐，其余走用户显式的「自动分类」。详见 `worldbook-on-demand.md`。
 - `memory.py` — `VectorMemory`：最近轮次滑动窗口 + ChromaDB 语义搜索，持久化于 `data/memory/`（gitignored）。
 
@@ -175,6 +176,7 @@
 | `content-hub-design.md` | 内容中心整合设计 |
 | `worldbook-on-demand.md` | 世界书分类与依赖图谱、按需候选范围、快照兼容与 API |
 | `worldbook-builder-performance.md` | 世界书依赖自动构建的性能设计：自适应装箱、证据窗口、缓存失效、指标口径与实测 |
+| `worldbook-selective-reading.md` | 世界书依赖构建的 adaptive/full 阅读模式、补读生命周期、缓存隔离、覆盖报告与离线基准 |
 | `tutorial.md`、`game-experience-roadmap.md`、`perf-round-latency.md` | 教程、体验路线、性能记录 |
 | `prompt.md` | Prompt 工程策略与模板设计 |
 | `system-update-log.md` | 系统更新日志 |

@@ -37,8 +37,9 @@ from world_book import (
 from worldbook_classify import classify_entries
 from worldbook_builder import (
     AnalysisCache, DependencyJobStore, auto_budget, build_to_v3_rules,
-    content_hash, evidence_locatable, model_identity, run_build,
+    content_hash, evidence_locatable, model_identity, normalize_reading_mode, run_build,
 )
+from worldbook_reading import READING_MODE_ADAPTIVE, READING_MODES
 from worldbook_scope import (
     ACTIVATION_ALWAYS, ACTIVATION_MANUAL, ACTIVATION_ROSTER_ANY,
     EXPANSION_LEGACY_DEPTH, EXPANSION_NONE, EXPANSION_REQUIRES_CLOSURE,
@@ -1275,7 +1276,15 @@ def register(app, managers):
                 f"这本书已有一个构建任务在进行中（{running.get('stage')}），"
                 "请先等待或取消它，避免重复消耗调用额度。", 409)
         model = _model_identity(backend, backend_id, llm)
-        job = _JOB_STORE.create(book.id, _job_input_hash(book), model)
+        # 阅读模式：旧客户端不带该字段 → 未指定时用默认（自适应），显式传入的
+        # 非法值直接 400 —— 静默降级会让用户以为自己在跑省钱模式，实际全读。
+        raw_mode = data.get("reading_mode") if isinstance(data, dict) else None
+        try:
+            reading_mode = normalize_reading_mode(raw_mode, default=READING_MODE_ADAPTIVE)
+        except ValueError as exc:
+            return None, json_error(str(exc), 400)
+        job = _JOB_STORE.create(book.id, _job_input_hash(book), model,
+                                reading_mode=reading_mode)
         job.message = "已排队，正在准备条目"
         job.save()
         max_calls = data.get("max_calls") if isinstance(data, dict) else None
@@ -1396,6 +1405,13 @@ def register(app, managers):
         if model != job.model:
             return json_error("模型已变化，请重新构建", 409)
         data = request.json if isinstance(request.json, dict) else {}
+        if "reading_mode" in data:
+            try:
+                requested_mode = normalize_reading_mode(data.get("reading_mode"))
+            except ValueError as exc:
+                return json_error(str(exc))
+            if requested_mode != job.reading_mode:
+                return json_error("重试不能更改阅读模式；请新建构建任务", 409)
         try:
             max_calls = int(data.get("max_calls")) if data.get("max_calls") else None
         except (TypeError, ValueError):

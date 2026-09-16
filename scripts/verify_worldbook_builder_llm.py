@@ -56,6 +56,8 @@ def parse_args():
     parser.add_argument("--limit", type=int, default=0,
                         help="预装书只取前 N 条（0 表示不限制；大书会明显更慢更贵）")
     parser.add_argument("--max-calls", type=int, default=60, help="调用预算上限")
+    parser.add_argument("--reading-mode", choices=["adaptive", "full"], default="adaptive",
+                        help="阅读模式（默认 adaptive；full 用于全文审计）")
     parser.add_argument("--json-out", default="", help="把结果写到这个 JSON 文件")
     args = parser.parse_args()
     if args.book_path and args.book == "sample":
@@ -140,7 +142,8 @@ def main() -> int:
 
     temporary = tempfile.TemporaryDirectory(prefix="worldbook-llm-verification-")
     cache = AnalysisCache(Path(temporary.name) / "cache")
-    job = DependencyBuildJob("verify", book.id, "verify-input", model=model, directory=Path(temporary.name))
+    job = DependencyBuildJob("verify", book.id, "verify-input", model=model,
+                             directory=Path(temporary.name), reading_mode=args.reading_mode)
     started = time.time()
     run_build(job, book, llm, model=model, cache=cache, max_calls=args.max_calls,
               character_ids=sorted({e.character_id for e in book.entries if e.character_id}))
@@ -215,7 +218,8 @@ def main() -> int:
     # ── 断言 4：缓存按 content_hash + model 生效，第二次不再重新分析 ──
     # 用同一个缓存目录再跑一遍：第二次应当直接命中磁盘缓存。
     cache2 = AnalysisCache(cache._dir)
-    job2 = DependencyBuildJob("verify-2", book.id, "verify-input", model=model, directory=Path(temporary.name))
+    job2 = DependencyBuildJob("verify-2", book.id, "verify-input", model=model,
+                              directory=Path(temporary.name), reading_mode=args.reading_mode)
     run_build(job2, book, llm, model=model, cache=cache2, max_calls=args.max_calls,
               character_ids=sorted({e.character_id for e in book.entries if e.character_id}))
     if job2.error:
@@ -246,6 +250,7 @@ def main() -> int:
     if args.json_out:
         Path(args.json_out).write_text(json.dumps({
             "model": model, "book": book.id, "entries": len(book.entries),
+            "reading_mode": args.reading_mode, "reading_report": job.reading_report,
             "elapsed_seconds": round(elapsed, 2), "calls": job.calls,
             "stats": stats, "records": result["records"],
             "issues": result["issues"], "cycles": result["cycles"],

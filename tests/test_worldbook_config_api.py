@@ -432,6 +432,33 @@ def test_proposal_job_runs_polls_and_paginates(api):
     assert client.get("/api/worldbook/book/dependency-proposals").json["jobs"]
 
 
+def test_proposal_reading_mode_defaults_validates_and_persists(api):
+    client, _, _ = api
+    invalid = client.post("/api/worldbook/book/dependency-proposals",
+                          json={"reading_mode": "adaptiv"})
+    assert invalid.status_code == 400
+    created = client.post("/api/worldbook/book/dependency-proposals", json={})
+    assert created.status_code == 202
+    assert created.json["job"]["reading_mode"] == "adaptive"
+    final = wait_for(client, "book", created.json["job"]["job_id"])
+    assert final["reading_mode"] == "adaptive"
+
+
+def test_retry_rejects_reading_mode_change(api):
+    client, _, _ = api
+    job_id, _ = run_job(client)
+    import blueprints.worldbook as module
+    job = module._JOB_STORE.get(job_id)
+    job.resumable = True
+    job.failed_batches = [{"stage": "cards", "uids": ["a"], "code": "probe"}]
+    job.pending_card_uids = ["a"]
+    job.save()
+    response = client.post(f"/api/worldbook/book/dependency-proposals/{job_id}/retry",
+                           json={"reading_mode": "full"})
+    assert response.status_code == 409
+    assert module._JOB_STORE.get(job_id).reading_mode == "adaptive"
+
+
 def test_proposal_job_can_be_cancelled_and_retried(api):
     client, _, _ = api
     job_id = client.post("/api/worldbook/book/dependency-proposals", json={}).json["job"]["job_id"]
