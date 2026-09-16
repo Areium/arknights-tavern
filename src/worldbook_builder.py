@@ -60,6 +60,9 @@ MAX_CHUNKS_PER_ENTRY = 0  # 全文覆盖；调用预算负责暂停，不能裁�
 MAX_CALLS_DEFAULT = 400   # 有限调用预算，防止失控
 MAX_CALLS_HARD = 400      # 每次启动的硬上限；超过后显式续跑
 MAX_JSON_REPAIRS = 1      # 有限 JSON 修复次数
+AUTO_RESUME_MAX_PASSES = 6
+AUTO_RESUME_MAX_STALLED_PASSES = 2
+AUTO_RESUME_ERROR_CODES = frozenset({"invalid_json", "invalid_response"})
 
 # ── 自适应批量（分析）──
 # 旧实现按固定 6 个分块一批：64 块时只发 7 个半空请求，709 块要发 119 次。
@@ -1729,6 +1732,7 @@ class DependencyBuildJob:
             "planned_requests": 0, "requests": 0, "json_repair_calls": 0,
             "cache_hits": 0, "analysis_cache_hits": 0,
             "analysis_requests": 0, "adjudication_requests": 0,
+            "auto_resume_passes": 0,
             "actual_known": False, "actual_prompt_tokens": 0,
             "actual_completion_tokens": 0, "actual_total_tokens": 0,
             "known_prompt_tokens": False, "known_completion_tokens": False,
@@ -3254,6 +3258,78 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
         job.error = {"code": "internal", "message": str(exc)}
         job.message = f"构建失败：{exc}"
         job.save()
+    return job
+
+
+def run_build_with_auto_resume(job: DependencyBuildJob, book, llm, model: str = "",
+                               cache: AnalysisCache = None, max_calls: int = None,
+                               only_pairs=None, only_uids=None, character_ids=None,
+                               source_uids=None, known_pairs=None) -> DependencyBuildJob:
+    """在一次调用预算内自动续跑模型遗漏的剩余工作。
+
+    `run_build` 每一遍都会从持久化的 cards/chunk_cards/judgments 恢复，因此续跑只会
+    请求 pending 项，不会重新计费已完成内容。本包装只自动处理模型协议层的瞬时失败
+    （非法 JSON / 遗漏字段）；连接、超预算、取消等错误仍立即停下交给用户处理。
+
+    总调用数仍受单次 `max_calls`（默认 400）约束；连续两遍没有任何进展或达到六遍
+    时停止，防止不守协议的模型无限消耗调用额度。
+    """
+    total_budget = int(max_calls) if max_calls is not None else MAX_CALLS_DEFAULT
+    total_budget = max(1, min(MAX_CALLS_HARD, total_budget))
+    operation_start = job.calls
+    requested_uids = list(only_uids) if only_uids is not None else None
+    requested_pairs = list(only_pairs) if only_pairs is not None else None
+    stalled_passes = 0
+
+    def progress_signature():
+        chunk_count = sum(len(items) for items in (job.chunk_cards or {}).values()
+                          if isinstance(items, dict))
+        return (len(job.cards), chunk_count, len(job.judgments),
+                len(job.pending_card_uids), len(job.pending_chunk_ids),
+                len(job.pending_pairs))
+
+    for pass_index in range(AUTO_RESUME_MAX_PASSES):
+        remaining = total_budget - (job.calls - operation_start)
+        if remaining <= 0:
+            break
+        before = progress_signature()
+        run_build(job, book, llm, model=model, cache=cache, max_calls=remaining,
+                  only_pairs=requested_pairs, only_uids=requested_uids,
+                  character_ids=character_ids, source_uids=source_uids,
+                  known_pairs=known_pairs)
+        if job.cancelled or not job.resumable or job.outcome == "success":
+            break
+        failures = list(job.failed_batches or [])
+        if (not failures or any(batch.get("code") not in AUTO_RESUME_ERROR_CODES
+                                for batch in failures)):
+            break
+        pending_uids = list(job.pending_card_uids or [])
+        pending_pairs = list(job.pending_pairs or [])
+        if not pending_uids and not pending_pairs:
+            break
+
+        after = progress_signature()
+        card_progress = (after[0] > before[0] or after[1] > before[1]
+                         or (before[3] > 0 and after[3] < before[3])
+                         or (before[4] > 0 and after[4] < before[4]))
+        pair_progress = (after[2] > before[2]
+                         or (before[5] > 0 and after[5] < before[5]))
+        made_progress = card_progress or (not pending_uids and pair_progress)
+        stalled_passes = 0 if made_progress else stalled_passes + 1
+        if stalled_passes >= AUTO_RESUME_MAX_STALLED_PASSES:
+            break
+        if pass_index + 1 >= AUTO_RESUME_MAX_PASSES:
+            break
+
+        job.metrics["auto_resume_passes"] = (
+            int(job.metrics.get("auto_resume_passes", 0) or 0) + 1)
+        job.message = (f"正在自动补齐剩余内容（第 {pass_index + 2} 遍）："
+                       f"{len(pending_uids)} 个条目，{len(pending_pairs)} 对关系")
+        job.save()
+        # 卡片未齐时先补卡；run_build 会重新计算候选并判定所有尚未结算的关系。
+        # 卡片已齐后才把范围收窄到明确的 pending_pairs。
+        requested_uids = pending_uids or None
+        requested_pairs = None if requested_uids else (pending_pairs or None)
     return job
 
 

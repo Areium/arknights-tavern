@@ -37,7 +37,8 @@ from world_book import (
 from worldbook_classify import classify_entries
 from worldbook_builder import (
     AnalysisCache, DependencyJobStore, auto_budget, build_to_v3_rules,
-    content_hash, evidence_locatable, model_identity, normalize_reading_mode, run_build,
+    content_hash, evidence_locatable, model_identity, normalize_reading_mode,
+    run_build_with_auto_resume,
 )
 from worldbook_reading import READING_MODE_ADAPTIVE, READING_MODES
 from worldbook_scope import (
@@ -1298,8 +1299,9 @@ def register(app, managers):
 
         def worker():
             try:
-                run_build(job, snapshot, llm, model=model, cache=_ANALYSIS_CACHE,
-                          character_ids=character_ids, **kwargs)
+                run_build_with_auto_resume(
+                    job, snapshot, llm, model=model, cache=_ANALYSIS_CACHE,
+                    character_ids=character_ids, **kwargs)
             finally:
                 job.running = False
                 job.save()
@@ -1431,9 +1433,10 @@ def register(app, managers):
 
         def worker():
             try:
-                run_build(job, snapshot, llm, model=model, cache=_ANALYSIS_CACHE,
-                          only_pairs=(pairs or None) if not uids else None, only_uids=uids or None,
-                          max_calls=max_calls, character_ids=character_ids)
+                run_build_with_auto_resume(
+                    job, snapshot, llm, model=model, cache=_ANALYSIS_CACHE,
+                    only_pairs=(pairs or None) if not uids else None, only_uids=uids or None,
+                    max_calls=max_calls, character_ids=character_ids)
             finally:
                 job.running = False
                 job.save()

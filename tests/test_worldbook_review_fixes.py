@@ -25,7 +25,7 @@ from worldbook_builder import (
     ADJUDICATION_MAX_UNITS, ANALYSIS_MAX_UNITS, MAX_CALLS_DEFAULT, MAX_CALLS_HARD, PROMPT_VERSION,
     REL_NONE, REL_REQUIRES, AnalysisCache, DependencyJobStore, auto_budget,
     build_metadata_index, collect_candidates, entry_chunks, estimate_workload,
-    relevant_chunk, run_build, suggest_roots, validate_proposal,
+    relevant_chunk, run_build, run_build_with_auto_resume, suggest_roots, validate_proposal,
 )
 
 PREINSTALLED = REPO / "data" / "worldbooks" / "arknights.json"
@@ -446,6 +446,91 @@ def test_partial_failure_is_partial_and_retryable(cache, store):
     card_prompts = [c[-1]["content"] for c in retry.calls if "分析下面这批" in c[-1]["content"]]
     assert len(card_prompts) == 1 and first_uid in card_prompts[0]
     assert job.outcome == "success"
+
+
+def test_auto_resume_only_reasks_missing_cards(cache, store):
+    """偶发漏卡应在同一预算内补齐，且已成功卡片不会被重新请求。"""
+    class OmitOnceStub(CardStub):
+        def __init__(self):
+            super().__init__(answer_all=REL_NONE)
+            self.omitted_chunk_id = None
+
+        def chat(self, messages, **kwargs):
+            response = super().chat(messages, **kwargs)
+            prompt = messages[-1]["content"]
+            if "分析下面这批" in prompt and self.omitted_chunk_id is None:
+                payload = json.loads(response["content"])
+                omitted = payload["cards"].pop()
+                self.omitted_chunk_id = omitted["chunk_id"]
+                return {"type": "text", "content": json.dumps(payload, ensure_ascii=False)}
+            return response
+
+    book = fixture_book()
+    job = store.create(book.id, "h", "m")
+    llm = OmitOnceStub()
+    run_build_with_auto_resume(job, book, llm, model="m", cache=cache, max_calls=20)
+
+    prompts = [call[-1]["content"] for call in llm.calls
+               if "分析下面这批" in call[-1]["content"]]
+    requested = [set(re.findall(r'chunk_id="([^"]+)"', prompt)) for prompt in prompts]
+    assert job.outcome == "success" and not job.resumable
+    assert job.metrics["auto_resume_passes"] == 1
+    assert len(requested) == 2
+    assert requested[1] == {llm.omitted_chunk_id}
+    assert (requested[0] - {llm.omitted_chunk_id}).isdisjoint(requested[1])
+
+
+def test_auto_resume_only_reasks_missing_pairs(cache, store):
+    """卡片齐全后，自动续跑只判定遗漏关系，不重复判定已结算关系。"""
+    class OmitOncePairStub(CardStub):
+        def __init__(self):
+            super().__init__(answer_all=REL_NONE)
+            self.omitted_pair = None
+
+        def chat(self, messages, **kwargs):
+            response = super().chat(messages, **kwargs)
+            prompt = messages[-1]["content"]
+            if "判断下列" in prompt and self.omitted_pair is None:
+                payload = json.loads(response["content"])
+                omitted = payload["judgments"].pop()
+                self.omitted_pair = (omitted["from_uid"], omitted["to_uid"])
+                return {"type": "text", "content": json.dumps(payload, ensure_ascii=False)}
+            return response
+
+    book = fixture_book()
+    job = store.create(book.id, "h", "m")
+    llm = OmitOncePairStub()
+    run_build_with_auto_resume(job, book, llm, model="m", cache=cache, max_calls=20)
+
+    prompts = [call[-1]["content"] for call in llm.calls
+               if "判断下列" in call[-1]["content"]]
+    requested = [set(CardStub._parse_pairs(prompt)) for prompt in prompts]
+    assert job.outcome == "success" and not job.resumable
+    assert job.metrics["auto_resume_passes"] == 1
+    assert len(requested) == 2
+    assert requested[1] == {llm.omitted_pair}
+    assert (requested[0] - {llm.omitted_pair}).isdisjoint(requested[1])
+
+
+def test_auto_resume_stops_after_repeated_no_progress(cache, store):
+    """持续违约的模型不能触发无限自动续跑或绕过预算。"""
+    class AlwaysOmitStub(CardStub):
+        def chat(self, messages, **kwargs):
+            response = super().chat(messages, **kwargs)
+            if "分析下面这批" in messages[-1]["content"]:
+                return {"type": "text", "content": '{"cards": []}'}
+            return response
+
+    book = fixture_book()
+    job = store.create(book.id, "h", "m")
+    run_build_with_auto_resume(
+        job, book, AlwaysOmitStub(answer_all=REL_NONE), model="m", cache=cache,
+        max_calls=20)
+
+    assert job.outcome == "failed" and job.resumable
+    assert job.metrics["auto_resume_passes"] == 1
+    assert job.calls <= 3
+    assert job.pending_card_uids
 
 
 def test_adjudication_failure_is_partial_not_silent(cache, store):
