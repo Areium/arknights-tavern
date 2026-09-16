@@ -21,14 +21,14 @@ function filterSceneLog(log: string[]): string[] {
 }
 
 export default function ChatPanel() {
-  const { activeSessionId, chatMode, sessions, setSessions, triggerEnvRefresh, triggerMemoryRefresh, chatRefreshKey, characterRefreshKey, editBeforeSend, sceneSwitchKey, dialogueBubbleMode, currentView, setCurrentView, setCombatContext, pendingAutoNarrate, setPendingAutoNarrate, pendingBriefing, setPendingBriefing, resourcePanelOpen, setResourcePanelOpen, chatFontSize, setChatFontSize } = useAppStore();
+  const { activeSessionId, chatMode, sessions, setSessions, triggerEnvRefresh, triggerMemoryRefresh, chatRefreshKey, characterRefreshKey, editBeforeSend, sceneSwitchKey, dialogueBubbleMode, setCurrentView, setCombatContext, pendingAutoNarrate, setPendingAutoNarrate, pendingBriefing, setPendingBriefing, resourcePanelOpen, setResourcePanelOpen, chatFontSize, setChatFontSize } = useAppStore();
   const activeMode = sessions.find((s) => s.id === activeSessionId)?.mode || "free";
 
   const sceneCharacters: string[] = (() => {
     const session = sessions.find((s) => s.id === activeSessionId);
     if (!session) return [];
     const chars = (session.characters || []).map((c: any) =>
-      typeof c === "string" ? c : c.name || c.id || ""
+      c
     );
     // 玩家身份也参与说话人推断，避免玩家台词被误判给场景角色
     const player = session.player_identity || "博士";
@@ -184,7 +184,7 @@ export default function ChatPanel() {
         const chars = session.characters || [];
         if (chars.length > 0) {
           const charList = chars
-            .map((c: any) => typeof c === "string" ? c : c.name || c.id)
+            .map((c: string) => c)
             .join("、");
           initialMessages.push({ role: "system", content: `【已加载角色】${charList}` });
         }
@@ -329,7 +329,7 @@ export default function ChatPanel() {
       useAppStore.getState().setSessionStreaming(sid, true);
       try {
         const res = await api.groupChat(sid, text);
-        const items: any[] = res.responses || res;
+        const items: any[] = res.responses;
         const responses: ChatMessage[] = items.map((r: any) => ({
           role: "character",
           content: r.response,
@@ -404,14 +404,6 @@ export default function ChatPanel() {
       performSend(action);
     }
   }, [pendingAutoNarrate, activeSessionId, performSend, setPendingAutoNarrate]);
-
-  // Reconnect SSE when switching back to chat view after combat
-  useEffect(() => {
-    if (currentView === "chat" && activeSessionId) {
-      // ChatPanel is always mounted; when coming back from combat,
-      // ensure SSE connection state is fresh by triggering a refresh
-    }
-  }, [currentView, activeSessionId]);
 
   const handleSend = useCallback(() => {
     const text = input.trim();
@@ -1248,7 +1240,7 @@ function triggerNarrate(
 
   // 与组件内 sceneCharacters 一致：流式结束后用完整叙述解析气泡说话人
   const sceneChars: string[] = (session?.characters || [])
-    .map((c: any) => (typeof c === "string" ? c : c.name || c.id || ""))
+    .map((c: string) => c)
     .filter(Boolean);
   if (identity && !sceneChars.includes(identity)) sceneChars.push(identity);
 

@@ -108,8 +108,8 @@ def test_illegal_node_id_rejected():
 
 def test_create_save_conflict_and_delete(client):
     node_id = "enc_crud_test"
-    assert client.post("/api/combat/nodes", json={"node_id": node_id, "name": "CRUD"}).status_code == 201
     try:
+        assert client.post("/api/combat/nodes", json={"node_id": node_id, "name": "CRUD"}).status_code == 201
         detail = client.get(f"/api/combat/nodes/{node_id}").get_json()
         current_hash = detail["node"]["_hash"]
 
@@ -276,8 +276,8 @@ def test_node_overview_reports_missing_node_from_plot(client):
 def test_empty_node_cannot_start_battle(client):
     """新建的空节点（无敌人）可保存，但开战必须被拒绝并给出可读原因。"""
     node_id = "enc_empty_test"
-    assert client.post("/api/combat/nodes", json={"node_id": node_id}).status_code == 201
     try:
+        assert client.post("/api/combat/nodes", json={"node_id": node_id}).status_code == 201
         res = client.post("/api/combat/test/start", json={"node_id": node_id})
         assert res.status_code == 400
         assert "没有可出场的敌人" in res.get_json()["error"]

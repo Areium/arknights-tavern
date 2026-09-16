@@ -20,13 +20,6 @@ def _get_session(session_mgr, session_id):
     return session
 
 
-def _require_usable(session):
-    """检查会话是否可以进行 LLM 操作，不可用则返回 503。"""
-    if not session.get_llm():
-        return json_error("LLM 后端不可用，无法执行此操作", 503)
-    return None
-
-
 logger = logging.getLogger(__name__)
 
 
@@ -63,9 +56,6 @@ def register(app, managers):
         session = _get_session(session_mgr, session_id)
         if not session:
             return json_error("会话不存在", 404)
-        err = _require_usable(session)
-        if err:
-            return err
         data = request.json or {}
         name = data.get("character")
         if not name:
@@ -158,14 +148,6 @@ def register(app, managers):
     # ══════════════════════════════════════════════════════
     # 会话覆盖（角色/物品/环境的会话级修改）
     # ══════════════════════════════════════════════════════
-
-    @bp.route("/api/sessions/<session_id>/overrides", methods=["GET"])
-    def get_session_overrides(session_id: str):
-        """获取会话的全部覆盖数据。"""
-        session = _get_session(session_mgr, session_id)
-        if not session:
-            return json_error("会话不存在", 404)
-        return jsonify(session.overlay.to_dict())
 
     @bp.route("/api/sessions/<session_id>/overrides/characters/<name>", methods=["GET"])
     def get_character_merged(session_id: str, name: str):
@@ -407,13 +389,6 @@ def register(app, managers):
         directory = os.path.dirname(path)
         basename = os.path.basename(path)
         return send_from_directory(directory, basename)
-
-    # 卡面裁剪参数
-    @bp.route("/api/characters/<name>/card-face-crop")
-    def character_card_face_crop(name: str):
-        from avatar_color import get_card_face_crop
-        crop = get_card_face_crop(name)
-        return jsonify(crop or {})
 
     # ── 角色卡导入（第三方角色 → data/characters/<name>/ + 内嵌世界书） ──
 

@@ -6,7 +6,6 @@
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
-    "dev:electron": "vite",
     "dev:web": "vite --config vite.config.web.ts",
     "build": "tsc && vite build",
     "preview": "vite preview"
@@ -28,6 +27,7 @@
     "autoprefixer": "^10.4.0",
     "electron": "^42.2.0",
     "electron-builder": "^24.0.0",
+    "esbuild": "^0.21.5",
     "postcss": "^8.4.0",
     "tailwindcss": "^3.4.0",
     "typescript": "^5.5.0",

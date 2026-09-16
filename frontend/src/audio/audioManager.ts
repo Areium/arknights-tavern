@@ -350,9 +350,6 @@ class AudioManager {
     if (this.bgmLoop) { this.bgmLoop.pause(); this.bgmLoop.src = ""; this.bgmLoop = null; }
   }
 
-  /** 当前 BGM 轨道（null = 未播放） */
-  getBgmTrack(): "combat" | "menu" | null { return this.bgmTrack; }
-
   /** 主菜单 / 大厅 BGM 曲目列表（顺序轮播，播完循环回第一首） */
   private menuTracks: string[] = ["menu_1.mp3", "menu_2.mp3"];
 

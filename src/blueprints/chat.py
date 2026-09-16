@@ -19,7 +19,6 @@ from hooks.base import HookContext
 logger = logging.getLogger(__name__)
 
 # 模块级引用，由 register() 初始化
-_doc_mgr = None
 
 
 # ── 辅助函数 ──
@@ -270,11 +269,9 @@ def _commit_tree_step(session, narrative: str, summary: str,
 # ── Blueprint 注册 ──
 
 def register(app, managers):
-    global _doc_mgr
     bp = Blueprint("chat", __name__)
     session_mgr = managers["session"]
     llm_backend = managers["llm_backend"]
-    _doc_mgr = managers["document"]
     hook_pipeline = managers.get("hook_pipeline")
 
     # ── 1. 单角色聊天 ──

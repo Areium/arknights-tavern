@@ -209,7 +209,7 @@
 - **开场白与场景对应**：角色卡导入把 `scenario`/`first_mes` 写入角色 frontmatter（正文保留分节），SceneManager 首轮叙述注入 `<opening_setup>`（场景设定 + 角色开场白，含 {{char}}/{{user}} 宏替换），开场叙述忠实呈现卡片设定；CharacterAgent 常驻 prompt 不重复注入（dump 排除 first_mes/scenario）
 - **角色入队界面修复**：/api/characters 返回的 DocumentInfo 增加 `name` 兼容别名（此前前端读 `c.name` 得到 undefined → 磁贴无名字/无头像/选中态失效/入队加载失败）；新建向导与大厅角色选择器统一按目录名（slug）加载、显示显示名，选中磁贴增加 ✓/「已入队」徽章，完成页列出所选角色名单
 - **玩家身份角色（用户自身）**：会话新增 `player_identity`（默认"博士"，创建时可选任意角色卡），持久化到 session.json（导出/导入存档携带）；新建会话向导新增「玩家身份」步骤（默认博士 + 角色库可选，头像/✓ 选中态）；对话/叙述 identity 默认取会话身份；叙述与角色对话注入 `<player_profile>`（身份简介/标签/背景，src/player_profile.py 进程内缓存）；用户消息气泡显示身份名；会话大厅统计网格显示玩家身份
-- **测试**：tests/test_full_import_flow.py（解析/写盘/档案全流程）+ tests/test_api_integration.py（Flask 集成：PNG 导入/连带角色/会话身份/叙述注入）全绿，测试自清理无残留
+- **测试**：tests/legacy/full_import_flow.py（解析/写盘/档案全流程）+ tests/legacy/api_integration.py（Flask 集成：PNG 导入/连带角色/会话身份/叙述注入）全绿，测试自清理无残留
 
 ### 2026-08-16 — 内容中心整合：三模块合一 + 方舟整合包（统一管理）
 

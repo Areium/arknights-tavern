@@ -54,8 +54,8 @@
 | `ADJUDICATION_OUTPUT_TOKEN_BUDGET` | 6000 | 判定请求输出预算 |
 | `ADJUDICATION_PAIR_OUTPUT_TOKENS` | 160 | 单对判定的输出票额 |
 
-`ANALYSIS_BATCH` / `ADJUDICATION_BATCH` 保留为**装箱上限的别名**，不再是另一套固定值
-（`test_analysis_batch_constants_match_planner_caps` 守住这一点）。
+规划与执行直接共用 `ANALYSIS_MAX_UNITS` / `ADJUDICATION_MAX_UNITS`，不再暴露另一组
+兼容别名。
 
 超大单元（单个分块或单对本身就超预算）不会把请求撑爆：装箱器让它**独占一个请求**并标记
 `oversized`，覆盖与上限断言都放行它。执行侧对 `oversized` 的处理是**结构化失败/安全切分**，

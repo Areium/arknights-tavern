@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from combat_session import CombatSession  # noqa: E402
 from combat_engine.card_data import get_cards_for_class  # noqa: E402
-from blueprints.combat import _generate_card_choices, _squad_card_pool  # noqa: E402
+from combat_settlement import generate_card_choices, squad_card_pool  # noqa: E402
 
 
 class _FakeOverlay:
@@ -26,7 +26,7 @@ class _FakeSession:
 
 def test_squad_card_pool_aggregates_classes():
     metas = [{"class": "近卫"}, {"class": "医疗"}]
-    pool = _squad_card_pool(metas)
+    pool = squad_card_pool(metas)
     ids = {c["card_id"] for c in pool}
     assert "guard_slash" in ids
     assert "medic_heal" in ids
@@ -36,7 +36,7 @@ def test_squad_card_pool_aggregates_classes():
 def test_generate_card_choices_excludes_owned():
     s = _FakeSession()
     s.overlay._data["combat_deck"] = [{"card_id": "guard_slash"}]
-    choices = _generate_card_choices(s, [{"class": "近卫"}], count=3)
+    choices = generate_card_choices(s, [{"class": "近卫"}], count=3)
     assert len(choices) == 3
     assert all(c["card_id"] != "guard_slash" for c in choices)
 
@@ -45,7 +45,7 @@ def test_generate_card_choices_empty_when_all_owned():
     s = _FakeSession()
     all_ids = [{"card_id": c.card_id} for c in get_cards_for_class("近卫")]
     s.overlay._data["combat_deck"] = all_ids
-    choices = _generate_card_choices(s, [{"class": "近卫"}], count=3)
+    choices = generate_card_choices(s, [{"class": "近卫"}], count=3)
     assert choices == []
 
 

@@ -5,6 +5,7 @@ States: INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN (loop) → ROUND_END
 """
 
 import copy
+import logging
 import random
 from dataclasses import dataclass, field
 from typing import Optional, Callable
@@ -16,6 +17,9 @@ from combat_engine.grid import (
 )
 from combat_engine.card import Card, CardPool
 from combat_engine.dice import check_hit, compute_damage, HitResult, DamageResult
+
+
+logger = logging.getLogger(__name__)
 
 
 # ── Enemy intent labels ──

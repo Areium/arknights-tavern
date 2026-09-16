@@ -3,7 +3,7 @@ Card pools per class — 战术卡单一真相源（design 方案 §10.1 / P0-4�
 
 硬编码卡表已迁移到 data/classes/<职业>/cards.json：
 - `get_cards_for_class` 从 JSON 读取（card_json_loader 缓存）；
-- 迁移前旧表快照见 perf_tests/cards_python_snapshot.json，
+- 迁移前旧表快照见 perf_tests/fixtures/cards_python_snapshot.json，
   等价性由 perf_tests/test_card_json_roundtrip.py 验证；
 - 卡牌编辑通过 blueprints/cards.py 写回 JSON，保存后调用
   card_json_loader.clear_cache() 刷新运行时缓存。

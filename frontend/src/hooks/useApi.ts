@@ -159,20 +159,10 @@ export function useApi() {
       }),
 
     // ── 对话 ──
-    chat: (sessionId: string, input: string, identity = "博士") =>
-      request<any>(`/api/sessions/${sessionId}/chat`, {
-        method: "POST",
-        body: JSON.stringify({ input, identity }),
-      }),
     groupChat: (sessionId: string, input: string, identity = "博士") =>
       request<any>(`/api/sessions/${sessionId}/group-chat`, {
         method: "POST",
         body: JSON.stringify({ input, identity }),
-      }),
-    narrateContinue: (sessionId: string, identity = "博士", action = "") =>
-      request<any>(`/api/sessions/${sessionId}/narrate-continue`, {
-        method: "POST",
-        body: JSON.stringify({ identity, action }),
       }),
     narrateVariant: (sessionId: string, prompt: string, identity = "博士") =>
       request<any>(`/api/sessions/${sessionId}/narrate-variant`, {
@@ -569,20 +559,9 @@ export function useApi() {
       }),
 
     // ── 物品库 ──
-    getItems: () => request<any[]>("/api/items"),
     getItem: (id: string) => request<any>(`/api/items/${encodeURIComponent(id)}`),
     getSceneItems: (sessionId: string) =>
       request<any>(`/api/sessions/${sessionId}/items`),
-    addSceneItem: (sessionId: string, itemId: string) =>
-      request<any>(`/api/sessions/${sessionId}/items/add`, {
-        method: "POST",
-        body: JSON.stringify({ item_id: itemId }),
-      }),
-    removeSceneItem: (sessionId: string, itemId: string) =>
-      request<any>(`/api/sessions/${sessionId}/items/remove`, {
-        method: "POST",
-        body: JSON.stringify({ item_id: itemId }),
-      }),
 
     // ── 任务系统 ──
     getQuests: (sessionId: string) =>
@@ -603,26 +582,6 @@ export function useApi() {
     // ── 会话覆盖 ──
     getCharacterMerged: (sessionId: string, name: string) =>
       request<any>(`/api/sessions/${sessionId}/overrides/characters/${encodeURIComponent(name)}`),
-    setCharacterOverride: (sessionId: string, name: string, overrides: Record<string, any>) =>
-      request<any>(`/api/sessions/${sessionId}/overrides/characters/${encodeURIComponent(name)}`, {
-        method: "PUT",
-        body: JSON.stringify(overrides),
-      }),
-    deleteCharacterOverride: (sessionId: string, name: string) =>
-      request<any>(`/api/sessions/${sessionId}/overrides/characters/${encodeURIComponent(name)}`, {
-        method: "DELETE",
-      }),
-    getItemMerged: (sessionId: string, itemId: string) =>
-      request<any>(`/api/sessions/${sessionId}/overrides/items/${encodeURIComponent(itemId)}`),
-    setItemOverride: (sessionId: string, itemId: string, overrides: Record<string, any>) =>
-      request<any>(`/api/sessions/${sessionId}/overrides/items/${encodeURIComponent(itemId)}`, {
-        method: "PUT",
-        body: JSON.stringify(overrides),
-      }),
-    deleteItemOverride: (sessionId: string, itemId: string) =>
-      request<any>(`/api/sessions/${sessionId}/overrides/items/${encodeURIComponent(itemId)}`, {
-        method: "DELETE",
-      }),
 
 
     // ── 卡牌 CRUD ──
@@ -642,8 +601,6 @@ export function useApi() {
       }),
     listCharactersWithCards: () =>
       request<{ characters: string[] }>("/api/cards"),
-    listClassesWithCards: () =>
-      request<{ classes: string[] }>("/api/cards/classes"),
     getCardsTree: () =>
       request<import("../types").CardsTreeDTO>("/api/cards/tree"),
     deleteCharacterCard: (name: string, cardId: string) =>
@@ -653,23 +610,6 @@ export function useApi() {
     deleteClassCard: (className: string, cardId: string) =>
       request<any>(`/api/cards/classes/${encodeURIComponent(className)}/cards/${encodeURIComponent(cardId)}`, {
         method: "DELETE",
-      }),
-    createCharacterCard: (name: string, card: Record<string, any>) =>
-      request<any>(`/api/cards/${encodeURIComponent(name)}/cards`, {
-        method: "POST",
-        body: JSON.stringify(card),
-      }),
-    createClassCard: (className: string, card: Record<string, any>) =>
-      request<any>(`/api/cards/classes/${encodeURIComponent(className)}/cards`, {
-        method: "POST",
-        body: JSON.stringify(card),
-      }),
-
-    // ── 物品永久保存 ──
-    saveItem: (itemId: string, content: string, metadata?: Record<string, any>, hash?: string) =>
-      request<any>(`/api/items/${encodeURIComponent(itemId)}`, {
-        method: "PUT",
-        body: JSON.stringify({ content, metadata, hash }),
       }),
 
     // ── Combat ──
@@ -737,23 +677,6 @@ export function useApi() {
         body: JSON.stringify({ node }),
       }),
 
-    /** 会话节拍进度（node_id → done/current/locked） */
-    combatNodeProgress: (sessionId: string) =>
-      request<{ progress: Record<string, any>; context: any; has_plot: boolean }>(
-        `/api/combat/nodes/progress?session_id=${encodeURIComponent(sessionId)}`,
-      ),
-
-    /** 节点 → 世界书条目预览（可直接贴进世界书/导出） */
-    combatNodeWorldbookEntry: (nodeId: string) =>
-      request<{ entry: any }>(`/api/combat/nodes/${encodeURIComponent(nodeId)}/worldbook`),
-
-    /** 从世界书条目/书 id 导入战斗节点 */
-    importCombatNodes: (payload: { book_id?: string; entries?: any[] }) =>
-      request<{ ok: boolean; imported: any[]; skipped: string[]; errors: string[] }>(
-        "/api/combat/nodes/import-worldbook",
-        { method: "POST", body: JSON.stringify(payload) },
-      ),
-
     /** ── 剧情节点图（自由画布布局，整图存为世界书条目） ── */
     listPlotGraphs: (bookId: string) =>
       request<{ book_id: string; graphs: string[] }>(
@@ -767,11 +690,6 @@ export function useApi() {
       request<{ ok: boolean; saved_at: number; node_count: number; edge_count: number }>(
         `/api/plot-graphs/${encodeURIComponent(plotId)}`,
         { method: "PUT", body: JSON.stringify({ book_id: bookId, graph: doc, display_name: displayName }) }),
-
-    deletePlotGraph: (plotId: string, bookId: string) =>
-      request<{ ok: boolean; deleted: boolean }>(
-        `/api/plot-graphs/${encodeURIComponent(plotId)}?book_id=${encodeURIComponent(bookId)}`,
-        { method: "DELETE" }),
 
     /** 格子类型注册表（内置 + data/combat/tiles/*.json） */
     listCombatTiles: () =>
@@ -803,7 +721,6 @@ export function useApi() {
         message: string;
         history: any[];
         settlement: CombatSettlementDTO;
-        rewards: { xp: number; items: string[]; level_ups: any[]; card_choices?: any[] };
         auto_narrate_action: string;
       }>(`/api/sessions/${sessionId}/combat/complete`, {
         method: "POST",
@@ -842,13 +759,6 @@ export function useApi() {
       request<{ ok: boolean; resumed: boolean; state: any; resume?: CombatResumeSummaryDTO | null }>(
         `/api/sessions/${sessionId}/combat/resume`,
         { method: "POST" },
-      ),
-
-    /** 丢弃会话战的挂起存档（放弃这场战斗，不再提供恢复入口） */
-    combatDiscardSuspend: (sessionId: string) =>
-      request<{ ok: boolean; removed: boolean }>(
-        `/api/sessions/${sessionId}/combat/suspend`,
-        { method: "DELETE" },
       ),
 
     /** 全部可恢复的战斗（会话战 + 战斗测试） */

@@ -73,7 +73,7 @@ class Grid:
     def in_bounds(self, pos: tuple[int, int]) -> bool:
         return self.map.in_bounds(pos)
 
-    def is_valid_position(self, pos: tuple[int, int], team: str = "") -> bool:
+    def is_valid_position(self, pos: tuple[int, int]) -> bool:
         """界内即可（地形/单位阻挡由 can_place / path_to 判定）。"""
         return self.map.in_bounds(pos)
 
@@ -117,9 +117,6 @@ class Grid:
         if team:
             units = [u for u in units if u.team == team]
         return units
-
-    def is_occupied(self, pos: tuple[int, int]) -> bool:
-        return pos in self._cells
 
     def can_place(self, pos: tuple[int, int], *, ignore_unit_id: str = "") -> bool:
         """该格能否落脚：界内 + 非阻挡 + 无其他单位。"""

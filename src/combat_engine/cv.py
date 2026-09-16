@@ -124,15 +124,6 @@ def budget_band(cost: int) -> tuple[float, float]:
     return (b * 0.9, b * 1.1)
 
 
-def _attack_stat(card: Card, band: dict) -> float:
-    """参考角色的主攻属性：物理→PATK，源石→MATK，治疗→HEAL，混合→两者均值。"""
-    if card.damage_type == "healing":
-        return band["atk"]
-    if card.damage_type == "arts":
-        return band["atk"]
-    return band["atk"]  # 参考带内 PATK/MATK/HEAL 同值，mixed 亦取该值
-
-
 def estimate_card_cv(card: Card, tier: str | None = None) -> dict:
     """估算单卡 CV，返回含明细的字典（便于审计与回归对比）。
 
@@ -147,7 +138,7 @@ def estimate_card_cv(card: Card, tier: str | None = None) -> dict:
     damage_exp = 0.0
     if card.damage_type != "healing" and card.max_damage > 0:
         base = (card.min_damage + card.max_damage) / 2.0
-        atk = _attack_stat(card, band)
+        atk = band["atk"]
         resist = band["resist"] * (1.0 - (card.ignore_def or 0.0))
         raw = max(1.0, base + atk * card.atk_scale - resist)
         damage_exp = raw * reliability_coef(card, tier)

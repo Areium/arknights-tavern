@@ -69,6 +69,8 @@ def make_png_with_chara(card_json: dict) -> bytes:
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="replace")
     print("=== 1. JSON 角色卡 parse_character_card ===")
     parsed = parse_character_card(json.dumps(CARD, ensure_ascii=False).encode("utf-8"))
     print("meta keys:", sorted(parsed["meta"].keys()))

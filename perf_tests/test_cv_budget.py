@@ -2,7 +2,7 @@
 CV 预算验收测试（design 方案 §12 硬性测试第 1 条）：
 
 - 每张 1/2/3 AP 卡的估算 CV 落在 24 CV/AP 预算的 ±20% 内，
-  或出现在 perf_tests/cv_audit.json 的例外清单中（必须有说明文字）；
+  或出现在 perf_tests/fixtures/cv_audit.json 的例外清单中（必须有说明文字）；
 - cv_budget / cv_estimated 与重新计算一致；
 - 方案 §5.2 明确给出推荐值的卡按推荐值落地；
 - atk_scale 保持在 Card 声明的 0.0–1.5 区间。
@@ -22,7 +22,7 @@ if os.path.join(_ROOT, "src") not in sys.path:
 from combat_engine import cv as cvmod                            # noqa: E402
 from combat_engine.card_json_loader import load_all_class_cards   # noqa: E402
 
-AUDIT = os.path.join(_HERE, "cv_audit.json")
+AUDIT = os.path.join(_HERE, "fixtures", "cv_audit.json")
 
 # 方案 §5.2 推荐值（逐字落地）
 DESIGN_VALUES = {

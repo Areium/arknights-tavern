@@ -83,7 +83,6 @@ def test_schema2_session_upgrade_is_local_and_range_equivalent():
     old = book.resolve_import_scope(["A"])
     upgraded = ensure_editable_scope(old, book, ["A"])
     assert upgraded["schema_version"] == 3
-    assert upgraded["session_migrated_from"] == 2
     assert set(upgraded["resolved_entry_uids"]) == set(old["resolved_entry_uids"])
     assert book.schema_version == 2 and book.dependency_rules is None
 

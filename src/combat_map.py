@@ -71,7 +71,7 @@ _TILE_KEYS = {
     "tile_id", "name", "glyph", "color", "blocks_movement", "blocks_los",
     "move_cost", "defense_bonus", "evasion_bonus", "damage_bonus",
     "deployable_player", "deployable_enemy", "on_enter", "on_round_start",
-    "tags", "description",
+    "tags",
 }
 
 

@@ -29,12 +29,6 @@ from combat_settlement import (
     apply_settlement,
     append_history,
     build_settlement,
-    legacy_rewards_view,
-)
-# 战后卡牌奖励助手已迁至 combat_settlement，这里保留旧私有名以兼容既有调用/测试
-from combat_settlement import (  # noqa: F401
-    generate_card_choices as _generate_card_choices,
-    squad_card_pool as _squad_card_pool,
 )
 
 logger = logging.getLogger(__name__)
@@ -621,8 +615,6 @@ def register(app, managers):
         session.combat = None
         _clear_resume_file(_session_resume_path(session))
 
-        rewards = legacy_rewards_view(settlement)
-
         # Generate auto-narrate action for frontend（fail-forward：撤退/战败都不判死，继续推进）
         if winner == "escaped":
             auto_narrate_action = "战斗以玩家撤退告终，描述撤退后的场景与代价"
@@ -632,12 +624,12 @@ def register(app, managers):
             auto_narrate_action = "战斗失利，描述战败后的场景与代价（fail-forward，剧情继续推进）"
 
         logger.info("会话 %s: 战斗结果已记录 (winner=%s, rounds=%d, xp=%d)",
-                     session_id, winner, round_num, rewards.get("xp", 0))
+                     session_id, winner, round_num,
+                     int((settlement.get("rewards", {}) or {}).get("xp_total", 0) or 0))
         return jsonify({
             "message": "战斗已结束",
             "history": history,
             "settlement": settlement,
-            "rewards": rewards,
             "auto_narrate_action": auto_narrate_action,
         })
 

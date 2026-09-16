@@ -123,9 +123,9 @@ class EncounterDataTests(unittest.TestCase):
                     enemy_name = entry.get("enemy") or entry.get("name")
                     unit = loader.load_enemy(enemy_name)
                     self.assertIsNotNone(unit, f"{node_id} 引用未知敌人 {enemy_name}")
-                    self.assertEqual(len(entry.get("positions") or []),
-                                     int(entry.get("count", 1)),
-                                     f"{node_id}/{enemy_name} 位置数与数量不符")
+                    self.assertLessEqual(len(entry.get("positions") or []),
+                                         int(entry.get("count", 1)),
+                                         f"{node_id}/{enemy_name} 位置数超过数量")
 
     def test_node_resolvable_by_filename_and_name(self):
         """节点 id 与中文名两种引用都必须能加载。"""

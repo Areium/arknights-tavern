@@ -37,12 +37,6 @@ export const ROLE_HINTS: Record<DependencyRole, string> = {
 /** 依赖边在真实展开中的状态。 */
 export type DependencyEdgeStatus = "active" | "capped" | "idle";
 
-export const EDGE_STATUS_LABELS: Record<DependencyEdgeStatus, string> = {
-  active: "参与展开",
-  capped: "深度用尽，未展开",
-  idle: "上游未进入候选范围",
-};
-
 export type DependencyEdgeState = {
   fromUid: string;
   toUid: string;

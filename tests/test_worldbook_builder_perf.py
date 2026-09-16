@@ -803,10 +803,7 @@ def test_preinstalled_book_planning_covers_everything_with_bounded_requests():
           f"候选对 {len(pairs)} → 判定请求 {len(adjudication_plans)}")
 
 
-def test_analysis_batch_constants_match_planner_caps():
-    """对外暴露的批量常量必须就是装箱上限，不能再是「另一套固定值」。"""
-    assert builder.ANALYSIS_BATCH == ANALYSIS_MAX_UNITS
-    assert builder.ADJUDICATION_BATCH == ADJUDICATION_MAX_UNITS
+def test_adjudication_output_budget_is_positive():
     assert ADJUDICATION_PAIR_OUTPUT_TOKENS > 0
 
 

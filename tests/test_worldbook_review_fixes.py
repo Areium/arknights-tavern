@@ -22,7 +22,7 @@ sys.path.insert(0, str(REPO / "src"))
 from load_llm import LLMConnectError
 from world_book import DEFAULT_CATEGORIES, WorldBook, WorldBookEntry, WorldBookManager
 from worldbook_builder import (
-    ADJUDICATION_BATCH, ANALYSIS_BATCH, MAX_CALLS_DEFAULT, MAX_CALLS_HARD, PROMPT_VERSION,
+    ADJUDICATION_MAX_UNITS, ANALYSIS_MAX_UNITS, MAX_CALLS_DEFAULT, MAX_CALLS_HARD, PROMPT_VERSION,
     REL_NONE, REL_REQUIRES, AnalysisCache, DependencyJobStore, auto_budget,
     build_metadata_index, collect_candidates, entry_chunks, estimate_workload,
     relevant_chunk, run_build, suggest_roots, validate_proposal,
@@ -346,34 +346,6 @@ def test_unknown_chunk_id_invalidates_batch_and_cannot_report_success(cache, sto
     assert any("未知或缺失 chunk_id" in batch["message"] for batch in job.failed_batches)
 
 
-def test_legacy_numeric_chunk_checkpoint_is_discarded_and_all_chunks_reasked(cache, store):
-    """旧数字索引不含正文 hash，不能猜成当前块；即使看似齐全也必须整条重问。"""
-    book = WorldBook("legacy-chunks", "旧断点", [
-        entry("long", "甲" * 1800 + "乙" * 1000, name="长条目"),
-    ], categories=copy.deepcopy(DEFAULT_CATEGORIES))
-    priming = store.create(book.id, "h0", "m")
-    run_build(priming, book, CardStub(), model="m", cache=cache)
-    assert priming.outcome == "success"  # 模拟历史错误迁移已经留下整条缓存
-    job = store.create(book.id, "h", "m")
-    job.cards["long"] = {"uid": "long", "summary": "旧错误合并卡"}
-    job.chunk_cards["long"] = {
-        "0": {"uid": "long", "summary": "其实来自第二块"},
-        "1": {"uid": "long", "summary": "其实来自第一块"},
-    }
-    llm = CardStub()
-    run_build(job, book, llm, model="m", cache=cache)
-
-    prompts = [call[-1]["content"] for call in llm.calls
-               if "分析下面这批" in call[-1]["content"]]
-    assert prompts, "旧数字断点被直接当成完整卡，相关块没有重新询问"
-    stable_ids = set(job.chunk_cards["long"])
-    assert len(stable_ids) == len(entry_chunks(book.entries[0].content)[0])
-    assert all(not chunk_id.isdigit() for chunk_id in stable_ids)
-    assert all(chunk_id in "\n".join(prompts) for chunk_id in stable_ids)
-    assert job.chunk_report["long"]["discarded_legacy_chunk_ids"] == ["0", "1"]
-    assert job.outcome == "success" and job.cards["long"]["summary"] != "旧错误合并卡"
-
-
 def test_budget_exhaustion_is_resumable_with_checkpoint(cache, store):
     """预算耗尽必须是「可续跑 + 有断点」，而不是一句 failed 了事。"""
     book = WorldBook("bk", "预算书", [
@@ -588,8 +560,6 @@ def test_cache_key_binds_real_model_identity(cache):
     same_model = cache.card_key("hash-a", "cloud:gpt-4o-mini")
     other_model = cache.card_key("hash-a", "cloud:gpt-4o")
     assert same_model != other_model
-    assert cache.judgment_key("h1", "h2", "cloud:gpt-4o-mini") != \
-        cache.judgment_key("h1", "h2", "cloud:gpt-4o")
     # 提示词版本参与分键：改提示词必须让旧缓存失效
     assert cache.card_key("hash-a", "m") == cache.card_key("hash-a", "m")
 
@@ -665,8 +635,8 @@ def test_workload_estimate_matches_real_call_count(tmp_path):
     metadata = build_metadata_index(book.entries)
     pairs = collect_candidates(metadata, {e.uid: e for e in book.entries})["pairs"]
     workload = estimate_workload(metadata, pairs)
-    assert workload["card_calls"] == (len(book.entries) + ANALYSIS_BATCH - 1) // ANALYSIS_BATCH
-    assert workload["adjudication_calls"] == (len(pairs) + ADJUDICATION_BATCH - 1) // ADJUDICATION_BATCH
+    assert workload["card_calls"] == (len(book.entries) + ANALYSIS_MAX_UNITS - 1) // ANALYSIS_MAX_UNITS
+    assert workload["adjudication_calls"] == (len(pairs) + ADJUDICATION_MAX_UNITS - 1) // ADJUDICATION_MAX_UNITS
 
     store = DependencyJobStore(tmp_path / "jobs")
     cache = AnalysisCache(tmp_path / "analysis")
@@ -699,13 +669,16 @@ def test_prompt_version_changes_cache_keys(cache, monkeypatch):
     这是「不要为了改一句判定提示词就重付整本书的分析费」的保证。
     """
     import worldbook_builder as module
-    before = cache.card_key('h', 'm'), cache.judgment_key('a', 'b', 'm')
+    before = cache.card_key('h', 'm'), cache.judgment_key_for(
+        'a', 'b', 'ha', 'hb', 'm', 'cards', 'windows')
     monkeypatch.setattr(module, 'ANALYSIS_PROMPT_VERSION', 'next-analysis')
     assert before[0] != cache.card_key('h', 'm')
-    assert before[1] == cache.judgment_key('a', 'b', 'm'), \
+    assert before[1] == cache.judgment_key_for(
+        'a', 'b', 'ha', 'hb', 'm', 'cards', 'windows'), \
         "改分析提示词不应让判定缓存的键变化（两者版本独立）"
     monkeypatch.setattr(module, 'ADJUDICATION_PROMPT_VERSION', 'next-adjudication')
-    assert before[1] != cache.judgment_key('a', 'b', 'm')
+    assert before[1] != cache.judgment_key_for(
+        'a', 'b', 'ha', 'hb', 'm', 'cards', 'windows')
 
 
 def test_model_identity_uses_selected_config_and_endpoint():

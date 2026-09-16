@@ -77,16 +77,6 @@ def classify_enemy(stats: dict, level: int = 1, *, declared_role: str = "",
     }
 
 
-def enemy_threat(unit, *, declared_role: str = "", declared_tier: str = "") -> float:
-    """由已构建的 `CombatUnit` 估威胁点（战斗中/试跑时用）。"""
-    return float(classify_enemy(
-        {"hp": unit.max_hp, "patk": unit.PATK, "defense": unit.DEF},
-        level=getattr(unit, "level", 1) if hasattr(unit, "level") else 1,
-        declared_role=declared_role or getattr(unit, "role", ""),
-        declared_tier=declared_tier or getattr(unit, "power_tier", ""),
-    )["threat_points"])
-
-
 def node_threat(node: dict, *, loader=None) -> dict:
     """节点实际威胁：敌人条目威胁点 × 数量（含数值覆盖的重新估算）。
 

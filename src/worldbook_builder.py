@@ -34,7 +34,7 @@ from worldbook_classify import classify_entries
 from worldbook_reading import (
     READING_MODE_ADAPTIVE, READING_MODE_DEFAULT, READING_MODE_FULL, READING_MODES,
     READING_POLICY_VERSION, ReadingSelection, Span, build_reading_plan,
-    selection_cache_identity, slice_spans, summarize_reading_plan,
+    selection_cache_identity, summarize_reading_plan,
 )
 from worldbook_scope import (
     ACTIVATION_ALWAYS, ACTIVATION_ROSTER_ANY, EXPANSION_REQUIRES_CLOSURE,
@@ -97,8 +97,6 @@ _MARK_HEAD = "…（上文已截断）"
 _MARK_TAIL = "…（下文已截断）"
 
 # 兼容旧调用点：提示「批量」不再有固定值，两个常量保留为**装箱上限**语义。
-ANALYSIS_BATCH = ANALYSIS_MAX_UNITS
-ADJUDICATION_BATCH = ADJUDICATION_MAX_UNITS
 
 # 触发词的「文档频率」保护：出现在超过这个比例条目正文里的词是通用词
 # （例如「近卫」「术师」），作为明确引用会制造成百上千条噪声候选。
@@ -1635,10 +1633,6 @@ class AnalysisCache:
         """
         return self._key("card", version or ANALYSIS_PROMPT_VERSION, model, content_hash)
 
-    def judgment_key(self, from_hash: str, to_hash: str, model: str) -> str:
-        """兼容旧签名的判定键：只绑双方正文 hash（不含卡片/别名/窗口输入）。"""
-        return self._key("judge", ADJUDICATION_PROMPT_VERSION, model, from_hash, to_hash)
-
     def judgment_key_for(self, from_uid: str, to_uid: str, from_hash: str, to_hash: str,
                          model: str, card_fingerprint: str,
                          window_fingerprint: str) -> str:
@@ -2593,7 +2587,6 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
         units = []                 # (uid, chunk_id, chunk_index, chunk_text, cache_key)
         expected = {}              # uid -> 按正文顺序排列的稳定 chunk_id
         chunk_report = {}
-        legacy_checkpoint_ids = {}
         rebuild_required = {uid for uid in job.rebuild_card_uids if uid in entries_by_uid}
         for uid, info in metadata["entries"].items():
             if source_uids is not None and uid not in analysis_uids:
@@ -2601,14 +2594,6 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
             if only_uids is not None and uid not in only_uids:
                 continue
             saved = job.chunk_cards.get(uid, {})
-            legacy_ids = (sorted(str(saved_id) for saved_id in saved
-                                 if str(saved_id).isdigit())
-                          if isinstance(saved, dict) else [])
-            if legacy_ids:
-                # 已污染的整条缓存也不能盖过数字断点迁移；本轮完整重问后会安全覆盖。
-                legacy_checkpoint_ids[uid] = legacy_ids
-                rebuild_required.add(uid)
-                job.cards.pop(uid, None)
             key = card_cache_key(uid)
             cached = None if uid in rebuild_required else cache.get(key)
             if cached is not None:
@@ -2676,21 +2661,13 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
             saved = job.chunk_cards.get(uid, {})
             restored = {}
             saved_items = list(saved.items()) if isinstance(saved, dict) else []
-            legacy_ids = legacy_checkpoint_ids.get(uid, [])
-            if legacy_ids:
-                # 旧实现把同 UID 多块响应按返回顺序编号；数字 0 不一定是正文第 1 块。
-                # 没有稳定 chunk_id + 正文 hash 就不能猜测迁移，整条重新分析才不会漏块。
-                job.cards.pop(uid, None)
-                chunk_report.setdefault(uid, {"chunks": len(chunk_ids), "dropped_chars": 0})
-                chunk_report[uid]["discarded_legacy_chunk_ids"] = sorted(legacy_ids)
-            else:
-                # 只接受**本条目认识的**切片身份：种子跨度 + 已持久化的补集切片。
-                # 不接受任意 key，否则旧格式 / 串号响应会被当成成功结果。
-                allowed_ids = set(chunk_ids) | set(
-                    (job.entry_read_state.get(uid) or {}).get("expected") or [])
-                for saved_id, card in saved_items:
-                    if saved_id in allowed_ids and isinstance(card, dict):
-                        restored[saved_id] = card
+            # 只接受**本条目认识的**切片身份：种子跨度 + 已持久化的补集切片。
+            # 不接受任意 key，否则串号响应会被当成成功结果。
+            allowed_ids = set(chunk_ids) | set(
+                (job.entry_read_state.get(uid) or {}).get("expected") or [])
+            for saved_id, card in saved_items:
+                if saved_id in allowed_ids and isinstance(card, dict):
+                    restored[saved_id] = card
             done_chunks[uid] = restored
             job.chunk_cards[uid] = restored
         merged_ready = set()

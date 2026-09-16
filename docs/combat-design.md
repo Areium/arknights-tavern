@@ -92,7 +92,7 @@ INIT → ROUND_START → PLAYER_TURN → ENEMY_TURN → (round++, 回 ROUND_STAR
 - **单一真相源（v1）**：运行时卡表只读 `data/classes/<职业>/cards.json`
   （`card_json_loader.py` 带缓存，`card_data.py` 为薄封装）。
   `blueprints/cards.py` 写盘后调用 `clear_cache()` 刷新；`perf_tests/test_card_json_roundtrip.py`
-  验证 JSON 与迁移前硬编码表的结构等价，`perf_tests/cards_python_snapshot.json` 是迁移基线。
+  验证 JSON 与迁移前硬编码表的结构等价，`perf_tests/fixtures/cards_python_snapshot.json` 是迁移基线。
   （旧文档提到的 `card_loader.py` 三层回落为死代码，已在冗余清理中删除。）
 - **v1 卡牌字段**：在 `damage_type/min_damage/max_damage/atk_scale/target/range/cost/tier/
   class_required/owner/effects/ignore_def/cleanse` 之外新增

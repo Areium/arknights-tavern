@@ -10,7 +10,7 @@ export default defineConfig({
     alias: { "@": path.resolve(__dirname, "src"), url: "url/url.js" },
   },
   optimizeDeps: {
-    include: ["pixi.js", "@pixi-spine/base", "@pixi-spine/runtime-3.8", "@pixi/utils", "@pixi/core"],
+      include: ["pixi.js", "@pixi-spine/base", "@pixi-spine/runtime-3.8"],
   },
   server: {
     port: 5174,

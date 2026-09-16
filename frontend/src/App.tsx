@@ -9,7 +9,6 @@ import ChatView from "./components/ChatView";
 import SessionManagerView from "./components/session/SessionManagerView";
 import CombatView from "./components/combat/CombatView";
 import SettingsPanel from "./components/SettingsPanel";
-import IndexManager from "./components/IndexManager";
 import WorldBookManager from "./components/WorldBookManager";
 import ContentHub from "./components/ContentHub";
 import DocsView from "./components/DocsView";
@@ -134,8 +133,6 @@ export default function App() {
         return <SessionManagerView />;
       case "settings":
         return <SettingsPanel />;
-      case "index":
-        return <IndexManager />;
       case "worldbook":
         return <WorldBookManager />;
       case "characters":

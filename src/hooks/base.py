@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from abc import ABC
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -19,7 +19,6 @@ class HookContext:
     env_context: str
     stream_id: str = ""
     narrative_text: str | None = None
-    metadata: dict = field(default_factory=dict)
 
 
 class NarrativeHook(ABC):

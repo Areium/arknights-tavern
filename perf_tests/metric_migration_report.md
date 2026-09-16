@@ -1,7 +1,7 @@
 # 度量迁移报告：切比雪夫 → 统一曼哈顿（批次 1）
 
 - 对比口径：标准队 × 30 次/组，种子基数 20260912
-- 基线：`perf_tests/metric_migration_baseline.json`（改动前冻结：切比雪夫移动 + 切比雪夫射程）
+- 基线：`perf_tests/fixtures/metric_migration_baseline.json`（改动前冻结：切比雪夫移动 + 切比雪夫射程）
 - 现状：8 向曼哈顿代价（斜向 ×2）+ 曼哈顿射程 + 寻路/视线/地形 + 单体近战射程 1→2 补偿（含 CV 预算收紧后的伤害回调）
 - 复现：`python3 tools/metric_migration_report.py --runs 30`
 

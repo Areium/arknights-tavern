@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from load_llm import LLMConnectError, LLMError
 from world_book import DEFAULT_CATEGORIES, WorldBook, WorldBookEntry
 from worldbook_builder import (
-    ANALYSIS_BATCH, MAX_FANOUT, PROMPT_VERSION, REL_NONE, REL_RELATED, REL_REQUIRES,
+    MAX_FANOUT, PROMPT_VERSION, REL_NONE, REL_RELATED, REL_REQUIRES,
     REL_UNSURE, AnalysisCache, DependencyBuildJob, DependencyJobStore, build_metadata_index,
     build_to_v3_rules, explicit_reference_pairs, extract_json, run_build, split_sections,
     validate_proposal,
@@ -276,10 +276,7 @@ def test_analysis_cards_are_cached_by_content_model_and_prompt_version(cache, st
     assert len([c for c in third.calls if "分析下面这批" in c[-1]["content"]]) > 0
 
 
-def test_judgment_cache_key_binds_target_hash(cache):
-    assert cache.judgment_key("h1", "h2", "m") == cache.judgment_key("h1", "h2", "m")
-    assert cache.judgment_key("h1", "h2", "m") != cache.judgment_key("h1", "h3", "m")
-    assert cache.judgment_key("h1", "h2", "m") != cache.judgment_key("h1", "h2", "other")
+def test_card_cache_key_binds_model(cache):
     assert cache.card_key("c", "m") != cache.card_key("c", "m2")
 
 
@@ -395,43 +392,6 @@ def test_call_budget_is_enforced(cache, store):
     result = run_build(job, book, llm, model="m", cache=cache, max_calls=0)
     assert result.stage == "failed"
     assert result.error["code"] == "budget_exceeded"
-
-
-def test_legacy_numeric_checkpoint_keeps_cache_untrusted_across_failed_resume(cache, store):
-    """数字断点迁移失败后，下一次续跑仍须重问，不能回退命中旧整条缓存。"""
-    book = WorldBook("legacy", "旧断点", [entry("legacy", "旧格式断点正文。")],
-                     categories=copy.deepcopy(DEFAULT_CATEGORIES))
-
-    # 先模拟旧实现已经写入了一条可能受污染的整条缓存。
-    primed = store.create(book.id, "h", "m")
-    run_build(primed, book, StubLLM(), model="m", cache=cache)
-
-    job = store.create(book.id, "h", "m")
-    job.cards["legacy"] = {"uid": "legacy", "summary": "旧污染整条缓存"}
-    job.chunk_cards["legacy"] = {
-        "0": {"uid": "legacy", "summary": "无法可靠归属的旧分块"},
-    }
-    job.save()
-
-    failed = StubLLM(fail_on={"cards"})
-    run_build(job, book, failed, model="m", cache=cache)
-    assert job.outcome == "failed"
-    assert job.pending_card_uids == ["legacy"]
-    assert job.pending_chunk_ids
-    assert not job.cards and job.chunk_cards["legacy"] == {}
-    assert job.rebuild_card_uids == ["legacy"]
-
-    # 模拟进程重启后再续跑：数字 key 已在上次迁移中清空，但“不可信”状态必须仍在。
-    resumed = DependencyBuildJob.load(job.id, store._dir)
-    retry = StubLLM()
-    run_build(resumed, book, retry, model="m", cache=cache,
-              only_uids=list(resumed.pending_card_uids))
-    card_calls = [messages for messages in retry.calls
-                  if "分析下面这批" in messages[-1]["content"]]
-    assert card_calls, "续跑错误命中了旧整条缓存，导致 0 调用 success"
-    assert resumed.outcome == "success"
-    assert resumed.pending_card_uids == [] and resumed.pending_chunk_ids == []
-    assert resumed.rebuild_card_uids == []
 
 
 def test_build_to_v3_rules_separates_requires_from_related_and_respects_human_edits():

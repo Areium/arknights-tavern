@@ -12,7 +12,7 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    include: ["pixi.js", "@pixi-spine/base", "@pixi-spine/runtime-3.8", "@pixi/utils", "@pixi/core"],
+      include: ["pixi.js", "@pixi-spine/base", "@pixi-spine/runtime-3.8"],
   },
   server: {
     port: 5173,

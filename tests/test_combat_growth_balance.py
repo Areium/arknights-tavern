@@ -167,8 +167,8 @@ def test_band_scaling_applies_in_session_when_enabled():
         "difficulty": {"band": "T2", "apply_band_scaling": True, "threat_budget": 2.0},
     }
     path = ROOT / "data" / "combat" / "nodes" / f"{node_id}.json"
-    path.write_text(json.dumps(node, ensure_ascii=False, indent=2), encoding="utf-8")
     try:
+        path.write_text(json.dumps(node, ensure_ascii=False, indent=2), encoding="utf-8")
         state = CombatSession("band-test").start(node_id, character_names=["阿米娅"])
         enemy = next(u for u in state["units"] if u["team"] == "enemy")
         assert enemy["max_hp"] == 108        # 90 × 1.2
@@ -245,12 +245,14 @@ def test_simulate_cli_is_reproducible(tmp_path):
     assert a.stdout == b.stdout
 
 
-def test_balance_audit_tool_runs():
-    res = subprocess.run([sys.executable, str(ROOT / "tools" / "balance_audit.py")],
+def test_balance_audit_tool_runs(tmp_path):
+    report = tmp_path / "balance_audit_report.md"
+    res = subprocess.run([sys.executable, str(ROOT / "tools" / "balance_audit.py"),
+                          "--report", str(report)],
                          capture_output=True, text=True, cwd=ROOT)
     assert res.returncode == 0, res.stderr
     assert "敌人" in res.stdout and "节点" in res.stdout
-    assert (ROOT / "perf_tests" / "balance_audit_report.md").is_file()
+    assert report.is_file()
 
 
 def test_audit_report_written_with_tables():

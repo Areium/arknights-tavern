@@ -298,7 +298,7 @@ class SceneManager:
         """加载角色加入当前场景。首次加载会创建 CharacterAgent 并缓存。
 
         Args:
-            name: 角色名（对应 data/characters/{name}/index.md 或 {name}.md）
+            name: 角色名（对应 data/characters/{name}/index.md）
 
         Returns:
             True 表示加载成功，False 表示文件不存在或解析失败。

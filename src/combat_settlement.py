@@ -561,7 +561,6 @@ def append_history(session, *, encounter_id: str, winner: str, rounds: int,
             "items": [i.get("name", "") for i in (settlement.get("rewards", {}) or {}).get("items", [])],
             "level_ups": [
                 {"name": c["name"], "level": lu["level"],
-                 "attribute": lu.get("attribute", ""),
                  "specialization_point": lu.get("specialization_point", 1),
                  "node_unlocked": lu.get("node_unlocked", False)}
                 for c in settlement.get("characters", [])
@@ -577,21 +576,3 @@ def append_history(session, *, encounter_id: str, winner: str, rounds: int,
     if len(history) > MAX_HISTORY:
         overlay_data["combat_history"] = history[-MAX_HISTORY:]
     return overlay_data["combat_history"]
-
-
-def legacy_rewards_view(settlement: dict) -> dict:
-    """把结算 DTO 映射为旧前端字段（xp/items/level_ups/card_choices），保持向后兼容。"""
-    rewards = settlement.get("rewards", {}) or {}
-    return {
-        "xp": int(rewards.get("xp_total", 0) or 0),
-        "items": [i.get("name", "") for i in rewards.get("items", [])],
-        "level_ups": [
-            {"name": c["name"], "level": lu["level"],
-             "attribute": lu.get("attribute", ""),
-             "specialization_point": lu.get("specialization_point", 1),
-             "node_unlocked": lu.get("node_unlocked", False)}
-            for c in settlement.get("characters", [])
-            for lu in c.get("level_ups", [])
-        ],
-        "card_choices": rewards.get("cards", []),
-    }

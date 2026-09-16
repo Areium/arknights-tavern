@@ -95,7 +95,6 @@ def ensure_editable_scope(scope: dict | None, book, roster_character_ids=None) -
     upgraded = local_book.session_scope_snapshot(
         roster_character_ids or value.get("roster_character_ids") or [], manual,
         full_scope=full_scope)
-    upgraded["session_migrated_from"] = int(value.get("schema_version") or 2)
     return normalize_scope(upgraded)
 
 

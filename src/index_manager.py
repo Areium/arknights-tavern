@@ -17,14 +17,14 @@ logger = logging.getLogger(__name__)
 
 # ── 缓存 ──
 
-_cache: dict = {"overview": None, "graph": None, "timestamp": 0.0}
+_cache: dict = {"overview": None, "timestamp": 0.0}
 _CACHE_TTL = 30  # seconds
 
 
 def invalidate_cache():
     """写操作后主动清空缓存。"""
     global _cache
-    _cache = {"overview": None, "graph": None, "timestamp": 0.0}
+    _cache = {"overview": None, "timestamp": 0.0}
 
 
 def _cache_valid() -> bool:
@@ -245,5 +245,5 @@ def build_overview(data_root: str, doc_manager=None) -> dict:
     result_categories.sort(key=lambda c: (c["level"], c["category"]))
     result = {"categories": result_categories, "hierarchy": hierarchy}
 
-    _cache = {"overview": result, "graph": None, "timestamp": time.time()}
+    _cache = {"overview": result, "timestamp": time.time()}
     return result

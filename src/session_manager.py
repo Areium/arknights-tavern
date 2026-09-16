@@ -804,7 +804,6 @@ class SessionManager:
             if not entry.is_dir():
                 continue
 
-            # 判断是 mode 子目录还是旧版 session 目录
             if entry.name in ("free", "story"):
                 mode = entry.name
                 for session_dir in entry.iterdir():

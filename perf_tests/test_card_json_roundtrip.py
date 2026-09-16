@@ -23,7 +23,7 @@ from combat_engine.card import Card, _CARD_FIELDS                       # noqa: 
 from combat_engine.card_data import get_cards_for_class, get_starting_deck  # noqa: E402
 from combat_engine.card_json_loader import clear_cache, load_all_class_cards  # noqa: E402
 
-SNAPSHOT = os.path.join(_HERE, "cards_python_snapshot.json")
+SNAPSHOT = os.path.join(_HERE, "fixtures", "cards_python_snapshot.json")
 CLASS_DIR = os.path.join(_ROOT, "data", "classes")
 
 GROWTH_FIELDS = ("rank", "upgrade_branch", "exhaust", "power_tier",

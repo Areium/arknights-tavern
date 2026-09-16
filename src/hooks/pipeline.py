@@ -23,18 +23,6 @@ class HookPipeline:
         self._hooks.sort(key=lambda h: h.priority)
         logger.info("Hook registered: %s (priority=%d)", hook.name, hook.priority)
 
-    def unregister(self, hook_name: str) -> bool:
-        """按名称移除 hook。"""
-        for i, h in enumerate(self._hooks):
-            if h.name == hook_name:
-                self._hooks.pop(i)
-                return True
-        return False
-
-    @property
-    def hooks(self) -> list[NarrativeHook]:
-        return list(self._hooks)
-
     def execute_before_narration(self, ctx: HookContext) -> list[dict]:
         """执行所有 hook 的 on_before_narration，收集 SSE 事件。"""
         events: list[dict] = []

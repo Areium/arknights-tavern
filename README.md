@@ -111,7 +111,7 @@
 | AI 模型 | 一个云端 API Key（OpenAI 兼容或 DeepSeek），或本地 [Ollama](https://ollama.com) |
 | 磁盘 | 仓库源码 + Python / Node 依赖 + `data/` 数据目录 |
 
-> 注意：`chromadb` 是必需依赖（向量记忆模块直接导入），不装会启动失败。
+> 注意：`chromadb` 用于向量记忆；未安装时向量记忆不可用，但不会阻止基础服务启动。
 
 ### 安装依赖（只需做一次）
 
@@ -155,7 +155,7 @@ cd frontend && npm run dev
 cd frontend && npm run dev:web   # 然后手动打开 http://localhost:5173
 ```
 
-> 提示：`npm run dev` 与 `npm run dev:electron` 完全等价，都会拉起 Electron 窗口；浏览器访问始终是 http://localhost:5173（前端不会自动打开浏览器）。两个服务都要保持运行，关掉任意一个游戏都会停止。
+> 提示：`npm run dev` 会拉起 Electron 窗口；浏览器访问始终是 http://localhost:5173（前端不会自动打开浏览器）。两个服务都要保持运行，关掉任意一个游戏都会停止。
 
 ### 配置 AI 模型
 

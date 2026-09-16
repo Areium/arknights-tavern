@@ -277,7 +277,7 @@ class LLMBackendManager:
 
             # Use adapter's connectivity check if available
             if adapter:
-                check_method, check_payload = adapter.build_connectivity_check()
+                check_method, _ = adapter.build_connectivity_check()
                 if check_method == "GET /models":
                     try:
                         r = client.get("/models")
@@ -291,18 +291,6 @@ class LLMBackendManager:
                                 "cloud", "云端 API", "cloud",
                                 model_name, True, latency,
                             )
-                    except Exception:
-                        pass
-                elif check_method.startswith("POST "):
-                    try:
-                        endpoint = check_method[5:]
-                        r = client.post(endpoint, json=check_payload or {})
-                        r.raise_for_status()
-                        latency = (time.time() - start) * 1000
-                        return LLMEndpoint(
-                            "cloud", "云端 API", "cloud",
-                            config.model, True, latency,
-                        )
                     except Exception:
                         pass
                 # Fall through to default chat test

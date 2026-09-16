@@ -13,15 +13,12 @@ venv/
 .dev-pids
 /assets/
 .vite/
-scripts/prts_scraper/
-scripts/data/memory/
 data/characters/*/spine/
-temp_*.png
+perf_tests/results_*.json
 
 # 本地运行时数据/代理临时目录
 .dsh-tmp/
 .pi-subagents/
-src/data/
 .tmp/
 .workbuddy-ai/
 .pytest_cache/

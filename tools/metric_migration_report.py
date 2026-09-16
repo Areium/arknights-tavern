@@ -5,7 +5,7 @@
     python3 tools/metric_migration_report.py            # 5 次/组（与黄金基线同口径）
     python3 tools/metric_migration_report.py --runs 30  # 更稳的验收口径
 
-数据来源：`perf_tests/metric_migration_baseline.json`（**冻结的改动前基线**，切比雪夫移动 +
+数据来源：`perf_tests/fixtures/metric_migration_baseline.json`（**冻结的改动前基线**，切比雪夫移动 +
 切比雪夫射程，取自批次 0 的 `tests/golden/combat_sim_metrics.json`）对比当前模拟结果；
 输出 `perf_tests/metric_migration_report.md`。同时给出射程覆盖格数的理论对照表
 （切比雪夫 (2r+1)² vs 曼哈顿 2r²+2r+1）。
@@ -25,7 +25,7 @@ sys.path.insert(0, str(ROOT / "perf_tests"))
 import simulate_combat  # noqa: E402
 from combat_data_loader import CombatDataLoader  # noqa: E402
 
-BASELINE_PATH = ROOT / "perf_tests" / "metric_migration_baseline.json"
+BASELINE_PATH = ROOT / "perf_tests" / "fixtures" / "metric_migration_baseline.json"
 REPORT_PATH = ROOT / "perf_tests" / "metric_migration_report.md"
 TEAM = "standard"
 SEED_BASE = 20260912
@@ -72,7 +72,7 @@ def main() -> None:
         "# 度量迁移报告：切比雪夫 → 统一曼哈顿（批次 1）",
         "",
         f"- 对比口径：标准队 × {args.runs} 次/组，种子基数 {SEED_BASE}",
-        "- 基线：`perf_tests/metric_migration_baseline.json`（改动前冻结：切比雪夫移动 + 切比雪夫射程）",
+        "- 基线：`perf_tests/fixtures/metric_migration_baseline.json`（改动前冻结：切比雪夫移动 + 切比雪夫射程）",
         "- 现状：8 向曼哈顿代价（斜向 ×2）+ 曼哈顿射程 + 寻路/视线/地形 + 单体近战射程 1→2 补偿"
         "（含 CV 预算收紧后的伤害回调）",
         "- 复现：`python3 tools/metric_migration_report.py --runs 30`",

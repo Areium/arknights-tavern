@@ -90,22 +90,10 @@ export interface CombatResumesDTO {
   tests: CombatResumeTestDTO[];
 }
 
-/** 文档类别 */
-export interface DocumentCategory {
-  id: string;
-  index_path: string;
-  directory: string;
-  ref_by: string[];
-  refs: string[];
-}
-
 /** Electron API （通过 preload 暴露） */
 export interface ElectronAPI {
   getBackendUrl: () => Promise<string>;
-  getBackendStatus: () => Promise<{ status: string; url: string }>;
-  restartBackend: () => Promise<{ status: string }>;
   openDirectory: (dirPath: string) => Promise<{ success: boolean; error: string }>;
-  onBackendStatus: (cb: (status: { status: string; url: string }) => void) => () => void;
 }
 
 /** 聊天消息 */
@@ -808,19 +796,6 @@ export interface WorldBookPolicyRevisionDTO {
   revision: number;
   resolver_version: number;
   created_at: number;
-}
-/** 会话绑定的候选范围快照（含完整规则版本，不只是版本号） */
-export interface WorldBookScopeV3DTO extends WorldBookScopeDTO {
-  schema_version?: number;
-  resolver_version?: number;
-  rules?: WorldBookRulesDTO | null;
-  requires_edges?: WorldBookDependencyEdgeDTO[];
-  related_edges?: WorldBookDependencyEdgeDTO[];
-  manual_entry_uids?: string[];
-  active_roots?: WorldBookRootDTO[];
-  resolved_edges?: Array<WorldBookDependencyEdgeDTO & { relation: string; active: boolean }>;
-  display_tree?: WorldBookDisplayNodeDTO[];
-  issues?: WorldBookIssueDTO[];
 }
 export interface WorldBookDisplayNodeDTO {
   uid: string;

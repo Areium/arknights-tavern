@@ -70,12 +70,12 @@ def _load(name: str, defaults: dict) -> dict:
 
 
 def growth_rules() -> dict:
-    """升级成长规则（`data/rules/growth.json`）。"""
+    """升级成长规则（`data/combat/rules/growth.json`）。"""
     return _load("growth", DEFAULT_GROWTH)
 
 
 def difficulty_rules() -> dict:
-    """阶段带与威胁规则（`data/rules/difficulty.json`）。"""
+    """阶段带与威胁规则（`data/combat/rules/difficulty.json`）。"""
     return _load("difficulty", DEFAULT_DIFFICULTY)
 
 

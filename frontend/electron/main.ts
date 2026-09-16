@@ -75,24 +75,6 @@ function startBackend() {
   processManager = new PythonProcessManager({
     projectRoot,
     port: BACKEND_PORT,
-    onReady: () => {
-      mainWindow?.webContents.send("backend-status", {
-        status: "connected",
-        url: BACKEND_URL,
-      });
-    },
-    onCrash: () => {
-      mainWindow?.webContents.send("backend-status", {
-        status: "disconnected",
-        url: "",
-      });
-    },
-    onHealthChange: (healthy: boolean) => {
-      mainWindow?.webContents.send("backend-status", {
-        status: healthy ? "connected" : "disconnected",
-        url: healthy ? BACKEND_URL : "",
-      });
-    },
   });
 
   processManager.start();
@@ -103,19 +85,6 @@ function startBackend() {
 ipcMain.handle("get-backend-url", () => {
   // 开发模式使用 Vite 代理（同源请求），生产模式直连 Flask
   return isDev ? "" : BACKEND_URL;
-});
-
-ipcMain.handle("get-backend-status", () => {
-  if (!processManager) return { status: "stopped", url: "" };
-  return {
-    status: processManager.isHealthy() ? "connected" : "disconnected",
-    url: BACKEND_URL,
-  };
-});
-
-ipcMain.handle("restart-backend", async () => {
-  await processManager?.restart();
-  return { status: "restarting" };
 });
 
 ipcMain.handle("open-directory", async (_event, dirPath: string) => {

@@ -101,20 +101,14 @@ export default function CharacterPanel({ refreshKey }: { refreshKey?: number }) 
     setError("");
     try {
       const data = await api.getSceneCharacters(activeSessionId);
-      const rawList: any[] = data.characters || data;
-      const list: CharacterInfo[] = rawList.map((c: any) => {
-        const name = typeof c === "string" ? c : c.name || c.id || "";
-        return {
-          id: name,
-          name,
-          title: typeof c === "string" ? "" : c.title || "",
-          loaded: typeof c === "string" ? true : c.loaded ?? true,
-          active:
-            typeof c === "string"
-              ? data.active === name
-              : c.active ?? (data.active === name),
-        };
-      });
+      const rawList: string[] = data.characters || data;
+      const list: CharacterInfo[] = rawList.map((name) => ({
+        id: name,
+        name,
+        title: "",
+        loaded: true,
+        active: data.active === name,
+      }));
       setCharacters(list);
     } catch (err: any) {
       setError(err.message);

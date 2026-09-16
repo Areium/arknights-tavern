@@ -186,8 +186,6 @@ def register(app, managers):
                     raise ValueError("候选范围预览已过期，请重新预览后再创建会话")
                 scope = scoped_book.session_scope_snapshot(
                     roster_ids, manual, full_scope=full_scope)
-                if not book.v3_enabled:
-                    scope["session_migrated_from"] = 2
             else:
                 scope = {"book_id": None, "resolved_entry_uids": []}
             session.overlay.set_worldbook_scope(scope)

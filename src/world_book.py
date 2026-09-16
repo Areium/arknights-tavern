@@ -605,10 +605,7 @@ class WorldBook:
         self.source_format = source_format
         self.budget_tokens = budget_tokens  # 0 = 不限制
         # source: "preinstalled"（随程序分发的整合包，安装副本）| "imported"（用户导入）
-        self.source = source if source in (SOURCE_PREINSTALLED, "imported", "builtin") else "imported"
-        if self.source == "builtin":
-            # 旧版字段兼容
-            self.source = SOURCE_PREINSTALLED
+        self.source = source if source in (SOURCE_PREINSTALLED, "imported") else "imported"
         self.enabled = bool(enabled)
         self.created_at = time.time()
         self.updated_at = time.time()

@@ -7,8 +7,9 @@ Bug 背景：战斗结束后玩家停留在结算界面，若距最后一次操�
 """
 import sys
 import time
+from pathlib import Path
 
-sys.path.insert(0, "src")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import pytest
 

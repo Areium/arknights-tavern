@@ -515,8 +515,6 @@ export default function SettingsPanel() {
                   <option value="auto">自动（OpenAI 兼容）</option>
                   <option value="openai">OpenAI</option>
                   <option value="deepseek">DeepSeek</option>
-                  <option value="anthropic">Anthropic（开发中）</option>
-                  <option value="gemini">Gemini（开发中）</option>
                 </select>
               </div>
               <div>

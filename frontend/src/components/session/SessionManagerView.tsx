@@ -328,7 +328,7 @@ export default function SessionManagerView() {
 
   const roster = useMemo(() => {
     const raw = selected?.characters || [];
-    return raw.map((c: any) => (typeof c === "string" ? c : c.name || c.id || ""));
+    return raw;
   }, [selected]);
 
   return (
@@ -563,8 +563,7 @@ export default function SessionManagerView() {
                 {(s.characters?.length > 0) && (
                   <div className="flex items-center justify-between mt-2.5">
                     <div className="flex items-center">
-                      {s.characters.slice(0, 5).map((c: any) => {
-                        const name = typeof c === "string" ? c : c.name || c.id || "";
+                      {s.characters.slice(0, 5).map((name) => {
                         return (
                           <img
                             key={name}

@@ -117,7 +117,7 @@ def audit_nodes(loader: CombatDataLoader) -> list[dict]:
 
 
 def write_report(enemy_rows: list[dict], node_rows: list[dict],
-                 xp_problems: list[str]) -> None:
+                 xp_problems: list[str], output: Path = REPORT_MD) -> None:
     lines = [
         "# 战斗数值审计报告（威胁模型 v1）",
         "",
@@ -147,12 +147,13 @@ def write_report(enemy_rows: list[dict], node_rows: list[dict],
             f"| {r['node_id']} | {r['units']} | {r['threat']} | "
             f"{r['declared_budget'] if r['declared_budget'] is not None else '-'} | {ratio} | "
             f"{r['band'] or '-'} | {r['band_hint']} | {'；'.join(r['warnings']) or '-'} |")
-    REPORT_MD.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    output.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--json", default="")
+    ap.add_argument("--report", type=Path, default=REPORT_MD)
     ap.add_argument("--strict", action="store_true",
                     help="存在敌人分层偏差/XP 单调性问题/节点预算超差时返回退出码 1")
     args = ap.parse_args()
@@ -161,7 +162,7 @@ def main() -> int:
     enemy_rows = audit_enemies(loader)
     node_rows = audit_nodes(loader)
     xp_problems = audit_xp_monotonic(enemy_rows)
-    write_report(enemy_rows, node_rows, xp_problems)
+    write_report(enemy_rows, node_rows, xp_problems, args.report)
 
     enemy_issues = [r for r in enemy_rows if r["issues"]]
     node_issues = [r for r in node_rows if r["warnings"]]
@@ -172,7 +173,7 @@ def main() -> int:
         print(f"  ! {r['name']}: {'；'.join(r['issues'])}")
     for r in node_issues[:8]:
         print(f"  ! {r['node_id']}: {'；'.join(r['warnings'])}")
-    print(f"报告 -> {REPORT_MD.relative_to(ROOT)}")
+    print(f"报告 -> {args.report}")
 
     if args.json:
         Path(args.json).write_text(json.dumps(

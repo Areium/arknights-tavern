@@ -16,9 +16,6 @@ import net from "net";
 export interface ProcessManagerOptions {
   projectRoot: string; // Python 项目根目录
   port: number; // 后端端口
-  onReady?: () => void;
-  onCrash?: () => void;
-  onHealthChange?: (healthy: boolean) => void;
   pythonPath?: string; // 自定义 Python 路径，默认使用项目 .venv
 }
 
@@ -65,28 +62,6 @@ export class PythonProcessManager {
   stop(): void {
     this.stopHealthCheck();
     this.killProcess();
-  }
-
-  async restart(): Promise<void> {
-    this.stopHealthCheck();
-    this.killProcess();
-    this.crashCount = 0;
-    // 等待端口释放
-    await new Promise((r) => setTimeout(r, 1000));
-
-    const inUse = await isPortInUse(this.options.port);
-    if (inUse) {
-      console.log(
-        `[Backend] Port ${this.options.port} still in use — monitoring existing backend`
-      );
-    } else {
-      this.spawnProcess();
-    }
-    this.startHealthCheck();
-  }
-
-  isHealthy(): boolean {
-    return this.healthy;
   }
 
   // ── 进程管理 ──
@@ -138,7 +113,6 @@ export class PythonProcessManager {
     this.process.on("exit", (code, signal) => {
       console.log(`[Backend] Exited (code=${code}, signal=${signal})`);
       this.healthy = false;
-      this.options.onHealthChange?.(false);
 
       if (code !== 0 && signal !== "SIGTERM") {
         // 非正常退出 → 自动重启
@@ -147,7 +121,6 @@ export class PythonProcessManager {
           console.log(
             `[Backend] Auto-restart (${this.crashCount}/${this.maxRestarts})...`
           );
-          this.options.onCrash?.();
           setTimeout(() => this.spawnProcess(), 2000);
         } else {
           console.error(
@@ -211,8 +184,6 @@ export class PythonProcessManager {
             this.healthy = true;
             if (!wasHealthy) {
               console.log("[Backend] Health check passed");
-              this.options.onReady?.();
-              this.options.onHealthChange?.(true);
             }
           } else {
             this.setUnhealthy();
@@ -235,7 +206,6 @@ export class PythonProcessManager {
     if (this.healthy) {
       this.healthy = false;
       console.log("[Backend] Health check failed");
-      this.options.onHealthChange?.(false);
     }
 
     // 没有托管子进程但后端不可用 → 尝试启动

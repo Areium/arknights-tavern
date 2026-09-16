@@ -215,8 +215,7 @@ class ReadingSelection:
     def span_ids(self) -> list:
         return [span.span_id for span in self.spans]
 
-    def unread_spans(self, content: str = "", chunk_chars: int = 1800,
-                     max_spans: int = None) -> list:
+    def unread_spans(self, content: str = "", chunk_chars: int = 1800) -> list:
         """**尚未被读过**的正文补集 —— 升级阅读要读的完整剩余部分。
 
         补集 = 已成功读到跨度的**逐字补集**，按原文顺序切成不超过
@@ -257,11 +256,8 @@ class ReadingSelection:
                     cut = min(end, position + step)
                 pieces.append((position, min(cut, end)))
                 position = min(cut, end)
-        spans = [Span(content, a, b, "supplement", content_hash=self.content_hash)
-                 for a, b in pieces]
-        if max_spans is not None:
-            spans = spans[:max_spans]
-        return spans
+        return [Span(content, a, b, "supplement", content_hash=self.content_hash)
+                for a, b in pieces]
 
     def _soft_cut(self, content: str, start: int, cut: int) -> int:
         """把补集切片边界吸附到**附近**的段落/小标题边界（不切在句子中间）。
@@ -289,12 +285,6 @@ class ReadingSelection:
         return data
 
 
-def slice_spans(content: str, spans) -> str:
-    """把选中的跨度切片并**逐字**拼接（原文顺序，无编造省略号）。"""
-    text = content or ""
-    return "".join(text[span.start:span.end] for span in spans)
-
-
 _HEADING_ONLY_RE = re.compile(r"(?m)^[ \t]{0,3}#{1,6}[ \t]+([^\n]*)$")
 _FIELD_ONLY_RE = re.compile(r"(?m)^[ \t]*([^\n：:]{1,30})[：:][ \t]*$")
 
@@ -304,17 +294,11 @@ def _heading_matches(content: str) -> list:
     found = []
     for match in _HEADING_ONLY_RE.finditer(content):
         title = match.group(1).strip()
-        level = len(match.group(0)) - len(match.group(0).lstrip())
         found.append((match.start(), match.end(), match.group(0).count("#"), title))
     if not found:
         for match in _FIELD_ONLY_RE.finditer(content):
             found.append((match.start(), match.end(), 0, match.group(1).strip()))
     return found
-
-
-def heading_offsets(content: str) -> list:
-    """本条正文的标题偏移量表（自带可信偏移量，用于目录与段落边界）。"""
-    return [start for start, _end, _level, _title in _heading_matches(content)]
 
 
 def _paragraph_bounds(content: str) -> list:
@@ -338,14 +322,6 @@ def _paragraph_bounds(content: str) -> list:
         if end > start and text[start:end].strip():
             bounds.append((start, end))
     return bounds
-
-
-def _paragraph_at(bounds: list, position: int):
-    """position 落在哪个段落里（找不到返回 None）。"""
-    for start, end in bounds:
-        if start <= position < end:
-            return (start, end)
-    return None
 
 
 def _paragraph_for_window(bounds: list, start: int, end: int, max_chars: int,
@@ -656,20 +632,6 @@ def _intro_end(text: str, target: int = INTRO_CHARS) -> int:
     return target
 
 
-def _snap_forward(text: str, position: int) -> int:
-    """把切片边界吸附到**附近**换行（不切在句子中间）。
-
-    附近没有换行时返回 `position` 本身，**绝不**跳到文末：无结构长散文必须
-    保持可选，否则「没有小标题」就等价于「整条必须全读」，优化在散文上归零。
-    """
-    if position >= len(text):
-        return len(text)
-    nearby = text.find("\n", position)
-    if 0 <= nearby <= position + SNAP_FORWARD_CHARS:
-        return nearby
-    return position
-
-
 def _span_reason(kept: list, start: int, end: int) -> str:
     """合并后的区段取一个代表性理由：包含它的候选里优先级最高的那个。"""
     covering = {reason for a, b, reason in kept if a <= start and end <= b and b > a}
@@ -691,15 +653,6 @@ def _qualifiers_covered(text: str, must_keep: list, selected) -> bool:
         if not covered:
             return False
     return True
-
-
-def _interval_kept(interval, selected) -> bool:
-    """该区段是否仍被完整保留在选中集合里（用于「限定语被裁掉 → 回退全文」判断）。"""
-    a, b = interval
-    for s, e in selected:
-        if s <= a and b <= e:
-            return True
-    return False
 
 
 def _thin_windows(windows: list, intro_end: int) -> list:
