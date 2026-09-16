@@ -31,4 +31,6 @@ python scripts/benchmark_worldbook_selective_reading.py `
 
 终版真实模型抽样没有证明总 token 或耗时下降：golden 样本 adaptive 为 2 calls、7284 total tokens（输入 3797，对比 full 输入 4316，约省 12%，但输出增加）；6 条实际样本 adaptive 为 3 calls、30005 total tokens、60.28 秒，其中 Mon3tr 因模型要求更多本条上下文而补读，5 条关系与 full 相同。静态 30.75% 仅表示整本书第一遍的估算输入降幅，不能当作最终账单或端到端收益。
 
+另一个预先定义的分层样本从实际书原顺序取前 6 个“本地选择器判定为可局部阅读”的角色条目，选择发生在查看模型返回之前。样本共 22287 字符：full 为 3 calls、29268 total tokens、48.41 秒；adaptive 为 2 calls、15996 total tokens、31.66 秒且没有补读，total tokens 减少 45.35%，耗时减少 34.60%。这只证明适合局部阅读的分层样本可以获益，不是 262 条全书实测；两种模式都没有 `requires`，但弱关系分布不同（full 为 6 `related` + 1 `unsure`，adaptive 为 7 `none`），因此不能声称语义等价。上述混合 6 条样本中 adaptive 补读后反而比 full 的 23104 total tokens 更贵，也必须与这个正例一起看。
+
 真实模型验证使用 `scripts/verify_worldbook_builder_llm.py --reading-mode adaptive|full`，并显式传入 `--book-path` 与 `--config`。脚本会沿用任务保存的模式验证缓存复用。
