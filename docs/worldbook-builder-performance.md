@@ -170,11 +170,18 @@
 
 `scripts/benchmark_worldbook_builder.py` 是**确定性、无网络**的对照：同一本书、同一批候选对，
 老实现（固定 6 / 8 批量、整段正文）与新实现（真实渲染装箱 + 引用窗口）各算一遍 token 与请求数。
-分析卡默认喂入**主仓库一份真实历史构建任务里的卡片**
-（`data/worldbook_jobs/0ea671eaaef541d5.json`，只读）——合成空卡片会低估真实成本。
 
-默认书路径是**主仓库的真实 262 条世界书**（`../arknights-tavern/data/worldbooks/arknights.json`），
-不是隔离工作区里可能条目数不同的副本；主仓库不存在时才回退到本仓库副本并在报告中注明。
+脚本的**默认值是相对本仓库的**（本仓库自己的预装世界书，不依赖某个开发者机器上的兄弟目录，
+也不绑定任何历史任务 ID）；要跑下面这份真实 262 条书的对照，按需显式指定输入：
+
+```
+python scripts/benchmark_worldbook_builder.py \
+    --book-path <main-repo>/data/worldbooks/arknights.json \
+    --cards-file <main-repo>/data/worldbook_jobs/<完成的构建任务>.json
+```
+
+分析卡喂入的是**真实历史构建任务里的卡片**——合成空卡片会低估真实成本；
+脚本会在报告里注明本次用的是哪一种（`real-historical-cards` / `synthetic-upper-bound`）。
 
 ```
 世界书：arknights.json · 262 条 · 733130 字符 → 709 分块 / 1621 候选对

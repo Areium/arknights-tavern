@@ -1649,7 +1649,8 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
         只绑正文 hash 会让「改了触发词」沿用旧判定。
         """
         entry = entries_by_uid[uid]
-        return _sha(json.dumps([uid, entry.name, entry.trigger_keys],
+        return _sha(json.dumps([uid, entry.name, entry.trigger_keys,
+                                _sha(entry.content or "")],
                                ensure_ascii=False, sort_keys=True))
 
     def card_cache_key(uid):

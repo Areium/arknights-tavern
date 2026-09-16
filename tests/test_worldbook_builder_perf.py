@@ -620,6 +620,80 @@ def test_analysis_cache_survives_judgment_prompt_change(cache, store, monkeypatc
     assert second.requests, "判定提示词变化后应当重新判定"
 
 
+def test_judgment_cache_invalidates_on_body_edit_outside_evidence_window(cache, store):
+    """正文**在证据窗口之外**被改写 → 旧判定必须失效。
+
+    窗口指纹只覆盖命中处附近的一小段；若条目身份不绑正文 hash，那么「远处改字、
+    摘要与窗口一字未动」会让判定键完全不变而误用旧结论。这里：
+    - 来源条目与目标条目各改一次**尾部**（远离引用命中处）；
+    - stub 对改写前后返回**完全相同**的分析卡摘要/概念（模拟「提炼看不出差别」）；
+    - 新一轮构建必须对**被改动的那个端点所在的对**重新判定，未受影响的对照对
+      则应继续命中缓存。
+    """
+    long_tail = "尾部补充说明。" * 60          # 足够长，命中处远离尾部
+    book = WorldBook("body", "正文指纹书", [
+        entry("a", "角色A：罗德岛干员。他使用源石技艺。" + long_tail,
+              name="角色A", character_id="A", category_id="characters"),
+        entry("b", "角色B：与角色A同属罗德岛。" + long_tail,
+              name="角色B", character_id="B", category_id="characters"),
+        entry("tech", "源石技艺的定义与规则。" + long_tail, name="源石技艺"),
+    ], categories=copy.deepcopy(DEFAULT_CATEGORIES))
+    metadata = build_metadata_index(book.entries)
+    entries_by_uid = {e.uid: e for e in book.entries}
+    pairs = collect_candidates(metadata, entries_by_uid)["pairs"]
+    assert pairs, "夹具必须产出候选对"
+
+    class FlatStub(PairStub):
+        """分析卡始终返回同样的摘要/概念，专门抹掉「卡片指纹」这条失效路径。"""
+
+        def chat(self, messages, **kwargs):
+            response = super().chat(messages, **kwargs)
+            if "分析下面这批" not in messages[-1]["content"]:
+                return response
+            payload = json.loads(response["content"])
+            for card in payload["cards"]:
+                card["summary"] = "固定摘要"
+                card["defined_concepts"] = ["甲"]
+                card["unexplained_concepts"] = ["乙"]
+            response["content"] = json.dumps(payload, ensure_ascii=False)
+            return response
+
+    first = FlatStub(evidence="他使用源石技艺")
+    job = store.create(book.id, "h1", "m")
+    run_build(job, book, first, model="m", cache=cache)
+    assert first.requests, "第一次应当调用模型"
+
+    replay = FlatStub(evidence="他使用源石技艺")
+    job2 = store.create(book.id, "h2", "m")
+    run_build(job2, book, replay, model="m", cache=cache)
+    assert replay.requests == [], "未改动时判定缓存没有命中"
+
+    # 只改**尾部**：证据窗口与卡片摘要都不受影响。
+    # `a` 是 `b→a` 的目标、又是 `a→tech` 的来源，两个端点角色都覆盖到。
+    def touched(uid, pairs_):
+        return {(a, b) for a, b in pairs_ if uid in (a, b)}
+
+    def adjudicated_pairs(stub):
+        asked = set()
+        for request in stub.requests:
+            asked |= set(request)
+        return asked
+
+    for uid in ("a", "tech"):
+        target = next(e for e in book.entries if e.uid == uid)
+        target.content = target.content[:-4] + "改写。"   # 尾部改写，命中处不动
+        changed = FlatStub(evidence="他使用源石技艺")
+        job3 = store.create(book.id, f"h3-{uid}", "m")
+        run_build(job3, book, changed, model="m", cache=cache)
+        asked = adjudicated_pairs(changed)
+        expect = touched(uid, [(p["from_uid"], p["to_uid"]) for p in pairs])
+        assert expect <= asked, (
+            f"改写 {uid} 正文后，涉及它的候选对应当重新判定，实际只问了 {asked}")
+        # 对照：与该端点无关的对不应被牵连重问。
+        unrelated = ({(p["from_uid"], p["to_uid"]) for p in pairs} - expect)
+        assert not (asked & unrelated), f"改写 {uid} 牵连了无关候选对：{asked & unrelated}"
+
+
 # ─────────────────────────────────────────────────────────────
 # 预算 / 取消 / 指标持久化
 # ─────────────────────────────────────────────────────────────

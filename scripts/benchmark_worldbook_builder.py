@@ -16,13 +16,19 @@
 用法：
     python scripts/benchmark_worldbook_builder.py
     python scripts/benchmark_worldbook_builder.py --book-path D:/path/to/book.json --json-out report.json
-    python scripts/benchmark_worldbook_builder.py --cards-file path/to/job.json  # 真实历史卡片（推荐）
+    python scripts/benchmark_worldbook_builder.py \
+        --book-path D:/Code/arknights-tavern/data/worldbooks/arknights.json \
+        --cards-file D:/Code/arknights-tavern/data/worldbook_jobs/<job>.json   # 真实历史卡片（推荐）
 
 `--cards-file` 指向一个已完成的构建任务 JSON（取其 `cards`）。**真实卡片**才是
 可靠的口径：合成卡片的摘要/概念往往比真实卡片更长或更短，会让判定请求的
 上下文开销偏离现实（历史上就出现过「合成卡片下看着达标、真实卡片下超预算」）。
 脚本默认会同时跑「真实卡片」与「合成上界」，并断言**每一个真实渲染的请求**
 都在预算内。
+
+默认输入是**本仓库自己的**预装世界书（`data/worldbooks/arknights.json`），
+因此脚本在任何检出里都能独立运行、不依赖某个开发者机器上的兄弟目录；
+要对照历史数据集，用 `--book-path` / `--cards-file` 显式指定即可。
 """
 import argparse
 import json
@@ -37,17 +43,14 @@ sys.path.insert(0, str(REPO / "src"))
 from world_book import WorldBook, estimate_tokens                  # noqa: E402
 import worldbook_builder as builder                                # noqa: E402
 
-# 基准必须跑在**主仓库的真实 262 条世界书**上，而不是隔离工作区里可能过期的副本：
-# 工作区副本的条目数不同会让「318 → 144」这类结论对不上号。主仓库不存在时才回退
-# 到本仓库副本，便于在没有主仓库的环境里跑（此时报告中会注明用的是哪一份）。
-MAIN_REPO = REPO.parent / "arknights-tavern"
-MAIN_BOOK = MAIN_REPO / "data" / "worldbooks" / "arknights.json"
-DEFAULT_BOOK = MAIN_BOOK if MAIN_BOOK.is_file() else (
-    REPO / "data" / "worldbooks" / "arknights.json")
+# 默认书路径**相对本仓库**：脚本不假设某个开发者机器上的兄弟目录存在。
+# 要对照「主仓库的真实 262 条世界书」或历史卡片，用 `--book-path` / `--cards-file`
+# 显式传入（README 与实测报告里给出的是显式调用，不是写死的默认值）。
+DEFAULT_BOOK = REPO / "data" / "worldbooks" / "arknights.json"
 
-# 真实历史卡片（只读；来自主仓库的一个已完成构建任务）。
-DEFAULT_CARDS_FILE = (MAIN_REPO / "data" / "worldbook_jobs"
-                      / "0ea671eaaef541d5.json")
+# 默认**不**绑定任何历史任务：没有 `--cards-file` 时退回合成卡片，
+# 并在报告里注明「分析卡来源」，避免把合成口径当成真实口径。
+DEFAULT_CARDS_FILE = None
 
 # 历史参数（已核实）：用于复刻旧实现的请求规模，不是当前产品行为。
 LEGACY_ANALYSIS_BATCH = 6
@@ -176,8 +179,8 @@ def main() -> int:
     parser.add_argument("--book-path", default=str(DEFAULT_BOOK),
                         help="世界书 JSON 路径（只读）")
     parser.add_argument("--json-out", default="", help="把结果写到这个 JSON 文件")
-    parser.add_argument("--cards-file", default=str(DEFAULT_CARDS_FILE),
-                        help="真实历史卡片所在的任务 JSON（只读；不存在则退回合成卡片）")
+    parser.add_argument("--cards-file", default=str(DEFAULT_CARDS_FILE or ""),
+                        help="真实历史卡片所在的任务 JSON（只读；留空则退回合成卡片）")
     parser.add_argument("--min-adjudication-token-reduction", type=float, default=50.0,
                         help="判定输入 token 的最低下降百分比（未达到则退出码 1）")
     parser.add_argument("--min-call-reduction", type=float, default=50.0,
