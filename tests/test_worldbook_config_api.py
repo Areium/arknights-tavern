@@ -459,8 +459,12 @@ def test_retry_rejects_reading_mode_change(api):
     assert module._JOB_STORE.get(job_id).reading_mode == "adaptive"
 
 
-def test_retry_accepts_frontend_post_without_body(api):
-    """前端续跑只发 POST + JSON Content-Type，不附带可选请求体。"""
+@pytest.mark.parametrize("request_kwargs", [
+    {"headers": {"Content-Type": "application/json"}},
+    {"json": ["not-an-object"]},
+], ids=["frontend-empty-body", "non-object-json"])
+def test_retry_accepts_optional_object_body(api, request_kwargs):
+    """续跑请求体可省略；非对象 JSON 也不应导致框架级 400/500。"""
     client, _, _ = api
     job_id, _ = run_job(client)
     import blueprints.worldbook as module
@@ -473,7 +477,7 @@ def test_retry_accepts_frontend_post_without_body(api):
 
     response = client.post(
         f"/api/worldbook/book/dependency-proposals/{job_id}/retry",
-        headers={"Content-Type": "application/json"},
+        **request_kwargs,
     )
 
     assert response.status_code == 202, response.get_data(as_text=True)
