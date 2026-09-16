@@ -1089,6 +1089,19 @@ class WorldBook:
             "full_scope": False,
             "resolved_at": scope["resolved_at"],
         }
+        result.update({
+            "inheritance": {
+                "policy_revision": scope["policy_revision"],
+                "content_revision": scope["content_revision"],
+                "resolver_version": RESOLVER_VERSION,
+                "rules": copy.deepcopy(snapshot.get("rules")),
+                "requires_edges": copy.deepcopy(snapshot.get("requires_edges") or []),
+                "related_edges": copy.deepcopy(snapshot.get("related_edges") or []),
+                "captured_at": scope["resolved_at"],
+            },
+            "local_overrides": {"requires_edges": [], "related_edges": []},
+            "suppressed_edges": [], "inheritance_conflicts": [], "scope_revision": 1,
+        })
         if not full_scope:
             return result
         uids = sorted(e.uid for e in self.entries if e.enabled and (e.content or "").strip())
@@ -1146,19 +1159,33 @@ class WorldBook:
                     "manual_entry_uids": manual,
                     "roster_character_ids": sorted(set(roster_character_ids or []))}
         # 会话自带完整规则；即使书的历史版本被移除也能恢复。
+        from session_worldbook_dependencies import effective_graph, effective_rules, normalize_scope
+        managed = normalize_scope(existing_scope)
+        graph = effective_graph(managed)
         bound = copy.deepcopy(self)
-        bound.dependency_rules = copy.deepcopy(existing_scope.get("rules") or {"roots": []})
-        bound.dependency_edges = copy.deepcopy(existing_scope.get("requires_edges") or [])
-        bound.related_edges = copy.deepcopy(existing_scope.get("related_edges") or [])
+        bound.dependency_rules = effective_rules(managed)
+        bound.dependency_edges = copy.deepcopy(graph["requires_edges"])
+        bound.related_edges = copy.deepcopy(graph["related_edges"])
         bound.scope_mode = existing_scope.get("scope_mode", "selective")
-        bound.import_config["revision"] = existing_scope.get("policy_revision", 1)
+        bound.import_config["revision"] = managed["inheritance"].get("policy_revision", 1)
         bound.policy_revisions = []
-        return bound.session_scope_snapshot(
+        refreshed = bound.session_scope_snapshot(
             roster_character_ids,
             existing_scope.get("manual_entry_uids") or [],
             None,
             bool(existing_scope.get("full_scope")),
         )
+        refreshed.update({
+            "inheritance": managed["inheritance"],
+            "local_overrides": managed["local_overrides"],
+            "suppressed_edges": managed["suppressed_edges"],
+            "inheritance_conflicts": managed.get("inheritance_conflicts") or [],
+            "scope_revision": managed["scope_revision"],
+            "rules": copy.deepcopy(bound.dependency_rules),
+            "requires_edges": copy.deepcopy(bound.dependency_edges),
+            "related_edges": copy.deepcopy(bound.related_edges),
+        })
+        return refreshed
 
     def eligible_uids_for(self, overlay):
         scope = getattr(overlay, "get_worldbook_scope", lambda: None)()

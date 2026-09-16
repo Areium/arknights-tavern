@@ -1749,6 +1749,8 @@ class DependencyBuildJob:
         }
         self._save_lock = threading.RLock()
         self.running = False
+        # 调用方可持久化作用域身份（例如 session/book/content/scope revision）。
+        self.context = {}
 
     def to_dict(self, include_result: bool = True) -> dict:
         # 取消是协作式的：worker 可能在批次中途才看到标记。对外一律按已取消呈现，
@@ -1781,6 +1783,8 @@ class DependencyBuildJob:
             "rebuild_card_uids": len(self.rebuild_card_uids),
             "analysis_version": self.analysis_version,
             "adjudication_version": self.adjudication_version,
+            "context": dict(self.context),
+            "running": self.running,
         }
         if include_result:
             data["result"] = self.result
@@ -1853,6 +1857,7 @@ class DependencyBuildJob:
         job.workload = data.get("workload") or {}
         job.candidates = data.get("candidates") or {}
         job.chunk_report = data.get("chunk_report") or {}
+        job.context = data.get("context") if isinstance(data.get("context"), dict) else {}
         job.pending_pairs = data.get("pending_pairs") or []
         job.pending_card_uids = data.get("pending_card_uids") or []
         job.pending_chunk_ids = data.get("pending_chunk_ids") or []
@@ -2405,7 +2410,8 @@ def _chat_json(llm, messages, job, cache_key=None, cache=None):
 
 def run_build(job: DependencyBuildJob, book, llm, model: str = "",
               cache: AnalysisCache = None, max_calls: int = None,
-              only_pairs=None, only_uids=None, character_ids=None) -> DependencyBuildJob:
+              only_pairs=None, only_uids=None, character_ids=None,
+              source_uids=None, known_pairs=None) -> DependencyBuildJob:
     """执行一次依赖构建。
 
     可重入：`only_pairs` 只重跑指定候选对、`only_uids` 只重跑指定条目的分析卡
@@ -2527,6 +2533,25 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
 
         # 候选识别先算：它决定这次要花多少调用，是预算的来源。
         report = collect_candidates(metadata, entries_by_uid)
+        if source_uids is not None:
+            allowed_sources = set(source_uids)
+            report["pairs"] = [pair for pair in report["pairs"]
+                               if pair.get("from_uid") in allowed_sources]
+        reused_pairs = {(str(a), str(b)) for a, b in (known_pairs or [])}
+        if reused_pairs:
+            before = len(report["pairs"])
+            report["pairs"] = [pair for pair in report["pairs"]
+                               if (pair.get("from_uid"), pair.get("to_uid")) not in reused_pairs]
+            report["reused_inherited_edges"] = before - len(report["pairs"])
+        analysis_uids = {uid for pair in report["pairs"]
+                         for uid in (pair.get("from_uid"), pair.get("to_uid")) if uid}
+        if only_uids is not None:
+            analysis_uids.update(only_uids)
+        analysis_metadata = dict(metadata)
+        analysis_metadata["entries"] = {
+            uid: info for uid, info in metadata["entries"].items()
+            if uid in analysis_uids
+        }
 
         # ── 选择性阅读：本地选跨度（纯本地、确定性，不调模型）──
         # FULL 模式：每条全读（`build_reading_plan(mode=full)` 只构造 full 选择，
@@ -2543,16 +2568,19 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
                 reference_terms.setdefault(pair["from_uid"], set()).add(matched)
         categories = {uid: info.get("category_id", "")
                       for uid, info in metadata["entries"].items()}
+        reading_entries = (book.entries if source_uids is None else
+                           [entry for entry in book.entries if entry.uid in analysis_uids])
         reading = build_reading_plan(
-            book.entries,
+            reading_entries,
             {uid: sorted(terms) for uid, terms in reference_terms.items()},
             mode=job.reading_mode, categories=categories)
         job.reading_report = summarize_reading_plan(reading)
 
         # 开工前的估算用**真实规划器**（分析阶段此时还没有卡片，判定按保守近似）。
-        workload = estimate_workload(metadata, report["pairs"], job.model,
+        workload = estimate_workload(analysis_metadata, report["pairs"], job.model,
                                      entries_by_uid=entries_by_uid, cards=job.cards,
-                                     reading=reading, reading_mode=job.reading_mode)
+                                     character_ids=character_ids, reading=reading,
+                                     reading_mode=job.reading_mode)
         job.workload = workload
         job.workload["budget"] = budget
         job.candidates = {key: value for key, value in report.items() if key != "pairs"}
@@ -2568,6 +2596,8 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
         legacy_checkpoint_ids = {}
         rebuild_required = {uid for uid in job.rebuild_card_uids if uid in entries_by_uid}
         for uid, info in metadata["entries"].items():
+            if source_uids is not None and uid not in analysis_uids:
+                continue
             if only_uids is not None and uid not in only_uids:
                 continue
             saved = job.chunk_cards.get(uid, {})
@@ -2965,14 +2995,23 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
         job.message = "正在检索明确引用"
         job.save()
         pairs = _merge_card_pairs(report["pairs"], job.cards, metadata, entries_by_uid)
+        # 卡片会补充候选，但会话级构建仍只能从当前 frontier 来源发出；否则目标卡
+        # 提到的任意实体会把任务重新膨胀成全书分析。已确认关系同样继续复用。
+        if source_uids is not None:
+            allowed_sources = set(source_uids)
+            pairs = [pair for pair in pairs if pair.get("from_uid") in allowed_sources]
+        if reused_pairs:
+            pairs = [pair for pair in pairs
+                     if (pair.get("from_uid"), pair.get("to_uid")) not in reused_pairs]
         job.candidates["after_card_merge"] = len(pairs)
         # **保留阅读模式与第一遍阅读选择**：候选对确定后重算的是「判定阶段」的
         # 工作量，分析阶段的成本已经发生。丢掉 `reading` 会让报告的
         # `estimated_analysis_input_tokens` 从自适应值退回全文值 —— 那不是
         # 「按自适应模式预估」，而是把已经发生的成本改写成另一个数。
-        workload = estimate_workload(metadata, pairs, job.model,
+        workload = estimate_workload(analysis_metadata, pairs, job.model,
                                      entries_by_uid=entries_by_uid, cards=job.cards,
-                                     reading=reading, reading_mode=job.reading_mode)
+                                     character_ids=character_ids, reading=reading,
+                                     reading_mode=job.reading_mode)
         # 已经发生的分析成本用**实际成功覆盖**口径标注，和判定阶段预估区分开。
         report_snapshot = dict(job.reading_report or {})
         workload["analysis_stage_completed"] = bool(job.cards)
@@ -3133,7 +3172,8 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
                                        character_ids=character_ids, reading=reading,
                                        job_read_state=job.entry_read_state)
 
-        missing = sorted(uid for uid in metadata["entries"] if uid not in job.cards)
+        expected_cards = set(metadata["entries"]) if source_uids is None else set(analysis_uids)
+        missing = sorted(uid for uid in expected_cards if uid not in job.cards)
         job.pending_card_uids = missing
         # 只有**当下确实做完**的候选对才从待办里去掉：预算耗尽 / 失败留下的候选对
         # 必须原样保留（含失败项），否则续跑 API 无从知道还差哪些。
@@ -3146,7 +3186,7 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
         # 阅读报告收尾：把覆盖面落成**如实**的一行 —— 哪些条目只读了部分正文、
         # 有没有做过补充阅读。调用方据此知道「没有发现依赖」不等于「没有依赖」。
         _finalize_reading_report(job, reading, entries_by_uid)
-        if missing and len(missing) == len(metadata["entries"]):
+        if missing and len(missing) == len(expected_cards):
             # 自适应卡只有在升级决定落定后才进入 job.cards；因此已有成功种子切片、
             # 但补集响应失败时，cards 仍可能为空。这是可续跑的部分产出，不是零产出。
             has_read_progress = any(chunk_map for chunk_map in job.chunk_cards.values())
@@ -3238,6 +3278,76 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
         job.message = f"构建失败：{exc}"
         job.save()
     return job
+
+
+def run_scoped_build(job: DependencyBuildJob, book, llm, model: str = "",
+                     cache: AnalysisCache = None, max_calls: int = None,
+                     source_uids=None, known_pairs=None, known_requires=None, character_ids=None,
+                     only_pairs=None, only_uids=None) -> DependencyBuildJob:
+    """按必要关系逐层扩展的会话构建。
+
+    第一轮只分析会话当前候选来源；每轮只把 AI 判为 requires 的目标加入 frontier，
+    related 不扩展。总调用预算跨轮累计；预算耗尽时保留 pending_frontier 并把结果
+    标成 partial/resumable，绝不宣称已完整覆盖。
+    """
+    sources = set(source_uids or [])
+    requires_graph = {}
+    for a, b in known_requires or []:
+        requires_graph.setdefault(str(a), set()).add(str(b))
+
+    def include_known_requires():
+        pending = list(sources)
+        while pending:
+            source = pending.pop()
+            for target in requires_graph.get(source, ()):
+                if target not in sources:
+                    sources.add(target)
+                    pending.append(target)
+
+    context = job.context if isinstance(job.context, dict) else {}
+    sources.update(context.get("expanded_source_uids") or [])
+    include_known_requires()
+    total_budget = max(1, min(MAX_CALLS_HARD,
+                              int(max_calls) if max_calls is not None else MAX_CALLS_DEFAULT))
+    initial_calls = job.calls
+    first = True
+    while True:
+        remaining = total_budget - (job.calls - initial_calls)
+        if remaining <= 0:
+            job.resumable = True
+            job.outcome = "partial" if job.result else "failed"
+            job.context["scoped_complete"] = False
+            job.message = "调用预算已耗尽；必要依赖 frontier 已保存，可继续重试"
+            job.save()
+            return job
+        run_build(job, book, llm, model=model, cache=cache, max_calls=remaining,
+                  only_pairs=only_pairs if first else None,
+                  only_uids=only_uids if first else None,
+                  character_ids=character_ids, source_uids=sorted(sources),
+                  known_pairs=known_pairs)
+        first = False
+        if job.cancelled or job.outcome in ("failed", "partial") or job.resumable:
+            job.context["scoped_complete"] = False
+            job.save()
+            return job
+        frontier = {item.get("to_uid") for item in (job.result or {}).get("accepted", [])
+                    if item.get("relation") == REL_REQUIRES
+                    and item.get("to_uid") not in sources}
+        frontier.discard(None)
+        if not frontier:
+            job.context["expanded_source_uids"] = sorted(sources)
+            job.context["pending_frontier"] = []
+            job.context["scoped_complete"] = True
+            job.save()
+            return job
+        sources.update(frontier)
+        include_known_requires()
+        job.context["expanded_source_uids"] = sorted(sources)
+        job.context["pending_frontier"] = sorted(frontier)
+        job.context["scoped_complete"] = False
+        job.stage = STAGE_METADATA
+        job.message = f"继续分析 {len(frontier)} 个新发现的必要依赖来源"
+        job.save()
 
 
 def _clean_card(card: dict) -> dict:

@@ -16,6 +16,7 @@ import re
 import copy
 import hashlib
 import logging
+import threading
 from pathlib import Path
 
 import frontmatter
@@ -46,6 +47,7 @@ class SessionOverlay:
         self.mode = mode
         self._data: dict = {}
         self._doc_cache: dict = {}
+        self._lock = threading.RLock()
         self._load()
 
     # ── 持久化 ──
@@ -72,25 +74,26 @@ class SessionOverlay:
         战斗结算会连续多次调用本方法（逐角色写成长），原子替换保证
         任何一次失败都不会留下截断的 overrides.json。
         """
-        path = _get_overlay_path(self.mode, self.session_id)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        import time
-        self._data["updated_at"] = time.time()
-        self._data["session_id"] = self.session_id
-        tmp_path = path.with_name(path.name + ".tmp")
-        try:
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                json.dump(self._data, f, ensure_ascii=False, indent=2)
-                f.write("\n")
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp_path, path)
-        finally:
-            if tmp_path.exists():
-                try:
-                    tmp_path.unlink()
-                except OSError:
-                    pass
+        with self._lock:
+            path = _get_overlay_path(self.mode, self.session_id)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            import time
+            self._data["updated_at"] = time.time()
+            self._data["session_id"] = self.session_id
+            tmp_path = path.with_name(path.name + ".tmp")
+            try:
+                with open(tmp_path, "w", encoding="utf-8") as f:
+                    json.dump(self._data, f, ensure_ascii=False, indent=2)
+                    f.write("\n")
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp_path, path)
+            finally:
+                if tmp_path.exists():
+                    try:
+                        tmp_path.unlink()
+                    except OSError:
+                        pass
 
     # ── 场景状态（场景角色/物品/当前对话目标） ──
 
@@ -236,15 +239,36 @@ class SessionOverlay:
 
     def get_worldbook_scope(self) -> dict | None:
         """返回会话固定的世界书候选范围；旧会话返回 None 以保持兼容。"""
-        scope = self._data.get("worldbook_scope")
-        return copy.deepcopy(scope) if isinstance(scope, dict) else None
+        with self._lock:
+            scope = self._data.get("worldbook_scope")
+            return copy.deepcopy(scope) if isinstance(scope, dict) else None
 
     def set_worldbook_scope(self, scope: dict | None):
-        if scope:
-            self._data["worldbook_scope"] = copy.deepcopy(scope)
-        else:
-            self._data.pop("worldbook_scope", None)
-        self._save()
+        with self._lock:
+            if scope:
+                self._data["worldbook_scope"] = copy.deepcopy(scope)
+            else:
+                self._data.pop("worldbook_scope", None)
+            self._save()
+
+    def update_worldbook_scope(self, updater):
+        """在单个 overlay 内读取、替换并一次保存世界书范围。"""
+        with self._lock:
+            original = copy.deepcopy(self._data.get("worldbook_scope"))
+            updated = updater(copy.deepcopy(original))
+            try:
+                if updated:
+                    self._data["worldbook_scope"] = copy.deepcopy(updated)
+                else:
+                    self._data.pop("worldbook_scope", None)
+                self._save()
+            except Exception:
+                if original is not None:
+                    self._data["worldbook_scope"] = original
+                else:
+                    self._data.pop("worldbook_scope", None)
+                raise
+            return copy.deepcopy(updated)
 
     # ── 环境覆盖 ──
 

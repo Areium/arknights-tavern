@@ -11,6 +11,7 @@ import { useApi } from "../../hooks/useApi";
 import { useCombatResume } from "../../hooks/useCombatResume";
 import type { PlotInfo, WorldBookSummary, Session, CombatResumeTestDTO, CombatResumeSummaryDTO } from "../../types";
 import CreateSessionWizard from "./CreateSessionWizard";
+import { SessionWorldbookDependencies } from "./SessionWorldbookDependencies";
 import { useDialogMinimize } from "../../hooks/useDialogMinimize";
 
 interface CharItem {
@@ -743,6 +744,8 @@ export default function SessionManagerView() {
                   )}
                 </div>
               </div>
+
+              {(selected.worldbook_id || selected.worldbook_scope?.book_id) && <SessionWorldbookDependencies key={selected.id} sessionId={selected.id} />}
 
               {/* 角色阵容 */}
               <div className="detail-section p-4">

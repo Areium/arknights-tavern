@@ -732,6 +732,42 @@ export interface WorldBookCategoryDTO {
   sort_order: number;
 }
 export interface WorldBookDependencyEdgeDTO { from_uid: string; to_uid: string; }
+export interface SessionWorldbookDependenciesDTO {
+  session_id: string;
+  book_id: string;
+  book_name: string;
+  scope_revision: number;
+  revision_hash: string;
+  content_revision: string;
+  inheritance: Record<string, any>;
+  local_overrides: {
+    requires_edges: WorldBookDependencyEdgeDTO[];
+    related_edges: WorldBookDependencyEdgeDTO[];
+    root_expansions?: Record<string, WorldBookExpansion>;
+  };
+  suppressed_edges: Array<WorldBookDependencyEdgeDTO & { relation: "requires" | "related" }>;
+  effective_requires_edges: WorldBookDependencyEdgeDTO[];
+  effective_related_edges: WorldBookDependencyEdgeDTO[];
+  effective_rules: WorldBookRulesDTO;
+  edge_origins: Record<string, "inherited" | "local">;
+  conflicts: Array<WorldBookDependencyEdgeDTO & {
+    inherited_relation: string; local_relation: string; resolution: string;
+  }>;
+  resolved_entry_uids: string[];
+  selection_reasons: Record<string, string[]>;
+  entries: Array<{ uid: string; name: string; selected: boolean; reasons: string[] }>;
+}
+export interface SessionInheritancePreviewDTO {
+  expected_scope_revision: number;
+  from_policy_revision: number;
+  to_policy_revision: number;
+  changes: Array<WorldBookDependencyEdgeDTO & { kind: "added" | "removed"; relation: string }>;
+  rule_changes: Array<{ entry_uid: string; kind: "added" | "removed" | "changed"; before?: WorldBookRootDTO; after?: WorldBookRootDTO }>;
+  scope_added: string[];
+  scope_removed: string[];
+  conflicts: SessionWorldbookDependenciesDTO["conflicts"];
+  preview_hash: string;
+}
 export interface WorldBookImportConfigDTO {
   fixed_entry_uids: string[];
   dependency_sources: Array<{ entry_uid: string; max_depth: number }>;
@@ -904,6 +940,13 @@ export interface DependencyProposalJobDTO {
   created_at: number;
   updated_at: number;
   cancelled: boolean;
+  running?: boolean;
+  context?: {
+    session_id?: string;
+    scope_revision?: number;
+    scoped_complete?: boolean;
+    pending_frontier?: string[];
+  };
   error: { code: string; message: string } | null;
   calls: number;
   failed_batches: DependencyFailedBatchDTO[];

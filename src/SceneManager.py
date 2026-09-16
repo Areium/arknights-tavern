@@ -373,18 +373,24 @@ class SceneManager:
         """
         if getattr(self, "_restoring_scope", False):
             return
-        scope = getattr(self._overlay, "get_worldbook_scope", lambda: None)()
-        if scope is None:
-            return  # 旧会话继续采用原语义，直到显式重新绑定
         book = self._resolve_worldbook()
         if not book:
             return
         try:
-            refreshed = book.refresh_session_scope(scope, self.get_scene_characters())
+            updater = getattr(self._overlay, "update_worldbook_scope", None)
+            if updater:
+                updater(lambda current: (
+                    book.refresh_session_scope(current, self.get_scene_characters())
+                    if current is not None else None))
+            else:
+                # 兼容旧 overlay / 外部实现；内置 SessionOverlay 始终走上面的原子路径。
+                scope = self._overlay.get_worldbook_scope()
+                if scope is not None:
+                    self._overlay.set_worldbook_scope(
+                        book.refresh_session_scope(scope, self.get_scene_characters()))
         except (TypeError, ValueError) as exc:
             logger.warning("重算世界书范围失败，保留原快照: %s", exc)
             return
-        self._overlay.set_worldbook_scope(refreshed)
 
     def switch_active(self, name: str) -> bool:
         """切换对话目标。

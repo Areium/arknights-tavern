@@ -334,6 +334,56 @@ export function useApi() {
       request<any>(`/api/sessions/${sessionId}/index-config`, {
         method: "DELETE",
       }),
+    getSessionWorldbookDependencies: (sessionId: string) =>
+      request<import("../types").SessionWorldbookDependenciesDTO>(
+        `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-dependencies`),
+    patchSessionWorldbookDependency: (sessionId: string, data: {
+      from_uid: string; to_uid: string; relation: "requires" | "related" | "none";
+      expected_scope_revision: number; enable_source_expansion?: boolean;
+    }) => request<import("../types").SessionWorldbookDependenciesDTO>(
+      `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-dependencies`, {
+        method: "PATCH", body: JSON.stringify(data),
+      }),
+    restoreSessionWorldbookDependencies: (sessionId: string, data: {
+      expected_scope_revision: number; from_uid?: string; to_uid?: string;
+    }) => request<import("../types").SessionWorldbookDependenciesDTO>(
+      `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-dependencies/restore`, {
+        method: "POST", body: JSON.stringify(data),
+      }),
+    previewSessionWorldbookInheritance: (sessionId: string) =>
+      request<import("../types").SessionInheritancePreviewDTO>(
+        `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-dependencies/inheritance-preview`,
+        { method: "POST" }),
+    updateSessionWorldbookInheritance: (sessionId: string, data: {
+      expected_scope_revision: number; preview_hash: string;
+    }) => request<import("../types").SessionWorldbookDependenciesDTO>(
+      `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-dependencies/inheritance`, {
+        method: "POST", body: JSON.stringify(data),
+      }),
+    createSessionWorldbookJob: (sessionId: string, maxCalls?: number) =>
+      request<{ job: import("../types").DependencyProposalJobDTO }>(
+        `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-dependency-jobs`, {
+          method: "POST", body: JSON.stringify({ reading_mode: "adaptive", ...(maxCalls ? { max_calls: maxCalls } : {}) }),
+        }),
+    listSessionWorldbookJobs: (sessionId: string) =>
+      request<{ jobs: import("../types").DependencyProposalJobDTO[] }>(
+        `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-dependency-jobs`),
+    getSessionWorldbookJob: (sessionId: string, jobId: string) =>
+      request<{ job: import("../types").DependencyProposalJobDTO }>(
+        `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-dependency-jobs/${encodeURIComponent(jobId)}`),
+    cancelSessionWorldbookJob: (sessionId: string, jobId: string) =>
+      request<{ job: import("../types").DependencyProposalJobDTO }>(
+        `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-dependency-jobs/${encodeURIComponent(jobId)}/cancel`,
+        { method: "POST" }),
+    retrySessionWorldbookJob: (sessionId: string, jobId: string, maxCalls?: number) =>
+      request<{ job: import("../types").DependencyProposalJobDTO }>(
+        `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-dependency-jobs/${encodeURIComponent(jobId)}/retry`,
+        { method: "POST", body: JSON.stringify(maxCalls ? { max_calls: maxCalls } : {}) }),
+    applySessionWorldbookJob: (sessionId: string, jobId: string, acceptedPairs: string[][]) =>
+      request<{ applied: number; dependencies: import("../types").SessionWorldbookDependenciesDTO }>(
+        `/api/sessions/${encodeURIComponent(sessionId)}/worldbook-dependency-jobs/${encodeURIComponent(jobId)}/apply`, {
+          method: "POST", body: JSON.stringify({ accepted_pairs: acceptedPairs }),
+        }),
     exportIndexYaml: () => request<{ yaml: string }>("/api/index/export"),
     importIndexYaml: (yaml: string) =>
       request<any>("/api/index/import", {

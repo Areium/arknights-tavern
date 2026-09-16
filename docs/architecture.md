@@ -35,7 +35,8 @@
 | 模块 | 职责 |
 |---|---|
 | `session_manager.py` | 会话 CRUD、回滚、叙述变体；创建时通过 initializer 在发布前完成阵容与世界书范围初始化。**`combat_mode`（`"narrative"` \| `"tactical"`）创建时选定，不可更改** |
-| `session_overlay.py` | 职责聚合：角色/物品属性覆盖 + 剧情日志（保留最近 15 条）+ 节拍状态 + 任务系统 + 世界书绑定（`worldbook_id`）与候选快照（`worldbook_scope`） |
+| `session_overlay.py` | 职责聚合：角色/物品属性覆盖 + 剧情日志（保留最近 15 条）+ 节拍状态 + 任务系统 + 世界书绑定（`worldbook_id`）与候选快照（`worldbook_scope`）；会话依赖读改写在 overlay 锁内原子保存 |
+| `session_worldbook_dependencies.py` | 会话世界书继承基线、pair 屏蔽、本地边/起点展开覆盖、有效图、恢复继承与全局版本更新预览；不写全局书 |
 | `session_context.py` | 按会话缓存文档摘要 |
 | `session_resources.py` / `session_export.py` | 会话级资源（背景/形象覆盖）与会话存档导出 |
 | `environment_state.py` | 地点/天气/时间状态机，从 `data/environment/` 加载 |
@@ -122,6 +123,7 @@
 - `components/AssetManager.tsx` — 资产目录：图片上传/裁剪/默认图，实体显示上级目录与来源世界书（frontmatter `worldbook_id`），按书筛选与归类
 - `components/CardManager.tsx` — 卡牌管理：角色/职业卡牌编辑（CardEditor），条目显示所属世界书，按书筛选
 - `components/WorldBookManager.tsx` — 世界书管理：导入（文件/粘贴，支持角色卡 PNG/JSON 连带导入角色 + 内嵌世界书）、分类图谱 / 条目正文切换、条目编辑器、会话绑定、酒馆格式导出
+- `components/session/SessionWorldbookDependencies.tsx` — 会话大厅内的依赖微调：继承/本地/屏蔽关系、实际纳入原因、全局继承更新预览、会话专属 AI 任务预览与应用
 - `components/WorldBookDependencyPage.tsx` / `WorldBookScopeManager.tsx` — 世界书配置工作台：页面给三个视图（**配置概览 / 条目与角色 / 高级图谱**），共用一份**统一草稿**并由右上角一次 `PUT /configuration` 原子写入（409 保留草稿）。`components/worldbook/` 下是配置概览（基础设定 / 角色设定 / 关联补充 / 待处理 + 试选阵容 + 本次范围预览）、条目与角色（四个常见动作）、AI 自动构建面板与共享类型；`hooks/useWorldbookDraft.ts` 提供统一草稿与两个带防抖/过时响应保护的预览钩子。`WorldBookScopeManager` 是高级图谱（保留分类/网络/树/批量），由统一草稿投影而来并写回同一草稿，避免 AI 生成的条件起点被静默清掉；`WorldBookScopePreview.tsx` 同时用于创建向导
 - `components/WorldBookGraphCanvas.tsx` / `utils/worldbookGraph.ts` / `utils/worldbookDependency.ts` / `utils/worldbookBatch.ts` — Neo4j 风格圆形节点图：分类归属与有向依赖、拖动/平移/缩放、多选与框选、关系高亮、确定性布局及大书显示限额；节点角色分类（导入源/固定/中转/叶子/未配置）与按遍历深度展开的依赖树视图；批量策略变换（固定导入 / 导入源 / 建边 / 清边 / 移入分类）是纯函数，只改草稿不写盘；复用内容中心 `--ng-*` 配色，不修改战斗画布
 - `components/SettingsPanel.tsx` — LLM 配置/主题/叙述选项

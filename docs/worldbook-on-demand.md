@@ -186,6 +186,31 @@ v2 书（未启用 v3）沿用旧语义：
 - **全量兼容是显式选择**：`full_scope` 只影响本会话，不改变这本书的规则，也不会影响别的会话。
 - 内容仍按**实时语义**读取：快照冻结的是规则与解析结果，不是条目正文副本。正文改动会让 AI 证据标记为过期，但不会假装「内容已完全快照」。
 - 快照保存在会话 overlay 的 `worldbook_scope` 中；`resolved_entry_uids` 保留给原有消费者。导出会话时带上必要的规则版本。
+
+### 会话级依赖微调
+
+会话创建仍是纯本地操作，不调用 LLM。创建时把全局规则转换为一份独立快照；v2
+书先在内存中做范围等价的 v3 映射，再把映射结果写入会话，书本身不会升级或保存。
+旧会话第一次打开依赖面板时也按同样方式局部升级。
+
+会话有效图的固定公式是：`inheritance - suppressed_edges + local_overrides`。
+删除有效关系会同时删除本地覆盖并按 pair 屏蔽两种继承关系，因此刷新、角色入离队，
+以及全局把同一 pair 从 requires 改成 related 后都不会复活；只有「恢复继承」会移除
+屏蔽。本地关系优先于继承关系。requires 只有在来源起点采用
+`requires_closure`（或本会话显式把该来源改为展开）时才会扩大候选范围；related
+始终只供浏览。面板保存后展示服务端真实重算的 `resolved_entry_uids` 与原因。
+
+「更新全局继承」分为预览和应用两步。预览绑定 `scope_revision + preview_hash`，列出
+新增/删除关系与本地冲突；应用保留本地覆盖及屏蔽，冲突按 local wins 展示，不自动
+改写用户选择。角色入离队的刷新在 overlay 锁内完成读改写，保留 manual/full_scope
+与所有会话覆盖。
+
+会话 AI 微调使用独立任务目录和独立端点，不进入全局 proposal 列表，也不调用全局
+configuration 保存入口。任务绑定 session、book、正文身份、scope revision 和稳定范围
+指纹；应用时在会话锁内重新校验。第一轮只分析当前会话候选来源，目标从全书别名索引
+中检索；判为 requires 的范围外目标按预算进入下一层 frontier，related 不扩展。预算耗尽
+会保存 frontier 并标记 partial/resumable，不会宣称完整。正文仍走既有 adaptive reading、
+缓存、结构化错误、取消和失败批次重试；正文未变的已有有效边直接复用，避免重复付费。
 - `SceneManager` 和 `CharacterAgent` 都按候选 UID 过滤，并继续遵守「常驻 position-0 进稳定层，触发型进动态层」的前缀缓存约束。
 - 导出酒馆格式时，分类、导入策略和角色关联保存在 `extensions.arknights_tavern` 命名空间。复制与回灌保留这些元数据；其他客户端可以忽略该扩展。
 
@@ -195,6 +220,10 @@ v2 书（未启用 v3）沿用旧语义：
 |---|---|
 | `PUT /api/worldbook/<id>/taxonomy` | 完整 `categories`、按 UID 的 `entry_moves`、可选 `expected_revision`；校验及迁移原子应用 |
 | `PUT /api/worldbook/<id>/configuration` | **统一写入**：`categories`、`entry_moves`、`entry_updates`、`scope_mode`、`roots`、`requires_edges`、`related_edges`、AI `proposal`（+ `rejected`）、`expected_revision`。每书 RLock 覆盖「检查 → 提交」，版本不一致返回 409；AI 建议与人工草稿**并入**而非覆盖。一次原子提交，不是把多次旧保存串起来 |
+| `GET/PATCH /api/sessions/<session_id>/worldbook-dependencies` | 查看会话继承/覆盖/实际范围；按 CAS 新增、调整或屏蔽关系 |
+| `POST .../worldbook-dependencies/restore` | 恢复单个 pair 或全部继承 |
+| `POST .../inheritance-preview` / `POST .../inheritance` | 预览并显式更新本会话的全局继承版本 |
+| `POST/GET .../worldbook-dependency-jobs` | 创建/恢复会话专属 AI 微调任务；子路由提供查询、取消、重试与预览后应用 |
 | `POST /api/worldbook/<id>/auto-classify` | 按条目元数据出分类方案；`apply=false` 只读预览，`apply=true` 写入分类树与条目归属（可选 `expected_revision`，冲突 409）。不改载入模式与依赖策略 |
 | `PUT /api/worldbook/<id>/entries/<uid>` | 合并条目字段，支持 `category_id` / `character_id`，保留未提供字段及零值 |
 | `PUT /api/worldbook/<id>/import-config` | v2 路径：`fixed_entry_uids`、`dependency_sources`、`dependency_edges`、`scope_mode`、可选 `expected_revision` |
@@ -217,6 +246,13 @@ v2 书（未启用 v3）沿用旧语义：
 ## 验证
 
 统一入口仍为 `bash scripts/run_tests.sh`。范围与原子性回归在 `tests/test_worldbook_scope.py`；自动分类在 `tests/test_worldbook_classify.py`；v3 解析语义在 `tests/test_worldbook_v3_scope.py`（单角色不激活他人、被依赖带入不激活整组、共享依赖去重与离开阵容仍保留、related 不展开、环终止与交叉引用、三种展开方式与 v2 对齐、闭包不被静默截断、超限报错、manual 不自动激活、停用/空正文可解释、展示树确定性、v2→v3 映射）；AI 构建在 `tests/test_worldbook_builder.py`（候选检索、证据降级、校验拒绝、环与高扇出、置信度只排序、卡片与**判定**缓存、结构化失败、取消、持久化、失败批次重试、调用预算、规则分离与人工保护）；统一写入 / 预览 / 任务 / 创建会话在 `tests/test_worldbook_config_api.py`（原子写、409 保留草稿、非法写入不落盘、AI 建议**并入**人工草稿、v3 解释只读、单角色与手动追加、`draft_hash` 稳定与阵容敏感、无模型 503 引导、任务轮询分页、取消与重试、stale 标记、会话绑定规则版本、预览过期拒绝、全量兼容一致性、手动追加的会话作用域）。
+
+会话依赖专项在 `tests/test_session_worldbook_dependencies.py`：继承/覆盖/屏蔽恢复、
+角色刷新、schema2 局部升级、全局更新冲突、跨会话隔离、保存重载、任务 stale、取消与
+并发门禁、预算中断后从新 JobStore 恢复、scoped LLM 与 requires frontier（含复用继承边
+的闭包）以及已有边零调用。2026-09-16 的真实项目模型小样本在独立审查中完成：4 次
+调用、仅阅读会话相关的 3 个条目，复用 1 条继承边，沿两层 requires frontier 完成并
+应用；全局书未改变。真实 token 为 6498（输入 3804、输出 2694）。
 
 前端纯工具与真实 React SSR 检查可单独运行 `node scripts/test_worldbook_scope_ui.cjs`。前端构建在 `frontend/` 运行 `npm run build`。
 
