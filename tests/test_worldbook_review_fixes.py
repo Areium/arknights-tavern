@@ -10,6 +10,7 @@
 """
 import copy
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -22,9 +23,9 @@ from load_llm import LLMConnectError
 from world_book import DEFAULT_CATEGORIES, WorldBook, WorldBookEntry, WorldBookManager
 from worldbook_builder import (
     ADJUDICATION_BATCH, ANALYSIS_BATCH, MAX_CALLS_DEFAULT, MAX_CALLS_HARD, PROMPT_VERSION,
-    REL_REQUIRES, AnalysisCache, DependencyJobStore, auto_budget, build_metadata_index,
-    collect_candidates, entry_chunks, estimate_workload, relevant_chunk, run_build,
-    suggest_roots, validate_proposal,
+    REL_NONE, REL_REQUIRES, AnalysisCache, DependencyJobStore, auto_budget,
+    build_metadata_index, collect_candidates, entry_chunks, estimate_workload,
+    relevant_chunk, run_build, suggest_roots, validate_proposal,
 )
 
 PREINSTALLED = REPO / "data" / "worldbooks" / "arknights.json"
@@ -49,13 +50,32 @@ class CardStub:
     """只替代模型：按提示词里出现的 uid 逐条回一张空卡（不做任何语义判断）。"""
 
     def __init__(self, fail_uids=(), fail_pairs=(), bad_json_uids=(), judgments=None,
-                 candidate_characters=None):
+                 candidate_characters=None, answer_all=None):
         self.fail_uids = set(fail_uids)
         self.fail_pairs = set(fail_pairs)
         self.bad_json_uids = set(bad_json_uids)
         self.judgments = judgments or []
         self.candidate_characters = candidate_characters or {}
+        # answer_all：为「未被 judgments 显式覆盖的候选对」显式回一个关系。
+        # 协议要求「漏答」必须保持可重试，所以 stub 不能靠「没配就是没答」凑出成功构建。
+        self.answer_all = answer_all
         self.calls = []
+
+    @staticmethod
+    def _parse_pairs(prompt: str) -> list:
+        """按**引号感知**的方式解析 `<pair>` 属性。
+
+        属性值是带引号的，而 uid 里可能含空格
+        （真实预装书里就有 `Location_Rhode_Island_Training Room_index`），
+        用 `split(" ")` 会把一个属性切成两半，导致 stub 以为「这一对没答」。
+        """
+        pairs = []
+        for line in prompt.splitlines():
+            if not line.startswith("<pair from="):
+                continue
+            values = dict(re.findall(r'(\w+)="([^"]*)"', line))
+            pairs.append((values.get("from", ""), values.get("to", "")))
+        return pairs
 
     def chat(self, messages, **kwargs):
         self.calls.append(messages)
@@ -76,14 +96,17 @@ class CardStub:
                  "candidate_characters": self.candidate_characters.get(uid, []),
                  "evidence": []} for uid, chunk_id in zip(uids, chunk_ids)]}, ensure_ascii=False)}
         if "判断下列" in prompt:
-            pairs = []
-            for line in prompt.splitlines():
-                if line.startswith("<pair from="):
-                    parts = dict(part.split("=", 1) for part in
-                                 line.strip("<>").split(" ") if "=" in part)
-                    pairs.append((parts.get("from", "").strip('"'), parts.get("to", "").strip('"')))
+            pairs = self._parse_pairs(prompt)
             if any(pair in self.fail_pairs for pair in pairs):
                 raise LLMConnectError("stub：判定阶段连接失败")
+            if self.answer_all is not None:
+                covered = {(j.get("from_uid"), j.get("to_uid")) for j in self.judgments}
+                answered = list(self.judgments) + [
+                    {"from_uid": a, "to_uid": b, "relation": self.answer_all,
+                     "confidence": 0.2, "evidence": ""}
+                    for a, b in pairs if (a, b) not in covered]
+                return {"type": "text", "content": json.dumps({"judgments": answered},
+                                                              ensure_ascii=False)}
             return {"type": "text", "content": json.dumps({"judgments": self.judgments},
                                                           ensure_ascii=False)}
         raise AssertionError("未预期的请求")
@@ -143,9 +166,10 @@ def test_preinstalled_book_whole_build_completes_within_auto_budget(tmp_path):
 
     metadata = build_metadata_index(book.entries)
     workload = estimate_workload(metadata, collect_candidates(
-        metadata, {e.uid: e for e in book.entries})["pairs"])
+        metadata, {e.uid: e for e in book.entries})["pairs"],
+        entries_by_uid={e.uid: e for e in book.entries})
     job = store.create(book.id, "preinstalled", "stub-model")
-    llm = CardStub()
+    llm = CardStub(answer_all=REL_NONE)
 
     # 不传 max_calls：走真实默认（auto_budget），验证「默认就能完成」
     run_build(job, book, llm, model="stub-model", cache=cache)
@@ -154,10 +178,12 @@ def test_preinstalled_book_whole_build_completes_within_auto_budget(tmp_path):
     assert job.stage == "done" and job.error is None
     assert job.calls <= job.workload["budget"]
     assert job.calls <= MAX_CALLS_HARD
-    assert job.workload["estimated_calls"] == workload["estimated_calls"]
+    # 分析阶段开工前就能精确估算（此时还没有分析卡，判定按保守近似估）。
+    assert job.workload["card_calls"] == workload["card_calls"]
+    assert job.workload["estimated_calls"] <= job.workload["budget"]
     assert not job.resumable and not job.failed_batches
     replay = store.create(book.id, "preinstalled-replay", "stub-model")
-    replay_llm = CardStub()
+    replay_llm = CardStub(answer_all=REL_NONE)
     run_build(replay, book, replay_llm, model="stub-model", cache=cache)
     assert replay.outcome == "success"
     assert replay.calls == 0 and replay_llm.calls == [], "完整缓存回跑仍然调用了模型"
@@ -363,7 +389,7 @@ def test_budget_exhaustion_is_resumable_with_checkpoint(cache, store):
     assert job.pending_card_uids, "没有记录还缺哪些条目"
     assert job.cards, "已经拿到的分析卡必须保留，续跑不能从头再来"
     # 续跑：只补缺失部分，已完成的卡片走缓存
-    resume = CardStub()
+    resume = CardStub(answer_all=REL_NONE)
     run_build(job, book, resume, model="m", cache=cache,
               only_uids=list(job.pending_card_uids), max_calls=200)
     assert job.outcome == "success", (job.outcome, job.error, job.failed_batches[:3])
@@ -385,7 +411,9 @@ def test_every_chat_failing_is_failed_not_done(cache, store):
     assert job.error and job.error["code"] == "cards_failed"
     assert job.result is not None          # 结果结构仍在，但内容为空且终态明确
     assert job.result["stats"]["requires"] == 0
-    assert job.failed_batches and all(b["code"] == "connect" for b in job.failed_batches)
+    # 全部分析批次都以 connect 失败记录在案（判定阶段因无卡片同样不会有可信结论）
+    card_failures = [b for b in job.failed_batches if b["stage"] == "cards"]
+    assert card_failures and all(b["code"] == "connect" for b in card_failures)
 
 
 def test_all_invalid_json_is_failed_and_never_cached_as_empty(cache, store):
@@ -401,31 +429,48 @@ def test_all_invalid_json_is_failed_and_never_cached_as_empty(cache, store):
     assert all(b["code"] in ("invalid_json", "invalid_response") for b in job.failed_batches)
 
     # 换一个能正常回答的模型：必须重新问，不能命中「空卡」缓存
-    retry = CardStub()
+    retry = CardStub(answer_all=REL_NONE)
     run_build(job, book, retry, model="m", cache=cache)
     assert job.outcome == "success"
     assert len(job.cards) == len(book.entries)
 
 
 def test_partial_failure_is_partial_and_retryable(cache, store):
-    """只有一部分批次失败：终态是 partial，且失败的批次可以只重试那部分。"""
+    """只有一部分批次失败：终态是 partial，且失败的批次可以只重试那部分。
+
+    自适应装箱会把小夹具的条目合并进同一个请求（这是有意的：不再有半空批次），
+    所以这里**显式把输入预算压到刚好只装得下一条目**，让失败只覆盖其中一个，
+    从而验证 partial 语义与「只重试失败的那批」仍然成立。
+
+    注意预算里已经含了 system 提示词的开销（`_system_tokens()`），
+    所以「一条目 = 590 token」时预算不能低于它，否则全部请求都会 oversized。
+    """
     book = fixture_book()
     book.entries.extend(entry(f"extra{i}", f"extra content {i}") for i in range(9))
     job = store.create(book.id, "h", "m")
     first_uid = book.entries[0].uid
     llm = CardStub(fail_uids={first_uid})
-    run_build(job, book, llm, model="m", cache=cache)
+
+    import worldbook_builder as module
+    original_budget = module.ANALYSIS_INPUT_TOKEN_BUDGET
+    original_max = module.ANALYSIS_MAX_UNITS
+    try:
+        module.ANALYSIS_INPUT_TOKEN_BUDGET = 620   # 含 system 后一次只装得下一条
+        module.ANALYSIS_MAX_UNITS = 1
+        run_build(job, book, llm, model="m", cache=cache)
+    finally:
+        module.ANALYSIS_INPUT_TOKEN_BUDGET = original_budget
+        module.ANALYSIS_MAX_UNITS = original_max
 
     assert job.outcome == "partial"
     assert job.stage == "done"             # 有可用产出 → done，但 outcome 不是 success
     assert job.error is None
-    failed_uids = [e.uid for e in book.entries[:ANALYSIS_BATCH]]
-    assert job.pending_card_uids == sorted(failed_uids)
-    assert job.failed_batches and job.failed_batches[0]["uids"] == sorted(failed_uids)
+    assert job.pending_card_uids == [first_uid]
+    assert job.failed_batches and job.failed_batches[0]["uids"] == [first_uid]
 
     # 只重试失败的那一条：不重跑已成功的卡片
-    retry = CardStub()
-    run_build(job, book, retry, model="m", cache=cache, only_uids=failed_uids)
+    retry = CardStub(answer_all=REL_NONE)
+    run_build(job, book, retry, model="m", cache=cache, only_uids=[first_uid])
     card_prompts = [c[-1]["content"] for c in retry.calls if "分析下面这批" in c[-1]["content"]]
     assert len(card_prompts) == 1 and first_uid in card_prompts[0]
     assert job.outcome == "success"
@@ -475,8 +520,13 @@ def test_unique_reference_in_the_middle_of_a_long_entry_is_analyzed():
 
 
 def test_multi_chunk_cards_are_merged_not_truncated(cache, store):
-    """同一条目的多块分析卡必须合并（并集），而不是后写覆盖先写。"""
-    filler = "填充。" * 4000
+    """同一条目的多块分析卡必须合并（并集），而不是后写覆盖先写。
+
+    自适应装箱后，一个请求里可能同时装着同一条目的多个分块；合并逻辑必须仍然
+    按 chunk_id 归位并取并集。夹具刻意做大到**超过单请求输出预算**，
+    保证这次真的跨请求合并，而不是碰巧全在一批里。
+    """
+    filler = "填充。" * 12000                          # ≈ 3.6 万字，明显超过输出预算
     content = f"开头提到 概念ONE。{filler}结尾提到 概念TWO。"
     book = WorldBook("bk", "合并书", [
         entry("long", content, name="长条目"),
@@ -643,10 +693,19 @@ def test_full_text_chunks_have_no_gaps_and_production_sees_middle(cache, store):
 
 
 def test_prompt_version_changes_cache_keys(cache, monkeypatch):
+    """提示词版本参与分键：改提示词必须让旧缓存失效。
+
+    分析与判定有**各自的**版本号 —— 只改判定提示词时分析卡仍可复用，
+    这是「不要为了改一句判定提示词就重付整本书的分析费」的保证。
+    """
     import worldbook_builder as module
     before = cache.card_key('h', 'm'), cache.judgment_key('a', 'b', 'm')
-    monkeypatch.setattr(module, 'PROMPT_VERSION', 'next-prompt')
-    assert before != (cache.card_key('h', 'm'), cache.judgment_key('a', 'b', 'm'))
+    monkeypatch.setattr(module, 'ANALYSIS_PROMPT_VERSION', 'next-analysis')
+    assert before[0] != cache.card_key('h', 'm')
+    assert before[1] == cache.judgment_key('a', 'b', 'm'), \
+        "改分析提示词不应让判定缓存的键变化（两者版本独立）"
+    monkeypatch.setattr(module, 'ADJUDICATION_PROMPT_VERSION', 'next-adjudication')
+    assert before[1] != cache.judgment_key('a', 'b', 'm')
 
 
 def test_model_identity_uses_selected_config_and_endpoint():

@@ -17,7 +17,6 @@
 - 失败走结构化错误（LLMError），**绝不把错误伪装成成功结果**。
 """
 
-import copy
 import hashlib
 import json
 import logging
@@ -30,6 +29,7 @@ from pathlib import Path
 
 from load_llm import LLMError
 from world_book import content_revision, estimate_tokens
+from worldbook_builder_plan import ExactPacker, RequestPlan, Unit, packs_all_units
 from worldbook_classify import classify_entries
 from worldbook_scope import (
     ACTIVATION_ALWAYS, ACTIVATION_ROSTER_ANY, EXPANSION_REQUIRES_CLOSURE,
@@ -42,16 +42,58 @@ _ANALYSIS_DIR = _PROJECT_ROOT / "data" / "worldbook_analysis"
 _JOBS_DIR = _PROJECT_ROOT / "data" / "worldbook_jobs"
 
 # 提示词版本：参与缓存键。改动提示词/输出契约时必须递增，否则旧缓存会被误用。
-PROMPT_VERSION = "wb-dep-v3"
+PROMPT_VERSION = "wb-dep-v4"
+# 分析与判定各自独立的提示词版本：
+# - 分析契约（字段 / 单位 / 缓存语义）没变，但提示词正文改了 → 分析卡可以继续复用，
+#   只有判定需要重问。两者共用一个版本号会白白作废整本书的分析卡。
+ANALYSIS_PROMPT_VERSION = "wb-analysis-v4"
+ADJUDICATION_PROMPT_VERSION = "wb-adjudication-v4"
 
-ANALYSIS_BATCH = 6        # 单次分析请求包含的条目数
-ADJUDICATION_BATCH = 8    # 单次判定请求包含的候选对数
 MAX_ENTRY_CHARS = 6000    # 单条送审正文字符上限（超出按章节截取）
 CHUNK_CHARS = 1800        # 长条目切块粒度
 MAX_CHUNKS_PER_ENTRY = 0  # 全文覆盖；调用预算负责暂停，不能裁掉正文
 MAX_CALLS_DEFAULT = 400   # 有限调用预算，防止失控
 MAX_CALLS_HARD = 400      # 每次启动的硬上限；超过后显式续跑
 MAX_JSON_REPAIRS = 1      # 有限 JSON 修复次数
+
+# ── 自适应批量（分析）──
+# 旧实现按固定 6 个分块一批：64 块时只发 7 个半空请求，709 块要发 119 次。
+# 现在按「估算输入 token + 预期输出 token + 条数」三重上限自适应装箱，
+# 短条目会自然合并、长条目自动拆开，单条超预算时独占一个请求（正文绝不重复发送）。
+ANALYSIS_MAX_UNITS = 16            # 单请求最多分块数
+ANALYSIS_INPUT_TOKEN_BUDGET = 16000
+ANALYSIS_OUTPUT_TOKEN_BUDGET = 6000
+ANALYSIS_EVIDENCE_PER_CARD = 60    # 单条证据的字符上限（提示词与清洗共用同一数字）
+ANALYSIS_EVIDENCE_LIMIT = 2        # 单张卡的证据条数上限
+ANALYSIS_SUMMARY_CHARS = 80
+ANALYSIS_ENTITY_LIMIT = 10
+ANALYSIS_CONCEPT_LIMIT = 8
+ANALYSIS_CANDIDATE_LIMIT = 5
+
+# ── 自适应批量（判定）──
+# 判定请求改为：条目上下文来自**已有分析卡**（有限摘要/定义/未解释概念），
+# 证据只取引用真正出现位置的**短窗口**，而不是整段重复章节。
+ADJUDICATION_MAX_UNITS = 28
+ADJUDICATION_MIN_UNITS = 12
+ADJUDICATION_INPUT_TOKEN_BUDGET = 12000
+ADJUDICATION_OUTPUT_TOKEN_BUDGET = 6000
+ADJUDICATION_PAIR_OUTPUT_TOKENS = 160  # 每条判定的保守输出票（关系/理由/证据/JSON 开销）
+EVIDENCE_CONTEXT_CHARS = 220           # 命中位置两侧各取多少字符
+EVIDENCE_PREFIX_CHARS = 120            # 完全定位不到时的退化前缀（旧实现只留 +50 字符）
+EVIDENCE_MAX_CHARS = 700               # 单个片段的硬上限
+CONTEXT_SUMMARY_CHARS = 120            # 判定请求里每条的摘要上限
+CONTEXT_LIST_ITEMS = 4                 # 判定请求里定义/未解释概念各取几条
+CONTEXT_ITEM_CHARS = 40                # 单条概念的字符上限
+CONTEXT_MAX_CHARS = 700                # 单条上下文的硬上限
+
+# 截断标记：必须显式出现在文本里，模型据此回答 unsure，而不是凭空补 requires。
+TRUNCATION_MARKERS = ("…（已截断）", "…（中略）…")
+_MARK_HEAD = "…（上文已截断）"
+_MARK_TAIL = "…（下文已截断）"
+
+# 兼容旧调用点：提示「批量」不再有固定值，两个常量保留为**装箱上限**语义。
+ANALYSIS_BATCH = ANALYSIS_MAX_UNITS
+ADJUDICATION_BATCH = ADJUDICATION_MAX_UNITS
 
 # 触发词的「文档频率」保护：出现在超过这个比例条目正文里的词是通用词
 # （例如「近卫」「术师」），作为明确引用会制造成百上千条噪声候选。
@@ -203,6 +245,9 @@ def relevant_chunk(content: str, needle: str) -> tuple[str, bool]:
 
     判定要看到「引用真正出现的那一段」，而不是永远只看开头 ——
     否则长条目中部才出现的引用会被判成无关。
+
+    新实现（`evidence_windows`）只取命中位置两侧的**短窗口**；本函数保留
+    原有「整段返回」语义，供需要完整章节的调用方（如基准脚本与回归测试）使用。
     """
     parts = split_sections(content or "")
     if not parts:
@@ -215,6 +260,308 @@ def relevant_chunk(content: str, needle: str) -> tuple[str, bool]:
     if len(parts) == 1:
         return parts[0], False
     return _clip(content), False
+
+
+def _locate_span(text: str, needle: str) -> tuple[int, int] | None:
+    """在原文里定位引用：先逐字，再忽略空白（正文里的「凯 尔 希」也算命中）。"""
+    text = text or ""
+    needle = needle or ""
+    if not text or not needle:
+        return None
+    start = text.find(needle)
+    if start != -1:
+        return start, start + len(needle)
+    keys = [re.escape(ch) for ch in needle if not ch.isspace()]
+    if not keys:
+        return None
+    match = re.search(r"\s*".join(keys), text)
+    if not match:
+        return None
+    return match.start(), match.end()
+
+
+def evidence_windows(content: str, needle: str, context: int = EVIDENCE_CONTEXT_CHARS,
+                     markers: tuple = (_MARK_HEAD, _MARK_TAIL),
+                     prefix: int = EVIDENCE_PREFIX_CHARS) -> tuple[str, str, bool]:
+    """引用附近的小窗口。返回 `(窗口文本, 定位方式, 是否被截断)`。
+
+    这是「不要每个候选对都重发整章」的核心：判定只需要看到引用出现的上下文，
+    而不是 1800-6000 字的整段正文。
+
+    定位方式：
+    - `exact`：逐字命中；
+    - `normalized`：忽略空白后命中（模型抄简称、正文夹空格都不会漏）；
+    - `prefix`：都没命中，退化为开头 `prefix` 字符（旧实现只给 50 字符，这里更宽）；
+    - `missing`：正文为空。
+    窗口两侧被裁掉时写入显式截断标记 —— 「上下文不足 → 必须回答 unsure」有据可依。
+    """
+    text = content or ""
+    if not text:
+        return "", "missing", False
+    span = _locate_span(text, needle)
+    if span is None:
+        if not prefix:
+            return "", "missing", True
+        head = text[:prefix]
+        return head, "prefix", len(text) > len(head)
+    start, end = span
+    left = max(0, start - context)
+    right = min(len(text), end + context)
+    head_mark = markers[0] if left > 0 else ""
+    tail_mark = markers[1] if right < len(text) else ""
+    window = f"{head_mark}{text[left:right]}{tail_mark}"
+    return window, ("exact" if text.find(needle) != -1 else "normalized"), bool(head_mark or tail_mark)
+
+
+def entry_context(card: dict, limit: int = CONTEXT_MAX_CHARS) -> str:
+    """从分析卡提炼判定所需的**有限**上下文（摘要 / 定义 / 未解释概念）。
+
+    旧判定请求把每条正文的整段都发过去，1621 对候选因此要付 322 万 token。
+    分析卡已经读过全文，这里只把「判定真正需要的部分」取出来：
+    这条自己定义了哪些概念、还有哪些概念没解释（后者正是 requires 的来源）。
+    """
+    if not isinstance(card, dict):
+        return ""
+    pieces = []
+    summary = str(card.get("summary") or "").strip()
+    if summary:
+        pieces.append(f"摘要：{summary[:CONTEXT_SUMMARY_CHARS]}")
+    defined = [str(v).strip()[:CONTEXT_ITEM_CHARS] for v in (card.get("defined_concepts") or [])
+               if isinstance(v, str) and v.strip()][:CONTEXT_LIST_ITEMS]
+    if defined:
+        pieces.append("自身定义：" + "、".join(defined))
+    unexplained = [str(v).strip()[:CONTEXT_ITEM_CHARS]
+                   for v in (card.get("unexplained_concepts") or [])
+                   if isinstance(v, str) and v.strip()][:CONTEXT_LIST_ITEMS]
+    if unexplained:
+        pieces.append("提到但未解释：" + "、".join(unexplained))
+    text = "；".join(pieces)
+    if len(text) > limit:
+        return text[:limit] + TRUNCATION_MARKERS[0]
+    return text
+
+
+# 每条目固定开销（别名行 + entry 标签）与每张卡的固定输出票。
+ENTRY_METADATA_TOKENS = 32
+ANALYSIS_CARD_OUTPUT_TOKENS = 90
+
+# 通用别名行里最多列出几个别名（分析请求的固定开销由此决定）。
+ENTRY_ALIAS_LIMIT = 8
+
+
+def _entry_block(uid: str, name: str, content: str, aliases: list, part: str = "",
+                 chunk_id: str = "") -> str:
+    alias_text = "、".join(aliases[:ENTRY_ALIAS_LIMIT])
+    header = f'<entry uid="{uid}" name="{name}"'
+    if part:
+        header += f' part="{part}"'
+    if chunk_id:
+        header += f' chunk_id="{chunk_id}"'
+    return (f"{header}>\n"
+            f"[别名/关键词] {alias_text}\n"
+            f"[正文]\n{content}\n</entry>")
+
+
+def _analysis_output_tokens(chunk: str) -> int:
+    """一张分析卡的**预期输出**票额（用于输出预算，不是输入计费）。
+
+    不能按「4 字符 1 token」估：中文正文的 1 个字就是 1 token，而模型复述式
+    输出同样按 CJK 计费，低估输出会让「输出预算」形同虚设。
+    """
+    return ANALYSIS_CARD_OUTPUT_TOKENS + estimate_tokens(chunk) // 3
+
+
+# system 提示词是**每次请求都要付**的固定输入开销；旧的估算漏了它，
+# 规划值因此系统性偏低、真实请求超预算。这里量一次，规划器每请求都加上。
+_SYSTEM_TOKENS = None
+
+
+def _system_tokens() -> int:
+    global _SYSTEM_TOKENS
+    if _SYSTEM_TOKENS is None:
+        _SYSTEM_TOKENS = estimate_tokens(_SYSTEM)
+    return _SYSTEM_TOKENS
+
+
+def plan_analysis(units, metadata, entries_by_uid, character_ids=None) -> list[RequestPlan]:
+    """把分析单元装箱成请求计划（估算与执行共用同一份渲染）。
+
+    `render` 直接调用 `build_analysis_prompt` —— 规划时量到的就是一个真实请求
+    的正文长度（含提示词、角色目录、`<entry>` 块），不存在「估算算术与真实
+    发送漂移」的空间。贪心保持传入顺序，因此分块按条目、按索引连续排布。
+    """
+    render = (lambda batch: (build_analysis_prompt(batch, metadata, entries_by_uid,
+                                                   character_ids), None))
+    packer = ExactPacker(
+        render=render,
+        instruction_tokens=_system_tokens(),
+        input_budget=ANALYSIS_INPUT_TOKEN_BUDGET,
+        output_budget=ANALYSIS_OUTPUT_TOKEN_BUDGET,
+        max_units=ANALYSIS_MAX_UNITS,
+        output_of=lambda unit: _analysis_output_tokens(unit.payload[3]))
+    return packer.plan(units)
+
+
+def group_pairs_by_source(pairs) -> list[dict]:
+    """按来源条目分组：同一来源的候选对在同一个请求里复用同一份条目上下文。
+
+    保持**首次出现顺序**（不排序），这样贪心装箱能连续吃掉同一来源的候选对，
+    上下文与证据窗口的去重才有机会生效。
+    """
+    grouped = {}
+    for pair in pairs:
+        grouped.setdefault(pair["from_uid"], []).append(pair)
+    return [{"from_uid": uid, "pairs": grouped[uid]} for uid in grouped]
+
+
+def _batch_over_budget(batch, metadata, entries_by_uid, character_ids,
+                       input_budget: int, output_budget: int, output_of) -> bool:
+    """该批次**真实渲染**后是否超出预算（用于「不发送超限请求」的显式护栏）。"""
+    text = build_analysis_prompt(batch, metadata, entries_by_uid, character_ids)
+    if _system_tokens() + estimate_tokens(text) > input_budget:
+        return True
+    return sum(output_of(item[3]) for item in batch) > output_budget
+
+
+def plan_adjudication(pairs, entries_by_uid, cards) -> list[RequestPlan]:
+    """把候选对装箱成判定请求计划（估算与执行共用同一份渲染）。
+
+    `render` 调用 `build_adjudication_prompt`：条目上下文与证据窗口在请求内
+    按 uid/片段去重，量到的就是真实会发送的文本。候选对先按来源分组，再装箱。
+    """
+    units = []
+    for group in group_pairs_by_source(pairs):
+        for pair in group["pairs"]:
+            units.append(Unit(key=(pair["from_uid"], pair["to_uid"]), payload=pair))
+    render = (lambda batch: build_adjudication_prompt(batch, cards, entries_by_uid))
+    packer = ExactPacker(
+        render=render,
+        instruction_tokens=_system_tokens(),
+        input_budget=ADJUDICATION_INPUT_TOKEN_BUDGET,
+        output_budget=ADJUDICATION_OUTPUT_TOKEN_BUDGET,
+        max_units=ADJUDICATION_MAX_UNITS,
+        output_of=lambda unit: ADJUDICATION_PAIR_OUTPUT_TOKENS)
+    return packer.plan(units)
+
+
+def build_analysis_prompt(plan, metadata, entries_by_uid, character_ids=None) -> str:
+    """一次分析请求的完整 user 文本。
+
+    **估算与执行都调用它** —— 这样「预计发送多少 token」与「实际发了什么」
+    不可能漂移；基准脚本也用它复现历史与当前的真实请求。
+
+    `plan` 可传 `Unit`（规划器用）或四元组（执行时按 chunk_id 取回），
+    这里统一解包。
+    """
+    items = [unit.payload if isinstance(unit, Unit) else unit for unit in (plan or [])]
+    total = len(items)
+    blocks = []
+    for position, (uid, chunk_id, index, chunk) in enumerate(items):
+        part = f"{position + 1}/{total}" if total > 1 else ""
+        blocks.append(_entry_block(uid, entries_by_uid[uid].name or uid, chunk,
+                                   metadata["entries"][uid]["aliases"],
+                                   part=part, chunk_id=chunk_id))
+    return (_ANALYSIS_INSTRUCTION
+            + "\n角色目录 ID（只允许从这里选择）："
+            + json.dumps(character_ids or [], ensure_ascii=False)
+            + "\n\n" + "\n\n".join(blocks))
+
+
+def _evidence_key(uid: str, window: str) -> tuple:
+    """证据去重键：**同一 uid + 同一片段文本**只发一次。
+
+    判定请求里几十个候选对常常指向同一条目的同一处引用（同一来源行连着多个
+    目标），每个 pair 都重发一遍这段窗口是纯浪费。按 uid+窗口文本去重后，
+    pair 只引用 `<evidence id="...">`，正文仍逐字保留、不丢任何原文。
+    """
+    return (uid, window)
+
+
+def _collect_evidence(plan, entries_by_uid) -> tuple[list, list]:
+    """收集本请求要用到的证据窗口，按 uid+窗口文本去重。
+
+    返回 `(证据条目列表, 逐对窗口记录)`。证据条目带稳定的 `ref`（`e0`、`e1`……）；
+    同一 uid 的**不同**片段（不同 matched）是不同条目，各自保留、不会互相覆盖。
+    """
+    index, order, per_pair = {}, [], []
+    for pair in plan:
+        a, b = pair["from_uid"], pair["to_uid"]
+        matched = pair.get("matched", "")
+        sides = {}
+        for side, uid in (("a", a), ("b", b)):
+            window, how, clipped = evidence_windows(entries_by_uid[uid].content, matched)
+            key = _evidence_key(uid, window)
+            if key not in index:
+                index[key] = {"ref": f"e{len(order)}", "uid": uid, "window": window,
+                              "span": how, "clip": clipped}
+                order.append(index[key])
+            entry = index[key]
+            sides[side] = {"ref": entry["ref"], "span": how, "clip": clipped,
+                           "empty": not window}
+        per_pair.append({"a": sides["a"], "b": sides["b"]})
+    return order, per_pair
+
+
+def build_adjudication_prompt(plan, cards, entries_by_uid) -> tuple[str, list]:
+    """一次判定请求的完整文本，以及逐条的可核验载荷。
+
+    `plan` 可传候选对，也可传 `Unit` / `(候选对, 缓存键)` —— 执行时后两者更顺手，
+    这里统一解包，避免调用点各自记得去包一层。
+
+    结构（两处去重，都是本设计省 token 的关键）：
+    1. `[条目上下文]`：同一 uid 的分析卡上下文只出现一次，由 `<context id>` 引用；
+    2. `[证据窗口]`：同一 uid + 同一片段文本只出现一次，由 `<evidence id>` 引用，
+       `<pair>` 行只带 `a_ref` / `b_ref` 与定位方式，不再重复粘贴原文。
+
+    返回 `(prompt, payloads)`。`payloads` 里每条包含 uid 对、窗口定位方式、
+    截断标记与是否存在——后者在执行时写入记录，让「上下文不足所以 unsure」
+    在结果里可查，而不是只存在于提示词里。
+    """
+    plan = [item.payload if isinstance(item, Unit) else
+            (item[0] if isinstance(item, tuple) else item) for item in (plan or [])]
+    # 逐条去重：同一份「条目上下文」在一个请求里只出现一次，由 pair 记录引用。
+    contexts, order = {}, []
+    for pair in plan:
+        for uid in (pair["from_uid"], pair["to_uid"]):
+            if uid not in contexts:
+                contexts[uid] = entry_context((cards or {}).get(uid) or {})
+                order.append(uid)
+    evidence, per_pair = _collect_evidence(plan, entries_by_uid)
+
+    lines = ["[条目上下文]（来自已完成的分析卡，不是全文）"]
+    for uid in order:
+        text = contexts[uid]
+        if text:
+            lines.append(f"<context id=\"{uid}\" name=\"{entries_by_uid[uid].name or uid}\">"
+                         f"{text}</context>")
+    lines.append("")
+    lines.append("[证据窗口]（引用附近的原文；同一片段只列一次，pair 通过 ref 引用）")
+    for item in evidence:
+        name = entries_by_uid[item["uid"]].name or item["uid"]
+        lines.append(f"<evidence id=\"{item['ref']}\" uid=\"{item['uid']}\" name=\"{name}\""
+                     f" span=\"{item['span']}\""
+                     + ("" if item["clip"] else ' complete="1"')
+                     + f">{item['window']}</evidence>")
+    lines.append("")
+
+    payloads = []
+    for position, (pair, sides) in enumerate(zip(plan, per_pair)):
+        a, b = pair["from_uid"], pair["to_uid"]
+        matched = pair.get("matched", "")
+        lines.append(f'<pair from="{a}" to="{b}" matched="{matched}"'
+                     f' a_ref="{sides["a"]["ref"]}" b_ref="{sides["b"]["ref"]}"'
+                     f' a_span="{sides["a"]["span"]}" b_span="{sides["b"]["span"]}"'
+                     + ("" if sides["a"]["clip"] else ' a_complete="1"')
+                     + ("" if sides["b"]["clip"] else ' b_complete="1"')
+                     + "/>")
+        payloads.append({
+            "from_uid": a, "to_uid": b,
+            "a_span": sides["a"]["span"], "b_span": sides["b"]["span"],
+            "a_clip": sides["a"]["clip"], "b_clip": sides["b"]["clip"],
+            "a_empty": sides["a"]["empty"], "b_empty": sides["b"]["empty"],
+            "position": position,
+        })
+    return _ADJUDICATION_INSTRUCTION + "\n\n" + "\n\n".join(lines), payloads
 
 
 def _merge_cards(cards: list) -> dict:
@@ -407,15 +754,57 @@ def explicit_reference_pairs(metadata: dict, entries_by_uid: dict) -> list[dict]
     return collect_candidates(metadata, entries_by_uid)["pairs"]
 
 
-def estimate_workload(metadata: dict, pairs: list, model: str = "") -> dict:
-    """开工前估算工作量：让「默认能不能跑完」变成可计算的事实，而不是撞预算。
+def analysis_plan_units(metadata: dict, entries_by_uid: dict) -> list[Unit]:
+    """全书分块的分析单元。
 
-    只估算调用次数，不估算费用（费用取决于用户自己的模型）。
+    `payload` 是 `build_analysis_prompt` 需要的四元组
+    `(uid, chunk_id, index, chunk, cache_key)`；规划与执行都从这里取单元，
+    保证两边看到的是同一批分块。
+    """
+    units = []
+    for uid, info in metadata["entries"].items():
+        entry = entries_by_uid.get(uid)
+        if entry is None:
+            continue
+        chunks, _ = entry_chunks(entry.content or "")
+        if not chunks:
+            chunks = [""]
+        for index, chunk in enumerate(chunks):
+            units.append(Unit(key=_chunk_id(uid, index, chunk),
+                              payload=(uid, _chunk_id(uid, index, chunk), index, chunk)))
+    return units
+
+
+def estimate_workload(metadata: dict, pairs: list, model: str = "",
+                      entries_by_uid: dict = None, cards: dict = None,
+                      character_ids=None) -> dict:
+    """开工前估算工作量。
+
+    **这是一个真正的规划器，不是除法**：它调用与分析/判定执行完全相同的
+    `plan_analysis` / `plan_adjudication`，而那两者又是**真实渲染**候选批次后
+    量长度，因此「预计几次请求、多少输入 token」与真实请求逐字节一致 ——
+    含 system 提示词与角色目录。
+
+    没有 `entries_by_uid` 时无法渲染，`planned` 为 False 且 token 估算留空
+    （**不**退化成一套假的除法近似，那只会给出误导性的数字）。
     """
     entries = len(metadata["entries"])
     units = sum(info.get("chunks", 1) for info in metadata["entries"].values())
-    card_calls = (units + ANALYSIS_BATCH - 1) // ANALYSIS_BATCH
-    adjudication_calls = (len(pairs) + ADJUDICATION_BATCH - 1) // ADJUDICATION_BATCH
+
+    analysis_plans = []
+    if entries_by_uid:
+        analysis_plans = plan_analysis(analysis_plan_units(metadata, entries_by_uid),
+                                       metadata, entries_by_uid, character_ids)
+    card_calls = len(analysis_plans) or (units + ANALYSIS_MAX_UNITS - 1) // ANALYSIS_MAX_UNITS
+    analysis_tokens = sum(plan.input_tokens for plan in analysis_plans)
+
+    adjudication_plans = []
+    if entries_by_uid and pairs:
+        adjudication_plans = plan_adjudication(pairs, entries_by_uid, cards or {})
+    adjudication_calls = len(adjudication_plans) or (
+        (len(pairs) + ADJUDICATION_MAX_UNITS - 1) // ADJUDICATION_MAX_UNITS if pairs else 0)
+    adjudication_tokens = sum(plan.input_tokens for plan in adjudication_plans)
+
     # 元数据阶段不调模型；预留少量 JSON 修复余量。
     estimated = card_calls + adjudication_calls
     return {
@@ -425,6 +814,18 @@ def estimate_workload(metadata: dict, pairs: list, model: str = "") -> dict:
         "card_calls": card_calls,
         "adjudication_calls": adjudication_calls,
         "estimated_calls": estimated,
+        # 估算口径：请求正文的输入 token（含 system、提示词、上下文与证据窗口）。
+        # 这是**估算**，不是账单；真实用量见 job.metrics.actual_*。
+        "estimated_input_tokens": analysis_tokens + adjudication_tokens,
+        "estimated_analysis_input_tokens": analysis_tokens,
+        "estimated_adjudication_input_tokens": adjudication_tokens,
+        "expected_output_tokens": (sum(plan.expected_output_tokens for plan in analysis_plans)
+                                   + sum(plan.expected_output_tokens
+                                         for plan in adjudication_plans)),
+        "oversized_requests": (sum(1 for plan in analysis_plans + adjudication_plans
+                                   if plan.oversized)),
+        # 估算是否用了真实的规划器：False 表示缺正文/卡片，无法渲染。
+        "planned": bool(analysis_plans or not units) and (not pairs or bool(adjudication_plans)),
         "budget": auto_budget(estimated),
         "model": model,
     }
@@ -458,18 +859,33 @@ _ANALYSIS_INSTRUCTION = """分析下面这批世界书条目，为**每一个分
 
 字段定义：
 - chunk_id: 原样抄回输入里的 chunk_id；这是分块的唯一身份，不能遗漏或改写。
+  chunk_id 形如 `uid:序号:短哈希`，位数较长是正常的，逐字复制即可。
 - uid: 原样抄回输入里的 uid。
-- summary: 一句话摘要（<=80 字）。
-- entities: 正文中提到的**专有名词**（人物/地点/组织/物品/事件/概念），最多 12 个。
-- defined_concepts: 这条**自身定义/解释**的概念。
-- unexplained_concepts: 这条提到但**没有解释**、需要靠别的条目补充的概念。
-- candidate_characters: 与这条内容相关的角色目录 ID 候选（只填你能从正文明确判断的，最多 6 个）。
+- summary: 一句话摘要（<=80 字，**只写最核心的一句**，不要复述正文）。
+- entities: 正文中提到的**专有名词**（人物/地点/组织/物品/事件/概念），最多 10 个，每项 <=20 字。
+- defined_concepts: 这条**自身定义/解释**的概念，最多 8 个，每项 <=20 字。
+- unexplained_concepts: 这条提到但**没有解释**、需要靠别的条目补充的概念，最多 8 个，每项 <=20 字。
+- candidate_characters: 与这条内容相关的角色目录 ID 候选（只填你能从正文明确判断的，最多 5 个）。
 - foundational: 是否为所有会话都需要的基础世界设定（布尔值）；人物介绍和仅仅提及角色不能算基础设定。
-- evidence: 支撑上述结论的原文片段（逐字引用，最多 3 条）。
+- evidence: 支撑上述结论的原文片段（逐字引用，最多 2 条，每条 <=60 字）。
+
+严格约束：
+- 卡片是**给下游判定看的索引**，不是正文复述：宁短勿长，不要抄整段原文。
+- 输出长度必须收敛，绝不要为了「完整」而把正文重新写一遍。
 
 只输出形如 {"cards":[{...}, ...]} 的 JSON，cards 与输入分块一一对应。"""
 
 _ADJUDICATION_INSTRUCTION = """判断下列「条目 A → 条目 B」的关系。这是世界书依赖图构建，不是语义相似度任务。
+
+输入分三部分：
+1. `[条目上下文]`：每条目的**分析卡摘要**（摘要 / 自身定义 / 提到但未解释的概念）。
+   这不是全文，是已经读过全文后提炼出的索引。
+2. `[证据窗口]`：`<evidence id="e0" uid=".." span="..">…</evidence>` —— 引用出现位置
+   **附近的原文窗口**（逐字），不是全文。同一片段只列一次，多个候选对共享。
+   窗口被裁掉的部分会写 `…（上文已截断）` / `…（下文已截断）`；
+   `complete="1"` 表示该窗口未截断（已是完整正文）。
+3. `<pair from="A" to="B" matched="命中词" a_ref="e0" b_ref="e1" .../>`：一个候选对，
+   `a_ref` / `b_ref` 指向 A / B 各自对应的证据窗口。
 
 关系只能是四种之一：
 - "requires": **A 被选入候选时，必须同时补充 B**，否则 A 的内容不完整或会自相矛盾
@@ -478,27 +894,17 @@ _ADJUDICATION_INSTRUCTION = """判断下列「条目 A → 条目 B」的关系�
 - "none": 没有实质关联。
 - "unsure": 你无法从给定片段判断。
 
-严格约束：
+严格约束（上下文不足时的行为是硬要求）：
+- 看到截断标记、或证据窗口不足以支撑判断时，**必须回答 "unsure"**，
+  并在 reason 里说明缺什么上下文。**绝不为了给出结论而虚构 requires**。
 - 「提到」「相识」「同组织」「同地区」**只算 related，绝不算 requires**。
 - 只有 A 缺失 B 就会出错时才用 requires。宁可用 related / unsure，也不要滥报 requires。
 - evidence 必须是**逐字**出现在给定片段里的句子；引用不出原文就不要给该关系。
 - confidence 是 0-1 的小数，仅用于排序参考。
+- reason <=120 字，evidence <=120 字：这是索引不是报告。
 
 只输出形如 {"judgments":[{"from_uid":"..","to_uid":"..","relation":"..",
-"confidence":0.0,"reason":"..","evidence":".."}]} 的 JSON。"""
-
-
-def _entry_block(uid: str, name: str, content: str, aliases: list, part: str = "",
-                 chunk_id: str = "") -> str:
-    alias_text = "、".join(aliases[:8])
-    header = f'<entry uid="{uid}" name="{name}"'
-    if part:
-        header += f' part="{part}"'
-    if chunk_id:
-        header += f' chunk_id="{chunk_id}"'
-    return (f"{header}>\n"
-            f"[别名/关键词] {alias_text}\n"
-            f"[正文]\n{content}\n</entry>")
+"confidence":0.0,"reason":"..","evidence":".."}]} 的 JSON，每个候选对恰好一条判定。"""
 
 
 # ─────────────────────────────────────────────────────────────
@@ -508,7 +914,12 @@ def _entry_block(uid: str, name: str, content: str, aliases: list, part: str = "
 class AnalysisCache:
     """磁盘缓存：分析卡与依赖判定各自按内容哈希分键。
 
-    依赖判定额外绑定**目标条目**的 hash —— 目标正文变了，旧判定即失效。
+    依赖判定额外绑定**双方条目**的 hash、名称、触发别名，以及**参与该判定的
+    卡片上下文 / 证据窗口 / 提示词版本** —— 这些输入任一变化，旧判定都不能复用。
+    只绑正文哈希是不够的：卡片摘要改了、别名改了，判定依据就已经变了。
+
+    分析与判定用**各自的提示词版本**：只改判定提示词时，整本书的分析卡仍然有效，
+    不必重新付费分析。
     """
 
     def __init__(self, directory: Path = None):
@@ -545,10 +956,19 @@ class AnalysisCache:
             logger.warning("分析缓存写入失败: %s", exc)
 
     def card_key(self, content_hash: str, model: str) -> str:
-        return self._key("card", PROMPT_VERSION, model, content_hash)
+        return self._key("card", ANALYSIS_PROMPT_VERSION, model, content_hash)
 
     def judgment_key(self, from_hash: str, to_hash: str, model: str) -> str:
-        return self._key("judge", PROMPT_VERSION, model, from_hash, to_hash)
+        """兼容旧签名的判定键：只绑双方正文 hash（不含卡片/别名/窗口输入）。"""
+        return self._key("judge", ADJUDICATION_PROMPT_VERSION, model, from_hash, to_hash)
+
+    def judgment_key_for(self, from_uid: str, to_uid: str, from_hash: str, to_hash: str,
+                         model: str, card_fingerprint: str,
+                         window_fingerprint: str) -> str:
+        """完整判定键：绑定双方身份/正文 + 卡片上下文 + 证据窗口 + 提示词版本。"""
+        return self._key("judge", ADJUDICATION_PROMPT_VERSION, model,
+                         from_uid, to_uid, from_hash, to_hash,
+                         card_fingerprint, window_fingerprint)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -605,6 +1025,31 @@ class DependencyBuildJob:
         self.pending_chunk_ids = []        # 缺失分块的稳定身份（不能只靠 UID / 顺序）
         self.rebuild_card_uids = []        # 旧数字断点污染：完整重建成功前禁止命中整条缓存
         self.chunk_report = {}             # 长条目分块报告（分块数 / 被丢弃字符）
+        # 检查点版本：持久化的卡片/判定只有在**同一提示词版本**下才允许复用。
+        # 旧任务在提示词升级后续跑时，若直接沿用旧的 judgments/cards，就会绕过
+        # 新的缓存失效规则（判定依据早已改变），因此恢复时按版本作废。
+        self.analysis_version = ANALYSIS_PROMPT_VERSION
+        self.adjudication_version = ADJUDICATION_PROMPT_VERSION
+        # 运行计数：真实用量（provider 报告）/ 缓存命中 / 规划请求数。
+        # `actual_known=False` 表示**未知**，不是 0 —— 不能把「provider 没报」
+        # 显示成「真实消耗为零」。各字段单独记「是否已知」，部分上报不会被
+        # 当成「其余字段为零」。
+        self.metrics = {
+            "planned_requests": 0, "requests": 0, "json_repair_calls": 0,
+            "cache_hits": 0, "analysis_cache_hits": 0,
+            "analysis_requests": 0, "adjudication_requests": 0,
+            "actual_known": False, "actual_prompt_tokens": 0,
+            "actual_completion_tokens": 0, "actual_total_tokens": 0,
+            "known_prompt_tokens": False, "known_completion_tokens": False,
+            "known_total_tokens": False,
+            # 每个字段的上报次数 / 请求数：用于判断合计是否**只覆盖了一部分请求**。
+            "usage_partial": False,
+            "usage_requests_prompt_tokens": 0, "usage_requests_completion_tokens": 0,
+            "usage_requests_total_tokens": 0,
+            "usage_reported_prompt_tokens": 0, "usage_reported_completion_tokens": 0,
+            "usage_reported_total_tokens": 0,
+            "estimated_sent_tokens": 0,
+        }
         self._save_lock = threading.RLock()
         self.running = False
 
@@ -627,10 +1072,13 @@ class DependencyBuildJob:
             "outcome": self.outcome, "resumable": self.resumable,
             "workload": self.workload, "candidates": self.candidates,
             "chunk_report": self.chunk_report,
+            "metrics": dict(self.metrics),
             "pending_pairs": len(self.pending_pairs),
             "pending_card_uids": len(self.pending_card_uids),
             "pending_chunk_ids": len(self.pending_chunk_ids),
             "rebuild_card_uids": len(self.rebuild_card_uids),
+            "analysis_version": self.analysis_version,
+            "adjudication_version": self.adjudication_version,
         }
         if include_result:
             data["result"] = self.result
@@ -683,11 +1131,13 @@ class DependencyBuildJob:
         job.error = data.get("error")
         job.outcome = data.get("outcome", "")
         job.resumable = bool(data.get("resumable"))
+        job.analysis_version = data.get("analysis_version") or ""
+        job.adjudication_version = data.get("adjudication_version") or ""
         job.cards = data.get("cards") or {}
         job.chunk_cards = data.get("chunk_cards") or {}
         job.judgments = data.get("judgments") or []
-        job.failed_batches = data.get("failed_batches") or []
         job.calls = int(data.get("calls", 0) or 0)
+        job.metrics = {**DependencyBuildJob("", "", "").metrics, **(data.get("metrics") or {})}
         job.result = data.get("result")
         job.workload = data.get("workload") or {}
         job.candidates = data.get("candidates") or {}
@@ -696,8 +1146,30 @@ class DependencyBuildJob:
         job.pending_card_uids = data.get("pending_card_uids") or []
         job.pending_chunk_ids = data.get("pending_chunk_ids") or []
         job.rebuild_card_uids = data.get("rebuild_card_uids") or []
+        # 失败批次必须随任务一起恢复：重启后续跑的 API 只认 failed_batches，
+        # 不载入就等于把「哪些还没做完」丢了，重试会以为无事可做。
+        job.failed_batches = [b for b in (data.get("failed_batches") or [])
+                              if isinstance(b, dict)]
         job.created_at = float(data.get("created_at", time.time()))
         job.updated_at = float(data.get("updated_at", time.time()))
+        # 版本核对放在**所有字段载入之后**：提示词升级后，旧卡片与旧判定都不再可信
+        # （判定依据已变），必须作废重算，否则续跑会绕过新的缓存失效规则。
+        # 已完成的方案（result）保持可读，只是标注为非当前版本。
+        if job.analysis_version != ANALYSIS_PROMPT_VERSION:
+            job.cards = {}
+            job.chunk_cards = {}
+            job.rebuild_card_uids = sorted(set(job.rebuild_card_uids)
+                                           | set(data.get("cards") or {}))
+        if job.adjudication_version != ADJUDICATION_PROMPT_VERSION:
+            # 判定依据（证据窗口 / 提示词）变了：旧判定全部作废。清空 judgments 后
+            # `run_build` 会用「全部候选对 - 已结算」重新算出 todo，因此这是**全量**
+            # 重排，不会只重跑某个子集。旧结果（result）保持可读，仅标注非当前版本。
+            job.judgments = []
+            job.pending_pairs = []
+            job.failed_batches = [b for b in job.failed_batches
+                                  if b.get("stage") != STAGE_ADJUDICATION]
+        job.analysis_version = ANALYSIS_PROMPT_VERSION
+        job.adjudication_version = ADJUDICATION_PROMPT_VERSION
         return job
 
 
@@ -1053,17 +1525,68 @@ class BuilderError(Exception):
         self.message = message
 
 
+def _record_usage(job, response) -> None:
+    """把 provider 报告的用量累加进任务指标。
+
+    **未知就是未知**：provider 不返回某个字段时，那个字段保持「未上报」状态，
+    不会被当成 0。每个字段单独记 `known_*` 标志与**上报次数** `usage_requests_*`，
+    因此「第一次报了完整用量、第二次什么都没报」不会被显示成「总量完整」——
+    界面必须能看出这是**部分覆盖**的合计，而不是全量实测。
+    """
+    usage = (response or {}).get("usage") if isinstance(response, dict) else None
+    metrics = job.metrics
+    # **分母是请求数**：即使这次响应完全没有 usage，也要把它算进覆盖率分母，
+    # 否则「只上报了一次、另一个请求什么都没说」会被算成「上报率 100%」。
+    requests = int(metrics.get("requests", 0))
+    if not isinstance(usage, dict):
+        usage = {}
+    for field, short in (("actual_prompt_tokens", "prompt_tokens"),
+                         ("actual_completion_tokens", "completion_tokens"),
+                         ("actual_total_tokens", "total_tokens")):
+        metrics[f"usage_requests_{short}"] = max(
+            int(metrics.get(f"usage_requests_{short}", 0)), requests)
+        value = usage.get(short)
+        if isinstance(value, (int, float)):
+            metrics[field] = int(metrics.get(field, 0)) + int(value)
+            metrics[f"known_{short}"] = True
+            metrics[f"usage_reported_{short}"] = metrics.get(f"usage_reported_{short}", 0) + 1
+    reported = max(int(metrics.get(f"usage_reported_{short}", 0))
+                   for short in ("prompt_tokens", "completion_tokens", "total_tokens"))
+    # `actual_known`：至少有一次上报过用量（「有没有实测」）。
+    # `usage_partial`：上报次数 < 请求数 —— 合计只覆盖了一部分请求，不能当作全量。
+    metrics["actual_known"] = reported > 0
+    metrics["usage_partial"] = reported > 0 and reported < requests
+
+
+def _count_request(job, messages) -> None:
+    """记一次真实发出的请求：计数 + 本次发送正文的估算输入 token。
+
+    这是**唯一**的发送计数点：正常请求与 JSON 修复请求都从这里过，因此
+    `metrics["requests"]` 与 `job.calls` 恒等，不会漏记修复请求导致的低报。
+    各阶段的细分计数（`card_requests` / `adjudication_requests`）仍由调用方各自累加。
+    """
+    job.metrics["requests"] = job.metrics.get("requests", 0) + 1
+    text = "\n".join(str(item.get("content") or "") for item in (messages or [])
+                     if isinstance(item, dict))
+    job.metrics["estimated_sent_tokens"] = (
+        job.metrics.get("estimated_sent_tokens", 0) + estimate_tokens(text))
+
+
 def _chat_json(llm, messages, job, cache_key=None, cache=None):
-    """调用 LLM 并解析 JSON。
+    """调用 LLM 并解析 JSON，同时把**真实用量**计入任务指标。
 
     **解析失败一律抛结构化 LLMError**，绝不返回 None 让调用方当成「模型说没有」——
     那会把一次失败悄悄变成一张空分析卡，并且被写进缓存（等于把失败固化下来）。
     调用方按批次捕获并记入 `job.failed_batches`，由终态判定是否为失败。
+    JSON 修复调用同样计入 `calls` / `requests` / 用量（`json_repair_calls`），
+    否则「几次请求」会被系统性低报。
     """
     if job.calls >= job.call_limit:
         raise BuilderError("budget_exceeded", "已达到本次调用预算；剩余工作已保存，可继续")
+    _count_request(job, messages)
     job.calls += 1
     response = llm.chat(messages)
+    _record_usage(job, response)
     if not isinstance(response, dict):
         raise LLMError("invalid_response", "LLM 返回了非结构化响应")
     if response.get("type") == "tool_call":
@@ -1071,19 +1594,28 @@ def _chat_json(llm, messages, job, cache_key=None, cache=None):
     content = response.get("content") or ""
     value = extract_json(content)
     if value is None:
-        # 有限次 JSON 修复：明确要求只回 JSON
+        # 有限次 JSON 修复：明确要求只回 JSON。
+        # 每次修复前都要**重新检查取消与预算**：用户取消后不能再发一次付费请求。
         for _ in range(MAX_JSON_REPAIRS):
+            if job.cancelled:
+                raise LLMError("cancelled", "任务已取消，停止 JSON 修复")
             if job.calls >= job.call_limit:
                 raise BuilderError("budget_exceeded", "JSON 修复前预算耗尽；剩余工作已保存")
             job.calls += 1
-            repair = llm.chat([
+            job.metrics["json_repair_calls"] = job.metrics.get("json_repair_calls", 0) + 1
+            repair_messages = [
                 {"role": "system", "content": _SYSTEM},
                 *messages[1:],
                 {"role": "user", "content":
                     "上一个回复不是合法 JSON。请只输出合法 JSON，不要任何其他文字。\n"
                     f"原始回复：\n{content[:2000]}"},
-            ])
-            value = extract_json((repair or {}).get("content") or "")
+            ]
+            _count_request(job, repair_messages)
+            repair = llm.chat(repair_messages)
+            _record_usage(job, repair)
+            if not isinstance(repair, dict):
+                raise LLMError("invalid_response", "JSON 修复返回了非结构化响应")
+            value = extract_json(repair.get("content") or "")
             if value is not None:
                 break
     if value is None:
@@ -1110,15 +1642,39 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
     cache = cache or AnalysisCache()
     job.model = model or job.model
     entries_by_uid = {e.uid: e for e in book.entries}
+    def entry_identity(uid):
+        """条目身份指纹：正文 + uid 之外还绑定**名称与触发别名**。
+
+        别名参与候选识别与证据比对，别名变了判定依据就变了；
+        只绑正文 hash 会让「改了触发词」沿用旧判定。
+        """
+        entry = entries_by_uid[uid]
+        return _sha(json.dumps([uid, entry.name, entry.trigger_keys],
+                               ensure_ascii=False, sort_keys=True))
+
     def card_cache_key(uid):
         entry = entries_by_uid[uid]
         identity = _sha(json.dumps([uid, entry.name, entry.trigger_keys, character_ids or []],
                                    ensure_ascii=False, sort_keys=True))
         return cache.card_key(_sha(entry.content) + identity, job.model)
 
-    def pair_cache_key(a, b):
-        return cache.judgment_key(_sha(entries_by_uid[a].content) + a,
-                                  _sha(entries_by_uid[b].content) + b, job.model)
+    def card_fingerprint(a, b):
+        """参与该判定的卡片上下文指纹：卡片内容或提炼规则变了，判定即失效。"""
+        payload = [entry_context((job.cards or {}).get(uid) or {}) for uid in (a, b)]
+        return _sha(json.dumps(payload, ensure_ascii=False))
+
+    def window_fingerprint(a, b, matched):
+        """证据窗口指纹：窗口文本或截断状态变了，判定依据就不再相同。"""
+        payload = []
+        for uid in (a, b):
+            window, how, clipped = evidence_windows(entries_by_uid[uid].content, matched)
+            payload.append([window, how, clipped])
+        return _sha(json.dumps(payload, ensure_ascii=False))
+
+    def pair_cache_key(a, b, matched=""):
+        return cache.judgment_key_for(
+            a, b, entry_identity(a), entry_identity(b), job.model,
+            card_fingerprint(a, b), window_fingerprint(a, b, matched))
     budget = int(max_calls) if max_calls is not None else MAX_CALLS_DEFAULT
     budget = max(1, min(MAX_CALLS_HARD, budget))
     starting_calls = job.calls
@@ -1151,7 +1707,9 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
 
         # 候选识别先算：它决定这次要花多少调用，是预算的来源。
         report = collect_candidates(metadata, entries_by_uid)
-        workload = estimate_workload(metadata, report["pairs"], job.model)
+        # 开工前的估算用**真实规划器**（分析阶段此时还没有卡片，判定按保守近似）。
+        workload = estimate_workload(metadata, report["pairs"], job.model,
+                                     entries_by_uid=entries_by_uid, cards=job.cards)
         job.workload = workload
         job.workload["budget"] = budget
         job.candidates = {key: value for key, value in report.items() if key != "pairs"}
@@ -1182,6 +1740,11 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
             cached = None if uid in rebuild_required else cache.get(key)
             if cached is not None:
                 job.cards[uid] = cached
+                # 整条命中分析缓存也要记进「缓存命中」：否则界面上会把
+                # 「这本书大部分没花钱」显示成「全都重新分析过」。
+                job.metrics["analysis_cache_hits"] = (
+                    job.metrics.get("analysis_cache_hits", 0) + 1)
+                job.metrics["cache_hits"] = job.metrics.get("cache_hits", 0) + 1
                 continue
             chunks, dropped = entry_chunks(entries_by_uid[uid].content)
             if dropped:
@@ -1230,30 +1793,46 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
                 job.rebuild_card_uids = sorted(rebuild_required)
                 merged_ready.add(uid)
 
-        for start in range(0, len(units), ANALYSIS_BATCH):
+        # 自适应装箱：**估算与执行共用**同一份规划（`plan_analysis`），
+        # 且规划时真实渲染请求正文，因此量到的长度就是会发出的长度。
+        def analysis_plan():
+            available = [Unit(key=chunk_id, payload=(uid, chunk_id, index, chunk))
+                         for uid, chunk_id, index, chunk, _key in units
+                         if chunk_id not in done_chunks[uid]]
+            if not available:
+                return []
+            by_chunk = {unit.key: unit.payload for unit in available}
+            plans = plan_analysis(available, metadata, entries_by_uid, character_ids)
+            return [[by_chunk[unit.key] for unit in plan.units] for plan in plans]
+
+        planned = analysis_plan()
+        job.metrics["planned_requests"] = job.metrics.get("planned_requests", 0) + len(planned)
+        for batch in planned:
             if not guard():
                 return job
-            batch = [unit for unit in units[start:start + ANALYSIS_BATCH]
-                     if unit[1] not in done_chunks[unit[0]]]
-            if not batch:
-                settle_cards()
+            # 分块粒度（CHUNK_CHARS=1800）远小于请求预算，正常不会走到这里；
+            # 一旦真的超限，**不静默发送超预算请求**，而是结构化失败留给重试/调参。
+            if _batch_over_budget(batch, metadata, entries_by_uid, character_ids,
+                                  ANALYSIS_INPUT_TOKEN_BUDGET, ANALYSIS_OUTPUT_TOKEN_BUDGET,
+                                  _analysis_output_tokens):
+                job.failed_batches.append({
+                    "stage": STAGE_CARDS,
+                    "uids": sorted({item[0] for item in batch}),
+                    "chunk_ids": [item[1] for item in batch],
+                    "code": "oversized_request",
+                    "message": "单个分析分块超出请求预算；已保留待重试，未发送超限请求"})
                 continue
-            blocks = [_entry_block(uid, entries_by_uid[uid].name or uid, chunk,
-                                   metadata["entries"][uid]["aliases"],
-                                   part=f"{index + 1}/{len(expected[uid])}" if len(expected[uid]) > 1 else "",
-                                   chunk_id=chunk_id)
-                      for uid, chunk_id, index, chunk, _ in batch]
             try:
+                prompt = build_analysis_prompt(batch, metadata, entries_by_uid, character_ids)
+                job.metrics["analysis_requests"] = job.metrics.get("analysis_requests", 0) + 1
                 value = _chat_json(llm, [
                     {"role": "system", "content": _SYSTEM},
-                    {"role": "user", "content": _ANALYSIS_INSTRUCTION
-                     + "\n角色目录 ID（只允许从这里选择）：" + json.dumps(character_ids or [], ensure_ascii=False)
-                     + "\n\n" + "\n\n".join(blocks)},
+                    {"role": "user", "content": prompt},
                 ], job)
                 cards = value.get("cards") if isinstance(value, dict) else None
                 if not isinstance(cards, list):
                     raise LLMError("invalid_response", "响应缺少 cards 数组")
-                allowed = {chunk_id: uid for uid, chunk_id, _, _, _ in batch}
+                allowed = {item[1]: item[0] for item in batch}
                 returned = {}
                 conflicted = set()
                 invalidate_batch = False
@@ -1292,7 +1871,7 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
                                                "chunk_ids": sorted(allowed),
                                                "code": "invalid_response",
                                                "message": "；".join(response_errors[:4])})
-                for uid, chunk_id, _, _, _ in batch:
+                for uid, chunk_id, _, _ in batch:
                     got = returned.get(chunk_id)
                     if got:
                         done_chunks[uid][chunk_id] = got
@@ -1305,8 +1884,8 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
             except LLMError as exc:
                 # 失败**不写缓存**、也不落空卡：留到 pending，等重试或如实报失败。
                 job.failed_batches.append({"stage": STAGE_CARDS,
-                                           "uids": sorted({uid for uid, _, _, _, _ in batch}),
-                                           "chunk_ids": [chunk_id for _, chunk_id, _, _, _ in batch],
+                                           "uids": sorted({item[0] for item in batch}),
+                                           "chunk_ids": [item[1] for item in batch],
                                            "code": exc.code, "message": exc.message})
             job.pending_card_uids = sorted(uid for uid in expected if uid not in job.cards)
             job.pending_chunk_ids = sorted(
@@ -1321,7 +1900,8 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
         job.save()
         pairs = _merge_card_pairs(report["pairs"], job.cards, metadata, entries_by_uid)
         job.candidates["after_card_merge"] = len(pairs)
-        workload = estimate_workload(metadata, pairs, job.model)
+        workload = estimate_workload(metadata, pairs, job.model,
+                                     entries_by_uid=entries_by_uid, cards=job.cards)
         job.workload = workload
         job.workload["budget"] = budget
         job.save()
@@ -1339,20 +1919,33 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
             wanted = {(p["from_uid"], p["to_uid"]) for p in only_pairs}
             todo = [p for p in todo if (p["from_uid"], p["to_uid"]) in wanted]
 
-        for start in range(0, len(todo), ADJUDICATION_BATCH):
-            job.pending_pairs = [{"from_uid": p["from_uid"], "to_uid": p["to_uid"]}
-                                 for p in todo[start:]]
+        # 判定同样走**共享规划器**：按来源分组装箱，且规划时真实渲染请求正文。
+        # 缓存键绑定双方身份/正文 + 卡片上下文 + 证据窗口 + 判定提示词版本。
+        planned_pairs = plan_adjudication(todo, entries_by_uid, job.cards)
+        job.metrics["planned_requests"] = job.metrics.get("planned_requests", 0) + len(planned_pairs)
+        # 预算/失败后续跑需要知道**全部**未完成候选对，而不是只有当前批次：
+        # 在开始判定前就把整批 todo 记为待办，随进度逐步收窄（见循环末尾）。
+        job.pending_pairs = [{"from_uid": p["from_uid"], "to_uid": p["to_uid"]} for p in todo]
+        job.save()
+        for plan in planned_pairs:
+            batch = [unit.payload for unit in plan.units]
+            # 单对即超预算：结构化失败留待重试/调参，不静默发送超限请求。
+            if plan.oversized and len(batch) == 1:
+                job.failed_batches.append({
+                    "stage": STAGE_ADJUDICATION,
+                    "pairs": [[batch[0]["from_uid"], batch[0]["to_uid"]]],
+                    "code": "oversized_request",
+                    "message": "单个候选对的渲染结果超出判定请求预算；已保留待重试"})
+                continue
             if not guard():
                 return job
-            batch = todo[start:start + ADJUDICATION_BATCH]
-            # 判定也走缓存：键绑定「双方正文 hash + 模型 + prompt 版本」，
-            # 目标正文一变旧判定即失效；命中缓存的批次不再花钱。
             pending = []
             for pair in batch:
                 a, b = pair["from_uid"], pair["to_uid"]
-                key = pair_cache_key(a, b)
+                key = pair_cache_key(a, b, pair.get("matched", ""))
                 cached = cache.get(key)
                 if isinstance(cached, list):
+                    job.metrics["cache_hits"] = job.metrics.get("cache_hits", 0) + 1
                     judgments.extend(item for item in cached if isinstance(item, dict))
                 else:
                     pending.append((pair, key))
@@ -1361,53 +1954,84 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
                 job.progress = min(job.total, len(judgments))
                 job.save()
                 continue
-            blocks = []
-            for pair, _ in pending:
-                a, b = pair["from_uid"], pair["to_uid"]
-                matched = pair.get("matched", "")
-                # 判定要看到引用真正出现的那一段，而不是永远只看开头
-                text_a, hit_a = relevant_chunk(entries_by_uid[a].content, matched)
-                text_b, hit_b = relevant_chunk(entries_by_uid[b].content, matched)
-                blocks.append(
-                    f"<pair from=\"{a}\" to=\"{b}\" matched=\"{matched}\""
-                    f"{'' if hit_a else ' a_span=\"head+tail\"'}"
-                    f"{'' if hit_b else ' b_span=\"head+tail\"'}>\n"
-                    f"[A: {entries_by_uid[a].name or a}]\n{text_a}\n"
-                    f"---\n"
-                    f"[B: {entries_by_uid[b].name or b}]\n{text_b}\n"
-                    "</pair>")
             try:
+                prompt, payloads = build_adjudication_prompt(pending, job.cards,
+                                                             entries_by_uid)
+                # payloads 与 pending 顺序一一对应，直接按序取，避免身份比较。
+                payload_by_ident = {
+                    (item["from_uid"], item["to_uid"]): item for item in payloads}
+                if len(payload_by_ident) != len(pending):
+                    raise LLMError("invalid_response", "判定载荷与候选对数量不一致")
+                job.metrics["adjudication_requests"] = job.metrics.get(
+                    "adjudication_requests", 0) + 1
                 value = _chat_json(llm, [
                     {"role": "system", "content": _SYSTEM},
-                    {"role": "user", "content": _ADJUDICATION_INSTRUCTION + "\n\n" + "\n\n".join(blocks)},
+                    {"role": "user", "content": prompt},
                 ], job)
                 if not isinstance(value, dict) or not isinstance(value.get("judgments"), list):
                     raise LLMError("invalid_response", "响应缺少 judgments 数组")
                 allowed_pairs = {(p["from_uid"], p["to_uid"]) for p, _ in pending}
-                items = [item for item in value["judgments"] if isinstance(item, dict)
-                         and (item.get("from_uid"), item.get("to_uid")) in allowed_pairs
-                         and item.get("relation") in RELATIONS]
-                # 按候选对归档后写缓存：只缓存本批真正问过的 pair，避免张冠李戴。
-                by_pair = {}
-                for item in items:
-                    by_pair.setdefault((item.get("from_uid"), item.get("to_uid")), []).append(item)
+                # 只把**逐对唯一校验通过**的判定收进 `items`。绝不在校验前先把原始
+                # 响应塞进来：否则重复/未知的判定会被 `judgments` 收下并落盘，续跑时
+                # 被当成「已结算」而不再问模型 —— 就会从冲突响应里得到一个假 success。
+                raw_by_pair, rejected = {}, []
+                for item in value["judgments"]:
+                    if not isinstance(item, dict):
+                        rejected.append("响应含非对象判定")
+                        continue
+                    ident = (item.get("from_uid"), item.get("to_uid"))
+                    if ident not in allowed_pairs:
+                        # 未知候选对：绝不按「可能想说的是这一对」猜归属。
+                        rejected.append(f"响应含未知候选对：{ident[0]} → {ident[1]}")
+                        continue
+                    if item.get("relation") not in RELATIONS:
+                        rejected.append(f"关系类型无效：{item.get('relation')}")
+                        continue
+                    raw_by_pair.setdefault(ident, []).append(item)
+                items = []
                 for pair, key in pending:
-                    got = by_pair.get((pair["from_uid"], pair["to_uid"]))
+                    ident = (pair["from_uid"], pair["to_uid"])
+                    got = raw_by_pair.get(ident)
+                    payload = payload_by_ident.get(ident) or {}
+                    if got and len(got) > 1:
+                        # 同一对出现互相冲突的判定：**不写缓存、不进结算**，记为失败
+                        # 待重试，绝不静默挑一条固化下来（下一轮会重新问）。
+                        adjudication_failures += 1
+                        job.failed_batches.append({
+                            "stage": STAGE_ADJUDICATION, "pairs": [[ident[0], ident[1]]],
+                            "code": "invalid_response",
+                            "message": f"响应含 {len(got)} 条冲突判定，未写缓存"})
+                        continue
+                    # 上下文不足（窗口缺失）时只接受 unsure：模型没看到足够原文，
+                    # 就不该给出 requires/related；这里把「没有依据的结论」降级为待复核。
+                    if got and (payload.get("a_empty") or payload.get("b_empty")):
+                        got = [{**item, "relation": REL_UNSURE,
+                                "reason": (item.get("reason") or "")
+                                + "（证据窗口缺失，已强制待复核）"}
+                               for item in got]
                     if got:
+                        # 有依据且唯一的结论才允许进缓存/结算。
                         cache.put(key, got)
+                        items.extend(got)
                     else:
-                        # 合法空结果表示本批无关系。显式记录，重试不重复计费。
-                        if not value["judgments"]:
-                            got = [{"from_uid": pair["from_uid"], "to_uid": pair["to_uid"],
-                                    "relation": REL_NONE}]
-                            cache.put(key, got)
-                            items.extend(got)
-                        else:
-                            adjudication_failures += 1
-                            job.failed_batches.append({"stage": STAGE_ADJUDICATION,
-                                "pairs": [[pair["from_uid"], pair["to_uid"]]],
-                                "code": "invalid_response", "message": "响应遗漏候选关系"})
+                        # 遗漏这一对（含整批空 judgments）：这是**可重试的失败**，
+                        # 不是「没有关系」。绝不写缓存、绝不静默降级成 none。
+                        adjudication_failures += 1
+                        job.failed_batches.append({
+                            "stage": STAGE_ADJUDICATION, "pairs": [[ident[0], ident[1]]],
+                            "code": "invalid_response",
+                            "message": "响应遗漏候选关系（空或缺失），已保留待重试"})
+                if rejected:
+                    job.failed_batches.append({"stage": STAGE_ADJUDICATION,
+                                               "pairs": [[p["from_uid"], p["to_uid"]]
+                                                         for p, _ in pending],
+                                               "code": "invalid_response",
+                                               "message": "；".join(rejected[:4])})
                 judgments.extend(items)
+                # 已结算/失败的候选对从待办里移除，剩下的继续保留给续跑。
+                settled = {(j.get("from_uid"), j.get("to_uid")) for j in judgments}
+                job.pending_pairs = [p for p in todo
+                                     if (p["from_uid"], p["to_uid"]) not in settled]
             except LLMError as exc:
                 adjudication_failures += 1
                 job.failed_batches.append({"stage": STAGE_ADJUDICATION,
@@ -1415,8 +2039,6 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
                                                      for p, _ in pending],
                                            "code": exc.code, "message": exc.message})
             job.judgments = judgments
-            job.pending_pairs = [{"from_uid": p["from_uid"], "to_uid": p["to_uid"]}
-                                 for p in todo[start + ADJUDICATION_BATCH:]]
             job.progress = min(job.total, len(judgments))
             job.save()
 
@@ -1429,21 +2051,28 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
 
         missing = sorted(uid for uid in metadata["entries"] if uid not in job.cards)
         job.pending_card_uids = missing
-        job.pending_pairs = []
-        job.resumable = bool(job.failed_batches)
+        # 只有**当下确实做完**的候选对才从待办里去掉：预算耗尽 / 失败留下的候选对
+        # 必须原样保留（含失败项），否则续跑 API 无从知道还差哪些。
+        settled = {(j.get("from_uid"), j.get("to_uid")) for j in judgments}
+        job.pending_pairs = [p for p in (job.pending_pairs or [])
+                             if (p["from_uid"], p["to_uid"]) not in settled]
+        job.resumable = bool(job.failed_batches or job.pending_card_uids
+                             or job.pending_pairs)
+        uncovered = len(job.pending_pairs) > 0
         if missing and len(missing) == len(metadata["entries"]):
             job.outcome = "failed"
             job.stage = STAGE_FAILED
             job.error = {"code": "cards_failed",
                          "message": "全部分析卡生成失败：没有拿到任何可用产出，请检查模型后重试"}
             job.message = job.error["message"]
-        elif missing or adjudication_failures or job.failed_batches:
+        elif missing or adjudication_failures or job.failed_batches or uncovered:
             job.outcome = "partial"
             job.stage = STAGE_DONE
             job.message = (f"部分完成：{job.result['stats']['requires']} 条必要依赖，"
                            f"{job.result['stats']['related']} 条关联补充，"
                            f"{job.result['stats']['unsure']} 条待复核；"
-                           f"{len(job.failed_batches)} 个批次失败，可重试")
+                           f"{len(job.failed_batches)} 个批次失败，"
+                           f"{len(job.pending_pairs)} 对未结算，可重试")
         else:
             job.outcome = "success"
             job.stage = STAGE_DONE
@@ -1492,20 +2121,30 @@ def run_build(job: DependencyBuildJob, book, llm, model: str = "",
 
 
 def _clean_card(card: dict) -> dict:
-    def strings(value, limit=12):
+    """清洗一张分析卡：**输出长度必须收敛**。
+
+    提示词里已经给了上限，这里再截一次 —— 模型偶尔会无视上限复述整段正文，
+    而卡片是要反复进判定请求的（1621 对候选都会读它），长度失控会被放大。
+    """
+    def strings(value, limit, width):
         if not isinstance(value, list):
             return []
-        return [str(v).strip() for v in value if isinstance(v, str) and v.strip()][:limit]
+        return [str(v).strip()[:width] for v in value
+                if isinstance(v, str) and v.strip()][:limit]
     return {
         "chunk_id": str(card.get("chunk_id", "")),
         "uid": str(card.get("uid", "")),
-        "summary": str(card.get("summary") or "")[:200],
-        "entities": strings(card.get("entities")),
-        "defined_concepts": strings(card.get("defined_concepts")),
-        "unexplained_concepts": strings(card.get("unexplained_concepts")),
-        "candidate_characters": strings(card.get("candidate_characters"), 6),
+        "summary": str(card.get("summary") or "")[:ANALYSIS_SUMMARY_CHARS],
+        "entities": strings(card.get("entities"), ANALYSIS_ENTITY_LIMIT, CONTEXT_ITEM_CHARS),
+        "defined_concepts": strings(card.get("defined_concepts"), ANALYSIS_CONCEPT_LIMIT,
+                                    CONTEXT_ITEM_CHARS),
+        "unexplained_concepts": strings(card.get("unexplained_concepts"),
+                                        ANALYSIS_CONCEPT_LIMIT, CONTEXT_ITEM_CHARS),
+        "candidate_characters": strings(card.get("candidate_characters"),
+                                        ANALYSIS_CANDIDATE_LIMIT, 64),
         "foundational": card.get("foundational") is True,
-        "evidence": strings(card.get("evidence"), 3),
+        "evidence": strings(card.get("evidence"), ANALYSIS_EVIDENCE_LIMIT,
+                            ANALYSIS_EVIDENCE_PER_CARD),
     }
 
 

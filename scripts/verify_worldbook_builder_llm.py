@@ -15,6 +15,9 @@
     # 用内置预装世界书跑真实规模（默认只用 6 条小样本，省时间与费用）
     python scripts/verify_worldbook_builder_llm.py --book preinstalled --limit 12
 
+    # 直接指定要验证的世界书（不再按「预装列表第一本」随机挑选）
+    python scripts/verify_worldbook_builder_llm.py --book-path D:/Code/arknights-tavern/data/worldbooks/arknights.json
+
 退出码：
     0 = 真实调用成功且通过全部断言
     2 = 没有可用模型 / 配置缺失（明确报告「未做真实验证」，不假装通过）
@@ -47,11 +50,17 @@ def parse_args():
                         help="LLM 配置文件路径（默认仓库内 config/llm_config.json）")
     parser.add_argument("--book", default="sample", choices=["sample", "preinstalled"],
                         help="sample=内置 6 条小样本；preinstalled=仓库预装世界书")
+    parser.add_argument("--book-path", default="",
+                        help="直接指定世界书 JSON 路径（只读）；给了它就以它为准，"
+                             "不再按「预装书列表第一本」随机挑选")
     parser.add_argument("--limit", type=int, default=0,
                         help="预装书只取前 N 条（0 表示不限制；大书会明显更慢更贵）")
     parser.add_argument("--max-calls", type=int, default=60, help="调用预算上限")
     parser.add_argument("--json-out", default="", help="把结果写到这个 JSON 文件")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.book_path and args.book == "sample":
+        args.book = "path"
+    return args
 
 
 def sample_book() -> WorldBook:
@@ -74,8 +83,13 @@ def sample_book() -> WorldBook:
     ], categories=json.loads(json.dumps(DEFAULT_CATEGORIES)))
 
 
-def preinstalled_book(limit: int) -> WorldBook:
+def preinstalled_book(limit: int, book_path: str = "") -> WorldBook:
     from world_book import WorldBookManager
+    if book_path:
+        book = WorldBook.from_dict(json.loads(Path(book_path).read_text(encoding="utf-8")))
+        if limit:
+            book.entries = book.entries[:limit]
+        return book
     manager = WorldBookManager(REPO / "data" / "worldbooks")
     for summary in manager.list_books():
         book = manager.load(summary["id"])
@@ -87,6 +101,14 @@ def preinstalled_book(limit: int) -> WorldBook:
     raise SystemExit("没有找到预装世界书，请先用 --book sample 运行。")
 
 
+def _expected_pairs(book) -> list:
+    """这本书在一次完整构建里应当被判定到的全部候选对（与产品同一条代码路径）。"""
+    from worldbook_builder import build_metadata_index, collect_candidates
+    entries_by_uid = {entry.uid: entry for entry in book.entries}
+    metadata = build_metadata_index(book.entries)
+    return collect_candidates(metadata, entries_by_uid)["pairs"]
+
+
 def main() -> int:
     args = parse_args()
     config = Path(args.config)
@@ -95,11 +117,9 @@ def main() -> int:
         print("    请先在「设置」里配置模型，或用 --config 指向已有配置。")
         return 2
 
-    raw = json.loads(config.read_text(encoding="utf-8"))
-    if not raw.get("api_key") or raw.get("api_key", "").startswith("your-"):
-        print(f"[2] 未做真实验证：{config.name} 里没有真实 api_key（仍是示例占位）。")
-        return 2
-
+    # 刻意**不预先检查 api_key**：本地 endpoint（Ollama / 局域网网关 / 无需鉴权的
+    # 自建服务）完全可能没有 key 或用一个非占位符的本地值，预检会把合法的本地
+    # 配置误判成「未配置」。配置是否可用，交给下面的 get_llm() 用真实探测回答。
     # 让后端管理器读这份配置，但绝不打印其中的密钥。
     backend_module._CONFIG_PATH = config
     backend = LLMBackendManager()
@@ -111,7 +131,11 @@ def main() -> int:
     print(f"[1] 使用真实模型：{model or '(未报告模型名)'}")
     print(f"    配置来源：{config}")
 
-    book = sample_book() if args.book == "sample" else preinstalled_book(args.limit)
+    if args.book_path:
+        book = preinstalled_book(args.limit, args.book_path)
+        print(f"    输入来源：--book-path {args.book_path}")
+    else:
+        book = sample_book() if args.book == "sample" else preinstalled_book(args.limit)
     print(f"    世界书：{book.name}（{len(book.entries)} 条，{sum(len(e.content) for e in book.entries)} 字符）")
 
     temporary = tempfile.TemporaryDirectory(prefix="worldbook-llm-verification-")
@@ -124,6 +148,15 @@ def main() -> int:
 
     print(f"[2] 阶段结束于：{job.stage}（{elapsed:.1f}s，{job.calls} 次模型调用，"
           f"{len(job.cards)} 张卡 / {len(job.judgments)} 条判定）")
+    workload = job.workload or {}
+    metrics = job.metrics or {}
+    print(f"    规划：预计 {workload.get('estimated_calls', '?')} 次请求"
+          f"（分析 {workload.get('card_calls', '?')} + 判定 {workload.get('adjudication_calls', '?')}）"
+          f" · 预计输入 {workload.get('estimated_input_tokens', '?')} token")
+    actual = (f"输入 {metrics.get('actual_prompt_tokens')} / 输出 {metrics.get('actual_completion_tokens')}"
+              if metrics.get("actual_known") else "未知（当前模型未返回 usage）")
+    print(f"    实际：{metrics.get('requests', 0)} 次请求 · JSON 修复 {metrics.get('json_repair_calls', 0)} 次"
+          f" · 缓存命中 {metrics.get('cache_hits', 0)} 对 · 真实用量：{actual}")
     if job.error:
         print(f"[3] 真实调用失败：{job.error['code']} {job.error['message']}")
         return 3
@@ -191,6 +224,15 @@ def main() -> int:
         failures.append(f"缓存未生效：第二次仍调用 {job2.calls} 次（第一次 {job.calls} 次）")
     print(f"    缓存复用：第一次 {job.calls} 次调用 → 第二次 {job2.calls} 次"
           f"（省下 {job.calls - job2.calls} 次）")
+
+    # ── 断言 5：候选对与分块必须被完整覆盖（没有静默丢件）──
+    judged = {(item.get("from_uid"), item.get("to_uid")) for item in job.judgments}
+    expected_pairs = {(p["from_uid"], p["to_uid"]) for p in _expected_pairs(book)}
+    missing_pairs = expected_pairs - judged
+    if missing_pairs:
+        failures.append(f"有 {len(missing_pairs)} 对候选没有判定结果（未重试也未标记失败）")
+    print(f"    覆盖：候选对 {len(judged)}/{len(expected_pairs)}"
+          f" · 分析卡 {len(job.cards)}/{len(book.entries)}")
 
     print("[3] 展开自检（用于发现「所有角色都变成全局源」这类过度扩张）：")
     print("    " + json.dumps(result.get("expansion_probe", {}), ensure_ascii=False))

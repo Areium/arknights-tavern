@@ -20,6 +20,57 @@ const OUTCOME_LABELS: Record<string, string> = {
 /** 终态：只有这三个 stage 才算跑完，其余都还在跑。 */
 const TERMINAL = ["done", "failed", "cancelled"];
 
+function formatTokens(value: number): string {
+  return value >= 10000 ? `${(value / 1000).toFixed(1)}k` : `${value}`;
+}
+
+/**
+ * 成本与用量：**估算**与**真实**必须分开显示。
+ *
+ * - 估算来自与执行同一个装箱器（请求数 / 输入 token / 预期输出），是开工前的预算，
+ *   不代表已经花掉的量；
+ * - 真实用量只在 provider 报告 usage 时才存在。`actual_known=false` 表示**未知**，
+ *   绝不可以显示成 0 —— 那会让人以为「没花钱」。
+ * - 缓存命中与 JSON 修复也如实列出：修复调用同样计入调用数。
+ */
+function BuildCostSummary({ job }: { job: DependencyProposalJobDTO | null }) {
+  const workload = job?.workload;
+  const metrics = job?.metrics;
+  const estimatedCalls = workload?.estimated_calls || 0;
+  const estimatedTokens = workload?.estimated_input_tokens || 0;
+  const cacheHits = metrics?.cache_hits || 0;
+  const requests = metrics?.requests || job?.calls || 0;
+  const repairs = metrics?.json_repair_calls || 0;
+  if (!estimatedCalls && !requests && !cacheHits) return null;
+  return <details className="wbg-details" open={!job?.result}>
+    <summary>请求与用量</summary>
+    {!!estimatedCalls && <p className="wbg-help">
+      <b>估算</b>（不是账单）：预计 {workload?.card_calls ?? 0} 次分析 +
+      {" "}{workload?.adjudication_calls ?? 0} 次判定 = {estimatedCalls} 次请求
+      {!!estimatedTokens && <> · 输入约 {formatTokens(estimatedTokens)} token</>}
+      {!!workload?.expected_output_tokens && <> · 输出预算约 {formatTokens(workload.expected_output_tokens)} token</>}
+      {workload?.planned === false && "（缺正文/卡片，只有保守近似）"}
+      {!!workload?.budget && <> · 本次预算 {workload.budget} 次</>}
+    </p>}
+    {!!requests && <p className="wbg-help">
+      <b>实际</b>：已发出 {requests} 次请求
+      {!!metrics?.analysis_requests && <>（分析 {metrics.analysis_requests}</>}
+      {!!metrics?.adjudication_requests && <> + 判定 {metrics.adjudication_requests})</>}
+      {!!repairs && <> · JSON 修复 {repairs} 次</>}
+      {!!cacheHits && <> · 缓存命中 {cacheHits} 对（未重复计费）</>}
+    </p>}
+    <p className="wbg-help">
+      {metrics?.actual_known
+        ? <>模型报告的真实用量{metrics.usage_partial ? "（**部分**：只有一部分请求上报）" : ""}：
+          输入 {formatTokens(metrics.actual_prompt_tokens || 0)} ·
+          {" "}输出 {formatTokens(metrics.actual_completion_tokens || 0)} ·
+          {" "}合计 {formatTokens(metrics.actual_total_tokens || 0)} token。</>
+        : <>真实用量**未知**：当前模型没有返回 usage，因此这里不显示为 0。
+          估算值可用于比较，但不是账单。</>}
+    </p>
+  </details>;
+}
+
 /**
  * 「AI 自动构建依赖」：选书后一次点击，后台用当前已配置的 LLM 自行读取条目、
  * 分析并构建完整依赖配置。用户不写提示词、不复制 JSON、不手工连线。
@@ -223,7 +274,7 @@ export default function DependencyBuildPanel({ detail, onApply, busy }: {
       </p>
 
       {!!job?.workload?.estimated_calls && <p className="wbg-help">
-        开工前估算：{job.workload.entries ?? 0} 个条目 · {job.workload.pairs ?? 0} 对候选 ·
+        开工前估算：{job.workload.entries ?? 0} 个条目 · {job.workload.candidates || job.workload.pairs || 0} 对候选 ·
         预计 {job.workload.estimated_calls} 次调用（本次预算 {job.workload.budget}）。
       </p>}
 
@@ -249,6 +300,8 @@ export default function DependencyBuildPanel({ detail, onApply, busy }: {
           只会采用真实存在于角色目录里的角色标识；目录里没有的会列在「校验问题」里，不会写进配置。
         </p>
       </details>}
+
+      <BuildCostSummary job={job} />
 
       {!!uncertain.length && <details className="wbg-details">
         <summary>待复核关系 <span>{uncertain.length}</span>（不强制逐条确认）</summary>

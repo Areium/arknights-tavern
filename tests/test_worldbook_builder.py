@@ -41,16 +41,24 @@ def fixture_book():
 
 
 class StubLLM:
-    """按请求内容分派的确定性 stub：只替代模型，不替代被测逻辑。"""
+    """按请求内容分派的确定性 stub：只替代模型，不替代被测逻辑。
+
+    `default_relation` 让测试**显式声明**「被问到的每一对都给出这个关系」。
+    协议要求「漏答」必须保持可重试，所以 stub 不能靠「没配就是没答」来凑出
+    一次成功构建 —— 想表达「这些对没有关系」，必须显式回 `none`。
+    """
 
     def __init__(self, cards=None, judgments=None, fail_on=None, raw=None,
-                 echo_pairs=False):
+                 echo_pairs=False, default_relation=None):
         self.cards = cards
         self.judgments = judgments if judgments is not None else []
         self.fail_on = fail_on or set()
         self.raw = raw
         # echo_pairs：对「被问到的每一对」都给出判定，用于验证缓存能整批命中
         self.echo_pairs = echo_pairs
+        # default_relation：对未被 judgments 显式覆盖的候选对给出这个关系。
+        # 非 None 表示「本 stub 保证逐对作答」，这才允许构建走到 success。
+        self.default_relation = default_relation
         self.calls = []
 
     def chat(self, messages, **kwargs):
@@ -75,20 +83,29 @@ class StubLLM:
         if "判断下列" in prompt:
             if "judgments" in self.fail_on:
                 raise LLMConnectError("stub 判定阶段失败")
-            if self.echo_pairs:
-                echoed = []
-                for line in prompt.splitlines():
-                    if line.startswith("<pair from="):
-                        parts = dict(part.split("=", 1) for part in
-                                     line.strip("<>").split(" ") if "=" in part)
-                        echoed.append({"from_uid": parts.get("from", "").strip('"'),
-                                       "to_uid": parts.get("to", "").strip('"'),
-                                       "relation": REL_RELATED, "confidence": 0.6,
-                                       "evidence": "与角色A同属罗德岛"})
-                return {"type": "text", "content": json.dumps({"judgments": echoed},
-                                                              ensure_ascii=False)}
-            return {"type": "text", "content": json.dumps(
-                {"judgments": self.judgments}, ensure_ascii=False)}
+            answered = {}
+            for item in self.judgments:
+                answered[(item.get("from_uid"), item.get("to_uid"))] = item
+            echoed = []
+            for line in prompt.splitlines():
+                if not line.startswith("<pair from="):
+                    continue
+                parts = dict(part.split("=", 1) for part in
+                             line.strip("<>").split(" ") if "=" in part)
+                ident = (parts.get("from", "").strip('"'),
+                         parts.get("to", "").strip('"'))
+                if ident in answered:
+                    echoed.append(answered[ident])
+                elif self.echo_pairs:
+                    echoed.append({"from_uid": ident[0], "to_uid": ident[1],
+                                   "relation": REL_RELATED, "confidence": 0.6,
+                                   "evidence": "与角色A同属罗德岛"})
+                elif self.default_relation is not None:
+                    echoed.append({"from_uid": ident[0], "to_uid": ident[1],
+                                   "relation": self.default_relation, "confidence": 0.3,
+                                   "evidence": ""})
+            return {"type": "text", "content": json.dumps({"judgments": echoed},
+                                                          ensure_ascii=False)}
         raise AssertionError("未预期的请求")
 
 
@@ -154,7 +171,7 @@ def test_extract_json_tolerates_wrappers(text, expected):
 
 def test_full_build_produces_validated_proposal(cache, store):
     book = fixture_book()
-    llm = StubLLM(judgments=[
+    llm = StubLLM(default_relation=REL_NONE, judgments=[
         {"from_uid": "a", "to_uid": "tech", "relation": REL_REQUIRES, "confidence": 0.9,
          "reason": "A 使用源石技艺", "evidence": "他使用源石技艺"},
         {"from_uid": "b", "to_uid": "a", "relation": REL_RELATED, "confidence": 0.7,
@@ -175,7 +192,7 @@ def test_full_build_produces_validated_proposal(cache, store):
 def test_unsupported_evidence_is_downgraded_not_accepted(cache, store):
     """证据无法在原文定位 → 降级为待复核，绝不当作已确认关系。"""
     book = fixture_book()
-    llm = StubLLM(judgments=[
+    llm = StubLLM(default_relation=REL_NONE, judgments=[
         {"from_uid": "a", "to_uid": "tech", "relation": REL_REQUIRES, "confidence": 0.95,
          "reason": "编造的", "evidence": "这句话在原文里根本不存在"},
     ])
@@ -229,7 +246,7 @@ def test_validation_reports_cycles_and_high_fanout():
 
 def test_confidence_only_orders_and_never_claims_accuracy(cache, store):
     book = fixture_book()
-    llm = StubLLM(judgments=[
+    llm = StubLLM(default_relation=REL_NONE, judgments=[
         {"from_uid": "a", "to_uid": "tech", "relation": REL_REQUIRES, "confidence": "0.4",
          "evidence": "他使用源石技艺"},
         {"from_uid": "b", "to_uid": "a", "relation": REL_RELATED, "confidence": "not-a-number",
@@ -294,9 +311,14 @@ def test_llm_failure_is_structured_and_never_fake_success(cache, store):
     book = fixture_book()
     llm = StubLLM(fail_on={"cards"})
     job = build(book, llm, cache, store)
-    # 分析阶段全失败 → 候选为空 → 仍然正常收尾，但批次失败被如实记录
-    assert job.failed_batches and all(b["stage"] == "cards" for b in job.failed_batches)
-    assert all(b["code"] == "connect" for b in job.failed_batches)
+    # 分析阶段全失败 → 分析批次失败被如实记录，且绝不算成功
+    card_failures = [b for b in job.failed_batches if b["stage"] == "cards"]
+    assert card_failures, "分析失败没有被记录"
+    assert all(b["code"] == "connect" for b in card_failures)
+    assert job.outcome != "success"
+    # 没有分析卡 → 依赖候选对判定不出可信结论，必须走失败/部分完成而不是「完成」
+    assert job.stage in ("done", "failed")
+    assert job.result is not None
 
     book2 = fixture_book()
     job2 = store.create(book2.id, "h", "stub-model")

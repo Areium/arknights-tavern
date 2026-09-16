@@ -912,9 +912,49 @@ export interface DependencyProposalJobDTO {
   outcome?: DependencyJobOutcome;
   /** 预算耗尽 / 批次失败后可以续跑（重试只补缺失部分） */
   resumable?: boolean;
-  workload?: { entries?: number; pairs?: number; card_calls?: number; adjudication_calls?: number; estimated_calls?: number; budget?: number };
+  /**
+   * 开工前的**估算**（不是账单）：请求数、输入 token、预期输出 token。
+   * `estimated_input_tokens` 由与执行同一个装箱器算出，因此与真实请求规模一致；
+   * 真实用量见 `metrics.actual_*`。
+   */
+  workload?: {
+    entries?: number;
+    chunks?: number;
+    candidates?: number;
+    pairs?: number;
+    card_calls?: number;
+    adjudication_calls?: number;
+    estimated_calls?: number;
+    estimated_input_tokens?: number;
+    estimated_analysis_input_tokens?: number;
+    estimated_adjudication_input_tokens?: number;
+    expected_output_tokens?: number;
+    /** 估算是否走了真实规划器（false = 只有保守近似） */
+    planned?: boolean;
+    budget?: number;
+  };
   candidates?: { pairs?: number; candidates_total?: number; candidates_used?: number; deferred?: number; generic_aliases?: number };
   chunk_report?: { entries?: number; chunks?: number; dropped_chars?: number };
+  /**
+   * 运行计数。`actual_known=false` 表示 provider **没有报告**用量，
+   * 此时 `actual_*` 是「未知」而不是 0 —— 界面必须区分这两者。
+   * `usage_partial=true` 表示只有一部分请求上报了用量，`actual_*` 是**部分合计**，
+   * 不能显示成「完整实测总量」。
+   */
+  metrics?: {
+    planned_requests?: number;
+    requests?: number;
+    json_repair_calls?: number;
+    cache_hits?: number;
+    analysis_requests?: number;
+    adjudication_requests?: number;
+    actual_known?: boolean;
+    usage_partial?: boolean;
+    actual_prompt_tokens?: number;
+    actual_completion_tokens?: number;
+    actual_total_tokens?: number;
+    estimated_sent_tokens?: number;
+  };
   pending_pairs?: number;
   pending_card_uids?: number;
   pending_chunk_ids?: number;
