@@ -15,6 +15,7 @@ from shared.helpers import (
     estimate_output_token_budget,
 )
 from hooks.base import HookContext
+import node_lore_scope
 
 logger = logging.getLogger(__name__)
 
@@ -242,13 +243,17 @@ def _record_node_snapshot(session):
 
 def _commit_tree_step(session, narrative: str, summary: str,
                       title: str | None, branches: list[dict] | None,
-                      branch: dict | None) -> None:
+                      branch: dict | None,
+                      lore_resolver=None, combat_id_hint: str = "") -> None:
     """把本轮叙述落成剧情树上的一个节点（节点内容由 LLM 生成）。
 
     节点标题/概要/内容/分支都取自 LLM 输出（title/summary/narrative/branches），
     因此产出的是**新的剧情节点**，而非从作者节拍骨架里挑一个落点。玩家本轮若
     选择了某个分支（branch 非空），则在其父节点下生成/复用子节点并进入——于是
     结构自然长成树（可分叉、可多层展开）。
+
+    lore_resolver / combat_id_hint：节点级世界书作用域（见
+    docs/node-scoped-worldbook-loading.md §4.1）；resolver 为 None 即功能关闭。
     """
     overlay = getattr(session, "overlay", None)
     if overlay is None or not hasattr(overlay, "commit_tree_step"):
@@ -261,9 +266,22 @@ def _commit_tree_step(session, narrative: str, summary: str,
             branches=branches or [],
             branch=branch,
             round_num=session.narration_count,
+            lore_resolver=lore_resolver,
+            combat_id_hint=combat_id_hint,
         )
     except Exception:
         logger.warning("剧情树提交失败", exc_info=True)
+
+
+def _build_lore_resolver(session, worldbook_mgr):
+    """构造节点级世界书作用域解析器；任何失败都按「功能关闭」返回 None。"""
+    try:
+        overlay = getattr(session, "overlay", None)
+        book = worldbook_mgr.resolve(overlay) if worldbook_mgr else None
+        return node_lore_scope.build_overlay_resolver(book, overlay)
+    except Exception:
+        logger.warning("构造节点世界书作用域解析器失败，按关闭处理", exc_info=True)
+        return None
 
 
 # ── Blueprint 注册 ──
@@ -273,6 +291,7 @@ def register(app, managers):
     session_mgr = managers["session"]
     llm_backend = managers["llm_backend"]
     hook_pipeline = managers.get("hook_pipeline")
+    worldbook_mgr = managers.get("worldbook")
 
     # ── 1. 单角色聊天 ──
 
@@ -480,6 +499,7 @@ def register(app, managers):
                 node_title = None
                 plot_summary = None
                 marker_env = None
+                lore_combat_hint = ""
                 for event_type, data in session.scene_manager.narrate_stream(
                     player_info, context_with_memory,
                     user_action=user_action, structured=False,
@@ -529,6 +549,8 @@ def register(app, managers):
                     beat_combat_id = _beat_combat_target(session)
                     combat_due = bool(markers.get("combat")) or bool(markers.get("beat_complete"))
                     _apply_beat_complete(session, markers.get("beat_complete", False))
+                    # 节点级世界书：combat: 绑定键只在本轮确实触发战斗时激活
+                    lore_combat_hint = beat_combat_id if combat_due else ""
                     briefing = _apply_combat_briefing(
                         session, markers.get("combat"), stream_id,
                         beat_combat_id=beat_combat_id if combat_due else "",
@@ -594,6 +616,8 @@ def register(app, managers):
                         session, narrative,
                         plot_summary or narrative[:120].replace('\n', ' '),
                         node_title, branches, selected_branch,
+                        lore_resolver=_build_lore_resolver(session, worldbook_mgr),
+                        combat_id_hint=lore_combat_hint,
                     )
 
                 yield f"data: {json.dumps({'type': 'choice', 'data': {'options': options, 'branches': branches, 'stream_id': stream_id}}, ensure_ascii=False)}\n\n"
@@ -722,6 +746,7 @@ def register(app, managers):
             plot_summary = None
             combat_briefing = None
             marker_env = None
+            lore_combat_hint = ""
             if _should_extract_markers(session, choices_count):
                 markers = session.scene_manager.extract_markers(
                     narrative, choices_count=choices_count,
@@ -735,6 +760,8 @@ def register(app, managers):
                 beat_combat_id = _beat_combat_target(session)
                 combat_due = bool(markers.get("combat")) or bool(markers.get("beat_complete"))
                 _apply_beat_complete(session, markers.get("beat_complete", False))
+                # 节点级世界书：combat: 绑定键只在本轮确实触发战斗时激活
+                lore_combat_hint = beat_combat_id if combat_due else ""
                 combat_briefing = _apply_combat_briefing(
                     session, markers.get("combat"), "",
                     beat_combat_id=beat_combat_id if combat_due else "",
@@ -778,6 +805,8 @@ def register(app, managers):
                     session, narrative,
                     plot_summary or narrative[:120].replace('\n', ' '),
                     node_title, branches, selected_branch,
+                    lore_resolver=_build_lore_resolver(session, worldbook_mgr),
+                    combat_id_hint=lore_combat_hint,
                 )
 
             if dialogue_segments:

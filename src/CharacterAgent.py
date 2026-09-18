@@ -173,6 +173,9 @@ class CharacterAgent:
         if worldbook is not None:
             try:
                 eligible_uids = worldbook.eligible_uids_for(getattr(self._session_context, "overlay", None))
+                logger.debug("世界书候选 %s 条（钉入 %d 条）",
+                             len(eligible_uids) if eligible_uids is not None else "全量",
+                             len(getattr(eligible_uids, "forced_uids", None) or ()))
                 matched = worldbook.collect_matches(recent_text, user_input, eligible_uids=eligible_uids)
                 wb_before, wb_after = worldbook.format_injection(
                     matched, identity=identity, active_char=self.character_name)

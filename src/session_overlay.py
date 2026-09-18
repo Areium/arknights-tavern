@@ -270,6 +270,22 @@ class SessionOverlay:
                 raise
             return copy.deepcopy(updated)
 
+    # ── 节点级世界书作用域（docs/node-scoped-worldbook-loading.md） ──
+
+    def get_active_lore_scope(self) -> dict | None:
+        """当前生效的节点级世界书作用域；无（功能未启用/自由模式/老会话）返回 None。"""
+        with self._lock:
+            scope = self._data.get("lore_scope_active")
+            return copy.deepcopy(scope) if isinstance(scope, dict) else None
+
+    def set_active_lore_scope(self, scope: dict | None):
+        with self._lock:
+            if scope:
+                self._data["lore_scope_active"] = copy.deepcopy(scope)
+            else:
+                self._data.pop("lore_scope_active", None)
+            self._save()
+
     # ── 环境覆盖 ──
 
     def get_environment_overrides(self) -> dict:
@@ -419,6 +435,20 @@ class SessionOverlay:
         content = beat.get("content", "") or ""
         m = re.search(r"\[COMBAT:([\w-]+)\]", content)
         return m.group(1) if m else ""
+
+    def get_current_beat_id(self) -> str:
+        """当前节拍 id（beat_state 只存下标，id 需反查）；无节拍返回空串。"""
+        beat = self.get_current_beat()
+        return str((beat or {}).get("id") or "")
+
+    def get_current_chapter_title(self) -> str:
+        """当前章节标题（章节绑定键用标题不用序号——章节号 1 起 / idx 0 起）。"""
+        beats = self._ensure_narrative_beats()
+        bs = self._data.get("beat_state", {})
+        ci = bs.get("chapter_idx", 0)
+        if 0 <= ci < len(beats):
+            return str(beats[ci].get("title") or "")
+        return ""
 
     def get_next_beat(self) -> dict | None:
         """获取下一节拍的完整信息（content + dialogue + reveals）。
@@ -975,7 +1005,7 @@ class SessionOverlay:
         return tree.get("nodes", {}).get(tree.get("current_id") or "")
 
     def _tree_state_snapshot(self, round_num: int, prev: dict | None = None) -> dict:
-        """节点状态快照：角色/任务/环境/节拍 + 轮次区间 + 剧情日志长度。"""
+        """节点状态快照：角色/任务/环境/节拍 + 轮次区间 + 剧情日志长度 + 世界书作用域。"""
         return {
             "round_start": int((prev or {}).get("round_start") or round_num),
             "round_end": int(round_num),
@@ -985,6 +1015,9 @@ class SessionOverlay:
             "character_states": copy.deepcopy(self._data.get("character_states", {})),
             "quest_states": copy.deepcopy(self._data.get("quest_states", {})),
             "beat_state": copy.deepcopy(self._data.get("beat_state", {})),
+            # 节点级世界书作用域：prev 原样带过，由 commit_tree_step 随后
+            # 调 lore_resolver 复用/重算并覆盖（见 node-scoped-worldbook-loading.md §4.1）
+            "lore_scope": copy.deepcopy((prev or {}).get("lore_scope")),
         }
 
     def _attach_tree_branches(self, node: dict, branches: list[dict] | None) -> None:
@@ -1006,7 +1039,8 @@ class SessionOverlay:
     def commit_tree_step(self, *, narrative: str = "", summary: str = "",
                          title: str = "", branches: list[dict] | None = None,
                          branch: dict | None = None,
-                         round_num: int | None = None) -> dict:
+                         round_num: int | None = None,
+                         lore_resolver=None, combat_id_hint: str = "") -> dict:
         """把本轮叙述落成一棵树节点，并推进 current_id。
 
         - 首轮（无节点状态）：本轮叙述填充根节点；
@@ -1015,6 +1049,11 @@ class SessionOverlay:
 
         节点标题/概要/内容/分支均来自 LLM（title/summary/narrative/branches），
         因此生成的是**新节点结果**，而不是从作者节拍里挑落点。
+
+        lore_resolver：node_lore_scope.build_overlay_resolver 构造的闭包
+        （书内无 lore_bindings 条目时为 None，整条链路跳过，行为与旧版一致）。
+        combat_id_hint：本轮推进节拍【之前】读到的 [COMBAT:id]（chat.py 透传），
+        供 combat: 绑定键激活——不能从节点快照的 beat_state 反查（那是新节拍）。
         """
         tree = self._ensure_story_tree()
         nodes = tree["nodes"]
@@ -1090,6 +1129,22 @@ class SessionOverlay:
             self._attach_tree_branches(node, branches)
             node["state"] = self._tree_state_snapshot(round_num, node.get("state"))
 
+        # 节点级世界书作用域：在节点落盘的同一帧冻结（复用或重算由 resolver 内部
+        # 按 bindings_fingerprint 决定）。resolver 为 None 表示书内无绑定条目——
+        # 清掉可能残留的旧作用域后整链路关闭，注入行为与旧版字节一致。
+        if lore_resolver is not None:
+            try:
+                resolved = lore_resolver(
+                    node, (node.get("state") or {}).get("lore_scope"),
+                    nodes, combat_id_hint or "")
+                node["state"]["lore_scope"] = resolved
+                self.set_active_lore_scope(resolved)
+            except Exception:
+                logger.warning("会话 %s: 节点世界书作用域解析失败，保持上一状态",
+                               self.session_id, exc_info=True)
+        elif "lore_scope_active" in self._data:
+            self.set_active_lore_scope(None)
+
         self._data["story_tree"] = tree
         self._save()
         return node
@@ -1150,10 +1205,15 @@ class SessionOverlay:
             "current_node": current,
         }
 
-    def rollback_to_tree_node(self, node_id: str) -> dict:
+    def rollback_to_tree_node(self, node_id: str, lore_resolver_factory=None) -> dict:
         """回档到剧情树上的某个节点，恢复该节点时刻的全部状态。
 
         树本身保留（不删后续节点），因此回档后仍可重新走其它分支。
+
+        lore_resolver_factory：可选，零参 callable，在状态恢复【之后】调用，
+        返回 lore_resolver（或 None）。用于节点快照里没有 lore_scope 的
+        老节点：用恢复后的 beat_state 惰性补算一次并写回节点
+        （node-scoped-worldbook-loading.md §5.1）。
         """
         tree = self.get_story_tree()
         nodes = tree.get("nodes", {})
@@ -1175,6 +1235,27 @@ class SessionOverlay:
         if st.get("beat_state"):
             self._data["beat_state"] = copy.deepcopy(st["beat_state"])
         self._data["narration_round"] = int(st.get("round_end") or 0)
+
+        # 节点级世界书作用域：有冻结值 → 整体替换（窄化白名单，回档即复原）；
+        # 没有（老节点）→ 有 factory 就惰性补算并写回，没有就清空（回落全量）。
+        if "lore_scope" in st and st.get("lore_scope") is not None:
+            self._data["lore_scope_active"] = copy.deepcopy(st["lore_scope"])
+        elif lore_resolver_factory is not None:
+            try:
+                resolver = lore_resolver_factory()
+                resolved = resolver(node, None, nodes, "") if resolver else None
+                if resolved:
+                    node.setdefault("state", {})["lore_scope"] = resolved
+                    self._data["story_tree"] = tree
+                    self._data["lore_scope_active"] = copy.deepcopy(resolved)
+                else:
+                    self._data.pop("lore_scope_active", None)
+            except Exception:
+                logger.warning("会话 %s: 回档后补算世界书作用域失败，回落全量",
+                               self.session_id, exc_info=True)
+                self._data.pop("lore_scope_active", None)
+        else:
+            self._data.pop("lore_scope_active", None)
         self._save()
         try:
             self._rewrite_plot_state()
@@ -1719,6 +1800,7 @@ class SessionOverlay:
             "plot_id": self._data.get("plot_id"),
             "worldbook_id": self._data.get("worldbook_id"),
             "worldbook_scope": self._data.get("worldbook_scope"),
+            "lore_scope_active": self._data.get("lore_scope_active"),
             "characters": self._data.get("characters", {}),
             "items": self._data.get("items", {}),
             "environment": self._data.get("environment", {}),

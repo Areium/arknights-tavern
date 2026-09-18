@@ -284,6 +284,9 @@ class SceneManager:
             return "", ""
         try:
             eligible_uids = worldbook.eligible_uids_for(self._overlay)
+            logger.debug("世界书候选 %s 条（钉入 %d 条）",
+                         len(eligible_uids) if eligible_uids is not None else "全量",
+                         len(getattr(eligible_uids, "forced_uids", None) or ()))
             matched = worldbook.collect_matches(recent_text, current_input, eligible_uids=eligible_uids)
             if matched:
                 logger.debug("世界书命中 %d 条: %s",

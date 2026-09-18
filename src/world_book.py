@@ -506,6 +506,23 @@ RESOLVER_VERSION = 3
 MAX_POLICY_REVISIONS = 40
 
 
+class EligibleSet(set):
+    """eligible_uids 集合 + 节点作用域元数据（随集合传递，注入调用点零改动）。
+
+    - forced_uids: 节点绑定 inject="always" 钉入的条目，collect_matches 对其
+      跳过关键词匹配与 probability 掷骰（仍受 enabled / 预算约束、仍进动态层）。
+    - position_overrides: per-target 的 position/depth/group_weight 覆盖，
+      collect_matches 排序与 format_injection 分层时用覆盖值。
+    普通 set 没有这两个属性——旧调用方传入的集合一律按空处理，向后兼容。
+    详见 docs/node-scoped-worldbook-loading.md（v2.1）。
+    """
+
+    def __init__(self, it=(), forced_uids=frozenset(), position_overrides=None):
+        super().__init__(it)
+        self.forced_uids = frozenset(forced_uids)
+        self.position_overrides = dict(position_overrides or {})
+
+
 def content_revision(entries) -> str:
     """条目正文指纹：只覆盖 uid + 正文哈希。
 
@@ -1184,17 +1201,54 @@ class WorldBook:
         })
         return refreshed
 
-    def eligible_uids_for(self, overlay):
+    def eligible_uids_for(self, overlay, *, with_reasons: bool = False):
+        """会话候选集 = 会话范围 ∩ 节点作用域（窄化白名单）。
+
+        节点作用域来自 overlay.get_active_lore_scope()（冻结在剧情树节点快照里，
+        见 docs/node-scoped-worldbook-loading.md）。返回 None / 无作用域时行为与
+        旧版一致：None 表示不过滤（collect_matches 对 eligible_uids=None 不过滤）；
+        无节点作用域（书内无 lore_bindings / 自由模式 / 老会话）返回全量会话范围。
+        with_reasons=True 时返回 (集合, 解释 dict)，供编辑器/调试接口用。
+        """
         scope = getattr(overlay, "get_worldbook_scope", lambda: None)()
         if scope is None:
             if not hasattr(overlay, "set_worldbook_scope"):
-                return None
+                return (None, {"node_scope": None, "legacy": True}) if with_reasons else None
             # 首次使用时为旧会话留存全量兼容快照，之后新增条目不悄悄扩张旧剧情。
             scope = {"book_id": self.id, "policy_revision": self.import_config["revision"],
                      "resolved_entry_uids": [e.uid for e in self.entries if e.enabled and e.content.strip()],
                      "legacy_full_scope": True, "resolved_at": time.time()}
             overlay.set_worldbook_scope(scope)
-        return set(scope.get("resolved_entry_uids", [])) if scope.get("book_id") == self.id else set()
+        base = set(scope.get("resolved_entry_uids", [])) if scope.get("book_id") == self.id else set()
+
+        node_scope = None
+        getter = getattr(overlay, "get_active_lore_scope", None)
+        if getter is not None:
+            candidate = getter()
+            if (isinstance(candidate, dict)
+                    and isinstance(candidate.get("allowed"), list)
+                    and candidate.get("book_id") in (None, "", self.id)):
+                node_scope = candidate
+        if node_scope is None:
+            result = EligibleSet(base)
+            if not with_reasons:
+                return result
+            return result, {"node_scope": None}
+
+        allowed = base & set(node_scope["allowed"])
+        pinned = set(node_scope.get("pinned") or []) & allowed
+        overrides = {u: o for u, o in (node_scope.get("overrides") or {}).items()
+                     if u in allowed}
+        result = EligibleSet(allowed, forced_uids=pinned, position_overrides=overrides)
+        if not with_reasons:
+            return result
+        return result, {
+            "node_id": node_scope.get("node_id"),
+            "node_scope": node_scope,
+            # 仅为调试/编辑器解释，注入路径不构造（with_reasons=False 时零成本）
+            "dropped_by_scope": sorted(base - allowed),
+            "missing_uids": sorted(set(node_scope["allowed"]) - base),
+        }
 
     # ── 触发 ──
 
@@ -1206,10 +1260,17 @@ class WorldBook:
             recent_text: 最近对话文本（由调用方按 scan_depth 组装）。
             current_input: 当前用户输入。
             rng: 可注入随机源（测试用），默认使用全局 random。
+
+        eligible_uids 若携带节点作用域元数据（EligibleSet，见
+        eligible_uids_for）：forced_uids 内的条目跳过关键词与掷骰
+        （inject="always" 钉入）；position_overrides 在排序/分层时生效。
         """
         scan_text = f"{recent_text or ''}\n{current_input or ''}"
         if not scan_text.strip():
             scan_text = current_input or ""
+
+        forced = frozenset(getattr(eligible_uids, "forced_uids", None) or ())
+        overrides = getattr(eligible_uids, "position_overrides", None) or {}
 
         matched: list[WorldBookEntry] = []
         for entry in self.entries:
@@ -1217,13 +1278,35 @@ class WorldBook:
                 continue
             if not entry.enabled:
                 continue
-            if not _entry_matches(entry, scan_text):
-                continue
-            if entry.probability < 100:
-                roll = (rng or random).random() * 100
-                if roll >= entry.probability:
+            if entry.uid not in forced:
+                if not _entry_matches(entry, scan_text):
                     continue
+                if entry.probability < 100:
+                    roll = (rng or random).random() * 100
+                    if roll >= entry.probability:
+                        continue
             matched.append(entry)
+
+        # 节点位置覆盖：轻量拷贝后替换排序/分层字段，不改 self.entries 原条目
+        if overrides:
+            patched: list[WorldBookEntry] = []
+            for entry in matched:
+                ov = overrides.get(entry.uid)
+                if not ov:
+                    patched.append(entry)
+                    continue
+                e = copy.copy(entry)
+                for field_name in ("position", "depth", "group_weight"):
+                    if field_name in ov:
+                        try:
+                            setattr(e, field_name, int(ov[field_name]))
+                        except (TypeError, ValueError):
+                            pass
+                # 兜底钳制：绑定条目绝不落稳定层（校验器已拒 always_active 绑定）
+                if e.position == 0 and e.always_active:
+                    e.position = 1
+                patched.append(e)
+            matched = patched
 
         # 排序：position（卡前/卡后）→ group_weight 降序 → depth 升序
         matched.sort(key=lambda e: (e.position, -e.group_weight, e.depth, e.uid))

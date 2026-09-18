@@ -11,6 +11,8 @@ Worldbook blueprint — 世界书（酒馆 Lorebook 兼容）管理 API。
     POST   /api/worldbook/<book_id>/entries    新增条目
     PUT    /api/worldbook/<book_id>/entries/<entry_id>   更新条目
     DELETE /api/worldbook/<book_id>/entries/<entry_id>   删除条目
+    GET    /api/worldbook/<book_id>/lore-bindings        读取节点级绑定（无则 null）
+    PUT    /api/worldbook/<book_id>/lore-bindings        保存节点级绑定（targets 为空 = 关闭）
     GET    /api/worldbook/<book_id>/export     导出酒馆 v1 格式（回灌用）
     PUT    /api/worldbook/<book_id>/taxonomy   更新分类树与条目归属
     POST   /api/worldbook/<book_id>/auto-classify  按条目元数据自动分类（预览 / 应用）
@@ -46,6 +48,7 @@ from worldbook_scope import (
     EXPANSION_LEGACY_DEPTH, EXPANSION_NONE, EXPANSION_REQUIRES_CLOSURE,
     SCHEMA_VERSION_V3, validate_categories, validate_policy, validate_v3_rules,
 )
+import node_lore_scope
 
 logger = logging.getLogger(__name__)
 
@@ -669,6 +672,51 @@ def register(app, managers):
                     wb_mgr.save(book)
                     return jsonify({"message": "已删除", "affected": affected})
             return json_error("条目不存在", 404)
+
+    # ── 4.0.1 节点级世界书绑定（docs/node-scoped-worldbook-loading.md） ──
+
+    @bp.route("/api/worldbook/<book_id>/lore-bindings", methods=["GET"])
+    def get_lore_bindings(book_id):
+        with _locked_book(book_id) as (book, err):
+            if err:
+                return err
+            payload, fingerprint = node_lore_scope.find_bindings(book)
+            return jsonify({
+                "bindings": payload,
+                "fingerprint": fingerprint,
+                "entry_uid": node_lore_scope.bindings_entry_uid(book.id),
+            })
+
+    @bp.route("/api/worldbook/<book_id>/lore-bindings", methods=["PUT"])
+    def put_lore_bindings(book_id):
+        """保存节点绑定（targets 为空 = 关闭功能，条目作为惰性标记保留）。
+
+        校验失败（坏 uid / 常驻条目 / 自引用 / 未知字段）一律 400 拒绝——
+        配置错误必须暴露给作者，不能静默存成「看起来生效了」。
+        """
+        with _locked_book(book_id) as (book, err):
+            if err:
+                return err
+            payload = request.json
+            if not isinstance(payload, dict):
+                return json_error("绑定内容必须是 JSON 对象", 400)
+            errors = node_lore_scope.validate_bindings(book, payload)
+            if errors:
+                return json_error("绑定校验失败：" + "；".join(errors), 400)
+            data = node_lore_scope.encode_bindings_for_worldbook(payload, book.id)
+            entry = WorldBookEntry(
+                uid=data["uid"], name=data["name"], content=data["content"],
+                trigger_keys=[], always_active=False, raw=data["raw"],
+            )
+            for i, e in enumerate(book.entries):
+                if node_lore_scope.is_lore_bindings_entry(e):
+                    book.entries[i] = entry
+                    break
+            else:
+                book.entries.append(entry)
+            book.import_config["revision"] += 1
+            wb_mgr.save(book)
+            return jsonify({"bindings": payload, "entry_uid": entry.uid})
 
     # ── 4.1 分类树 / 依赖导入配置 ──
 

@@ -576,7 +576,21 @@ class Session:
                 raise ValueError(f"节点尚无状态快照，无法回档: {node_id}")
             target_round = int(st.get("round_end") or 0)
             base = self.rollback_to_round(target_round)
-            restored = self.overlay.rollback_to_tree_node(node_id)
+
+            def _lore_resolver_factory():
+                # 在 overlay 状态恢复【之后】调用：用恢复后的 beat_state 构造
+                try:
+                    import node_lore_scope
+                    mgr = self._worldbook_manager
+                    book = mgr.resolve(self.overlay) if mgr else None
+                    return node_lore_scope.build_overlay_resolver(book, self.overlay)
+                except Exception:
+                    logger.warning("回档后构造世界书作用域解析器失败，按关闭处理",
+                                   exc_info=True)
+                    return None
+
+            restored = self.overlay.rollback_to_tree_node(
+                node_id, lore_resolver_factory=_lore_resolver_factory)
             self.reload_environment_from_overlay()
             return {
                 **base,
