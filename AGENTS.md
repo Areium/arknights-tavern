@@ -7,6 +7,11 @@
 - **并发防护**：本仓库可能被多进程（其他 DSH 会话、IDE、脚本）同时操作。写操作前 MUST 加载 `.agents/skills/workspace-concurrency-guard`：入场两次 git 快照对比判定并发，有并发则改用 git worktree / clone 隔离开发；只按精确路径 `git add`（禁 `-A`）；禁 `git clean` / `checkout -f` / `reset --hard` / `stash drop`；合并前确认对方已停；文件被回滚或删除按该技能的 reflog / fsck / stash 流程找回，不盲目重写。
 - **换行符**：`core.autocrlf=true` —— 工作区 CRLF、blob LF，勿提交混合换行文件。
 
+## 记忆与文档纪律
+- **候选门槛**：只把**通用、跨项目可复用**的经验提交为 AMH 记忆候选 —— 换一个项目、换一批数据仍然成立，且写明适用条件与验证方式。一次排查的现场结论、随本地数据变化的细节，不进候选队列。
+- **项目细节进 `docs/notes.md`**：踩坑、口径约定、本机环境差异、已知未修项写进仓库内的 `docs/notes.md`（可评审、随代码演进），不占用记忆候选。
+- **不自行裁决候选**：接受/拒绝候选只由本地 CLI 执行（`learn review` / `learn review-batch`），AI 只提交候选与决策建议。
+
 ## 子代理分派策略
 
 - 简单任务主代理直接完成。只有存在可独立交付的子任务，且并行能减少等待或隔离大量探索上下文时才派发；不为了用满角色或并发额度而派发。
@@ -30,5 +35,5 @@
 - **会话**：`combat_mode`（`narrative` / `tactical`）创建时选定，**不可更改**。
 - **LLM 错误**：走 LLMError 系列结构化错误，**绝不把错误伪装成模型回复**。
 - **战斗内容**：节点/敌人/地图改动走 skill `combat-designer` + `tools/`（先 `validate_battle_spec.py` 校验、再 `simulate_battle.py` 试跑，达标才入库），规格见 `docs/battle-spec.md`。
-- **测试**：统一入口 `bash scripts/run_tests.sh`（pytest + `tests/legacy/`）。
+- **测试**：统一入口 `bash scripts/run_tests.sh`（pytest + `tests/legacy/`）。本机无可用 bash 时的等价命令、CLI 夹具编码口径、预装书用例的口径见 `docs/notes.md`。
 设计提案：`docs/combat-value-curve-redesign.md`（未实现的目标态，现状以代码为准）。
