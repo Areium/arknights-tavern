@@ -1110,5 +1110,8 @@ def test_preinstalled_ordinary_save_preserves_candidates(tmp_path):
         'expected_revision':original.import_config['revision'],'categories':original.categories})
     assert response.status_code==200,response.json
     after=manager.load(original.id)
-    assert not after.v3_enabled
+    # 普通保存**不能悄悄改变 v3 状态**。预装书本就是 v3（本地 data/worldbooks 是
+    # gitignored 的运行数据），硬编码 `not after.v3_enabled` 只在书还是 v2 时成立，
+    # 属于把「保存前后一致」写成了「保存后必须是 v2」。
+    assert after.v3_enabled == original.v3_enabled
     assert after.resolve_import_scope([])['resolved_entry_uids']==before

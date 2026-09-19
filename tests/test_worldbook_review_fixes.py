@@ -165,9 +165,17 @@ def test_preinstalled_book_whole_build_completes_within_auto_budget(tmp_path):
     cache = AnalysisCache(tmp_path / "analysis")
 
     metadata = build_metadata_index(book.entries)
-    workload = estimate_workload(metadata, collect_candidates(
-        metadata, {e.uid: e for e in book.entries})["pairs"],
-        entries_by_uid={e.uid: e for e in book.entries})
+    entries_by_uid = {e.uid: e for e in book.entries}
+    pairs = collect_candidates(metadata, entries_by_uid)["pairs"]
+    # 参考估算必须与 `run_build` 用**同一份输入**：生产只把出现在候选对里的条目送进
+    # 分析（analysis_metadata），拿全量 metadata 估算会把分析批次数算多——预装书实测
+    # 「全量 262 条 → 49 批」对「受审 252 条 → 48 批」，用例因此假失败。
+    analysis_uids = {uid for pair in pairs
+                     for uid in (pair.get("from_uid"), pair.get("to_uid")) if uid}
+    analysis_metadata = dict(metadata)
+    analysis_metadata["entries"] = {uid: info for uid, info in metadata["entries"].items()
+                                    if uid in analysis_uids}
+    workload = estimate_workload(analysis_metadata, pairs, entries_by_uid=entries_by_uid)
     job = store.create(book.id, "preinstalled", "stub-model")
     llm = CardStub(answer_all=REL_NONE)
 

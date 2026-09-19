@@ -1,6 +1,7 @@
 """批次 3：升级属性点成长、威胁模型、阶段带缩放与"生成→校验→试跑"闭环。"""
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -179,10 +180,22 @@ def test_band_scaling_applies_in_session_when_enabled():
 
 # ── 生成 → 校验 → 试跑 闭环 ──
 
+def _tool_env() -> dict:
+    """让子进程**确定性**地用 UTF-8 写 stdout/stderr。
+
+    工具 CLI 会输出中文。若编码两边不一致——子进程按环境变量（PYTHONIOENCODING /
+    PYTHONUTF8）写 UTF-8，父进程 `text=True` 却按 locale（Windows 上 GBK）解码——
+    读线程会抛 `UnicodeDecodeError`，用例就以「工具坏了」的面目失败。这是夹具的
+    问题，不是工具的问题，所以在这里把两端都钉死在 UTF-8。
+    """
+    return {**os.environ, "PYTHONIOENCODING": "utf-8"}
+
+
 def _run(tool: str, *args) -> subprocess.CompletedProcess:
     """跑工具 CLI（参数统一转字符串，允许直接传数字）。"""
     return subprocess.run([sys.executable, str(ROOT / "tools" / tool), *map(str, args)],
-                          capture_output=True, text=True, cwd=ROOT)
+                          capture_output=True, text=True, encoding="utf-8", errors="replace",
+                          env=_tool_env(), cwd=ROOT)
 
 
 def test_validate_cli_accepts_shipped_node():
@@ -247,9 +260,7 @@ def test_simulate_cli_is_reproducible(tmp_path):
 
 def test_balance_audit_tool_runs(tmp_path):
     report = tmp_path / "balance_audit_report.md"
-    res = subprocess.run([sys.executable, str(ROOT / "tools" / "balance_audit.py"),
-                          "--report", str(report)],
-                         capture_output=True, text=True, cwd=ROOT)
+    res = _run("balance_audit.py", "--report", str(report))
     assert res.returncode == 0, res.stderr
     assert "敌人" in res.stdout and "节点" in res.stdout
     assert report.is_file()
