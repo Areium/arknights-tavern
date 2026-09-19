@@ -184,4 +184,5 @@
 | `tutorial.md`、`game-experience-roadmap.md`、`perf-round-latency.md` | 教程、体验路线、性能记录 |
 | `prompt.md` | Prompt 工程策略与模板设计 |
 | `system-update-log.md` | 系统更新日志 |
+| `notes.md` | 项目工程笔记：踩过的坑、口径约定、本机环境差异、已知未修项（细节记忆，非目标态设计） |
 | `archive/combat-core-design.md` | 章节战斗化改造方案（**已实现**，2026-08，已归档）。其中「7×7 网格明确不改」的骨架条款**已作废**，现状以代码与 `combat-design.md` 为准 |
