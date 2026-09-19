@@ -4,6 +4,10 @@
  *
  * 阵容步骤展示的是**服务端真实解析结果**：候选统计、载入树与选用原因都来自
  * `POST /scope-preview`，前端不自己再走一遍遍历。创建会话本身不调用任何 LLM。
+ *
+ * 点选剧情会按该剧情的开场角色**预选**阵容（排除玩家身份与角色库中不存在的角色）。
+ * 预选出来的角色在界面上标为「剧情预选」并在顶部显式说明——它们已经处于入队状态，
+ * 点一下磁贴是取消而非选中；玩家可以逐个取消或清空重选。
  */
 import { useState, useEffect, useMemo } from "react";
 import { useAppStore } from "../../stores/appStore";
@@ -69,6 +73,9 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
   const [fullScope, setFullScope] = useState(false);
   const [manualQuery, setManualQuery] = useState("");
   const [rosterNote, setRosterNote] = useState("");
+  // 剧情预选：点选剧情时按开场角色自动勾选的名单。用于把「系统预选」和「玩家自选」
+  // 在界面上明确区分开——两者此前完全同款，玩家点一下已预选的磁贴其实是在取消。
+  const [plotPreset, setPlotPreset] = useState<string[]>([]);
 
   // ── 数据 ──
   const [plots, setPlots] = useState<PlotInfo[]>([]);
@@ -124,6 +131,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
     setFullScope(false);
     setManualQuery("");
     setRosterNote("");
+    setPlotPreset([]);
     setLoading(true);
     let cancelled = false;
     Promise.allSettled([
@@ -152,9 +160,30 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
 
   const current = steps[step];
   const isLast = step === steps.length - 1;
+  // 当前阵容里仍保留的剧情预选角色（玩家取消掉的不再计入）
+  const presetSelected = roster.filter((key) => plotPreset.includes(key));
+  const plotLabel = plots.find((p) => p.id === plotId)?.name || plotId;
 
   const toggleRoster = (name: string) => {
     setRoster((prev) => (prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]));
+  };
+
+  /** 清空阵容：留空是合法选择，但要让玩家知道这一点的后果（见下方空阵容提示）。 */
+  const clearRoster = () => setRoster([]);
+
+  /** 点选剧情：按剧情开场角色预选阵容，并记录预选名单用于界面标记。
+   *
+   * 预选只包含「非玩家身份」且「角色库中确实存在」的角色；服务端在收到显式
+   * roster 时不会再用开场角色补齐，所以这里预选出来的就是最终阵容的起点。
+   */
+  const pickPlot = (id: string) => {
+    setPlotId(id);
+    const preset = id
+      ? ((plots.find((p) => p.id === id)?.initial_characters || [])
+        .filter((name) => name !== (identity || "博士") && characters.some((c) => charKey(c) === name)))
+      : [];
+    setRoster(preset);
+    setPlotPreset(preset);
   };
 
   const goNext = () => {
@@ -398,7 +427,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
               </div>
               <div
                 className={`pick-card p-3 ${plotId === "" ? "selected" : ""}`}
-                onClick={() => { setPlotId(""); setRoster([]); }}
+                onClick={() => pickPlot("")}
               >
                 <span className="text-sm text-gray-300 font-medium">不绑定</span>
                 <span className="text-[11px] text-gray-500 ml-2">自由探索，不加载任何剧情</span>
@@ -408,7 +437,7 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                   <div
                     key={p.id}
                     className={`pick-card p-3 ${plotId === p.id ? "selected" : ""}`}
-                    onClick={() => { setPlotId(p.id); setRoster((p.initial_characters || []).filter((name) => name !== identity && characters.some((c) => charKey(c) === name))); }}
+                    onClick={() => pickPlot(p.id)}
                   >
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium text-gray-200 truncate">{p.name}</span>
@@ -417,6 +446,11 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                       </span>
                     </div>
                     <div className="text-[10px] text-gray-600 mt-1">{p.id}</div>
+                    {!!p.initial_characters?.length && (
+                      <div className="text-[10px] text-cyan-300 mt-1">
+                        开场角色 {p.initial_characters.length} 名 · 选中后自动预选入队
+                      </div>
+                    )}
                   </div>
                 ))}
                 {filteredPlots.length === 0 && (
@@ -463,7 +497,10 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-xs text-gray-400">
-                  选择入队角色（可选）{roster.length > 0 && <span className="text-amber-300"> — 已选 {roster.length} 名</span>}
+                  选择入队角色（可选）{roster.length > 0 && <span className="text-amber-300">
+                    {" "}— 已选 {roster.length} 名
+                    {presetSelected.length > 0 && <span className="text-cyan-300">（其中剧情预选 {presetSelected.length} 名）</span>}
+                  </span>}
                 </p>
                 <input
                   className="input text-xs w-48"
@@ -472,16 +509,40 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                   onChange={(e) => setCharSearch(e.target.value)}
                 />
               </div>
+
+              {plotPreset.length > 0 && (
+                <div className={`wbg-notice ${roster.length === 0 ? "wbg-warn" : "wbg-ok"} rounded-md`} role="status">
+                  <span>
+                    《{plotLabel}》已按剧情开场角色自动预选 <b>{plotPreset.length}</b> 名，
+                    磁贴上标为「<span className="text-cyan-300">剧情预选</span>」。
+                    <b>它们已经处于入队状态</b>，点一下磁贴是取消而不是选中；不想要就逐个点掉，或直接清空重选。
+                  </span>
+                  {roster.length > 0 && (
+                    <button type="button" onClick={clearRoster}>清空阵容</button>
+                  )}
+                </div>
+              )}
+
+              {roster.length === 0 && (
+                <p className="text-[11px] text-amber-300" role="alert">
+                  {mode === "story" && plotId
+                    ? "阵容为空：本次会话不会载入任何角色。剧情开场角色只在未指定阵容时由服务端补齐，这里显式留空就不会补。"
+                    : "阵容为空：本次会话不会载入任何角色，创建后可到会话大厅的「角色阵容」入队。"}
+                </p>
+              )}
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-h-72 overflow-y-auto lobby-scroll pr-1">
                 {filteredChars.map((c) => {
                   const key = charKey(c);
                   const selected = roster.includes(key);
+                  const preselected = plotPreset.includes(key);
                   return (
                     <div
                       key={c.id}
                       className={`char-tile p-2.5 flex flex-col items-center gap-1.5 ${selected ? "selected" : ""}`}
                       onClick={() => toggleRoster(key)}
-                      title={selected ? `已入队：${charName(c)}` : `点击将 ${charName(c)} 入队`}
+                      title={selected
+                        ? `${preselected ? "剧情预选（点一下取消）" : "已入队"}：${charName(c)}`
+                        : `点击将 ${charName(c)} 入队`}
                     >
                       <div className="relative w-full flex justify-center">
                         <img
@@ -500,8 +561,9 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                         {charName(c)}
                       </span>
                       {selected && (
-                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-600/30 text-amber-300">
-                          已入队
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
+                          preselected ? "bg-cyan-600/20 text-cyan-300" : "bg-amber-600/30 text-amber-300"}`}>
+                          {preselected ? "剧情预选" : "已入队"}
                         </span>
                       )}
                     </div>
@@ -662,10 +724,13 @@ export default function CreateSessionWizard({ open, onClose, onCreated }: Create
                   {roster.length > 0 && (
                     <>
                       <span className="badge badge-narrative">👥 已入队 {roster.length} 名</span>
+                      {presetSelected.length > 0 && (
+                        <span className="badge badge-wb">🗺 剧情预选 {presetSelected.length} 名</span>
+                      )}
                       <p className="text-[11px] text-gray-400 w-full mt-1">
                         角色：{roster.map((k) => {
                           const c = characters.find((x) => charKey(x) === k);
-                          return c ? charName(c) : k;
+                          return (c ? charName(c) : k) + (plotPreset.includes(k) ? "（剧情预选）" : "");
                         }).join("、")}
                       </p>
                     </>
